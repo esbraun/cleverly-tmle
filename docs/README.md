@@ -20,11 +20,12 @@ architecture invariants, and method-benchmarking strategy.
 | --- | --- |
 | [Recipe compendium](user-guide.md) | one worked recipe per capability retained alongside the task-oriented user guide |
 | [Migration guide](migration.md) | runnable old-to-new workflows, complete constructor-argument maps, changed defaults, the static audit tool, and the final-old-API tag |
-| [Technical appendix](methodology.md) | per algorithm: the estimand, efficient influence curve, second-order remainder, failure witness, and method evidence grid |
+| [Technical appendix](methodology.md) | per algorithm: the estimand, efficient influence curve, second-order remainder, and failure witness |
 | [Roadmap](roadmap.md) | all proposed work in parallel priority tracks, with governing sources, planned interfaces, implementation contracts, refusals, and evidence gates |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist — and which mistakes none of them would see |
-| [Method evidence studies](technical-reference/method-evidence.md) | dedicated test-by-test result pages for registered same-DGP comparisons and statistical-property studies |
+| [Implementation validation grid](technical-reference/index.md#implementation-validation-grid) | every registered study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
+| [Implementation validation studies](technical-reference/method-evidence.md) | one row per committed test: what it checked, what its own endpoints required, and the verdict |
 | [Method benchmarking strategy](development/method-benchmarking.md) | how R comparisons and independent statistical-property studies are designed, registered, and accepted |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [References](references.md) | every paper a derivation is read off, with the locators the prose cites |

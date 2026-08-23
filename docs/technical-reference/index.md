@@ -1,12 +1,54 @@
 # Technical reference
 
-This reference accounts for the statistical implementations that `cleverly` ships. “Existing
-implementation” has two meanings here: the local module that executes the method and, where one
-was source-audited, a pinned external implementation used as provenance. External parity is never
-the derivation or the acceptance gate; the local oracle, Gateaux, remainder, identity, and mutation
-checks are the correctness evidence.
+This reference accounts for every statistical method `cleverly` ships, and for the evidence that
+each one is implemented correctly.
+
+The project validates a method in two independent ways. It compares `cleverly` against a canonical
+implementation, where a maintained one exists. It also measures `cleverly` against the
+repeated-sampling properties the method's own source theory predicts. Neither one replaces the
+scientific instruments that check the derivation itself: the exact-law, Gateaux, remainder,
+identity, and deliberate-mutation checks recorded in the [evidence manifest](evidence.md).
+
+## Implementation validation grid
+
+Every row is one registered study of one `cleverly` method. Read a row left to right and it answers
+four questions in order. What does `cleverly` implement? What was it validated against? Does it
+recover a known truth and behave as its theory predicts? What does the study *not* establish?
+
+The three count columns are three different questions and are not interchangeable. *Accuracy vs
+known truth* tests each implementation against the law on its own, which is what stops two
+implementations agreeing with each other from counting as evidence; where a canonical
+implementation exists, half of those tests measure it rather than `cleverly`. *`cleverly` vs
+canonical* is the paired comparison. *Theory properties* is the repeated-sampling behaviour the
+source paper claims, which a matching implementation would not establish even if the match were
+exact.
+
+**This is a gate, not a note.** `tests/unit/test_method_evidence.py` requires one row per registered
+study and one study per row, requires every link in a row to reach that study's own registered
+section, and derives every count and headline number below from the committed result files instead
+of reading them.
+
+| method in `cleverly` | canonical implementation compared | estimands validated | accuracy vs known truth | `cleverly` vs canonical | theory properties | study design and headline results | limitations |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ordinary point-treatment TMLE | R `tmle3` 0.2.0 at commit `ed72f8a`, with `sl3` at `0e8f236`, on a digest-pinned R 4.5.2 | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; pointwise 95% Wald intervals, with RR and OR on the log scale | [34/34 implementation-estimand tests against known truth pass at 99%](method-evidence.md#accuracy-against-known-truth) | [17/17 paired similarity and non-inferiority tests pass at 99%](method-evidence.md#agreement-with-the-canonical-implementation) | [12/12 cells pass: double robustness with its both-wrong control, two fitted root-n rates, efficiency at three sizes, two-sided interval calibration, type-I error under a confounded null, and a power control](method-evidence.md#theory-properties) | 1,600 replications x n=1,000 on two laws; worst standardized bias 0.1254, lowest coverage 0.9344 | [six declared limits, including what the standard-error band cannot resolve and the PAF scale qualification](method-evidence.md#canonical-point-treatment-tmle) |
+| stacked point-treatment CV-TMLE | R `tmle3` CV-TMLE at commit `ed72f8a`, with `sl3` at `0e8f236` and identical realized folds | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; ten-fold nuisance fitting, a stacked update, whole-sample plug-in evaluation, and pointwise 95% Wald intervals | [34/34 implementation-estimand tests against known truth pass at 99%](method-evidence.md#stacked-point-treatment-cv-tmle) | [17/17 paired similarity and non-inferiority tests pass at 99%](method-evidence.md#stacked-point-treatment-cv-tmle) | [14/14 cells pass: the ordinary study's twelve instruments plus flexible-learner cross-fit versus in-sample controls](method-evidence.md#stacked-point-treatment-cv-tmle) | 1,600 replications x n=1,000 on two laws; worst standardized bias 0.1082, lowest coverage 0.9375 | [four declared limits; bounded to one ten-fold split and pointwise intervals, and PAF inference scales differ](method-evidence.md#stacked-point-treatment-cv-tmle) |
+| fold-evaluated point-treatment CV-TMLE | none claimed. No maintained package ships this construction, so a zero-row equivalence artifact records the absence | arm means, ATE, ATT, and ATC; ten-fold nuisance fitting, a pooled update, equal-fold plug-in evaluation, cross-validated variance, and pointwise 95% Wald intervals | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [0/0 external comparisons; the row rests on the other two columns](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [14/14 cells pass: double robustness and its control, two root-n rates, efficiency at three sizes, interval calibration, null and power controls, and flexible-learner cross-fit versus in-sample controls](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | 1,600 replications x n=1,000 on two laws; worst standardized bias 0.0384, lowest coverage 0.9375 | [three declared limits; this is not parity evidence for stacked R CV-TMLE](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) |
+| selector-based point-treatment C-TMLE | R `ctmle` 0.1.2 at commit `18de559`, the maintained comparator for these selector entry points | greedy, ordered, and discrete binary-treatment ATE selectors with pointwise 95% Wald intervals | [6/6 implementation-strategy tests against known truth pass at 99%](method-evidence.md#selector-based-point-treatment-c-tmle) | [3/3 paired similarity and non-inferiority tests pass at 99%](method-evidence.md#selector-based-point-treatment-c-tmle) | [14/14 cells pass: double robustness and its both-wrong control, forced selection versus an empty-path control, two root-n rates, efficiency, calibration, null, and power](method-evidence.md#selector-based-point-treatment-c-tmle) | 800 replications x n=2,000 on three selector laws; worst standardized bias 0.0426, lowest coverage 0.9387 | [six declared limits; parity is unpenalized, non-cross-fitted, binary ATE only, and no cell asks for calibrated inference while selection is load-bearing](method-evidence.md#selector-based-point-treatment-c-tmle) |
+| outcome-adaptive point-treatment C-TMLE | archived tlverse `ctmle3` 0.1.0 at commit `a4ea77b`, with contemporaneous `tmle3` at `3a61005` and `sl3` at `821ca89` | binary treatment-specific means, ATE, marginal RR, and marginal OR, with identity- or log-scale pointwise 95% Wald intervals | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [5/5 paired similarity and non-inferiority tests pass at 99%](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [14/14 cells pass: the outcome-correct robustness contract and its control, two root-n rates, efficiency, calibration, null, power, cross-fit overfitting controls, and a pinned-versus-estimated design pair that measures what the reported interval omits](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | 800 replications x n=1,000 on one law; worst standardized bias 0.0513, lowest coverage 0.9425 | [six declared limits; parity is binary, two-arm, GLM and non-cross-fitted, and the reported interval omits the adaptive-`g` term](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) |
+| end-of-study longitudinal TMLE | R `ltmle` 1.3-0 at source commit `338c029`, with the tarball pinned by sha256 | three censored two-time-point regimen means and two correlated contrasts, including a dynamic rule; pointwise identity-scale 95% Wald intervals | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#end-of-study-longitudinal-tmle) | [5/5 paired similarity and non-inferiority tests pass at 99%](method-evidence.md#end-of-study-longitudinal-tmle) | [30/30 cells pass: longitudinal double robustness and controls, a targeted-versus-unfluctuated pair that measures what the paired comparison cannot, static and dynamic root-n rates, exact-EIF efficiency and calibration controls, confounded-null type-I error, and power](method-evidence.md#end-of-study-longitudinal-tmle) | 1,600 replications x n=2,000 on one law; worst standardized bias 0.0180, lowest coverage 0.9387 | [seven declared limits; the static paired comparisons do not witness targeting, positivity is comfortable throughout, and there is no survival, competing risks, MSM, weights, clustering, or flexible learning](method-evidence.md#end-of-study-longitudinal-tmle) |
+
+A registered study with no canonical comparator says so in its own cell and rests on the other two
+columns. A study with no property cells is not a validation row at all, because matching another
+implementation is not evidence that either one is right.
+
+Full test-by-test results are in the
+[implementation validation studies](method-evidence.md). Each study publishes one row per
+committed test, with what the test checked and the verdict its own endpoints produced.
 
 ## Implementation matrix
+
+The grid above covers the methods with a registered repeated-sampling study. This matrix covers
+every implementation family `cleverly` ships, and names the correctness evidence for each.
 
 | implementation family | theory and citation | `cleverly` implementation | external provenance | correctness evidence |
 | --- | --- | --- | --- | --- |
@@ -18,11 +60,15 @@ checks are the correctness evidence.
 | Continuous modified treatment policies | [Modified treatment policies](interventions.md#modified-treatment-policies); Díaz Muñoz & van der Laan (2012), Haneuse & Rotnitzky (2013), Díaz et al. (2023) | [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py), [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py) | literature construction; no moving package specification | [`ey_shift`, `ate_shift`](evidence.md#the-table), continuous-law Gateaux and remainder checks |
 | Incremental propensity-score interventions | [Incremental interventions](interventions.md#incremental-propensity-score-interventions); Kennedy (2019) | [`interventions/incremental.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/incremental.py), [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py) | no external implementation used as acceptance evidence | [`ey_ipsi`, `ate_ipsi`](evidence.md#the-table), including nonzero treatment-score and one-sided remainder witnesses |
 | Point and longitudinal MSM projections | [Marginal structural models](marginal-models.md); Neugebauer & van der Laan (2007), Rosenblum & van der Laan (2010), Petersen et al. (2014) | [`msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/msm.py), [`longitudinal/msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/msm.py) | pinned `tmle3` `Param_MSM`; R `ltmleMSM` differs in projection scale and is not a parity oracle | point [`msm`](evidence.md#the-table) and [longitudinal MSM](evidence.md#longitudinal-estimands-outside-the-target-registry) laws, rank and pooled-design witnesses |
-| Longitudinal end-of-study TMLE | [Sequential regression](longitudinal.md#end-of-study-regimen-means); Bang & Robins (2005), van der Laan & Gruber (2012) | [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py), [`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py) | R `ltmle` 1.3-0 at pinned source commit for a bounded finite-sample witness | [longitudinal evidence row](evidence.md#longitudinal-estimands-outside-the-target-registry), canonical R fixture, exact law, Gateaux and mutations |
+| Longitudinal end-of-study TMLE | [Sequential regression](longitudinal.md#end-of-study-regimen-means); Bang & Robins (2005), van der Laan & Gruber (2012) | [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py), [`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py) | R `ltmle` 1.3-0 at pinned source commit for a bounded finite-sample witness | [longitudinal evidence row](evidence.md#longitudinal-estimands-outside-the-target-registry), the gated [end-of-study study](method-evidence.md#end-of-study-longitudinal-tmle), canonical R fixture, exact law, Gateaux and mutations |
 | Longitudinal survival and competing risks | [Event-process TMLE](longitudinal.md#survival-and-competing-risks); Stitelman et al. (2012) | [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py) | R `ltmle` witness for survival; no competing-risk parity claim | survival and competing-risk rows in [longitudinal evidence](evidence.md#longitudinal-estimands-outside-the-target-registry) |
-| Collaborative TMLE | [Collaborative selection](estimator-variants.md#collaborative-tmle); van der Laan & Gruber (2010), Ju et al. (2019) | [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py) | pinned `ctmle3` outcome-adaptive source; pinned `tmle3` / `sl3` fold semantics | [C-TMLE estimator-variant evidence](evidence.md#estimator-variants-over-registered-targets), selector mutations and support path tests |
+| Collaborative TMLE | [Collaborative selection](estimator-variants.md#collaborative-tmle); van der Laan & Gruber (2010), Ju et al. (2019) | [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py) | pinned `ctmle3` outcome-adaptive source; pinned `tmle3` / `sl3` fold semantics | [C-TMLE estimator-variant evidence](evidence.md#estimator-variants-over-registered-targets), the gated [selector](method-evidence.md#selector-based-point-treatment-c-tmle) and [outcome-adaptive](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) studies, selector mutations and support path tests |
 | DR-TMLE | [Doubly-robust inference](estimator-variants.md#dr-tmle); van der Laan (2014), Benkeser et al. (2016/2017), Benkeser & Hejazi (2023) | [`estimators/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/drtmle.py), [`estimators/reduced.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/reduced.py) | pinned R `drtmle` 1.1.2 source for named equations and armwise construction | [DR-TMLE contract](../drtmle.md), theorem identity, Gateaux, remainder, score, cross-fit, and missing-data tests |
 | Cross-fitting, CV-TMLE, inference, and assessment | [Estimation and assessment](inference-assessment.md); Zheng & van der Laan (2011), Levy (2018), sensitivity references | [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py), [`inference/`](https://github.com/esbraun/cleverly-tmle/tree/main/src/cleverly/inference), [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py) | pinned `tmle3` stacked validation likelihood and `sl3` fold/full prediction source | gated [stacked CV-TMLE](method-evidence.md#stacked-point-treatment-cv-tmle) and [fold-evaluated CV-TMLE](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) repeated-sampling rows, plus leakage, repeated-fold, inference, assessment, sensitivity, and serialization mutations |
+
+"Existing implementation" has two meanings in this matrix. One is the local module that executes
+the method. The other is a pinned external implementation, where the source was audited. External
+parity is never the derivation or the acceptance gate.
 
 ## How to read the evidence column
 
@@ -35,14 +81,14 @@ External implementations are therefore localized provenance, not a substitute fo
 ```{toctree}
 :maxdepth: 2
 
+method-evidence
+evidence
 point-treatment
 interventions
 marginal-models
 longitudinal
 estimator-variants
 inference-assessment
-evidence
-method-evidence
 ../methodology
 ../drtmle
 ../references

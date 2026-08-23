@@ -17,12 +17,52 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Sequence
+from typing import Any
 
+import pandas as pd
+
+from tests.studies.evidence import descriptions
 from tests.studies.evidence.claims import load, value
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
 
 MEASURED_COLUMNS = ("quantity", "value", "source")
+
+#: Header cells of each generated table, in the order they are rendered.
+ACCURACY_COLUMNS = (
+    "law",
+    "estimand",
+    "what was tested",
+    "implementation",
+    "bias (99% interval)",
+    "coverage",
+    "SE ratio",
+    "result",
+)
+AGREEMENT_COLUMNS = (
+    "law",
+    "estimand",
+    "what was compared",
+    "paired difference",
+    "share of margin used",
+    "RMSE ratio bound",
+    "coverage difference",
+    "result",
+)
+PROPERTY_COLUMNS = (
+    "property",
+    "cell",
+    "role",
+    "what was tested",
+    "what must hold",
+    "measured",
+    "result",
+)
+
+#: Sentinel comments delimiting a generated block, so ``fill`` can replace it whole.
+_OPEN = "<!-- generated: {name} -->"
+_CLOSE = "<!-- /generated -->"
 
 _ROW = re.compile(
     r"^\|\s*(?P<quantity>[^|]+?)\s*\|\s*(?P<value>[^|]+?)\s*\|\s*(?P<source>[^|]*?)\s*\|$"
@@ -49,6 +89,118 @@ def render(computed: float) -> str:
     if abs(computed) < 0.001:
         return f"{computed:.6f}"
     return f"{computed:.4f}"
+
+
+def _verdict(passed: object) -> str:
+    """How a committed ``passed`` column reads in a published table."""
+    return "pass" if bool(passed) else "**fail**"
+
+
+def _interval(lower: float, upper: float) -> str:
+    return f"{render(float(lower))} to {render(float(upper))}"
+
+
+def _table(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    header = "| " + " | ".join(columns) + " |"
+    rule = "| " + " | ".join("---" for _ in columns) + " |"
+    return [header, rule, *("| " + " | ".join(row) + " |" for row in rows)]
+
+
+def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
+    """One row per implementation-estimand test against the law's known truth."""
+    frame = data["performance"].sort_values(["scenario", "estimand", "implementation"])
+    rows = [
+        (
+            descriptions.scenario(str(row.scenario)),
+            f"`{row.estimand}`",
+            descriptions.estimand(str(row.estimand)),
+            descriptions.implementation(str(row.implementation)),
+            _interval(row.bias_ci_lower, row.bias_ci_upper),
+            render(float(row.coverage)),
+            render(float(row.se_ratio)),
+            _verdict(row.passed),
+        )
+        for row in frame.itertuples()
+    ]
+    return _table(ACCURACY_COLUMNS, rows)
+
+
+def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
+    """One row per paired comparison with the canonical implementation."""
+    frame = data["equivalence"].sort_values(["scenario", "estimand"])
+    rows = [
+        (
+            descriptions.scenario(str(row.scenario)),
+            f"`{row.estimand}`",
+            descriptions.estimand(str(row.estimand)),
+            render(float(row.mean_difference)),
+            render(float(row.margin_utilization)),
+            render(float(row.rmse_ratio_upper)),
+            render(float(row.coverage_difference)),
+            _verdict(row.passed),
+        )
+        for row in frame.itertuples()
+    ]
+    return _table(AGREEMENT_COLUMNS, rows)
+
+
+def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
+    """One row per property cell, with the endpoint its own verdict was read from.
+
+    The measured column is deliberately the endpoint the cell is judged on rather than a fixed
+    column: a bias-gated cell is judged on its bias interval and a calibration cell on its SE
+    ratio, and printing the same column for both would show a number that decided nothing.
+    """
+    frame = data["properties"].sort_values(["property", "cell"])
+    rows = []
+    for row in frame.itertuples():
+        tested, required = descriptions.cell(str(row.property), str(row.cell))
+        rows.append(
+            (
+                f"`{row.property}`",
+                f"`{row.cell}`",
+                str(row.role),
+                tested,
+                required,
+                _measured(row),
+                _verdict(row.passed),
+            )
+        )
+    return _table(PROPERTY_COLUMNS, rows)
+
+
+def _measured(row: Any) -> str:
+    """The endpoint a cell's own verdict was read from, named and valued."""
+    family = str(row.property)
+    if family in _BIAS_GATED:
+        return f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, margin {render(float(row.bias_margin))}"
+    if family == "root_n_rate":
+        return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family in {"type_i_error", "power"}:
+        return (
+            f"rejection {render(float(row.rejection_rate))}, "
+            f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+        )
+    if family == "root_n_and_efficiency":
+        return (
+            f"bias {render(float(row.bias))}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+
+
+#: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
+#: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.
+_BIAS_GATED = frozenset(
+    {"double_robustness", "robustness_contract", "selector_necessity", "targeting_necessity"}
+)
+
+#: The generated blocks a study section carries, and the renderer for each.
+GENERATED = {
+    "accuracy": accuracy_table,
+    "agreement": agreement_table,
+    "properties": property_table,
+}
 
 
 def _section(lines: list[str], anchor: str, document: object) -> tuple[int, int]:
@@ -79,16 +231,48 @@ def _section(lines: list[str], anchor: str, document: object) -> tuple[int, int]
     return start, stop
 
 
+def _replace_block(
+    lines: list[str], name: str, rendered: list[str], bounds: tuple[int, int]
+) -> tuple[bool, tuple[int, int]]:
+    """Swap one sentinel-delimited block for freshly rendered table lines."""
+    start, stop = bounds
+    opening = _OPEN.format(name=name)
+    head = next((index for index in range(start, stop) if lines[index].strip() == opening), None)
+    if head is None:
+        return False, bounds
+    tail = next((index for index in range(head + 1, stop) if lines[index].strip() == _CLOSE), None)
+    if tail is None:
+        raise LookupError(f"{opening} is never closed by {_CLOSE}")
+    replacement = [line + "\n" for line in rendered]
+    changed = lines[head + 1 : tail] != replacement
+    lines[head + 1 : tail] = replacement
+    return changed, (start, stop + len(replacement) - (tail - head - 1))
+
+
 def fill(record: StudyRecord) -> list[str]:
-    """Rewrite the measured table's value column in place.  Returns the rows that changed."""
+    """Rewrite a study's generated tables and its measured values.  Returns what changed."""
     document = record.document_path
     lines = document.read_text(encoding="utf-8").splitlines(keepends=True)
-    # Only this study's section.  The three studies share one document now, and searching
-    # the whole file finds the first measured table whichever record asked -- so filling the
-    # second study resolved the *first* study's quantity names against the second's
-    # artefacts, which fails outright on a name the second does not report.  This is the
-    # same rule ``tests.documents.pipe_table`` applies for the gate that reads these tables.
-    start, stop = _section(lines, record.anchor, document)
+    # Only this study's section.  The studies share one document, and searching the whole file
+    # finds the first measured table whichever record asked -- so filling the second study
+    # resolved the *first* study's quantity names against the second's artefacts, which fails
+    # outright on a name the second does not report.  This is the same rule
+    # ``tests.documents.pipe_table`` applies for the gate that reads these tables.
+    bounds = _section(lines, record.anchor, document)
+    data = load(record)
+    changed: list[str] = []
+
+    # Generated tables first.  Each replacement moves every later line, so the section bounds
+    # are carried forward rather than recomputed against stale indices.
+    for name, renderer in GENERATED.items():
+        rendered = renderer(record, data)
+        if name == "agreement" and record.reference is None:
+            rendered = []
+        moved, bounds = _replace_block(lines, name, rendered, bounds)
+        if moved:
+            changed.append(f"{name} table: {len(rendered)} line(s)")
+
+    start, stop = bounds
     header = next(
         (
             index
@@ -101,18 +285,17 @@ def fill(record: StudyRecord) -> list[str]:
     if header is None:
         raise LookupError(f"{document} has no measured-values table under {record.anchor!r}")
 
-    data = load(record)
-    changed: list[str] = []
     for index in range(header + 2, stop):
         match = _ROW.match(lines[index].rstrip("\n"))
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered = render(value(record, quantity, data))
-        if rendered != match.group("value"):
-            changed.append(f"{quantity}: {match.group('value')} -> {rendered}")
-        lines[index] = f"| {match.group('quantity')} | {rendered} | {match.group('source')} |" + (
-            "\n" if lines[index].endswith("\n") else ""
+        rendered_value = render(value(record, quantity, data))
+        if rendered_value != match.group("value"):
+            changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
+        lines[index] = (
+            f"| {match.group('quantity')} | {rendered_value} | {match.group('source')} |"
+            + ("\n" if lines[index].endswith("\n") else "")
         )
     write_lines(document, "".join(lines))
     return changed

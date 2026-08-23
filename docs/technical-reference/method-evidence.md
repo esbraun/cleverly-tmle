@@ -1,100 +1,203 @@
-# Method evidence studies
+# Implementation validation studies
 
-Each section here is one row of the [method evidence grid](evidence.md#method-evidence-grid).
-A row exists only for a study registered in `tests/studies/evidence/registry.py`; the shared
-machinery in `tests/studies/evidence/` computes every verdict and every number quoted below, and
-`tests/unit/test_method_evidence.py` checks this document against the committed results rather
-than trusting it. See [adding a method row](evidence.md#adding-a-method-row).
+Each section validates one method that `cleverly` implements. A section exists only for a study
+registered in `tests/studies/evidence/registry.py`. The shared machinery in
+`tests/studies/evidence/` computes every verdict, and `tests/unit/test_method_evidence.py` checks
+this document against the committed results. Every table below is generated from those results, so
+a stale number is a test failure and not a reading error.
 
-## Canonical point-treatment TMLE
+The summary of all six studies is the
+[implementation validation grid](index.md#implementation-validation-grid). To register a new
+study, follow [adding a method row](../development/method-benchmarking.md#adding-a-method-row).
 
-This is the first method-level evidence row: ordinary, non-cross-fitted point-treatment TMLE in
-cleverly compared with R [`tmle3`](https://github.com/tlverse/tmle3) 0.2.0 at pinned commit
-[`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
-The comparison is a bounded implementation witness. The independent claims come from the
-parameter oracles and from repeated-sampling checks of the properties in van der Laan & Rubin's
-[original TMLE paper](https://doi.org/10.2202/1557-4679.1043).
+## How to read these studies
 
-### What was compared
+Read this section once. It defines the terms and the rules that every study below applies.
 
-Python generates every realized dataset and gives the same rows and all DGP covariates to both
-implementations. Both use ordinary TMLE, corresponding GLM nuisance regressions, pointwise 95%
-intervals, treatment 1 versus 0, comfortable overlap, and no simultaneous adjustment. The
-published run uses the replication count and sample size in the table below, for each of two
-laws:
+### The three questions
 
-- a bounded continuous-outcome law with effect modification, covering `ey1`, `ey0`, `ate`, `att`,
-  `atc`, `ey_obs`, and `par`;
-- a binary-outcome law covering those parameters plus `paf`, `rr`, and `or`.
+A study asks three separate questions about `cleverly`. The counts are not interchangeable.
 
-The [per-replication results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/replicates.csv.gz)
-contain the pairing key, truth, estimate, standard error, native interval endpoints, interval scale,
-and coverage indicator. The [performance summary](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/summary.csv),
-the [independent performance tests](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/performance-tests.csv)
-and the [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/equivalence.csv)
-are all recomputed from that file by the test suite. Testing each implementation against the law
-separately is what stops agreement between two poor implementations from counting as evidence.
+| question | what it establishes about `cleverly` | what it cannot establish |
+| --- | --- | --- |
+| **Accuracy against known truth** | `cleverly` recovers the parameter of a law whose true value is computed longhand, and its interval covers at the nominal rate | nothing about the derivation. It also measures the canonical implementation on the same law, and those rows say nothing about `cleverly` |
+| **Agreement with the canonical implementation** | `cleverly` and an independently maintained implementation compute the same thing on the same rows, within a declared margin | that either one is right. Two poor implementations can agree. This is why the accuracy question is asked first and separately |
+| **Theory properties** | the repeated-sampling behaviour the method's source paper claims holds for `cleverly`: double robustness, root-n contraction, efficiency, calibration, and type-I error | behaviour outside the laws and compositions the cells declare |
 
-### How a verdict is reached
+The scientific derivation is checked elsewhere. The exact-law, Gateaux, remainder, identity, and
+deliberate-mutation instruments are listed per estimand in the
+[evidence manifest](evidence.md#the-table). A study measures a complete estimator under repeated
+sampling. It does not replace those instruments.
 
-Every accept-decision is bounded by a margin declared before the run, and none of them is a test
-of whether a discrepancy is exactly zero. That distinction is the design, not a detail. A Monte
-Carlo study accumulates evidence by adding replications, so a verdict has to become easier -- or
-at worst stay put -- as replications grow. A significance test does the reverse: it converges on
-rejecting any estimator whose finite-sample remainder is not identically zero, which is every
-estimator, so the study would eventually go red for the one reason that is not a defect. An
-earlier version of this study carried two such rules, and quadrupling its replication count would
+### The verdict rules
+
+Every rule is an equivalence rule bounded by a margin declared before the run. None of them tests
+whether a discrepancy is exactly zero, and the distinction is the design rather than a detail.
+
+A Monte Carlo study accumulates evidence by adding replications. A verdict must therefore become
+easier, or at worst stay put, as replications grow. A significance test does the reverse. It
+converges on rejecting any estimator whose finite-sample remainder is not identically zero, which
+is every estimator. The study would eventually go red for the one reason that is not a defect. An
+earlier version of the first study carried two such rules. Quadrupling its replication count would
 have failed it without a line of estimator code changing.
 `tests/unit/test_evidence_framework.py` holds both rules side by side and asserts which way each
 one moves.
 
-Independently, per implementation and estimand, at 99% confidence:
+| rule | what must hold | why it is bounded | its control |
+| --- | --- | --- | --- |
+| **bias equivalence** | the 99% Student interval for the error lies inside `margin:standardized_bias` empirical standard deviations of zero | a point test of zero bias fails every consistent estimator at enough replications | the same instrument read in the opposite direction: a control cell's interval must lie entirely *outside* the margin |
+| **coverage validity** | the lower endpoint of the exact Clopper-Pearson interval clears `margin:coverage_floor` | whether a nominal 95% interval is valid is the question. Whether it is 95% to the third decimal is a question no finite study answers | one-sided by design. Over-coverage is conservative, not invalid |
+| **SE sanity band** | the bootstrap interval for mean reported SE over empirical SD lies inside `margin:se_ratio_sanity_lower` to `margin:se_ratio_sanity_upper` | this is a screen for a standard error wrong by an order of magnitude. The coverage floor binds first | a ratio of 0.80 corresponds to about 88% coverage, so the band cannot be tightened past what the floor implies |
+| **SE calibration** | where both nuisances are correct, the SE ratio interval lies inside the calibration band and the exact coverage interval inside its own | this is the only two-sided calibration claim, and the only gate a uniform tenth-scale understatement fails | a `shrunken_se_control` cell multiplies the standard errors by a declared factor and must fail |
+| **paired similarity** | the 99% interval for the mean paired difference lies within `margin:paired_difference` pooled empirical standard deviations | symmetric, because a large difference in either direction means the two implementations are not computing the same thing | a paired mutation makes `cleverly` materially worse and must fail |
+| **RMSE non-inferiority** | the bootstrap upper bound for `cleverly`'s RMSE ratio is at most `margin:rmse_noninferiority` | one-sided, because `cleverly` performing better than the reference is a result rather than a failure | a reference-only mutation must fail the reference's own column and leave `cleverly` standing |
+| **coverage non-inferiority** | the lower bound for the coverage difference is at least `margin:coverage_noninferiority` | one-sided, for the same reason | as above |
+| **calibration non-inferiority** | the upper bound for excess absolute SE-calibration error is at most `margin:calibration_noninferiority` | applied only where the two native inference scales are comparable | an exemption must be earned. A test requires the two implementations to report genuinely different scales |
+| **type-I error** | the one-sided upper endpoint of the rejection rate under a confounded sharp null stays under `margin:type_i_ceiling` | the null law keeps its confounding, so the test is not an unadjusted comparison | a power cell under a real effect must reject. An inert test cannot pass by never firing |
+| **power** | the rejection lower bound clears `margin:minimum_power` | this is the positive control the type-I cell needs | none. It is itself a control |
+| **root-n rate** | the log-log slope interval lies within `margin:root_n_slope_lower` to `margin:root_n_slope_upper` | a band rather than containment of -1/2, which is a point test the reported-SE rate already fails at these replication counts | the interval must also exclude `margin:excluded_slope`, so a merely decreasing spread fails |
 
-- **bias** -- the Student interval for the error on the implementation's own reported scale must
-  lie inside 0.25 empirical standard deviations of zero;
-- **coverage** -- the lower endpoint of the exact Clopper--Pearson interval must clear 0.90. This
-  is one-sided. Whether a nominal 95% interval is *valid* is the question; whether it is 95% to
-  the third decimal is a different question that no finite study answers affirmatively;
-- **reported standard error** -- the bootstrap interval for mean reported SE over empirical SD
-  must lie inside a 0.80--1.20 sanity band. This band is deliberately wider than the coverage
-  floor implies -- a ratio of 0.80 corresponds to about 88% coverage -- so the coverage gate binds
-  first and the band screens for a standard error that is wrong by a different order of magnitude.
-  The resolution the band actually achieved is published below, because a wide margin must not
-  read as a tight calibration proof.
+Each implementation is judged on its own terms as well as on the pairing. A reference that degrades
+is reported against the reference. It does not turn `cleverly`'s row red.
 
-Neither of those two is a *calibration* claim, and the difference matters: a reported standard error
-uniformly a tenth too small leaves true coverage at 0.922, which clears the 0.90 floor and sits well
-inside the sanity band. Calibration is asked separately, of one property cell where both nuisance
-regressions are correctly specified and the theory therefore does promise that the influence-curve
-standard error is the efficient one. There the 99% resampling interval for the SE ratio must lie
-inside 0.93--1.07 and the exact coverage interval inside 0.92--0.98, two-sided in both cases. That
-is still an equivalence statement rather than a point test -- it asks whether the interval lies
-inside a declared band, which more replications make easier, not whether coverage *is* 0.95, which
-they would make impossible.
+The harness has negative controls for all of it, in `tests/unit/test_method_evidence.py`. The fast
+tests corrupt bias, coverage, and reported standard errors for each implementation in turn. They
+require only that implementation to fail and require the untouched one to keep passing.
 
-Across implementations, on the pairing, also at 99%: the paired mean difference must lie within
-0.15 pooled empirical standard deviations, which is symmetric because a large difference in either
-direction means the two are not computing the same thing. The remaining comparisons are one-sided
-non-inferiority tests, because cleverly performing better than the reference is a result rather
-than a failure: the bootstrap upper bound for its RMSE ratio must be at most 1.10, the lower bound
-for its coverage difference at least -0.025, and the upper bound for excess absolute SE-calibration
-error at most 0.05 where the SE scales are comparable. The published verdict is exactly those two
-claims. Whether each implementation is any good on its own is carried as two further columns, so a
-reference that degrades is reported against the reference instead of turning cleverly's row red.
+### Terms
 
-The harness has negative controls for all of it. The fast tests independently corrupt bias,
-coverage and reported standard errors for each implementation in turn, require only that
-implementation to fail, and require the untouched one to keep passing; a paired mutation makes
-cleverly materially worse and must fail both similarity and non-inferiority; and a reference-only
-mutation must fail the reference's column while leaving cleverly's standing.
+| term | definition |
+| --- | --- |
+| **replication** | one simulated dataset drawn from a study's law, fitted by every implementation. Seeds derive from the study's own record, so replication *k* is a fixed sample whatever the study's size |
+| **law** | the data-generating process a scenario samples, with a parameter computed longhand rather than estimated |
+| **estimand** | the parameter a row reports. Longitudinal keys carry their regimen in brackets |
+| **cell** | one configuration of a property family, labelled `positive` when it must pass the family's instrument and `control` when it must fail it |
+| **margin** | an acceptance threshold declared before the run and recorded in the study's `manifest.json`. Names beginning `margin:` in a measured-values table are these thresholds |
+| **standardized bias** | mean error divided by the empirical standard deviation of the estimates. Scale-free, so it reads the same across estimands |
+| **SE ratio** | mean reported standard error divided by the empirical standard deviation. One means the reported uncertainty matches the real spread |
+| **share of margin used** | how much of a similarity margin a paired comparison consumed. Small means the two implementations agree far inside the bound |
+| **plug-in** | the estimate the same nuisance fits produce with no targeting fluctuation. The distance from it measures what targeting did |
+
+## Canonical point-treatment TMLE
+
+This study validates ordinary, non-cross-fitted point-treatment TMLE in `cleverly`. The canonical
+comparison uses R [`tmle3`](https://github.com/tlverse/tmle3) 0.2.0 at pinned commit
+[`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27). The
+independent claims come from the parameter oracles and from the properties in van der Laan and
+Rubin's [original TMLE paper](https://doi.org/10.2202/1557-4679.1043).
+
+The row is deliberately named **ordinary** TMLE. The public default cross-fits its nuisances. The
+comparison disables cross-fitting in `cleverly` because `tmle3`'s ordinary specs are not CV-TMLE.
+Cross-fitted and CV-TMLE constructions are separate methods and do not inherit this result.
+
+### What was compared
+
+| setting | `cleverly` | R `tmle3` |
+| --- | --- | --- |
+| estimator | ordinary TMLE, cross-fitting disabled | ordinary `tmle3` spec |
+| datasets | generated in Python | the identical rows and all DGP covariates |
+| nuisance regressions | GLM | corresponding GLM |
+| treatment contrast | 1 versus 0 | 1 versus 0 |
+| overlap | comfortable, no active bound | the same law |
+| intervals | pointwise 95% Wald | pointwise 95% Wald |
+| RR and OR scale | log, exponentiated | log, exponentiated |
+| PAF scale | identity, from the PAF influence curve | negative-log-complement, transformed by `1 - exp(-x)` |
+| ATT and ATC updater | default | the constrained one-dimensional updater the package's own tests exercise |
+
+Both laws are point-treatment laws with complete outcomes. The bounded continuous-outcome law with
+effect modification covers `ey1`, `ey0`, `ate`, `att`, `atc`, `ey_obs`, and `par`. The
+binary-outcome law covers those plus `paf`, `rr`, and `or`.
+
+### Accuracy against known truth
+
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | `cleverly` | -0.0026 to 0.0013 | 0.9506 | 0.9997 | pass |
+| binary-outcome law | `atc` | average effect on the untreated | R `tmle3` | -0.0026 to 0.0013 | 0.9544 | 1.0049 | pass |
+| binary-outcome law | `ate` | average treatment effect | `cleverly` | -0.0026 to 0.0012 | 0.9494 | 1.0067 | pass |
+| binary-outcome law | `ate` | average treatment effect | R `tmle3` | -0.0026 to 0.0012 | 0.9487 | 1.0066 | pass |
+| binary-outcome law | `att` | average effect on the treated | `cleverly` | -0.0028 to 0.0012 | 0.9506 | 1.0088 | pass |
+| binary-outcome law | `att` | average effect on the treated | R `tmle3` | -0.0028 to 0.0012 | 0.9500 | 1.0141 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.000802 to 0.0020 | 0.9531 | 1.0102 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | R `tmle3` | -0.000802 to 0.0020 | 0.9531 | 1.0101 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` | -0.0016 to 0.0013 | 0.9425 | 0.9861 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | R `tmle3` | -0.0016 to 0.0013 | 0.9425 | 0.9861 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | `cleverly` | -0.000858 to 0.0012 | 0.9450 | 0.9919 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | R `tmle3` | -0.000858 to 0.0012 | 0.9450 | 0.9919 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | `cleverly` | -0.0095 to 0.0064 | 0.9500 | 1.0074 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | R `tmle3` | -0.0095 to 0.0064 | 0.9500 | 1.0074 | pass |
+| binary-outcome law | `paf` | population attributable fraction | `cleverly` | -0.0030 to 0.0013 | 0.9494 | 1.0118 | pass |
+| binary-outcome law | `paf` | population attributable fraction | R `tmle3` | -0.0029 to 0.0026 | 0.9487 | 1.0114 | pass |
+| binary-outcome law | `par` | population attributable risk | `cleverly` | -0.0014 to 0.000586 | 0.9469 | 1.0082 | pass |
+| binary-outcome law | `par` | population attributable risk | R `tmle3` | -0.0014 to 0.000587 | 0.9469 | 1.0081 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | `cleverly` | -0.0053 to 0.0033 | 0.9556 | 1.0117 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | R `tmle3` | -0.0053 to 0.0033 | 0.9556 | 1.0116 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | `cleverly` | -0.000400 to 0.000508 | 0.9463 | 0.9893 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | R `tmle3` | 0.000387 to 0.0013 | 0.9475 | 0.9957 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | `cleverly` | -0.000459 to 0.000392 | 0.9481 | 1.0015 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | R `tmle3` | -0.000442 to 0.000406 | 0.9500 | 1.0125 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | `cleverly` | -0.000602 to 0.000314 | 0.9394 | 0.9706 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | R `tmle3` | -0.0013 to -0.000431 | 0.9400 | 0.9726 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.000147 to 0.000743 | 0.9531 | 1.0146 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | R `tmle3` | -0.000147 to 0.000742 | 0.9537 | 1.0149 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | `cleverly` | -0.000260 to 0.000788 | 0.9519 | 1.0107 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | R `tmle3` | -0.000244 to 0.000802 | 0.9519 | 1.0122 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | `cleverly` | -0.000234 to 0.000779 | 0.9506 | 0.9908 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | R `tmle3` | -0.000234 to 0.000779 | 0.9506 | 0.9908 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | `cleverly` | -0.000327 to 0.000276 | 0.9344 | 0.9451 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | R `tmle3` | -0.000325 to 0.000277 | 0.9375 | 0.9526 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | 0.000023 | 0.0050 | 1.0066 | -0.0037 | pass |
+| binary-outcome law | `ate` | average treatment effect | -6.992e-07 | 0.000157 | 1.0000 | 0.000625 | pass |
+| binary-outcome law | `att` | average effect on the treated | -0.000022 | 0.0049 | 1.0067 | 0.000625 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 9.290e-08 | 0.000029 | 1.0000 | 0 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | -4.085e-10 | 1.216e-07 | 1.0000 | 0 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -8.722e-12 | 3.654e-09 | 1.0000 | 0 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | -5.723e-07 | 0.000014 | 1.0000 | 0 | pass |
+| binary-outcome law | `paf` | population attributable fraction | -6.674e-07 | 0.000132 | 1.0002 | 0.000625 | pass |
+| binary-outcome law | `par` | population attributable risk | -2.965e-07 | 0.000126 | 1.0002 | 0 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.861e-07 | 0.000019 | 1.0000 | 0 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000783 | 0.7445 | 1.0088 | -0.0012 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | -0.000016 | 0.0161 | 1.0062 | -0.0019 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000744 | 0.6995 | 1.0019 | -0.000625 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -6.584e-08 | 0.000064 | 1.0030 | -0.000625 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000015 | 0.0122 | 1.0032 | 0 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -5.672e-13 | 4.814e-10 | 1.0000 | 0 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | -0.000001 | 0.0020 | 1.0045 | -0.0031 | pass |
+<!-- /generated -->
+
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0104 to 0.0037, margin 0.0236 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.3420 to -0.3244, margin 0.0295 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0062 to 0.0069, margin 0.0220 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0292 to -0.0072, margin 0.0369 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9679 to 1.0385 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000513, coverage 0.9194 to 0.9627, SE ratio 0.9777 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias -0.000770, coverage 0.9223 to 0.9647, SE ratio 0.9913 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000285, coverage 0.9297 to 0.9698, SE ratio 1.0077 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5374 to -0.4725 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4998 to -0.4974 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0325, 0.0141 to 0.0627 | pass |
+<!-- /generated -->
 
 ### Measured values
 
-Every figure this section quotes is resolved by name and checked at the precision it is printed to,
-so a stale or mistyped number is a test failure rather than a reading error. Names beginning
-`margin:` are the thresholds declared *before* the run; everything else is measured from the
-committed results. Both resolve the same way, so moving a declared threshold in the code changes
-this table rather than leaving it asserting a rule the study never applied.
+Every figure this section quotes is resolved by name and checked at the precision it is printed to.
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results. Both resolve the same way, so moving a threshold in the code changes this
+table rather than leaving it asserting a rule the study never applied.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -171,146 +274,151 @@ this table rather than leaving it asserting a rule the study never applied.
 | `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
 
-### What the study establishes, and what it does not
+### Limitations
 
-The counts above are the claim: every implementation-estimand test against truth passes, every
-paired similarity and non-inferiority test passes, and every property cell passes. Within the
-declared practical margins cleverly is established to be as good as the pinned R reference, and it
-is not penalized where it is better.
+| limitation | what it means for use |
+| --- | --- |
+| The SE sanity band is a screen, not a calibration proof | The widest bootstrap SE-ratio interval still reaches `max_se_ratio_resolution` from 1.0. These 34 cells cannot rule out a systematic misstatement smaller than about a tenth. The `interval_calibration` cell carries that claim instead, and it excludes exactly that misstatement |
+| PAF is compared on different native scales | Point performance and coverage are compared. Raw standard-error parity is not claimed. The two intervals share a first-order delta-method limit but need not share finite-sample endpoints |
+| Continuous ATT and ATC use the most paired margin | `max_margin_utilization` of it at the widest, and both stay inside. Measured against known truth, `cleverly`'s absolute bias on those two estimands is an order of magnitude smaller than the constrained R path's, with essentially unchanged RMSE and coverage. The gate stays asymmetric so a future change reversing this fails the suite |
+| The lowest coverage is continuous-law PAR | Both implementations sit low together and both clear the declared floor. What remains is a property of ordinary non-cross-fitted TMLE on this law, not of either implementation. The `root_n_and_efficiency` cells are the discriminator: a gap that shrinks with `n` is finite-sample noise, and one that persisted would be a wrong variance formula |
+| Interval calibration shows no systematic direction | The reported standard error falls below the empirical spread in `cells_with_se_ratio_below_one` of `summary_cells` cells and above it in the rest. An earlier run at a quarter of the replication count had every continuous-law cell below one and was read as systematic understatement. Raising the replication count dissolved it |
+| The row is bounded to ordinary TMLE on two laws | It does not establish cross-fitting, repeated cross-fitting, CV-TMLE evaluation, simultaneous intervals, bootstrap inference, missing outcomes, weights, clustering, strata, multi-valued treatment, or flexible learners. Each is a separate method or composition and needs its own study |
 
-Three things the run measured are worth stating plainly rather than leaving in a CSV.
+### Reproduction
 
-**Interval calibration shows no systematic direction.** The reported standard error falls below the
-empirical spread of the estimates in `cells_with_se_ratio_below_one` of `summary_cells` cells and
-above it in the rest, and coverage falls below nominal in `cells_with_coverage_below_nominal` of
-them -- about half each way, which is what Monte Carlo scatter looks like. An earlier run of this
-study at a quarter of the replication count had every continuous-law cell below one and was read as
-a systematic understatement of uncertainty. It was not: raising the replication count dissolved it.
-That is the reason this section quotes counts computed from the results rather than impressions
-formed by looking at them.
-
-**Where coverage does sit low, both implementations sit low together.** The lowest in the study is
-continuous-law `par`, at `summary[cleverly/continuous/par]:coverage` for cleverly against
-`summary[tmle3/continuous/par]:coverage` for `tmle3` -- clear of the declared floor, and equal
-between the two to within Monte Carlo error. Whatever remains there is a property of ordinary
-non-cross-fitted TMLE on this law rather than of either implementation. The
-`root_n_and_efficiency` cells are the discriminator: SE calibration is measured at three sample
-sizes, so a gap that shrinks with `n` is finite-sample nuisance noise while one that persisted
-would be a wrong variance formula.
-
-**The standard-error band is a screen, not a calibration proof.** The widest bootstrap SE-ratio
-interval still reaches `max_se_ratio_resolution` from 1.0, so a systematic misstatement smaller
-than about a tenth is not something these 34 cells can rule out. Coverage carries the validity claim
-instead, where the exact interval is tight enough to separate the nominal rate from a two-point
-shortfall. Calibration is ruled on where it can be: the `interval_calibration` cell puts the SE
-ratio at `properties[interval_calibration/correctly_specified]:se_ratio` with a 99% interval from
-`properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` to
-`properties[interval_calibration/correctly_specified]:se_ratio_ci_upper`, which excludes the
-tenth-scale misstatement the screen above cannot.
-
-Continuous-law ATT and ATC use the most of the paired similarity margin -- `max_margin_utilization`
-of it at the widest -- and stay inside it. That difference was evaluated as a possible cleverly
-defect and does not justify a production fix: measured against the known truth, cleverly's absolute
-bias on those two estimands is an order of magnitude smaller than the constrained R path's
-(`summary[cleverly/continuous/att]:bias` against `summary[tmle3/continuous/att]:bias` for ATT, and
-`summary[cleverly/continuous/atc]:bias` against `summary[tmle3/continuous/atc]:bias` for ATC), with
-essentially unchanged RMSE and coverage. The gate stays asymmetric so that a future change
-reversing this conclusion fails the suite rather than being documented away.
-
-### Confidence intervals by estimand
-
-| estimands | cleverly interval | R `tmle3` interval | comparison |
-| --- | --- | --- | --- |
-| levels, ATE, ATT, ATC, PAR | identity-scale Wald | identity-scale Wald | estimate, SE, endpoints, and coverage |
-| RR and OR | log-scale Wald, exponentiated | log-scale Wald, exponentiated | estimate, SE, endpoints, and coverage |
-| PAF | identity-scale Wald from the PAF influence curve | negative-log-complement (log-risk-ratio) Wald transformed by `1 - exp(-x)` | point performance and coverage; raw SE parity is not claimed |
-
-That PAF distinction is not papered over. The two intervals have the same first-order delta-method
-limit but need not have the same finite-sample endpoints, so forcing their raw standard errors into
-one parity threshold would compare different reported scales. The exemption is declared on the
-study record and a test requires the two implementations to genuinely report different scales for
-it, so an exemption cannot be claimed where it is not earned.
-
-### Properties checked independently
-
-The [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/properties.csv)
-and their [replication-level data](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/property-replicates.csv.gz)
-record four nuisance-model cells, three sample sizes, a fitted rate, a correctly-specified
-calibration cell, a sharp-null experiment and a power control:
-
-| claim | positive evidence | negative control or discriminator |
-| --- | --- | --- |
-| double-robust consistency | with both nuisances correct, with only the outcome regression correct, and with only the treatment mechanism correct, the 99% interval for the bias lies inside 0.25 empirical standard deviations of zero | with both nuisances wrong the same interval must lie entirely *outside* that margin -- the same instrument in both directions, so a study too small to say anything fails both halves rather than passing the first |
-| root-n behaviour | the log empirical spread of the estimates, regressed on log `n` across three sample sizes, has a 99% interval lying within 0.125 of -1/2 -- half the distance to the alternative below, so the accept and the reject verdicts partition the two rates the claim is about | that interval must also exclude -1/4, so a merely decreasing spread fails. The margin is what keeps this an equivalence statement: requiring the interval to *contain* -1/2 is a point test, and at these replication counts the reported-SE rate is resolved to about a thousandth and would fail it. That rate is fitted separately and labelled as what it is -- an influence-curve SE is sigma-hat over root n, so its rate is near arithmetic and catches only a standard error carrying the wrong power of `n` |
-| local efficiency and inference | at each size, the SE ratio is inside the sanity band, coverage clears the floor, and the bias interval is inside the equivalence margin | SE calibration is checked separately from bias, so correct centering cannot hide the wrong width, and it is measured at three sizes so a finite-sample gap is distinguishable from a wrong formula |
-| interval calibration | on a law where a GLM is correctly specified for both nuisances, the 99% resampling interval for the SE ratio lies inside 0.93--1.07 and the exact coverage interval inside 0.92--0.98 | both halves are required and neither implies the other: a standard error inflated by a constant keeps coverage inside its band while failing the ratio, and this is the only gate in the study that a uniform tenth-scale understatement fails -- the coverage floor is one-sided and the sanity band cannot be tightened past what that floor implies |
-| type-I error | the 99% upper endpoint of the ATE rejection rate under a sharp null clears the nominal size by no more than the declared margin | the null law retains its confounding, so the test is not an unadjusted randomized comparison; and a separate cell under a real effect must reject, so a test that never fires cannot pass by being inert |
-
-These statistical checks complement rather than replace the exact-law, Gateaux, remainder, and
-identity instruments in the [estimand evidence manifest](evidence.md#the-table).
-
-### Reproduction and provenance
-
-The complete regeneration instructions and the PAF qualification are in the
-[`tmle3` fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/README.md).
 The container pins R 4.5.2 by digest, `tmle3` at `ed72f8a`, and `sl3` at
-[`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
+[`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227). The
+[fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/README.md)
+gives the regeneration commands.
 [`manifest.json`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/manifest.json)
-records the study configuration, every declared margin, the cleverly version and commit the run was
-produced from, the interpreter and library versions, and a hash of every published result and of
-every study module.
+records the configuration, every declared margin, the `cleverly` version and commit, the interpreter
+and library versions, and a hash of every published result and study module. The
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/replicates.csv.gz),
+[performance tests](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/performance-tests.csv),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/equivalence.csv)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/properties.csv)
+carry every row the tables above publish.
 
-Replication seeds are derived per scenario and replication rather than from the total, so
-replication *k* is a fixed sample whatever the study's size. That is what lets the fast test suite
-redraw committed replications, refit them, and require the published rows back -- the check that
-keeps these artefacts evidence about the current code rather than a record of an old run.
-
-Each registered study derives its seeds from the seed on its own record, so the rows in this
-document sample different sets of datasets and their verdicts are independent draws rather than
-one draw reported several times. A test requires that: it redraws each study's first
-replication through its own runner and refuses two studies that produce the same sample.
-
-The public R specifications are used directly except for ATT and ATC, which use the constrained,
-one-dimensional updater exercised in the pinned package's own tests. The public ATT convenience
-path fails to converge on a small fraction of bounded-continuous samples; the package-tested path
-is fixed for all replications, and no failed sample is discarded or replaced. The R side aborts on
+R uses its public specifications except for ATT and ATC. The public ATT convenience path fails to
+converge on a small fraction of bounded-continuous samples, so both use the constrained path the
+pinned package's own tests exercise. That path is fixed for all replications. The R side aborts on
 any failed replication rather than dropping it, and the property study refuses to summarize a run
 that lost one.
 
-The study does not establish parity for cleverly's default cross-fitting, repeated cross-fitting,
-CV-TMLE evaluation, simultaneous intervals, bootstrap inference, missing outcomes, weights,
-clustering, strata, multi-valued treatment, or flexible learners. Each is a distinct method or
-composition and needs its own evidence row.
-
 ## Stacked point-treatment CV-TMLE
 
-This row covers the default cross-validated point-treatment construction described by Levy
-(2018): nuisance predictions are out of fold, one targeting regression is fitted over the stacked
-validation rows, and the updated regression is evaluated over the whole sample.  Zheng & van der
-Laan (2011) supplies the wider CV-TMLE framework; the source boundary is mapped in
+This study validates `cleverly`'s default cross-validated point-treatment construction, described
+by Levy (2018). Nuisance predictions are out of fold, one targeting regression is fitted over the
+stacked validation rows, and the updated regression is evaluated over the whole sample. Zheng and
+van der Laan (2011) supply the wider CV-TMLE framework. The source boundary is mapped in
 [Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
 
-The bounded implementation witness compares cleverly with R
-[`tmle3`](https://github.com/tlverse/tmle3) 0.2.0 at commit
-[`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27)
-and [`sl3`](https://github.com/tlverse/sl3) at commit
-[`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
-Python generates every realized sample and its treatment-stratified ten-fold assignment.  R
-reconstructs those exact validation indices with `origami`, asserts them on the `tmle3` task,
-wraps corresponding GLMs in `Lrnr_cv`, and uses `tmle3_Update(cvtmle = TRUE)`.  The two sides also
-share the 0.025--0.975 propensity bounds, treatment contrast, covariates, pointwise 95% interval
-level, and targeting tolerances that affect the comparison.
+### What was compared
 
-The binary law covers `ey1`, `ey0`, `ate`, `att`, `atc`, `ey_obs`, `par`, `paf`, `rr`, and `or`;
-the bounded-continuous law covers the same catalog except its binary-only PAF, RR, and OR.  Every
-implementation-estimand cell is tested independently against exact truth before the paired tests,
-so agreement between two poor fits cannot earn the row.  The R runner aborts the whole study on
-any failed fit, changed fold, missing estimand, or silently dropped replication.
+| setting | `cleverly` | R `tmle3` CV-TMLE |
+| --- | --- | --- |
+| construction | stacked update, whole-sample plug-in evaluation | `tmle3_Update(cvtmle = TRUE)` |
+| folds | treatment-stratified ten-fold, generated in Python | the identical validation indices, rebuilt with `origami` and asserted on the task |
+| nuisance learners | GLM | corresponding GLM wrapped in `Lrnr_cv` |
+| propensity bounds | 0.025 to 0.975 | 0.025 to 0.975 |
+| intervals | pointwise 95% Wald | pointwise 95% Wald |
+| PAF scale | identity, from the PAF influence curve | negative-log-complement, transformed |
+
+Supplying the exact row-to-fold assignment is what makes this a fold-matched comparison. A common
+seed or fold count is not enough when splitters or dependency versions differ. The R runner aborts
+the whole study on any failed fit, changed fold, missing estimand, or dropped replication.
+
+### Accuracy against known truth
+
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | `cleverly` stacked CV-TMLE | -0.0043 to -0.000378 | 0.9456 | 1.0139 | pass |
+| binary-outcome law | `atc` | average effect on the untreated | R `tmle3` CV-TMLE | -0.0042 to -0.000352 | 0.9469 | 1.0195 | pass |
+| binary-outcome law | `ate` | average treatment effect | `cleverly` stacked CV-TMLE | -0.0040 to -0.000199 | 0.9494 | 1.0163 | pass |
+| binary-outcome law | `ate` | average treatment effect | R `tmle3` CV-TMLE | -0.0040 to -0.000201 | 0.9506 | 1.0164 | pass |
+| binary-outcome law | `att` | average effect on the treated | `cleverly` stacked CV-TMLE | -0.0039 to 0.000098 | 0.9519 | 1.0216 | pass |
+| binary-outcome law | `att` | average effect on the treated | R `tmle3` CV-TMLE | -0.0039 to 0.000081 | 0.9525 | 1.0257 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` stacked CV-TMLE | -0.000696 to 0.0021 | 0.9556 | 1.0076 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | R `tmle3` CV-TMLE | -0.000696 to 0.0021 | 0.9556 | 1.0076 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` stacked CV-TMLE | -0.0028 to 0.000051 | 0.9375 | 0.9906 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | R `tmle3` CV-TMLE | -0.0028 to 0.000051 | 0.9375 | 0.9906 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | `cleverly` stacked CV-TMLE | -0.0013 to 0.000802 | 0.9456 | 0.9815 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | R `tmle3` CV-TMLE | -0.0013 to 0.000802 | 0.9456 | 0.9815 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | `cleverly` stacked CV-TMLE | -0.0151 to 0.000844 | 0.9494 | 1.0167 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | R `tmle3` CV-TMLE | -0.0151 to 0.000844 | 0.9494 | 1.0166 | pass |
+| binary-outcome law | `paf` | population attributable fraction | `cleverly` stacked CV-TMLE | -0.0039 to 0.000426 | 0.9500 | 1.0234 | pass |
+| binary-outcome law | `paf` | population attributable fraction | R `tmle3` CV-TMLE | -0.0040 to 0.0014 | 0.9525 | 1.0233 | pass |
+| binary-outcome law | `par` | population attributable risk | `cleverly` stacked CV-TMLE | -0.0020 to 0.000061 | 0.9500 | 1.0209 | pass |
+| binary-outcome law | `par` | population attributable risk | R `tmle3` CV-TMLE | -0.0020 to 0.000061 | 0.9506 | 1.0212 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | `cleverly` stacked CV-TMLE | -0.0078 to 0.000826 | 0.9475 | 1.0206 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | R `tmle3` CV-TMLE | -0.0078 to 0.000826 | 0.9475 | 1.0205 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | `cleverly` stacked CV-TMLE | -0.000556 to 0.000353 | 0.9494 | 0.9995 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | R `tmle3` CV-TMLE | 0.000163 to 0.0011 | 0.9500 | 1.0061 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | `cleverly` stacked CV-TMLE | -0.000502 to 0.000337 | 0.9494 | 1.0260 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | R `tmle3` CV-TMLE | -0.000500 to 0.000335 | 0.9506 | 1.0391 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | `cleverly` stacked CV-TMLE | -0.000483 to 0.000426 | 0.9444 | 0.9887 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | R `tmle3` CV-TMLE | -0.0012 to -0.000308 | 0.9406 | 0.9904 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | `cleverly` stacked CV-TMLE | -0.000446 to 0.000473 | 0.9469 | 0.9851 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | R `tmle3` CV-TMLE | -0.000438 to 0.000480 | 0.9463 | 0.9853 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | `cleverly` stacked CV-TMLE | -0.000593 to 0.000456 | 0.9544 | 1.0142 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | R `tmle3` CV-TMLE | -0.000592 to 0.000456 | 0.9556 | 1.0159 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | `cleverly` stacked CV-TMLE | -0.000462 to 0.000556 | 0.9431 | 0.9862 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | R `tmle3` CV-TMLE | -0.000462 to 0.000556 | 0.9431 | 0.9862 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | `cleverly` stacked CV-TMLE | -0.000261 to 0.000327 | 0.9387 | 0.9762 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | R `tmle3` CV-TMLE | -0.000289 to 0.000297 | 0.9394 | 0.9852 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | -0.000037 | 0.0081 | 1.0070 | -0.0012 | pass |
+| binary-outcome law | `ate` | average treatment effect | 0.000002 | 0.000412 | 1.0001 | -0.0013 | pass |
+| binary-outcome law | `att` | average effect on the treated | 0.000010 | 0.0021 | 1.0054 | -0.000625 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 7.188e-08 | 0.000022 | 1.0000 | 0 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 8.047e-08 | 0.000024 | 1.0000 | 0 | pass |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -7.174e-12 | 2.974e-09 | 1.0000 | 0 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 6.970e-09 | 1.750e-07 | 1.0000 | 0 | pass |
+| binary-outcome law | `paf` | population attributable fraction | -3.430e-07 | 0.000068 | 1.0007 | -0.0025 | pass |
+| binary-outcome law | `par` | population attributable risk | -1.467e-07 | 0.000062 | 1.0007 | -0.000625 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.158e-08 | 0.000001 | 1.0000 | 0 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000715 | 0.6790 | 1.0128 | -0.000625 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | 2.801e-07 | 0.000288 | 1.0082 | -0.0013 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000733 | 0.6941 | 1.0041 | 0.0037 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000007 | 0.0069 | 1.0032 | 0.000625 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -6.210e-07 | 0.000509 | 1.0039 | -0.0012 | pass |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -1.684e-13 | 1.421e-10 | 1.0000 | 0 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000029 | 0.0422 | 1.0072 | -0.000625 | pass |
+<!-- /generated -->
+
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.5298 to 0.6400 | pass |
+| `crossfit_overfitting` | `stacked_cvtmle` | positive | stacked CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9094 to 1.0843 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0100 to 0.0038, margin 0.0231 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.3437 to -0.3259, margin 0.0299 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0064 to 0.0067, margin 0.0219 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0305 to -0.0086, margin 0.0366 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9738 to 1.0450 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000506, coverage 0.9238 to 0.9657, SE ratio 0.9823 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias -0.000654, coverage 0.9252 to 0.9667, SE ratio 1.0128 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000293, coverage 0.9326 to 0.9717, SE ratio 1.0087 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5384 to -0.4737 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5080 to -0.5055 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0325, 0.0141 to 0.0627 | pass |
+<!-- /generated -->
 
 ### Measured values
 
-Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
-from the committed results. Both are resolved by name and checked at the precision printed.
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -378,74 +486,93 @@ from the committed results. Both are resolved by name and checked at the precisi
 | `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
 | `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |
 
-### Comparison and property verdicts
+### Limitations
 
-Each implementation independently passes the ordinary study's 99% practical-bias, coverage, and
-SE-calibration gates.  On the pairing, the 99% interval for the mean difference must lie inside
-0.15 pooled empirical standard deviations.  Cleverly must also be non-inferior: the one-sided
-RMSE-ratio upper bound is at most 1.10, the coverage-difference lower bound is at least -0.025, and
-the excess absolute SE-calibration-error upper bound is at most 0.05 where the native inference
-scales are comparable.  All 17 cells pass both the symmetric similarity and one-sided
-non-inferiority claims, and both implementations remain independently valid.
+| limitation | what it means for use |
+| --- | --- |
+| PAF is compared on different native scales | `cleverly` reports its fraction-scale influence curve and `tmle3` transforms a negative-log-complement interval. Point performance and coverage are compared. Raw standard errors and finite-sample endpoints on those scales are not declared equivalent |
+| The cross-fit overfitting cells are relative evidence | Held-out predictions must restore the SE ratio to its band, the in-sample control's upper bound must stay below 0.75, and the paired coverage gain must clear its floor. The measured cross-fitted coverage is evidence of relative recovery and calibrated influence-curve scale. It is not a separate absolute coverage claim; the primary GLM study carries that gate |
+| Continuous-law ATT and ATC use the most similarity margin | Both stay inside the predeclared bound, and the RMSE, coverage, and calibration bounds stay well inside their non-inferiority margins. These are the finite-sample cells that use the most evidence budget, not tuned exceptions |
+| The row is bounded to one ten-fold split | It does not establish repeated or nested cross-fitting, fold-evaluated or fold-specific-epsilon CV-TMLE, simultaneous or bootstrap intervals, missing outcomes, weights, clusters, strata, multi-valued treatment, broad learner-library selection, or severe practical-positivity behaviour |
 
-The largest similarity-margin use occurs for continuous-law ATT, followed by ATC.  Both remain
-inside the predeclared bound, and the RMSE, coverage, and calibration bounds remain well inside
-their non-inferiority margins.  Binary-law `ey1` has the study's lowest coverage, at the same
-`min_coverage` in both implementations, and its exact 99% lower endpoint still clears the 0.90
-floor.  These are reported as the finite-sample cells that use the most evidence budget, not tuned
-exceptions.
+### Reproduction
 
-The 14 property cells use the same double-robustness, both-wrong discrimination, three-size
-efficiency/calibration, empirical and reported root-n, interval-calibration, confounded-null, and
-power instruments as the fold-evaluated row below.  They add the same paired flexible-tree
-experiment: held-out
-predictions must restore the SE ratio to its 0.85--1.20 band, the deliberately in-sample control's
-upper bound must remain below 0.75, and the 99% lower bound for coverage gained by cross-fitting
-must exceed 0.15.  The measured cross-fitted coverage is therefore evidence of relative recovery
-and calibrated influence-curve scale, not a separate absolute 90% coverage claim; the primary GLM
-study carries that gate.
-
-PAF is the one inference-scale qualification.  Cleverly reports its fraction-scale influence
-curve, while `tmle3` transforms a negative-log-complement/log-risk-ratio interval.  They target the
-same parameter and their point performance and coverage are compared, but raw standard errors and
-finite-sample endpoints on those different native scales are not declared numerically equivalent.
-The study record names the exception and a test requires the scales actually to differ.
-
-The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/replicates.csv.gz),
-[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/equivalence.csv),
-[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/properties.csv),
-and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/manifest.json)
-record all rows, margins, seeds, configuration, source and reference hashes, package pins, and
-result hashes.  The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/README.md)
-gives the full and smoke regeneration commands.
-
-This row is bounded to two complete-outcome point-treatment laws, corresponding GLM learners, one
-ten-fold split, the declared truncation, a pooled update, whole-sample evaluation, and pointwise
-Wald inference.  It does not establish repeated or nested cross-fitting, fold-evaluated or
-fold-specific-epsilon CV-TMLE, simultaneous or bootstrap intervals, missing outcomes, weights,
-clusters, strata, multi-valued treatment, broad learner-library selection, or severe
-practical-positivity behavior.
+The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/README.md)
+gives the full and smoke regeneration commands. The
+[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/manifest.json)
+records every margin, seed, package pin, source hash, and result hash. The
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/equivalence.csv)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/properties.csv)
+carry every published row.
 
 ## Fold-evaluated point-treatment CV-TMLE
 
-This row covers cleverly's fold-evaluated CV-TMLE report: treatment-stratified ten-fold nuisance
-fitting, one pooled targeting update, equal-fold plug-in evaluation, and the cross-validated
-influence-curve variance.  It is kept separate from the stacked CV-TMLE row because averaging
-fold reports rather than evaluating the updated regression over the whole sample is a genuine
-finite-sample method choice.  The construction and its Zheng--van der Laan/Levy source boundary
-are mapped in [Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
+This study validates `cleverly`'s fold-evaluated CV-TMLE report: treatment-stratified ten-fold
+nuisance fitting, one pooled targeting update, equal-fold plug-in evaluation, and the
+cross-validated influence-curve variance. It is separate from the stacked row above because
+averaging fold reports, rather than evaluating the updated regression over the whole sample, is a
+genuine finite-sample method choice. The construction and its source boundary are mapped in
+[Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
 
-The primary study uses the same binary and bounded-continuous laws as the ordinary TMLE study and
-tests `ey1`, `ey0`, `ate`, `att`, and `atc` against exact truth.  The nuisance learners are
-corresponding logistic and linear GLMs, the propensity is bounded to 0.025--0.975, and intervals
-are pointwise 95% identity-scale Wald intervals.  There is no external implementation in this
-row: a zero-row equivalence artifact records that absence instead of borrowing the stacked R
-comparison.
+**No canonical implementation is compared.** No maintained package ships this construction, so the
+study rests on the accuracy and theory-property questions alone. A zero-row equivalence artifact
+records that absence rather than borrowing the stacked R comparison.
+
+### What was compared
+
+| setting | `cleverly` |
+| --- | --- |
+| construction | ten-fold nuisance fitting, pooled update, equal-fold plug-in evaluation |
+| variance | cross-validated influence curve |
+| estimands | `ey1`, `ey0`, `ate`, `att`, `atc` |
+| laws | the same binary and bounded-continuous laws the ordinary TMLE study uses |
+| nuisance learners | corresponding logistic and linear GLM |
+| propensity bounds | 0.025 to 0.975 |
+| intervals | pointwise 95% identity-scale Wald |
+
+### Accuracy against known truth
+
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | `cleverly` fold-evaluated CV-TMLE | -0.000879 to 0.0031 | 0.9456 | 0.9987 | pass |
+| binary-outcome law | `ate` | average treatment effect | `cleverly` fold-evaluated CV-TMLE | -0.0011 to 0.0028 | 0.9506 | 0.9997 | pass |
+| binary-outcome law | `att` | average effect on the treated | `cleverly` fold-evaluated CV-TMLE | -0.0015 to 0.0026 | 0.9550 | 1.0048 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` fold-evaluated CV-TMLE | -0.0019 to 0.000936 | 0.9525 | 1.0093 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` fold-evaluated CV-TMLE | -0.0011 to 0.0018 | 0.9575 | 1.0155 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | `cleverly` fold-evaluated CV-TMLE | -0.000360 to 0.000559 | 0.9513 | 0.9866 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | `cleverly` fold-evaluated CV-TMLE | -0.000264 to 0.000593 | 0.9500 | 1.0034 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | `cleverly` fold-evaluated CV-TMLE | -0.000186 to 0.000735 | 0.9375 | 0.9756 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | `cleverly` fold-evaluated CV-TMLE | -0.000702 to 0.000203 | 0.9519 | 0.9967 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | `cleverly` fold-evaluated CV-TMLE | -0.000603 to 0.000433 | 0.9537 | 1.0243 | pass |
+<!-- /generated -->
+
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `crossfit_overfitting` | `fold_evaluated_cvtmle` | positive | fold-evaluated CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9091 to 1.0908 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.5308 to 0.6408 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0100 to 0.0038, margin 0.0231 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.3437 to -0.3259, margin 0.0299 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0064 to 0.0067, margin 0.0219 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0305 to -0.0086, margin 0.0366 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9730 to 1.0456 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000506, coverage 0.9238 to 0.9657, SE ratio 0.9825 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias -0.000654, coverage 0.9252 to 0.9667, SE ratio 1.0139 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000293, coverage 0.9326 to 0.9717, SE ratio 1.0088 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5374 to -0.4732 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5084 to -0.5058 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0325, 0.0141 to 0.0627 | pass |
+<!-- /generated -->
 
 ### Measured values
 
-Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
-from the committed results. Both are resolved by name and checked at the precision printed.
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -508,71 +635,99 @@ from the committed results. Both are resolved by name and checked at the precisi
 | `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
 | `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |
 
-### Statistical claims and controls
+### Limitations
 
-The first twelve property cells repeat the ordinary method's independent instruments: three
-correct-nuisance combinations must have practically equivalent bias, both nuisances wrong must
-be discriminated from that margin, efficiency and the coverage floor must hold at three sample
-sizes, a correctly specified cell must have a two-sided calibrated SE ratio and coverage, and a
-confounded sharp null is paired with a nonzero-effect power control.
+| limitation | what it means for use |
+| --- | --- |
+| There is no cross-implementation evidence | The row rests on accuracy against known truth and on the theory properties. It is not parity evidence for stacked R CV-TMLE, and it does not inherit the stacked row's comparison |
+| The cross-fit overfitting cells are relative evidence | A fully grown regression tree is fitted on the nonlinear law twice, once with held-out predictions and once in sample, on the identical 400 samples of size 500. The cross-fitted cell's evidence is restored SE calibration and a load-bearing improvement over the control. The primary GLM study carries the absolute coverage gate |
+| The row is bounded to one fixed ten-fold assignment per sample | It does not establish repeated or nested cross-fitting, a fold-specific targeting epsilon, simultaneous or bootstrap intervals, missing outcomes, weights, clusters, strata, multi-valued treatment, ratio estimands, observed-risk functionals, or behaviour under severe practical-positivity violations |
 
-Both root-n rates -- the empirical spread and the mean reported standard error -- use the same
-predeclared equivalence band: the fitted 99% interval must lie within 0.125 of -1/2, half the
-distance to the -1/4 alternative it must also exclude.  A band rather than containment of -1/2,
-and the same band for both statistics rather than one rule each.  Requiring an increasingly
-precise Monte Carlo interval to contain exactly -1/2 would eventually reject the arithmetic
-scaling for a negligible finite-sample remainder: at these replication counts the reported-SE
-rate is already resolved to about a thousandth, and every one of the five studies would fail
-that rule today.
+### Reproduction
 
-Two additional cells exercise the reason to cross-fit.  A fully grown regression tree is fitted
-on the nonlinear law, once with held-out nuisance predictions and once as a deliberately
-in-sample control on the identical 400 samples of size 500.  The cross-fitted report must keep its
-99% SE-ratio interval within 0.85--1.20, the control's upper endpoint must remain below 0.75, and
-the paired 99% lower endpoint for the coverage gain must clear 0.15.  The cross-fitted cell's
-measured coverage is not presented as a separate 90% validity claim: its evidence is restored SE
-calibration and a load-bearing improvement over the overfit control, while the primary GLM study
-carries the absolute coverage gate.
-
-The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/replicates.csv.gz),
-[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/properties.csv),
-and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/manifest.json)
-record the primary and control samples, every margin and seed, the exact estimator configuration,
-source hashes, and result hashes.  The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/README.md)
-gives the regeneration command.
-
-This study does not establish external parity, repeated or nested cross-fitting, a fold-specific
-targeting epsilon, simultaneous or bootstrap intervals, missing outcomes, weights, clusters,
-strata, multi-valued treatment, ratio estimands, observed-risk functionals, or behavior under
-severe practical-positivity violations.  It tests one fixed ten-fold assignment per sample and
-the declared complete-outcome point-treatment laws.
+The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/README.md)
+gives the regeneration command. The
+[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/manifest.json)
+records the primary and control samples, every margin and seed, the exact estimator configuration,
+and the source and result hashes. The
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/replicates.csv.gz)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/properties.csv)
+carry every published row.
 
 ## Selector-based point-treatment C-TMLE
 
-This row separates three selector constructions from the outcome-adaptive construction below.
-The bounded implementation witness compares Cleverly's greedy, ordered, and discrete paths with
-R [`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at pinned commit
+This study validates `cleverly`'s greedy, ordered, and discrete C-TMLE selectors. The canonical
+comparison uses R [`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at pinned commit
 [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
-That package is the maintained comparator for these selector entry points; it is not a tlverse
-package. The tlverse comparison applies only to OAT in the next section.
+That package is the maintained comparator for these selector entry points. It is not a tlverse
+package, and the tlverse comparison applies only to the outcome-adaptive study below. The theory
+is van der Laan and Gruber (2010).
 
-Python generates every binary-outcome sample, its exact ATE, and the treatment-stratified
-five-fold selector assignment, taken off the Cleverly fit that produced the subject's own row
-and supplied unchanged to R, which asserts it is a partition of the sample before selecting
-against it. Both sides use all three DGP covariates,
-corresponding logistic GLMs, 0.025--0.975 propensity bounds, pointwise 95% intervals, and the
-unpenalized selector loss. Cleverly's default penalty follows the published trace-plus-bias
-criterion and is not presented as numerical parity with R's implementation-specific adjustment.
-The parity fit also disables cross-fitting; the independent property study exercises a public
-nested-cross-fit configuration instead -- five outer folds, three selection folds and two inner
-folds, with the penalty on. Those fold counts are not the shipped defaults (ten, five and two),
-so what the property cells establish is that nested cross-fitting works, not that the default
-fold counts were the ones measured.
+### What was compared
+
+| setting | `cleverly` | R `ctmle` |
+| --- | --- | --- |
+| strategies | `greedy`, `ordered`, `discrete` | `ctmleGeneral`, and `ctmleDiscrete(preOrder = TRUE)` for both ordered and discrete |
+| datasets | binary-outcome samples generated in Python with their exact ATE | the identical rows and all three DGP covariates |
+| selector folds | treatment-stratified five-fold, taken off the `cleverly` fit that produced the subject row | the same assignment, asserted to be a partition before selecting |
+| nuisance regressions | corresponding logistic GLM | corresponding logistic GLM |
+| propensity bounds | 0.025 to 0.975 | 0.025 to 0.975 |
+| selector loss | unpenalized | unpenalized |
+| cross-fitting | disabled for the comparison | not applicable |
+
+`cleverly`'s default penalty follows the published trace-plus-bias criterion. It is not presented
+as numerical parity with R's implementation-specific adjustment. The property study exercises a
+public nested cross-fit configuration instead: five outer folds, three selection folds, and two
+inner folds, with the penalty on.
+
+### Accuracy against known truth
+
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, discrete selector | `ate` | average treatment effect | `cleverly` selector-based C-TMLE | -0.0022 to 0.0018 | 0.9413 | 0.9448 | pass |
+| binary-outcome law, discrete selector | `ate` | average treatment effect | R `ctmle` | -0.0021 to 0.0018 | 0.9400 | 0.9383 | pass |
+| binary-outcome law, greedy selector | `ate` | average treatment effect | `cleverly` selector-based C-TMLE | -0.0018 to 0.0021 | 0.9500 | 0.9591 | pass |
+| binary-outcome law, greedy selector | `ate` | average treatment effect | R `ctmle` | -0.0018 to 0.0021 | 0.9475 | 0.9452 | pass |
+| binary-outcome law, ordered selector | `ate` | average treatment effect | `cleverly` selector-based C-TMLE | -0.0010 to 0.0028 | 0.9413 | 0.9636 | pass |
+| binary-outcome law, ordered selector | `ate` | average treatment effect | R `ctmle` | -0.0010 to 0.0028 | 0.9387 | 0.9616 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, discrete selector | `ate` | average treatment effect | -0.000062 | 0.0189 | 1.0030 | 0.0013 | pass |
+| binary-outcome law, greedy selector | `ate` | average treatment effect | 0.000053 | 0.0168 | 1.0051 | 0.0025 | pass |
+| binary-outcome law, ordered selector | `ate` | average treatment effect | 0.000004 | 0.0011 | 1.0048 | 0.0025 | pass |
+<!-- /generated -->
+
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0047 to 0.0071, margin 0.0198 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.1028 to 0.1226, margin 0.0333 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0075 to 0.0038, margin 0.0191 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0047 to 0.0154, margin 0.0179 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9579 to 1.0340 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000661, coverage 0.9107 to 0.9565, SE ratio 0.9623 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias 0.0019, coverage 0.9311 to 0.9708, SE ratio 0.9828 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000211, coverage 0.9252 to 0.9667, SE ratio 0.9622 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5270 to -0.4640 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5043 to -0.5019 | pass |
+| `selector_necessity` | `collaborative` | positive | the selector chooses its own mechanism path | bias interval inside the equivalence margin | bias 0.0043 to 0.0199, margin 0.0214 | pass |
+| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.7865 to 0.8046, margin 0.0247 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0275, 0.0109 to 0.0561 | pass |
+<!-- /generated -->
 
 ### Measured values
 
-Names beginning `margin:` are declared rules; all other values are computed from the committed
-artifacts. The documentation test resolves each name and checks the printed rounding.
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -636,90 +791,109 @@ artifacts. The documentation test resolves each name and checks the printed roun
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 | `margin:selector_rmse_ratio` | 0.5000 | maximum collaborative-to-empty RMSE ratio |
 
-### Statistical claims and limitations
+### Limitations
 
-The robustness cells use one confounded linear law and four explicit nuisance configurations.
-Both-correct, outcome-correct-only, and treatment-correct-only bias intervals must fit inside the
-same equivalence margin; the both-wrong control must be discriminated outside it. The selector
-instrument makes selection necessary by fitting a constant outcome regression on an
-instrument/confounder law. The public collaborative search must beat a selector restricted to
-the empty propensity path by the declared RMSE ratio, so a hard-coded empty selector cannot pass.
-The remaining cells check empirical and reported root-n contraction, efficiency at three sample
-sizes, two-sided interval calibration, type-I error, and a power positive control.
+| limitation | what it means for use |
+| --- | --- |
+| Two of the three strategies reach the same R entry point | R `ctmle` has one pre-ordered selector, so `ordered` and `discrete` are both compared against `ctmleDiscrete(preOrder = TRUE)`. The correspondence is earned: the `discrete` candidate list is exactly the nested prefix ladder that mode enumerates. An arbitrary candidate list therefore has no reference here, and the row carries two reference constructions on three separate draws |
+| The two sides select differently even where they agree | `cleverly` refits the outcome regression inside two nested folds within each selection fold. R scores every fold against one full-sample `Q`. Agreement here is evidence about the C-TMLE machinery on a law where the selector's choice is stable, not about the selection rule. That the search is load-bearing is established by `selector_necessity` and by the unit tests |
+| No cell asks for calibrated inference while selection is load-bearing | The forced-selection cell claims the RMSE ratio and only that. Its reported standard error is `properties[selector_necessity/collaborative]:se_ratio` of the empirical spread, which is conservative and outside the sanity screen. That is deliberate: the instrument law is built to make selection necessary, not to be a setting where the influence-curve variance is efficient. But `interval_calibration` is measured where both nuisances are correct and the search has nothing to do, so the gap is real |
+| One robustness cell is sized differently from its siblings | `treatment_correct` runs at `properties[double_robustness/treatment_correct]:n` observations where the other three run at 700. It is the leg that leans on inverse weighting, and at 700 its `O(n^-1)` remainder is about 0.28 empirical standard deviations. Raising `n` resolves the remainder against an unchanged margin. The margin was not moved after seeing it |
+| The default ordering and two strategies lack their own property evidence | The `ordered` cell pins an explicit covariate order, so the default `preorder="logistic"` ordering is exercised by neither half of this row. The property cells all run the default `greedy` search, so `ordered` and `discrete` have parity evidence without repeated-sampling evidence |
+| The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, non-cross-fitted, unpenalized ATE only. The row does not establish parity for the default penalty or nested cross-fitting, ratios or arm means, missing outcomes, weights, clusters, strata, multi-valued treatment, flexible learner libraries, simultaneous or bootstrap intervals, or severe practical-positivity behaviour |
 
-What the forced-selection cell claims is the RMSE ratio, and only that. Its reported standard
-error is `properties[selector_necessity/collaborative]:se_ratio` of the empirical spread --
-conservative, and outside the 0.80--1.20 screen the primary cells answer to. No SE or coverage
-gate is applied to it, which is deliberate rather than an oversight: an instrument/confounder
-law with a constant outcome regression is built to make *selection* necessary, not to be a
-setting where the influence-curve variance is the efficient one. It is worth stating plainly
-because the consequence is a real gap in this row -- `interval_calibration` is measured where
-both nuisances are correct and the search therefore has nothing to do, so no cell in this study
-asks for calibrated inference *while* selection is load-bearing.
+### Reproduction
 
-The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/replicates.csv.gz),
-[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/equivalence.csv),
-[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/properties.csv),
-[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/manifest.json),
-and [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/README.md)
-record the results, provenance, and regeneration commands.
-
-Three qualifications belong on the comparison itself rather than in a CSV.
-
-**Two of the three strategies reach the same R entry point.** R `ctmle` has one pre-ordered
-selector, so the `ordered` and `discrete` cells are both compared against
-`ctmleDiscrete(preOrder = TRUE)`. The correspondence is earned rather than assumed: the
-`discrete` cell's candidate list is exactly the nested prefix ladder that mode enumerates. It
-follows that an arbitrary candidate list has no reference here, and that the row carries two
-reference constructions rather than three, on three separate draws.
-
-**The two sides select differently even where they agree.** Cleverly refits the outcome
-regression inside two nested folds within each selection fold; R scores every fold against one
-full-sample `Q`. The paired cells use 0.019 of the similarity margin at their widest, so the
-reports agree -- but on a law where the selector's choice is stable, which is what makes
-agreement here evidence about the C-TMLE machinery rather than about the selection rule. That
-the search itself is load-bearing is established by `selector_necessity` below and by the unit
-tests, not by this comparison.
-
-**One robustness cell is sized differently from its siblings.** `treatment_correct` runs at
-`properties[double_robustness/treatment_correct]:n` observations where the other three run at
-700. It is the leg that leans on inverse weighting, and at 700 its `O(n^-1)` remainder is about
-0.28 empirical standard deviations -- outside the margin, for a reason that is not first-order
-bias. Raising `n` for that cell resolves the remainder against an unchanged margin; the margin
-was not moved after seeing it.
-
-The R parity claim is binary, two-arm, complete-outcome, GLM, non-cross-fitted, unpenalized ATE
-only. Continuous outcomes are covered by independent implementation tests elsewhere, not this
-parity witness. The row does not establish parity for Cleverly's default penalty or nested
-cross-fitting, ratios or arm means, missing outcomes, weights, clusters, strata, multi-valued
-treatment, flexible learner libraries, simultaneous or bootstrap intervals, or severe
-practical-positivity behavior.
-
-Two coverage gaps are worth naming rather than leaving to be inferred. The `ordered` cell pins
-an explicit covariate order, so the *default* `preorder="logistic"` ordering -- what
-`strategy="ordered"` does when the caller supplies nothing -- is exercised by neither half of
-this row. And the property cells all run the default `greedy` search, so `ordered` and
-`discrete` have parity evidence without repeated-sampling evidence of their own.
+The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/README.md)
+and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/manifest.json)
+record the provenance and the regeneration commands. The
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/equivalence.csv)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/properties.csv)
+carry every published row.
 
 ## Outcome-adaptive point-treatment C-TMLE
 
-This row covers `CTMLE(strategy="oat")`, whose treatment mechanism is fitted on the vector of
+This study validates `CTMLE(strategy="oat")`, whose treatment mechanism is fitted on the vector of
 arm-specific outcome-regression predictions rather than on a selected subset of the original
-covariates. The bounded implementation witness uses archived tlverse
+covariates. The canonical comparison uses archived tlverse
 [`ctmle3`](https://github.com/tlverse/ctmle3) 0.1.0 at commit
-[`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea),
-with contemporaneous `tmle3` at
-[`3a61005`](https://github.com/tlverse/tmle3/tree/3a610058cd89c17bb417c15fc891254388787f33) and `sl3` at
-[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc).
+[`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea), with
+contemporaneous `tmle3` at
+[`3a61005`](https://github.com/tlverse/tmle3/tree/3a610058cd89c17bb417c15fc891254388787f33) and
+`sl3` at
+[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc). The
+theory is Ju et al. (2019).
 
-Both sides receive the same binary samples and exact truths, fit the same three-covariate
-logistic outcome regression, and use the archived non-cross-fitted OAT construction. The report
-checks both treatment-specific means, ATE, marginal risk ratio, and marginal odds ratio. Ratio
-standard errors and intervals use their log-scale delta-method curves. Cleverly's public
-cross-fitted generated-regressor behavior is tested independently rather than attributed to the
-archived implementation.
+### What was compared
+
+| setting | `cleverly` | R `ctmle3` |
+| --- | --- | --- |
+| construction | outcome-adaptive, non-cross-fitted | the archived non-cross-fitted OAT construction |
+| datasets | binary samples generated in Python with exact truths | the identical rows |
+| outcome regression | three-covariate logistic GLM | the same three-covariate logistic GLM |
+| estimands | both treatment-specific means, ATE, marginal RR, marginal OR | the same |
+| ratio scale | log, delta-method curves | log, delta-method curves |
+| propensity bounds | 0.025 to 0.975 | no truncation of its own |
+
+The bound difference is declared rather than hidden. On this law the true propensity spans 0.085 to
+0.904, so the bound is never active and no paired comparison is affected. The manifest's `g_bounds`
+entry therefore describes the subject's setting and not a shared one.
+
+### Accuracy against known truth
+
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `ate` | average treatment effect | `cleverly` outcome-adaptive C-TMLE | -0.0031 to 0.0024 | 0.9425 | 0.9787 | pass |
+| binary-outcome law | `ate` | average treatment effect | R `ctmle3` | -0.0032 to 0.0024 | 0.9425 | 0.9785 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` outcome-adaptive C-TMLE | -0.000870 to 0.0031 | 0.9625 | 1.0049 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | R `ctmle3` | -0.000869 to 0.0031 | 0.9625 | 1.0049 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` outcome-adaptive C-TMLE | -0.0013 to 0.0028 | 0.9475 | 0.9814 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | R `ctmle3` | -0.0013 to 0.0028 | 0.9475 | 0.9813 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | `cleverly` outcome-adaptive C-TMLE | -0.0117 to 0.0115 | 0.9437 | 0.9808 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | R `ctmle3` | -0.0117 to 0.0114 | 0.9437 | 0.9806 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | `cleverly` outcome-adaptive C-TMLE | -0.0070 to 0.0055 | 0.9475 | 0.9865 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | R `ctmle3` | -0.0070 to 0.0055 | 0.9463 | 0.9864 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `ate` | average treatment effect | 0.000005 | 0.0011 | 1.0003 | 0 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 3.839e-08 | 0.000012 | 1.0005 | 0 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 0.000005 | 0.0016 | 1.0002 | 0 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000043 | 0.0011 | 1.0004 | 0 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 0.000014 | 0.000940 | 1.0004 | 0.0012 | pass |
+<!-- /generated -->
+
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `crossfit_overfitting` | `cross_fitted_oat` | positive | outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9826 to 1.1711 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.5116 to 0.6100 | pass |
+| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9042 to 1.0047 | pass |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9396 to 1.0430 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9506 to 1.0250 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin | bias -0.0048 to 0.0075, margin 0.0206 | pass |
+| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin | bias -0.3084 to -0.2904, margin 0.0302 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0027, coverage 0.9136 to 0.9585, SE ratio 0.9667 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias 0.0019, coverage 0.9194 to 0.9627, SE ratio 0.9687 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0011, coverage 0.9238 to 0.9657, SE ratio 0.9542 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5287 to -0.4651 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5033 to -0.5011 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0725, 0.0509 to 0.0994 | pass |
+<!-- /generated -->
 
 ### Measured values
+
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -796,192 +970,132 @@ archived implementation.
 | `margin:overfit_coverage_gain` | 0.1500 | cross-fit coverage-gain lower limit |
 | `margin:generated_design_deficit` | 0.0100 | smallest paired SE-ratio deficit the control must establish |
 
-### Statistical claims and limitations
+### Limitations
 
-OAT deliberately has a narrower robustness contract than selector C-TMLE. With the outcome
-regression correct, its bias interval must fit inside the same equivalence margin; with that
-regression wrong, the negative control must be discriminated outside it. No treatment-correct-only
-claim is made because OAT's mechanism is a projection on the generated outcome-regression design,
-not a fit of treatment on the original covariates. Root-n, efficiency, calibration, null, and power
-cells check the remaining first-order report. A fully grown tree then makes overfitting visible:
-cross-fitted OAT must restore the SE ratio, the in-sample control must retain its underestimated
-spread, and the paired coverage-gain lower bound must clear the declared threshold.
+| limitation | what it means for use |
+| --- | --- |
+| OAT has a narrower robustness contract than selector C-TMLE | With the outcome regression correct, the bias interval must fit inside the equivalence margin. With it wrong, the control must be discriminated outside it. No treatment-correct-only claim is made, because OAT's mechanism is a projection on the generated outcome-regression design rather than a fit of treatment on the original covariates |
+| The reported interval omits the adaptive-`g` term | OAT fits the treatment mechanism on `Qbar`, so when `Qbar` is estimated the model class `g` is chosen from is random too, and the influence curve does not see that. The `generated_design` cells measure the consequence: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio` |
+| Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. The omission is worth a few percent of a reported standard error and does not show up as invalid coverage |
+| The design control's margin is a floor on a defect, not a tolerance | If the reported covariance is ever made to carry this term, the control stops being discriminated and this row goes red. That is the correct signal that the limitation has gone stale, rather than a regression |
+| The cross-fit overfitting cells are relative evidence | A fully grown tree on this law carries `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations of nuisance bias. The cell is gated on its SE ratio and on the paired gain rather than on the coverage floor. The primary GLM study carries the absolute gate |
+| The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. The archived stack fails the analogous continuous law because its length-two outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation and not a dropped replication. The row does not establish continuous or multi-arm parity, missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner libraries, or severe practical-positivity behaviour. Cross-fitted public behaviour rests on the property study |
 
-That cross-fitted arm's measured coverage is evidence of *relative* recovery and of a calibrated
-influence-curve scale, not a separate absolute coverage claim: a fully grown tree on this law
-carries `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard
-deviations of nuisance bias, which is why the cell is gated on its SE ratio and on the paired
-gain rather than on the coverage floor. The primary GLM study carries the absolute gate.
+A nonparametric bootstrap reruns the whole construction and so carries the omitted terms. It was
+measured on this law and did not improve calibration over the reported interval, so it is not
+presented here as a remedy.
 
-### What the reported interval leaves out
+### Reproduction
 
-OAT fits the treatment mechanism on `Qbar` itself, so when `Qbar` is estimated the *model
-class* `g` is chosen from is random too, and the influence curve does not see that. The
-`generated_design` cells measure the consequence directly: one law, one set of draws, and a
-single difference between the two cells -- whether `Qbar` moves.
-
-With the design pinned at the truth the SE ratio is
-`properties[generated_design/oracle_design]:se_ratio`, with a 99% interval from
-`properties[generated_design/oracle_design]:se_ratio_ci_lower` to
-`properties[generated_design/oracle_design]:se_ratio_ci_upper`, inside the calibration band.
-With it estimated the ratio is `properties[generated_design/estimated]:se_ratio`. **Neither
-interval on its own excludes 1**, and that is the honest statement about absolute calibration
-at this budget: an SE ratio's Monte Carlo error is dominated by the empirical spread in its
-denominator, which at these replication counts is worth about two percent on its own.
-
-The *paired* difference is what resolves, because the two cells share their draws and that
-common denominator error cancels rather than being counted twice. It runs from
-`properties[generated_design/estimated]:se_ratio_deficit_lower` to
-`properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. So the
-omission is real, and it is worth a few percent of a reported standard error -- not a defect
-that shows up as invalid coverage. The primary cells, the calibration cell and the coverage
-floor all clear their gates, and this row does not claim otherwise in either direction.
-
-The margin on that control is a floor on a defect rather than a tolerance for one. If the
-reported covariance is ever made to carry this term, the control stops being discriminated and
-this row goes red -- which is the correct signal that the limitation documented here has gone
-stale, rather than a regression.
-
-The wider contract is the ordinary one and is worth restating where a reader meets it: what is
-reported is the cross-fitted EIF covariance evaluated at the estimated nuisances. It does not
-add the adaptive-`g` influence term from the collaborative-double-robust theorem, and the
-cells above are what put a measured size on one part of that gap rather than leaving it as a
-caveat. A nonparametric bootstrap reruns the whole construction and so carries the omitted
-terms, but it was measured on this law and did not improve calibration over the reported
-interval, so it is not presented here as a remedy.
-
-One configuration difference is declared rather than hidden. Cleverly bounds the propensity to
-0.025--0.975 and the archived R path applies no truncation of its own, so the manifest's
-`g_bounds` entry describes the subject's setting and not a shared one. On this law the true
-propensity spans 0.085 to 0.904, so the bound is never active and no paired comparison is
-affected by it -- which is the reason it is recorded as a difference rather than treated as a
-reason to exclude a cell.
-
-The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/replicates.csv.gz),
-[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/equivalence.csv),
-[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/properties.csv),
-[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/manifest.json),
-and [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/README.md)
-record the results, provenance, and regeneration commands.
-
-The parity claim is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. During
-feasibility work, the archived stack failed the analogous continuous law because its length-two
-outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation,
-not a dropped replication. The row does not establish continuous parity, multi-arm parity,
-missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner
-libraries, or severe practical-positivity behavior. Cross-fitted public behavior is supported by
-the property study, not by the archived parity result.
+The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/README.md)
+and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/manifest.json)
+record the provenance and the regeneration commands. The
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/equivalence.csv)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/properties.csv)
+carry every published row.
 
 ## End-of-study longitudinal TMLE
 
-This row covers the two-time-point intervention-specific mean identified by the sequential
-g-formula, with monotone censoring and both static and dynamic plans. The parameter, longitudinal
-double-robustness claim, and efficient influence curve follow Bang and Robins (2005), van der Laan
-and Gruber (2012), and Petersen et al. (2014). The implementation comparison uses the canonical R
-[`ltmle`](https://www.jstatsoft.org/article/view/v081i01) package at version 1.3-0; agreement with R
-is secondary to the finite-support functional and Gateaux EIF in
+This study validates `cleverly`'s two-time-point intervention-specific mean, identified by the
+sequential g-formula, with monotone censoring and both static and dynamic plans. The canonical
+comparison uses R [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0. The parameter,
+the longitudinal double-robustness claim, and the efficient influence curve follow Bang and Robins
+(2005), van der Laan and Gruber (2012), and Petersen et al. (2014).
+
+Agreement with R is secondary to the finite-support functional and Gateaux EIF in
 [`tests/discrete_law_longitudinal.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/discrete_law_longitudinal.py).
 
-### Matched implementation comparison
+### What was compared
 
-Python draws 1,600 censored samples and hands the same rows to cleverly and R. Each implementation
-reports the means under never treatment, always treatment, and the dynamic plan “treat, then
-continue if L2 is positive,” plus the always-minus-never and dynamic-minus-never contrasts. Both
-receive the generating treatment and censoring probabilities, follower-stratified quasibinomial
-sequential regressions, nonbinding cumulative-g bounds, pointwise 95% intervals, and influence-curve
-variance. R is invoked once per regimen; contrast standard errors use the difference of the two
-rowwise influence curves, preserving covariance.
+| setting | `cleverly` | R `ltmle` |
+| --- | --- | --- |
+| datasets | 1,600 censored samples generated in Python | the identical rows |
+| plans | never treat, always treat, and "treat, then continue if L2 is positive" | the same three, invoked once per regimen |
+| contrasts | always-minus-never and dynamic-minus-never | the same, from the difference of the two rowwise influence curves so covariance is preserved |
+| mechanisms | the generating treatment and censoring probabilities | the same |
+| sequential regressions | follower-stratified quasibinomial | the same |
+| cumulative-g bounds | nonbinding | nonbinding |
+| intervals | pointwise 95% identity-scale Wald, influence-curve variance | the same, `variance.method="ic"` |
 
-The paired mean discrepancies are numerical-solver scale rather than statistical scale: the
-largest share of the declared similarity margin used is `max_margin_utilization`. Each
+The paired discrepancies are numerical-solver scale rather than statistical scale. Each
 implementation is also tested against quadrature truth on its own, and both verdicts are carried
-beside the paired one rather than folded into it; a regeneration fails if either is false. Note
-that the quadrature truth the R rows are scored against comes from this package's own
-`cleverly.datasets.longitudinal`, so the reference's truth column is not independent of this
-codebase. What makes it usable is that the quadrature is checked separately, against Monte Carlo
-and by node refinement, in `tests/unit/test_datasets_longitudinal.py`.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.csv.gz),
-[paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/equivalence.csv),
-and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/manifest.json)
-carry the samples' results, package checksum, R image digest, source commit, formulas, seeds, and
-artifact hashes.
+beside the paired one. A regeneration fails if either is false.
 
-### What the agreement does and does not witness
+### Accuracy against known truth
 
-Agreement this close is a strong statement about the sequential regressions, the follower and
-censoring masks, the cumulative mechanism product, and the influence curve. It is a weaker
-statement about the targeting step than five passing comparisons suggest, and the section says so
-rather than leaving a reader to infer it.
+<!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` | -0.0025 to 0.0015 | 0.9413 | 0.9890 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `ltmle` | -0.0025 to 0.0015 | 0.9413 | 0.9890 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` | -0.0025 to 0.0016 | 0.9387 | 0.9943 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `ltmle` | -0.0025 to 0.0016 | 0.9387 | 0.9943 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` | -0.0015 to 0.000862 | 0.9506 | 1.0130 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `ltmle` | -0.0015 to 0.000862 | 0.9506 | 1.0130 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` | -0.0015 to 0.0018 | 0.9450 | 0.9710 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `ltmle` | -0.0015 to 0.0018 | 0.9450 | 0.9710 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` | -0.0016 to 0.0010 | 0.9469 | 0.9854 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `ltmle` | -0.0016 to 0.0010 | 0.9469 | 0.9854 | pass |
+<!-- /generated -->
 
-Two measurements. First, `initial_estimate` is the earlier node's regression of the *already
-targeted* later node — R's `fit$Q[[1]]` regresses the updated `Q.kplus1`, and cleverly's first
-step does the same — so `max_targeting_displacement` and `median_targeting_displacement`, the
-distance from the plug-in in units of the estimate's own standard error, measure the final
-fluctuation only. Second, and this is the substantive one: a plug-in built from the same two
-regressions with *no* fluctuation at either node still clears both acceptance gates on
-`ey_regimen[never]`, `ey_regimen[always]`, and `ate_regimen[always vs never]`. Only the two
-estimands carrying the dynamic rule separate it.
+### Agreement with the canonical implementation
 
-So the targeting evidence in this row is the dynamic plan and the `targeting_necessity` property
-cells below, not the count of paired comparisons.
-`tests/e2e/test_ltmle_targeting_slow.py` builds that untargeted plug-in and asserts exactly which
-estimands survive, so the limitation is measured on every run rather than described once.
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.101e-10 | 4.449e-08 | 1.0000 | 0 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 6.175e-12 | 1.283e-09 | 1.0000 | 0 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 8.850e-11 | 3.180e-08 | 1.0000 | 0 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -1.216e-10 | 3.133e-08 | 1.0000 | 0 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -1.155e-10 | 3.766e-08 | 1.0000 | 0 | pass |
+<!-- /generated -->
 
-### Independent statistical properties
+### Theory properties
+
+<!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `double_robustness` | `dynamic__both_correct` | positive | dynamic plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0019 to 0.0017, margin 0.0062 | pass |
+| `double_robustness` | `dynamic__both_wrong` | control | dynamic plan: both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0146 to 0.0188, margin 0.0070 | pass |
+| `double_robustness` | `dynamic__mechanism_correct` | positive | dynamic plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin | bias -0.0016 to 0.0022, margin 0.0064 | pass |
+| `double_robustness` | `dynamic__outcome_correct` | positive | dynamic plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0020 to 0.0017, margin 0.0062 | pass |
+| `double_robustness` | `static__both_correct` | positive | static plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0055 to 0.0030, margin 0.0142 | pass |
+| `double_robustness` | `static__both_wrong` | control | static plan: both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.0288 to -0.0201, margin 0.0146 | pass |
+| `double_robustness` | `static__mechanism_correct` | positive | static plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin | bias -0.0036 to 0.0053, margin 0.0149 | pass |
+| `double_robustness` | `static__outcome_correct` | positive | static plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0040 to 0.0049, margin 0.0151 | pass |
+| `interval_calibration` | `dynamic__correctly_specified` | positive | dynamic plan: both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9552 to 1.0280 | pass |
+| `interval_calibration` | `dynamic__noise_control` | control | dynamic plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | SE ratio 0.6883 to 0.7404 | pass |
+| `interval_calibration` | `dynamic__shrunken_se_control` | control | dynamic plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | SE ratio 0.6689 to 0.7186 | pass |
+| `interval_calibration` | `static__correctly_specified` | positive | static plan: both nuisances are correct, so theory promises the efficient variance | SE ratio, coverage and efficiency ratios all inside their calibration bands | SE ratio 0.9671 to 1.0399 | pass |
+| `interval_calibration` | `static__noise_control` | control | static plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | SE ratio 0.6838 to 0.7375 | pass |
+| `interval_calibration` | `static__shrunken_se_control` | control | static plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | SE ratio 0.6779 to 0.7281 | pass |
+| `power` | `static__alternative` | positive | static plan: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9700, 0.9508 to 0.9833 | pass |
+| `root_n_and_efficiency` | `dynamic__n_2000` | positive | dynamic plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000406, coverage 0.9282 to 0.9688, SE ratio 0.9811 | pass |
+| `root_n_and_efficiency` | `dynamic__n_500` | control | dynamic plan: bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias -0.0020, coverage 0.8822 to 0.9353, SE ratio 0.8963 | pass |
+| `root_n_and_efficiency` | `dynamic__n_8000` | positive | dynamic plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000337, coverage 0.9326 to 0.9717, SE ratio 1.0063 | pass |
+| `root_n_and_efficiency` | `static__n_2000` | positive | static plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000474, coverage 0.9020 to 0.9502, SE ratio 0.9707 | pass |
+| `root_n_and_efficiency` | `static__n_500` | control | static plan: bias, coverage and SE calibration at n = 500 | positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. the coverage interval need only resolve clear of nominal on one side | bias -0.0011, coverage 0.8682 to 0.9244, SE ratio 0.8792 | pass |
+| `root_n_and_efficiency` | `static__n_8000` | positive | static plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000085, coverage 0.9208 to 0.9637, SE ratio 0.9884 | pass |
+| `root_n_rate` | `dynamic__empirical_sd` | positive | dynamic plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5581 to -0.4904 | pass |
+| `root_n_rate` | `dynamic__reported_se` | positive | dynamic plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4857 to -0.4776 | pass |
+| `root_n_rate` | `static__empirical_sd` | positive | static plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5482 to -0.4841 | pass |
+| `root_n_rate` | `static__reported_se` | positive | static plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4786 to -0.4694 | pass |
+| `targeting_necessity` | `dynamic__targeted` | positive | dynamic plan: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0014 to 0.0023, margin 0.0063 | pass |
+| `targeting_necessity` | `dynamic__untargeted` | control | dynamic plan: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias 0.0239 to 0.0282, margin 0.0073 | pass |
+| `targeting_necessity` | `static__targeted` | positive | static plan: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0018 to 0.0068, margin 0.0143 | pass |
+| `targeting_necessity` | `static__untargeted` | control | static plan: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0242 to -0.0156, margin 0.0144 | pass |
+| `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0700, 0.0488 to 0.0965 | pass |
+<!-- /generated -->
 
 The property study samples the exact binary support law rather than the continuous comparison law.
-Its longhand functional supplies exact static and dynamic truths, and its Gateaux derivative supplies
-the efficiency bound without reading either estimator. The double-robust cells fit all sequential Q
-regressions correctly, all treatment-and-censoring regressions correctly, both, or neither. The first
-three must place their 99% bias interval inside 0.25 empirical standard deviations; both-wrong must
-place it outside by the same instrument.
-
-The `targeting_necessity` cells hold the outcome model at a constant and the mechanism at the
-saturated fit, which is the configuration where the fluctuation does all the adjusting. Each
-contrast is reported twice off the same draw: as the estimator computes it, and as the identical
-backward recursion computes it with no fluctuation at either node. The targeted arm must place its
-bias inside the equivalence margin and the plug-in must place its outside, and the pair must
-additionally move apart by at least `margin:targeting_displacement` empirical standard deviations
-— without that clause a targeting step that did nothing would satisfy both arms by making them the
-same number.
-
-Root-n contraction is measured across n=500, 2,000, and 8,000 for both contrasts. The n=500 cells
-are controls whose inference the row does not claim: each must *resolve*, placing its exact 99%
-coverage interval clear of nominal on one side or the other. Below is a small-sample limitation
-established and published; at or above the floor is the estimator turning out to be adequate there,
-which is a result rather than a failure. Only an interval straddling nominal fails, because it is
-the one outcome that says nothing. At n=2,000 and n=8,000 the positive inference cells clear the
-coverage floor, while the three-size empirical and reported-SE slopes satisfy the root-n margin
-and exclude -1/4. The dedicated n=2,000 calibration cells additionally compare empirical and reported
-spread with the exact EIF bound; all three ratios are resampled on one set of draws, so the
-identity between them holds interval by interval. Multiplying standard errors by 0.70 and adding one
-efficiency-bound unit of independent noise are registered controls and must fail in their predicted
-directions.
-
-The sharp-null law replaces the outcome probabilities on the cells the contrasted plans traverse
-and nothing else, so it shares this law's treatment, censoring, and L2 mechanisms exactly. L2 still
-moves the outcome from 0.25 to 0.75, censoring is still informative through it, and the first arm
-still matters, so the null is one an estimator has to work for: a baseline-only standardisation
-returns -0.0088 rather than the truth. Both contrasts are exactly zero under it; only the static
-one is registered as a cell, because a type-I cell needs a nonzero-effect power control and the
-dynamic contrast's power at n=4,000 is near 0.43 against a floor of 0.80. The alternative is the
-original finite law, whose static contrast is exactly 0.15625. The type-I cell is a calibration
-claim about the adjusted test; discrimination between a correct and an incorrect adjustment lives
-in the double-robustness controls, not here.
-
-Against this harder null the test over-rejects mildly, and the row says so rather than reporting
-only that its gate passed. The rate is 0.0700 at n=4,000 on 800 replications, about 2.6 Monte
-Carlo standard errors above nominal, and coverage in the same cell is 0.9300. The one-sided bound
-of 0.0965 clears the predeclared ceiling of 0.1000, so the cell passes, but it passes with roughly
-three rejections to spare and the point estimate is genuinely above 0.05. This is the same
-finite-sample story the n=500 control tells: the influence-curve standard error is slightly
-optimistic here, and it is being published rather than absorbed. The previous, degenerate null
-reported 0.0575 — lower, and about a law that required no longitudinal adjustment at all.
+Its longhand functional supplies exact static and dynamic truths, and its Gateaux derivative
+supplies the efficiency bound without reading either estimator.
 
 ### Measured values
 
-Names beginning `margin:` are predeclared thresholds; all other values are resolved from the committed
-artifacts and checked at the precision printed.
+Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
+the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -1046,20 +1160,38 @@ artifacts and checked at the precision printed.
 | `margin:shrunken_se_factor` | 0.7000 | deliberate SE mutation factor |
 | `margin:targeting_displacement` | 0.2500 | least the fluctuation must move the estimate |
 
-### Claim boundary
+### Limitations
+
+| limitation | what it means for use |
+| --- | --- |
+| The static paired comparisons do not witness targeting | A plug-in built from the same two regressions with no fluctuation at either node still clears both acceptance gates on `ey_regimen[never]`, `ey_regimen[always]`, and `ate_regimen[always vs never]`. Only the two estimands carrying the dynamic rule separate it. The targeting evidence in this row is the dynamic plan and the `targeting_necessity` cells, not the count of paired comparisons. `tests/e2e/test_ltmle_targeting_slow.py` asserts exactly which estimands survive, so the limitation is measured on every run |
+| `initial_estimate` measures the final fluctuation only | The earlier node's regression is of the *already targeted* later node. R's `fit$Q[[1]]` regresses the updated `Q.kplus1` and `cleverly`'s first step does the same. So `max_targeting_displacement` and `median_targeting_displacement` measure the last fluctuation rather than the whole targeting step |
+| The reference's truth column is not independent of this codebase | The quadrature truth the R rows are scored against comes from `cleverly.datasets.longitudinal`. What makes it usable is that the quadrature is checked separately, against Monte Carlo and by node refinement, in `tests/unit/test_datasets_longitudinal.py` |
+| The test over-rejects mildly under the harder null | The rate is 0.0700 at n=4,000 on 800 replications, about 2.6 Monte Carlo standard errors above nominal, and coverage in the same cell is 0.9300. The one-sided bound of 0.0965 clears the predeclared ceiling of 0.1000, so the cell passes, but with roughly three rejections to spare and a point estimate genuinely above 0.05. The influence-curve standard error is slightly optimistic here, and this is published rather than absorbed |
+| The n=500 cells are controls whose inference the row does not claim | Each must *resolve*, placing its exact 99% coverage interval clear of nominal on one side or the other. Below the floor is a published small-sample limitation; at or above it is the estimator turning out to be adequate. Only a straddling interval fails, because it is the one outcome that says nothing |
+| Positivity is comfortable throughout | The smallest cumulative mechanism product on the comparison law sits between 0.006 and 0.03, and the property law bounds every conditional into [0.25, 0.75]. No cell here speaks to near-positivity behaviour or to an active bound |
+| The row is bounded to end-of-study outcomes without cross-fitting | It excludes survival, competing risks, longitudinal MSMs, observation weights, clustering, simultaneous bands, flexible learning, cross-fitting, active truncation, and R parity for learned mechanisms. Those are different estimators or compositions and require their own studies |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
 positivity, and conditionally independent censoring. Single-correct-nuisance cells establish
-consistency only; calibrated influence-curve inference is claimed where both nuisance sequences are
+consistency only. Calibrated influence-curve inference is claimed where both nuisance sequences are
 correct.
 
-Two limits are internal to the evidence rather than to the estimator. The targeting step is
-witnessed by the dynamic plan and by the `targeting_necessity` cells, not by the three static
-paired comparisons, which an untargeted plug-in also passes. And positivity is comfortable
-throughout: the smallest cumulative mechanism product on the comparison law sits between 0.006 and
-0.03, and the property law bounds every conditional into [0.25, 0.75], so no cell here speaks to
-near-positivity behaviour or to an active bound.
+### Reproduction
 
-This row excludes survival, competing risks, longitudinal MSMs, observation weights,
-clustering, simultaneous bands, flexible learning, cross-fitting, active truncation, and R parity
-for learned mechanisms. Those are different estimators or compositions and require their own rows.
+The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/README.md)
+gives the regeneration commands. The
+[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/manifest.json)
+carries the package checksum, R image digest, source commit, formulas, seeds, and artifact hashes.
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.csv.gz),
+[paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/equivalence.csv)
+and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/properties.csv)
+carry every published row.
+
+The sharp-null law replaces the outcome probabilities on the cells the contrasted plans traverse
+and nothing else, so it shares this law's treatment, censoring, and L2 mechanisms exactly. L2 still
+moves the outcome from 0.25 to 0.75, censoring is still informative through it, and the first arm
+still matters. A baseline-only standardisation returns -0.0088 rather than the truth, so the null
+is one an estimator has to work for. Both contrasts are exactly zero under it. Only the static one
+is registered as a cell, because a type-I cell needs a nonzero-effect power control and the dynamic
+contrast's power at n=4,000 is near 0.43 against a floor of 0.80.
