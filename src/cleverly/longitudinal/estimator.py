@@ -975,10 +975,9 @@ class LTMLE:
         standard error to the spread of the estimates was 1.01 at one fold and 1.09 at
         ten.  The intervals are conservative rather than invalid.
 
-        ``msm=`` does not use this construction.  It fits nuisances out of fold and then
-        targets pooled over the whole sample, so it solves its score equation and carries
-        neither property.  The two are different finite-sample estimators of the same
-        parameter.
+        ``msm=`` uses the same construction, one complete alternation per outer fold, so a
+        saturated working model reproduces the regimen means at any fold count and both
+        properties above apply to it too.
     g_bounds:
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair

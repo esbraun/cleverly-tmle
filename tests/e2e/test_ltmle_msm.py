@@ -119,32 +119,85 @@ class TestItReportsTheProjection:
         epsilons = [step.fluctuation.epsilon for fit in result.fits.values() for step in fit.steps]
         assert max(float(np.max(np.abs(eps))) for eps in epsilons) > 1e-8
 
-    def test_the_pooled_score_is_solved_at_every_node(self, fitted: Any) -> None:
-        """The estimating equation the pooled fluctuation exists to zero.
+    @staticmethod
+    def _stitched_score(result: Any, time: int) -> Any:
+        """``sum_i sum_c w_i h(c,V_i) phi(c,V_i) h^c_t(i) (Z - Qbar*)`` at one node.
 
-        At each node, ``sum_i sum_c w_i h(c,V_i) phi(c,V_i) h^c_t(i) (Z - Qbar*) = 0``,
-        summed over the units that *followed* -- one equation per term, shared across the
-        cells. Checked on ordinary data rather than on the exact law, and deliberately:
-        there the initial fit is exact, so the score is zero before targeting and this
-        would pass however the fluctuation were written. It is what catches an ``at_risk``
-        mask where ``trained_on`` belongs, which the exact law cannot see.
+        One equation per term, shared across the cells, and summed over the units that
+        *followed*. Written out here rather than read off the fluctuation, because what it
+        is used for below is checking the fluctuation's own ``score`` against an
+        independent computation of the same quantity.
         """
-        result, _ = fitted
         model = result.msm
         covariate = model.weighted_design_at(result.msm_fits[0].beta)
         weights = result.data.weights
-        cells = list(model.cells)
+        score = np.zeros(model.n_terms)
+        for index, cell in enumerate(model.cells):
+            step = next(s for s in result.fits[cell.label].steps if s.time == time)
+            residual = step.pseudo_outcome - step.targeted
+            score += np.einsum("i,ip,i->p", weights * step.clever, covariate[:, index, :], residual)
+        return score
+
+    def test_the_pooled_score_is_solved_at_every_node(self) -> None:
+        """The estimating equation the pooled fluctuation exists to zero.
+
+        Checked on ordinary data rather than on the exact law, and deliberately: there the
+        initial fit is exact, so the score is zero before targeting and this would pass
+        however the fluctuation were written. It is what catches an ``at_risk`` mask where
+        ``trained_on`` belongs, which the exact law cannot see.
+
+        At ``n_folds=1``, because that is where this equation is the one a solver was
+        posed. Above one fold each outer fold solves its own on its own training rows, and
+        what the stitched fit is left with is a residual rather than a root -- the two
+        tests below are that claim, split the way ``tests/e2e/test_ltmle.py`` splits it for
+        the regimen means.
+        """
+        frame, _ = make_longitudinal(n=3000, seed=0)
+        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **{**FAST, "n_folds": 1}).fit(
+            frame, **COLUMNS
+        )
+        model = result.msm
+        covariate = model.weighted_design_at(result.msm_fits[0].beta)
+        scale = float(np.sum(result.data.weights * np.abs(covariate).max(axis=(1, 2))))
         for time in (1, 2):
-            score = np.zeros(model.n_terms)
-            for index, cell in enumerate(cells):
-                key = cell.label
-                step = next(s for s in result.fits[key].steps if s.time == time)
-                residual = step.pseudo_outcome - step.targeted
-                score += np.einsum(
-                    "i,ip,i->p", weights * step.clever, covariate[:, index, :], residual
-                )
-            scale = float(np.sum(weights * np.abs(covariate).max(axis=(1, 2))))
-            np.testing.assert_allclose(score / scale, np.zeros(model.n_terms), atol=1e-9)
+            np.testing.assert_allclose(
+                self._stitched_score(result, time) / scale, np.zeros(model.n_terms), atol=1e-9
+            )
+
+    def test_every_fold_solved_the_equation_it_was_posed(self, fitted: Any) -> None:
+        result, _ = fitted
+        for time in (1, 2):
+            step = next(s for s in result.fits["always"].steps if s.time == time)
+            assert step.fluctuation.folds
+            assert all(record.converged for record in step.fluctuation.folds)
+            for record in step.fluctuation.folds:
+                assert float(np.max(np.abs(record.score))) < 1e-9
+
+    def test_the_reported_score_is_the_score_of_the_reported_fit(self, fitted: Any) -> None:
+        """What the aggregated node fluctuation carries is the *stitched* score.
+
+        Independent of the fluctuation: the left side is built from the step arrays and the
+        model's own weighted design, the right side is what the aggregation computed. They
+        agree only if the aggregation stacked the cells, the loss weights and the mask the
+        way the pooled solve did.
+
+        The identity link is what makes them comparable at all -- ``weighted_design_at``
+        reads the *reported* beta, and above one fold each fold fluctuated at its own, so
+        under a link the two sides are covariates built at different coefficients.
+        """
+        result, _ = fitted
+        assert result.msm.link == "identity"
+        # `Fluctuation.score` is a *mean* over the stacked rows, and every cell is live at
+        # both nodes of an end-of-study fit, so the divisor is `C * n`.
+        stacked = result.msm.n_cells * result.n
+        for time in (1, 2):
+            step = next(s for s in result.fits["always"].steps if s.time == time)
+            np.testing.assert_allclose(
+                self._stitched_score(result, time) / stacked,
+                np.asarray(step.fluctuation.score),
+                rtol=1e-10,
+                atol=1e-16,
+            )
 
     def test_the_report_carries_no_contrast(self, fitted: Any) -> None:
         """A working model reports coefficients; a difference of two is ``contrast()``."""
@@ -162,21 +215,23 @@ class TestItReportsTheProjection:
         )
 
 
-#: The saturated-model identity is an algebraic one, and it holds where the two paths run
-#: the *same* construction.  With ``n_folds=1`` they do.  Above one fold they do not -- see
-#: :class:`TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic` -- so the identity is
-#: pinned here at the fold count that makes it a statement about the working model rather
-#: than about cross-fitting.
-POOLED: dict[str, Any] = {**FAST, "n_folds": 1}
+#: The fold counts the saturated identity is pinned at.  One fold and three, because the
+#: identity is a statement about the *working model* and it must not become a statement
+#: about cross-fitting: it held at one fold and failed at three for as long as ``msm=``
+#: ran a different construction from the regimen means, and pinning only the fold count
+#: that passed is how that went unnoticed.
+FOLD_COUNTS = [1, 3]
 
 
 class TestASaturatedModelIsThePerRegimenReport:
-    def test_every_coefficient_is_its_regimen_s_mean(self) -> None:
+    @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
+    def test_every_coefficient_is_its_regimen_s_mean(self, n_folds: int) -> None:
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never", "early")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **POOLED).fit(frame, **COLUMNS)
-        model = LTMLE(spec, msm=saturated(labels), **POOLED).fit(frame, **COLUMNS)
+        settings = {**FAST, "n_folds": n_folds}
+        plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
+        model = LTMLE(spec, msm=saturated(labels), **settings).fit(frame, **COLUMNS)
         for label in labels:
             expected = plain[f"ey_regimen[{label}]"]
             got = model[f"msm_regimen[{label}]"]
@@ -188,16 +243,24 @@ class TestASaturatedModelIsThePerRegimenReport:
                 atol=1e-12,
             )
 
-    def test_it_holds_through_a_link(self) -> None:
+    @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
+    def test_it_holds_through_a_link(self, n_folds: int) -> None:
         """Which is what says a link is a reparameterisation rather than a second
-        estimator: ``expit(beta_r)`` is the regimen's mean."""
+        estimator: ``expit(beta_r)`` is the regimen's mean.
+
+        Above one fold each outer fold alternates to its *own* ``beta`` on its training
+        rows, so this also says the reported coefficient is the projection of the stitched
+        fit rather than any fold's -- if it were a fold's, or an average of them, the
+        identity would miss by the spread across folds.
+        """
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **POOLED).fit(frame, **COLUMNS)
+        settings = {**FAST, "n_folds": n_folds}
+        plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
         design = saturated(labels)
         linked = LTMLE(
-            spec, msm=MSM(design=design.design, terms=labels, link="logit"), **POOLED
+            spec, msm=MSM(design=design.design, terms=labels, link="logit"), **settings
         ).fit(frame, **COLUMNS)
         for label in labels:
             beta = linked[f"msm_regimen[{label}]"].psi
@@ -206,54 +269,84 @@ class TestASaturatedModelIsThePerRegimenReport:
             )
 
 
-class TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic:
-    """Above one fold, ``msm=`` and the regimen means run different constructions.
+class TestTheWorkingModelHasTheSameLeakageBoundary:
+    """A held-out outcome cannot reach any prediction used for its own row.
 
-    The regimen-mean path runs one complete backward recursion per outer fold and stitches
-    held-out rows.  The working-model path fits nuisances out of fold and then targets the
-    declared cells *pooled* over the whole sample, because a fold-specific pooled-regimen
-    recursion is not implemented.  Both estimate the same parameter and both are valid.
-    They are not the same finite-sample estimator, so the saturated identity above is a
-    ``n_folds=1`` statement and this is what replaces it above one fold.
-
-    Written as a test rather than left to a docstring because the identity holding at one
-    fold and failing at three is exactly the kind of difference a reader assumes away.
+    The same claim ``test_each_row_uses_one_complete_outer_training_recursion`` makes for
+    the regimen means, made again here because the working model reaches ``prepare_node``
+    by its own route: through the pooled node fluctuation, which stacks every live cell,
+    and under a link through an alternation whose ``beta`` the covariate reads.  A ``beta``
+    solved on the whole sample would break this while leaving every other test passing.
     """
 
-    LABELS: ClassVar[tuple[str, ...]] = ("always", "never", "early")
+    LABELS: ClassVar[tuple[str, ...]] = ("always", "never")
 
-    @staticmethod
-    def _pair(seed: int) -> tuple[Any, Any]:
-        frame, _ = make_longitudinal(n=1500, seed=seed)
-        labels = TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic.LABELS
-        spec = {label: SPEC[label] for label in labels}
-        return (
-            LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS),
-            LTMLE(spec, msm=saturated(labels), **FAST).fit(frame, **COLUMNS),
+    def _fit(self, frame: Any, link: str) -> Any:
+        spec = {label: SPEC[label] for label in self.LABELS}
+        design = saturated(self.LABELS)
+        return LTMLE(spec, msm=MSM(design=design.design, terms=self.LABELS, link=link), **FAST).fit(
+            frame, **COLUMNS
         )
 
-    @pytest.mark.parametrize("seed", [1, 2, 3, 4, 5])
-    def test_they_agree_inside_sampling_noise(self, seed: int) -> None:
-        """Measured at ``n=1500`` over these five seeds: the largest ``|gap| / se`` was
-        0.6854 (seed 1, ``early``) and the smallest 0.2064 (seed 2).  The bound is set
-        above the measured worst case rather than at it, because this is a consistency
-        check across two constructions and not a calibration assertion.
-        """
-        plain, model = self._pair(seed)
-        for label in self.LABELS:
-            expected = plain[f"ey_regimen[{label}]"]
-            got = model[f"msm_regimen[{label}]"]
-            assert abs(got.psi - expected.psi) < 1.5 * expected.std_error
+    @pytest.mark.parametrize("link", ["identity", "logit"])
+    def test_a_held_out_outcome_does_not_move_its_own_row(self, link: str) -> None:
+        frame, _ = make_longitudinal(n=600, seed=3)
+        row = int(np.flatnonzero(frame["Y"].notna().to_numpy())[0])
+        original = self._fit(frame, link)
+        changed = frame.copy()
+        changed.loc[row, "Y"] = 1.0 - changed.loc[row, "Y"]
+        perturbed = self._fit(changed, link)
 
-    def test_and_they_are_not_the_same_number(self) -> None:
-        """The nonzero witness.  Without it the bound above would also pass on the
-        identity, and this class would be evidence of nothing."""
-        plain, model = self._pair(1)
+        np.testing.assert_array_equal(original.folds.assignment, perturbed.folds.assignment)
+        for label in self.LABELS:
+            for left, right in zip(
+                original.fits[label].steps, perturbed.fits[label].steps, strict=True
+            ):
+                assert left.initial[row] == right.initial[row]
+                assert left.targeted[row] == right.targeted[row]
+
+    def test_the_perturbation_moves_something(self) -> None:
+        """The nonzero witness. A fit that ignored the outcome entirely would pass the
+        test above, and this is what says the flip was material."""
+        frame, _ = make_longitudinal(n=600, seed=3)
+        row = int(np.flatnonzero(frame["Y"].notna().to_numpy())[0])
+        original = self._fit(frame, "identity")
+        changed = frame.copy()
+        changed.loc[row, "Y"] = 1.0 - changed.loc[row, "Y"]
+        perturbed = self._fit(changed, "identity")
         gaps = [
-            abs(model[f"msm_regimen[{label}]"].psi - plain[f"ey_regimen[{label}]"].psi)
+            abs(original[f"msm_regimen[{label}]"].psi - perturbed[f"msm_regimen[{label}]"].psi)
             for label in self.LABELS
         ]
-        assert max(gaps) > 1e-6
+        assert max(gaps) > 1e-9
+
+
+class TestEachFoldRunsItsOwnAlternation:
+    """Above one fold the record says which fold each coefficient came from."""
+
+    def test_the_alternation_carries_one_record_per_fold(self) -> None:
+        frame, _ = make_longitudinal(n=1500, seed=2)
+        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, link="logit"), **FAST).fit(
+            frame, **COLUMNS
+        )
+        alternation = result.msm_fits[0].alternation
+        assert len(alternation.folds) == result.folds.n_folds
+        assert alternation.converged
+        betas = np.vstack([record.beta for record in alternation.folds])
+        # Each fold saw different rows, so its beta is its own; equal betas would mean the
+        # covariate was built once on the whole sample and handed to every fold.
+        assert float(np.max(np.ptp(betas, axis=0))) > 1e-6
+
+    def test_the_reported_beta_is_the_projection_of_the_stitched_fit(self) -> None:
+        """No fold's beta is *the* answer; the report's is, and the record says so."""
+        frame, _ = make_longitudinal(n=1500, seed=2)
+        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, link="logit"), **FAST).fit(
+            frame, **COLUMNS
+        )
+        fit = result.msm_fits[0]
+        np.testing.assert_allclose(fit.alternation.beta, fit.beta, rtol=0.0, atol=0.0)
+        reported = [result[f"msm_regimen[{term}]"].psi for term in TERMS]
+        np.testing.assert_allclose(fit.beta, reported, rtol=1e-12)
 
 
 class TestALink:
@@ -266,11 +359,16 @@ class TestALink:
         )
         alternation = result.msm_fits[0].alternation
         assert alternation.converged
-        assert alternation.n_outer <= 10
-        # beta reaches the covariate only through the smooth dm/deta, so the shift falls
-        # fast; a loop that merely stopped would show a flat trace.
-        shifts = [row[2] for row in alternation.trace]
-        assert shifts[-1] < 1e-9 < shifts[0]
+        # The outer record's trace is one row per *fold* above one fold, so the rounds it
+        # took are a property of each fold's own alternation and are read from there.
+        assert alternation.folds
+        for record in alternation.folds:
+            assert record.converged
+            assert record.n_outer <= 10
+            # beta reaches the covariate only through the smooth dm/deta, so the shift
+            # falls fast; a loop that merely stopped would show a flat trace.
+            shifts = [row[2] for row in record.trace]
+            assert shifts[-1] < 1e-9 < shifts[0]
 
     def test_the_exponentiated_view_names_what_each_row_is(self) -> None:
         frame, _ = make_longitudinal(n=1000, seed=3)

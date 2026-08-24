@@ -84,10 +84,11 @@ keeping all prior competing events out of later risk sets.
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
 
-This projection accepts `n_folds > 1`. It fits nuisances out of fold and then targets the cells
-pooled over the whole sample. The regimen-mean path instead runs one complete recursion per fold.
-The two are different finite-sample estimators of the same parameter. See
-[longitudinal TMLE](../technical-reference/longitudinal-tmle.md).
+This projection accepts `n_folds > 1` and runs the same construction the regimen means do: one
+complete alternation per outer fold, stitched on held-out rows. A saturated working model therefore
+reproduces the per-regimen report at any fold count. Under a link each fold reaches its own
+coefficient vector, in `result.msm_fits[k].alternation.folds`, and the reported one is the
+projection of the stitched fit.
 
 ## Diagnostics
 

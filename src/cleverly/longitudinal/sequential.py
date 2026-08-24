@@ -917,17 +917,24 @@ class _FoldSolve:
     names: tuple[str, ...]
 
 
-def _aggregate_fold_fluctuations(
+def aggregate_fold_fluctuations(
     solves: Sequence[_FoldSolve],
     *,
-    pseudo_outcome: FloatArray,
+    outcome: FloatArray,
     initial: FloatArray,
     targeted: FloatArray,
-    clever: FloatArray,
-    weights: FloatArray,
-    followers: BoolArray,
+    covariate: FloatArray,
+    loss_weights: FloatArray,
+    mask: BoolArray,
 ) -> Fluctuation:
     r"""Combine outer-training solves without reporting a score that no array has.
+
+    The five arrays are the stitched fit's own, assembled by the caller, because the two
+    callers stack them differently.  A per-regimen node fluctuates by an intercept over
+    ``n`` rows; a working-model node fluctuates by :math:`(dm/d\eta)\varphi` over the ``C``
+    live cells stacked, which is ``C * n`` rows and ``p`` columns.  Taking the arrays rather
+    than rebuilding them here is what lets one aggregation serve both -- the first version
+    hardcoded the intercept, and a second copy is how the two would drift apart.
 
     **The score here is the score of the stitched fit**, computed from the arrays this
     object is returned beside, and not the average of the ``K`` per-fold scores.  Each of
@@ -950,12 +957,6 @@ def _aggregate_fold_fluctuations(
     pooled residual is nonzero is a property of the construction and not a failure.
     """
     masses = np.asarray([solve.mass for solve in solves], dtype=float)
-    covariate = np.ones((weights.shape[0], 1))
-    # The sequential submodel is an intercept and the cumulative inverse probability rides
-    # in the loss weight, so the score's `h` is that intercept and its weights are
-    # `w * clever`.  `clever` is already zero off the followers, which is why the mask can
-    # be the population rather than a second place the same fact is written down.
-    loss_weights = weights * clever
     reasons = [solve.failure or "unknown" for solve in solves]
     failed = [index for index, solve in enumerate(solves) if not solve.record.converged]
     conditions = [solve.hessian_condition for solve in solves]
@@ -970,15 +971,15 @@ def _aggregate_fold_fluctuations(
             dtype=float,
         ),
         targeted=InitialFit(targeted, {_REGIMEN_ARM: targeted}),
-        score=score_columns(pseudo_outcome, targeted, covariate, loss_weights, followers),
+        score=score_columns(outcome, targeted, covariate, loss_weights, mask),
         converged=all(solve.record.converged for solve in solves),
         n_iter=sum(solve.record.n_iter for solve in solves),
         trace=tuple(solve.trace for solve in solves),
         method=solves[0].method,
         names=solves[0].names,
-        score_scale=score_scale(covariate, loss_weights, followers),
+        score_scale=score_scale(covariate, loss_weights, mask),
         folds=tuple(solve.record for solve in solves),
-        score_initial=score_columns(pseudo_outcome, initial, covariate, loss_weights, followers),
+        score_initial=score_columns(outcome, initial, covariate, loss_weights, mask),
         n_solver_calls=len(solves),
         failure=dominant_failure(reasons, failed),
         # Not an average: a condition number says how badly identified the worst solve's
@@ -1064,7 +1065,7 @@ def _fit_regimen_crossfit(
                 )
                 with phase("fluctuation"):
                     # `warn=False`, and the count reported once by
-                    # `_warn_on_fold_convergence`: K folds at T nodes would otherwise emit
+                    # `warn_on_fold_convergence`: K folds at T nodes would otherwise emit
                     # K * T warnings for one problem.
                     fluctuation = solve_fluctuation(
                         node.pseudo_outcome,
@@ -1134,19 +1135,24 @@ def _fit_regimen_crossfit(
             initial=stitched[time]["initial"],
             targeted=stitched[time]["targeted"],
             clever=stitched[time]["clever"],
-            fluctuation=_aggregate_fold_fluctuations(
+            fluctuation=aggregate_fold_fluctuations(
                 fold_solves[time],
-                pseudo_outcome=stitched[time]["pseudo"],
+                outcome=stitched[time]["pseudo"],
                 initial=stitched[time]["initial"],
                 targeted=stitched[time]["targeted"],
-                clever=stitched[time]["clever"],
-                weights=weights,
-                followers=masks.following(time),
+                # The sequential submodel is an intercept and the cumulative inverse
+                # probability rides in the loss weight, so the score's `h` is that
+                # intercept and its weights are `w * clever`.  `clever` is already zero off
+                # the followers, which is why the mask can be the population rather than a
+                # second place the same fact is written down.
+                covariate=intercept,
+                loss_weights=weights * stitched[time]["clever"],
+                mask=masks.following(time),
             ),
         )
         for time in range(1, horizon + 1)
     )
-    _warn_on_fold_convergence(steps, plan)
+    warn_on_fold_convergence([(step.time, step.fluctuation) for step in steps], plan.label)
     psi = float(np.average(steps[0].targeted, weights=data.weights))
     influence = steps[0].targeted - psi
     for step in steps:
@@ -1166,32 +1172,36 @@ def _fit_regimen_crossfit(
     )
 
 
-def _warn_on_fold_convergence(steps: Sequence[SequentialStep], plan: Plan) -> None:
+def warn_on_fold_convergence(nodes: Sequence[tuple[int, Fluctuation]], label: str) -> None:
     """Report the outer folds that did not converge, once, naming the modes.
 
     The per-fold solves run with ``warn=False`` so that ``K`` folds at ``T`` nodes cannot
     emit ``K * T`` warnings for one problem.  That alone would leave a fit able to fail in
     three folds of ten and say nothing at all, because the aggregate ``converged`` is then
     the only place it shows and the pooled score is nonzero on a healthy fit anyway.  So it
-    is said here, once per regimen, which is what
+    is said here, once per regimen or working model, which is what
     :meth:`cleverly.TMLE._solve_by_fold` does for the point-treatment fold-targeting path.
+
+    ``nodes`` is ``(time, aggregated fluctuation)`` rather than the steps it came from, so
+    that the working-model path -- whose one fluctuation per node is shared by every live
+    cell -- says it once for the model rather than once per cell saying the same thing.
     """
     failures = [
-        (step.time, record)
-        for step in steps
-        for record in step.fluctuation.folds
+        (time, record)
+        for time, fluctuation in nodes
+        for record in fluctuation.folds
         if not record.converged
     ]
     if not failures:
         return
     modes = sorted(
-        {step.fluctuation.failure or "unknown" for step in steps if not step.fluctuation.converged}
+        {fluctuation.failure or "unknown" for _, fluctuation in nodes if not fluctuation.converged}
     )
-    nodes = sorted({time for time, _ in failures})
+    times = sorted({time for time, _ in failures})
     warnings.warn(
-        f"{len(failures)} outer-fold targeting solve(s) did not converge for regimen "
-        f"{plan.label!r}, at node(s) {nodes} ({', '.join(modes)}). The stitched score "
-        "cannot show this, because it is not the equation those solves posed; inspect "
+        f"{len(failures)} outer-fold targeting solve(s) did not converge for {label!r}, "
+        f"at node(s) {times} ({', '.join(modes)}). The stitched score cannot show this, "
+        "because it is not the equation those solves posed; inspect "
         "step.fluctuation.folds for the per-fold detail.",
         ConvergenceWarning,
         stacklevel=3,

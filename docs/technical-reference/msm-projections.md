@@ -96,23 +96,18 @@ therefore solves a **single** fluctuation over the regimens stacked, with one sh
 The backward recursion is lockstep: outer over the nodes, inner over the regimens, one update,
 all carried forward together.
 
-**A saturated working model reproduces the per-regimen report at `n_folds=1`**, and not bit for bit
-on the estimate. One indicator per regimen makes the stacked design exactly block diagonal, and each
-block carries the loss weight the plain recursion uses. The pooled Newton convergence test and line
-search are taken over all the stacked rows, so the two can stop on different iterates. On a law the
-sample realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
+**A saturated working model reproduces the per-regimen report**, and not bit for bit on the
+estimate. One indicator per regimen makes the stacked design exactly block diagonal, and each block
+carries the loss weight the plain recursion uses. The pooled Newton convergence test and line search
+are taken over all the stacked rows, so the two can stop on different iterates. On a law the sample
+realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
 
-**Above one fold the identity does not hold, because the two paths run different constructions.**
-Both fit nuisances out of fold. The regimen-mean path then runs one complete backward recursion per
-outer fold and stitches held-out rows. This path targets pooled over the whole sample, because a
-fold-specific pooled-regimen recursion is not implemented.
-
-Both paths estimate the same parameter. Across five seeds at $n = 1500$ the largest disagreement was
-0.69 standard errors. `TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic` in
-[`tests/e2e/test_ltmle_msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/e2e/test_ltmle_msm.py)
-measures it. One difference is worth stating plainly: this path solves its pooled score equation and
-the regimen-mean path does not. See
-[longitudinal TMLE](longitudinal-tmle.md#cross-fitting-runs-two-constructions).
+**The identity holds at every fold count**, because both paths run one construction. Each outer fold
+fits its whole alternation on its training complement and contributes only its held-out rows. Under
+a link each fold reaches its own coefficient vector, and the reported one is the projection of the
+stitched fit. `result.msm_fits[k].alternation.folds` carries each fold's own. See
+[longitudinal TMLE](longitudinal-tmle.md#what-cross-fitting-splits) for what that construction does
+not solve.
 
 **Under a link, one round of the alternation is a whole backward pass.** The coefficient enters the
 covariate through the derivative of the inverse link, so each targeted regression moves with it. A
@@ -138,6 +133,7 @@ scale, because a coefficient vector has no single scale to map back with.
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
 | longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design |
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
+| point-treatment `"fold"` against longitudinal `n_folds` | both give each fold its own coefficient, on opposite sides of the split. The point-treatment extension fits it on the fold's **validation** rows, so the pooled score is exactly zero. The longitudinal recursion fits it on the fold's **training** rows, so no held-out outcome reaches the coefficient that fluctuates its own row, and the pooled score is a residual instead |
 
 One thing is **refused rather than approximated**, in the sense
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) sets out.
