@@ -358,13 +358,12 @@ class DiagnosticReport:
 
     Examples
     --------
-    >>> from cleverly import DiagnosticReport
-    >>> report = DiagnosticReport(items=())
-    >>> report.items
-    ()
-
-    In practice a fitted result builds one.  See
-    :meth:`cleverly.assessment.DiagnosticsFacade.run_all` for the example that fits.
+    >>> from cleverly import AssessmentStatus, DiagnosticReport
+    >>> from cleverly.assessment import AssessmentItem
+    >>> item = AssessmentItem("support", AssessmentStatus.PASSED, "no material warning")
+    >>> report = DiagnosticReport(items=(item,))
+    >>> report["support"].status == AssessmentStatus.PASSED
+    True
     """
 
     items: tuple[AssessmentItem, ...]
@@ -463,9 +462,7 @@ class ValidationReport:
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
-    >>> from cleverly import (
-    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
-    ... )
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
     >>> from cleverly.datasets import make_linear_ate
     >>> frame, _ = make_linear_ate(n=200, seed=0)
     >>> study = CausalStudy(
@@ -475,17 +472,13 @@ class ValidationReport:
     ...     ),
     ... )
     >>> result = study.identify(ATE()).estimate(
-    ...     method=TMLEMethod(
-    ...         models=ModelSpec(
-    ...             outcome_learner=LinearRegression(),
-    ...             treatment_learner=LogisticRegression(max_iter=1000),
-    ...         ),
-    ...         cross_fitting=CrossFitting(n_folds=5),
-    ...         runtime=Runtime(random_state=0),
-    ...     )
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
     ... )
     >>> report = result.validate()
-    >>> report.passed
+    >>> len(report.items) > 0
     True
     """
 
@@ -1152,9 +1145,7 @@ class DiagnosticsFacade(_CapabilityFacade):
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
-    >>> from cleverly import (
-    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
-    ... )
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
     >>> from cleverly.datasets import make_linear_ate
     >>> frame, _ = make_linear_ate(n=200, seed=0)
     >>> study = CausalStudy(
@@ -1164,24 +1155,14 @@ class DiagnosticsFacade(_CapabilityFacade):
     ...     ),
     ... )
     >>> result = study.identify(ATE()).estimate(
-    ...     method=TMLEMethod(
-    ...         models=ModelSpec(
-    ...             outcome_learner=LinearRegression(),
-    ...             treatment_learner=LogisticRegression(max_iter=1000),
-    ...         ),
-    ...         cross_fitting=CrossFitting(n_folds=5),
-    ...         runtime=Runtime(random_state=0),
-    ...     )
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
     ... )
-    >>> [capability.operation for capability in result.diagnostics.capabilities][:3]
-    ['support', 'nuisance_models', 'score_equations']
-
-    Read the declaration before calling, because it says what the operation costs and
-    whether this result supports it at all:
-
-    >>> support = result.diagnostics.capability("support")
-    >>> support.available, support.execution
-    (True, 'summarize')
+    >>> support = result.diagnostics.support()
+    >>> support.n
+    200
     """
 
     _kind = "diagnostic"
@@ -1219,8 +1200,8 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
-            A diagnostic specialized for arms, regimens, shifts, or incremental
+        PositivityReport or LongitudinalDiagnostics or SupportReport or dict
+            Support diagnostic specialized for arms, regimens, shifts, or incremental
             interventions.
         """
         self._require("support")
@@ -1275,8 +1256,8 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
-            Diagnostics appropriate to point or sequential nuisance models.
+        NuisanceDiagnostics or LongitudinalNuisanceDiagnostics
+            Held-out diagnostics for point or sequential nuisance models.
         """
         self._require("nuisance_models")
 
@@ -1299,8 +1280,8 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
-            Score checks for the fitted result family.
+        ScoreCheck or LongitudinalScoreDiagnostics
+            Score-equation checks for the fitted result family.
 
         Notes
         -----
@@ -1347,7 +1328,7 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        CorrectionCheck
             Correction diagnostics for the fitted result.
 
         Raises
@@ -1390,7 +1371,7 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        dataframe
             Estimates and uncertainty at each requested bound.
 
         Raises
@@ -1428,7 +1409,7 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        RefutationResult
             Refutation results for each requested perturbation.
 
         Raises
@@ -1469,6 +1450,33 @@ class DiagnosticsFacade(_CapabilityFacade):
         -------
         DiagnosticReport
             One item for every declared diagnostic operation.
+
+        See Also
+        --------
+        cleverly.DiagnosticReport : The combined operation statuses.
+        DiagnosticsFacade.capabilities : Declare availability and cost before execution.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> report = result.diagnostics.run_all()
+        >>> report.include_refits, report.include_retargets
+        (False, False)
         """
         return self._run_all(include_refits=include_refits, include_retargets=include_retargets)
 
@@ -1648,9 +1656,7 @@ class SensitivityFacade(_CapabilityFacade):
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
-    >>> from cleverly import (
-    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
-    ... )
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
     >>> from cleverly.datasets import make_linear_ate
     >>> frame, _ = make_linear_ate(n=200, seed=0)
     >>> study = CausalStudy(
@@ -1660,24 +1666,14 @@ class SensitivityFacade(_CapabilityFacade):
     ...     ),
     ... )
     >>> result = study.identify(ATE()).estimate(
-    ...     method=TMLEMethod(
-    ...         models=ModelSpec(
-    ...             outcome_learner=LinearRegression(),
-    ...             treatment_learner=LogisticRegression(max_iter=1000),
-    ...         ),
-    ...         cross_fitting=CrossFitting(n_folds=5),
-    ...         runtime=Runtime(random_state=0),
-    ...     )
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
     ... )
-    >>> [capability.operation for capability in result.sensitivity.capabilities][:3]
-    ['omitted_confounding', 'robustness_value', 'elements']
-
-    A fit without missing outcomes has no missingness mechanism to tilt, and the
-    declaration says so before the analysis is attempted:
-
-    >>> missingness = result.sensitivity.capability("missingness")
-    >>> missingness.available
-    False
+    >>> capability = result.sensitivity.capability("omitted_confounding")
+    >>> capability.available, capability.cost
+    (True, 'cheap')
     """
 
     _kind = "sensitivity"
@@ -1685,14 +1681,7 @@ class SensitivityFacade(_CapabilityFacade):
 
     @cached_property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
-        """The eight declarations, computed once per facade.
-
-        Unlike the diagnostics table these depend on the individual fit -- whether it
-        carries an observation mechanism, whether its estimator can be replayed -- so they
-        cannot be module-level data.  Cached because ``capability`` looks one row up by
-        rebuilding the tuple, which otherwise constructs all eight records on every
-        operation call and once more per row inside a combined report.
-        """
+        """Return sensitivity operations, their availability, cost, and requirements."""
         family = _family(self._result)
         longitudinal = family == "longitudinal"
         missing = (
@@ -1820,12 +1809,34 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        SensitivityBounds
             Bias bounds for each requested estimand.
 
         See Also
         --------
         cleverly.sensitivity.omitted_variable_bounds : The same bound as a free function.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> bounds = result.sensitivity.omitted_confounding(cf_y=0.05, cf_d=0.05)
+        >>> bounds.lower < result["ate"].psi < bounds.upper
+        True
         """
         return self._dispatch("omitted_confounding", args, kwargs)
 
@@ -1840,8 +1851,9 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
-            The confounding strength that would move the estimate to its null.
+        dict of str to float
+            Null-crossing strengths for the estimate and confidence limit, plus the
+            maximum-bias scale.
 
         See Also
         --------
@@ -1860,7 +1872,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        SensitivityElements
             The variance elements the omitted-variable bounds are built from.
 
         See Also
@@ -1880,7 +1892,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        BenchmarkResult
             Confounding strength expressed in units of the named observed covariates.
 
         See Also
@@ -1900,7 +1912,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        dataframe
             Bias bounds over the requested grid of confounding strengths.
 
         See Also
@@ -1920,7 +1932,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        EValue
             The minimum risk-ratio association that would explain the effect away.
 
         See Also
@@ -1940,7 +1952,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
+        dataframe
             One row per tilt value and estimand.
 
         See Also
@@ -1960,8 +1972,8 @@ class SensitivityFacade(_CapabilityFacade):
 
         Returns
         -------
-        Any
-            The tilt at which each estimand reaches its null.
+        float or None
+            The tilt at which the requested estimand reaches its null.
 
         See Also
         --------

@@ -482,8 +482,8 @@ def make_linear_ate(
         Seed or NumPy random generator.
     effect : float
         Additive treatment effect used by the data-generating process.
-    backend : Backend, str, or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -582,8 +582,8 @@ def make_nonlinear_ate(
         Number of observations.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -670,8 +670,8 @@ def make_heterogeneous(
         Seed or NumPy random generator.
     slope : float
         Strength of the effect's dependence on the covariate.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -724,8 +724,8 @@ def make_weak_overlap(
     strength : float
         Coefficient scale of the treatment mechanism. Larger values push more
         propensity scores towards zero and one.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -788,8 +788,8 @@ def make_instrument(
     instrument_strength : float
         Coefficient of ``W2`` in the treatment mechanism, and so how hard the
         instrument pushes the propensity towards its bounds.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -879,8 +879,8 @@ def make_missing_outcome(
         Seed or NumPy random generator.
     strength : float
         How hard the process is for a complete-case analysis. See the Notes.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -936,8 +936,8 @@ def make_missing_outcome_binary(
         Number of observations.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -994,8 +994,8 @@ def make_cde(
         Seed or NumPy random generator.
     intermediate_value : float
         Level the intermediate variable is held at when the truth is computed.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -1069,8 +1069,8 @@ def make_clustered(
         Seed or NumPy random generator.
     cluster_size : int
         Number of rows per cluster.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -1121,8 +1121,8 @@ def make_binary_outcome(
         Number of observations.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -1200,8 +1200,8 @@ def make_biased_sample(
     heterogeneity : float
         Strength of the effect modification that makes the sampled population's
         estimand differ from the population one.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -1476,8 +1476,8 @@ def make_multi_arm(
         Number of observations.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
     family : {"gaussian", "binomial"}
         Outcome family of the generated outcome.
 
@@ -1659,8 +1659,8 @@ def make_shift_dose(
         One ``(delta, cap, name)`` per policy the truth is computed for.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------

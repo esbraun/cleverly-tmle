@@ -148,8 +148,7 @@ class SuperLearner(BaseEstimator):
     >>> ensemble.fit(X, y).learner_names_
     ('LinearRegression', 'Ridge')
 
-    The weights are convex and cross-validated, so a candidate that does not earn its
-    place gets none of the ensemble:
+    The fitted weights form a convex combination:
 
     >>> float(round(ensemble.coef_.sum(), 6))
     1.0

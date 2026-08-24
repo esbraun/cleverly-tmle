@@ -629,10 +629,9 @@ class ATE:
     Examples
     --------
     >>> from cleverly import ATE
-    >>> ATE(reference=0).name
-    'ate'
-    >>> ATE().definition
-    'average treatment effect, E[Y^a] - E[Y^reference]'
+    >>> estimand = ATE(reference=0)
+    >>> estimand.reference
+    0
     """
 
     reference: Any = None
@@ -662,10 +661,9 @@ class ATT:
     Examples
     --------
     >>> from cleverly import ATT
-    >>> ATT(reference=0).name
-    'att'
-    >>> ATT().definition
-    'average treatment effect among units receiving each comparison arm'
+    >>> estimand = ATT(reference=0)
+    >>> estimand.reference
+    0
     """
 
     reference: Any = None
@@ -695,10 +693,9 @@ class ATC:
     Examples
     --------
     >>> from cleverly import ATC
-    >>> ATC(reference=0).name
-    'atc'
-    >>> ATC().definition
-    'average treatment effect among units receiving the reference arm'
+    >>> estimand = ATC(reference=0)
+    >>> estimand.reference
+    0
     """
 
     reference: Any = None
@@ -728,13 +725,9 @@ class CounterfactualMean:
     Examples
     --------
     >>> from cleverly import CounterfactualMean
-    >>> CounterfactualMean().definition
-    'counterfactual mean under each treatment, E[Y^a]'
-
-    Naming a level reports that arm alone:
-
-    >>> CounterfactualMean(treatment=1).definition
-    'counterfactual mean under treatment 1, E[Y^a]'
+    >>> estimand = CounterfactualMean(treatment=1)
+    >>> estimand.treatment
+    1
     """
 
     treatment: Any = None
@@ -806,10 +799,9 @@ class RiskRatio:
     Examples
     --------
     >>> from cleverly import RiskRatio
-    >>> RiskRatio(reference=0).name
-    'rr'
-    >>> RiskRatio().definition
-    'counterfactual risk ratio'
+    >>> estimand = RiskRatio(reference=0)
+    >>> estimand.reference
+    0
     """
 
     reference: Any = None
@@ -880,10 +872,8 @@ class RegimeContrast:
     >>> estimand = RegimeContrast(
     ...     regimens={"always": 1, "never": 0}, reference="never"
     ... )
-    >>> estimand.name
-    'ate_regime'
-    >>> estimand.definition
-    'contrast of each regime against the reference'
+    >>> estimand.reference
+    'never'
     """
 
     regimens: Any
@@ -912,15 +902,13 @@ class ModifiedTreatmentPolicy:
 
     Examples
     --------
-    Raise every dose by one unit, capped at the observed maximum:
+    Raise every dose by one unit without imposing a cap:
 
     >>> from cleverly import ModifiedTreatmentPolicy
     >>> from cleverly.interventions import Shift
     >>> estimand = ModifiedTreatmentPolicy(shifts=[Shift(delta=1.0, cap=None, name="up1")])
-    >>> estimand.name
-    'ey_shift'
-    >>> estimand.definition
-    'mean outcome under each modified treatment policy'
+    >>> estimand.shifts[0].cap is None
+    True
     """
 
     shifts: Sequence[Shift]
@@ -997,10 +985,8 @@ class IncrementalEffect:
     ...     ],
     ...     reference="halved",
     ... )
-    >>> estimand.name
-    'ate_ipsi'
-    >>> estimand.definition
-    'contrast of incremental propensity interventions'
+    >>> estimand.reference
+    'halved'
     """
 
     interventions: Sequence[Incremental]
@@ -1053,14 +1039,8 @@ class ControlledDirectEffect:
     --------
     >>> from cleverly import ATE, ControlledDirectEffect
     >>> estimand = ControlledDirectEffect(intermediate=0.0, contrast=ATE())
-    >>> estimand.definition
-    'controlled direct effect with the intermediate fixed at 0.0'
-
-    Each intermediate level is a *different* parameter, so a fit reports one result per
-    level rather than one result covering both.
-
-    >>> ControlledDirectEffect(intermediate=1.0).definition
-    'controlled direct effect with the intermediate fixed at 1.0'
+    >>> estimand.intermediate
+    0.0
     """
 
     intermediate: float
@@ -1530,16 +1510,30 @@ class CausalStudy:
         CapabilityError
             If the estimand type or its composition with the design is unsupported.
 
+        See Also
+        --------
+        IdentifiedEffect : The identified question returned by this method.
+        CausalStudy.estimate : Identify and estimate in one call.
+
         Notes
         -----
-        A string is refused rather than resolved. A provider dereferences
-        ``estimand.name`` as its first act, so ``identify("ate")`` -- the spelling every
-        legacy ``TMLE(estimands=("ate",))`` call site used -- died with
-        ``AttributeError: 'str' object has no attribute 'name'`` and no mention of
-        estimands. The type check sits here because this is the one place every path
-        passes through. It refuses rather than resolves because one public question
-        normalizes to one evidenced engine request, and strings would drive a second
-        convenience path beside it.
+        Pass a typed estimand such as ``ATE()``. String aliases are refused with a
+        :class:`CapabilityError` so the failure identifies the required public object.
+
+        Examples
+        --------
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=40, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> effect = study.identify(ATE(reference=0))
+        >>> effect.estimand.reference
+        0
         """
         if not isinstance(estimand, PointEstimand):
             raise CapabilityError(
@@ -1642,14 +1636,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
         Notes
         -----
-        The check runs before nuisance fitting. A method marked unavailable raises
-        :class:`CapabilityError` when selected.
-
-        A controlled direct effect is refused here rather than mid-fit. Its functional
-        target is the *contrast's* name -- ``ate``, ``rr`` -- so a check that read only
-        the target declared both variants available for it, and both engines then
-        refused once fitting had already started. Refusing before any nuisance is built
-        is the boundary ``docs/architecture-invariants.md`` exists to hold.
+        The result includes unavailable methods and their refusal reasons. Selecting one
+        raises :class:`CapabilityError` before nuisance fitting starts.
         """
         point = not self.functional.longitudinal
         target = self.functional.target
@@ -1748,6 +1736,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             If the method is unavailable or restored metadata has no bound data.
         MethodConfigurationError
             If ``method`` does not satisfy the estimation-method contract.
+
+        See Also
+        --------
+        IdentifiedEffect.available_methods : Report supported methods before fitting.
+        TMLEMethod : Configure the default estimation method.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> effect = study.identify(ATE())
+        >>> result = effect.estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> sorted(result.estimates)
+        ['ate']
         """
         if self._study is None:
             raise CapabilityError(

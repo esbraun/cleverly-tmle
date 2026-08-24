@@ -4,7 +4,8 @@ Quickstart
 ----------
 >>> from cleverly import ATE, CausalStudy, PointTreatment
 >>> from cleverly.datasets import make_nonlinear_ate
->>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
+>>> from sklearn.linear_model import LinearRegression, LogisticRegression
+>>> frame, _ = make_nonlinear_ate(n=200, seed=0)
 >>> study = CausalStudy(
 ...     frame,
 ...     design=PointTreatment(
@@ -13,13 +14,19 @@ Quickstart
 ...         adjustment=["W1", "W2", "W3", "W4"],
 ...     ),
 ... )
->>> result = study.identify(ATE()).estimate(random_state=0)
->>> print(result.summary())                                        # doctest: +SKIP
+>>> result = study.identify(ATE()).estimate(
+...     outcome_learner=LinearRegression(),
+...     treatment_learner=LogisticRegression(max_iter=1000),
+...     n_folds=2,
+...     random_state=0,
+... )
+>>> sorted(result.estimates)
+['ate']
 
 The estimator takes pandas or polars dataframes interchangeably and returns results
-in whichever backend it was given.  Every result carries its influence curves, so
-:attr:`~cleverly.estimators.base.TMLEResult.sensitivity` and
-:attr:`~cleverly.estimators.base.TMLEResult.diagnostics` need no refitting.
+in whichever backend it was given. Every result carries the fitted artifacts used by
+its cache-only validation and diagnostic operations. Other assessments declare when
+they retarget or refit.
 """
 
 from __future__ import annotations

@@ -28,12 +28,13 @@ PUBLIC_DOCS_URL = "https://esbraun.github.io/cleverly-tmle/"
 OBJECT_PATTERN = re.compile(r"^\s*(cleverly\.[A-Za-z0-9_.]+)\s*$", re.MULTILINE)
 SECTION = "^{name}\n-{{4,}}$"
 
-#: The objects a reader calls to get from a question to a checked answer.  Examples and See
-#: Also are required *here* and nowhere else, enforced by the two tests at the end of this
+#: The objects and methods a reader calls to get from a question to a checked
+#: answer. Examples and See Also are required *here* and nowhere else, enforced
+#: by the two tests at the end of this
 #: module rather than by ``numpydoc_validation_checks``, which can only require a check of
 #: every object or of none.  A pro-forma example on all 140 curated objects would be noise,
 #: and noise is what a reader learns to skip.
-SPINE = (
+EXAMPLE_TARGETS = (
     # Entry points and design.
     "cleverly.CausalStudy",
     "cleverly.PointTreatment",
@@ -71,21 +72,12 @@ SPINE = (
     "cleverly.SuperLearner",
     "cleverly.datasets.make_linear_ate",
     "cleverly.datasets.make_longitudinal",
-)
-
-#: Doctests that fit with the *default* learner library, which is a cross-fitted
-#: :class:`~cleverly.learners.SuperLearner` over three candidates.  Each costs 30 to 120
-#: seconds and the cost is the library rather than the sample size: shrinking ``n`` from
-#: 1000 to 200 saves half a minute of a minute and a half, because the price is the number
-#: of candidate fits.  They stay in the sweep and run under ``-m slow``.  Showing the
-#: defaults is the whole point of these three, so making them cheap would mean documenting
-#: a configuration no reader is told to use.
-EXPENSIVE_DOCTESTS = frozenset(
-    {
-        "cleverly",
-        "cleverly.estimators.tmle",
-        "cleverly.longitudinal",
-    }
+    # Core workflow methods. Their own anchors must answer how to make the call.
+    "cleverly.CausalStudy.identify",
+    "cleverly.IdentifiedEffect.estimate",
+    "cleverly.estimators.TMLEResult.validate",
+    "cleverly.assessment.DiagnosticsFacade.run_all",
+    "cleverly.assessment.SensitivityFacade.omitted_confounding",
 )
 
 #: A floor on what discovery is expected to find.  Well under the count at the time of
@@ -327,17 +319,7 @@ def test_discovery_reaches_the_shipped_examples() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.slow if name in EXPENSIVE_DOCTESTS else (),
-            id=name,
-        )
-        for name in sorted(_package_doctests())
-    ],
-)
+@pytest.mark.parametrize("name", sorted(_package_doctests()))
 def test_every_shipped_example_runs(name: str) -> None:
     """Every ``>>>`` in the package executes and prints what it says it prints.
 
@@ -348,15 +330,22 @@ def test_every_shipped_example_runs(name: str) -> None:
     globals the way that flag does.
     """
     test = _package_doctests()[name]
-    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
-    runner.run(test, out=lambda text: None)
+    skipped = [example.lineno for example in test.examples if example.options.get(doctest.SKIP)]
+    assert not skipped, f"{name}: skipped public examples at docstring lines {skipped}"
+
+    output: list[str] = []
+    runner = doctest.DocTestRunner()
+    runner.run(test, out=output.append)
     result = runner.summarize(verbose=False)
-    assert result.failed == 0, f"{name}: {result.failed} of {result.attempted} examples failed"
+    detail = "".join(output)
+    assert result.failed == 0, (
+        f"{name}: {result.failed} of {result.attempted} examples failed\n{detail}"
+    )
 
 
-@pytest.mark.parametrize("name", SPINE)
-def test_every_spine_object_shows_the_reader_how_to_use_it(name: str) -> None:
-    """A task-spine object carries a runnable example and a route to its neighbours.
+@pytest.mark.parametrize("name", EXAMPLE_TARGETS)
+def test_every_example_target_shows_the_reader_how_to_use_it(name: str) -> None:
+    """A task-spine object or method carries an example and a route to its neighbours.
 
     ``Examples`` answers "how do I call this", and ``See Also`` answers "what do I reach
     for instead".  Both entries of a See Also pair need a description, because a bare
@@ -376,6 +365,13 @@ def test_every_spine_object_shows_the_reader_how_to_use_it(name: str) -> None:
 
 
 def test_the_task_spine_names_only_objects_the_index_publishes() -> None:
-    """A spine entry that is not curated is a promise made about a retired object."""
-    unknown = sorted(set(SPINE) - set(_object_names()))
-    assert not unknown, f"SPINE names objects that docs/api/object-index.rst does not: {unknown}"
+    """Every example target belongs to an object in the curated public contract."""
+    objects = _object_names()
+    unknown = sorted(
+        name
+        for name in EXAMPLE_TARGETS
+        if not any(
+            name == object_name or name.startswith(f"{object_name}.") for object_name in objects
+        )
+    )
+    assert not unknown, f"example targets outside docs/api/object-index.rst: {unknown}"

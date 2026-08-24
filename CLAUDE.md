@@ -87,8 +87,12 @@ parameter. Two names on one line become one parameter with a comma in its name.
   `# numpydoc ignore=PR01` form on the definition line. Do not use `numpydoc_validation_exclude`,
   which drops the object from every check rather than one.
 - `Examples` and `See Also` are required on the task spine only, which
-  `tests/unit/test_documentation_api.py:SPINE` declares. Every See Also entry carries a
-  description. An example must run: the same module discovers every `>>>` in the package and
-  executes it in the fast tier.
-- Keep an example cheap. The default learner library costs 30 to 120 seconds per fit, so pass
-  explicit learners unless showing the defaults is the point of the example.
+  `tests/unit/test_documentation_api.py:EXAMPLE_TARGETS` declares. The targets include core
+  methods so a direct method anchor explains its own call. Every See Also entry carries a
+  description.
+- Show the smallest normal use of the documented object or method. Start with the common case.
+  Include every import, use compact data, and check deterministic output. Do not use an example
+  to assert a statistical guarantee from one sample.
+- An example must run in the fast tier without `doctest.SKIP`. Pass explicit learners to fits;
+  the default learner library costs 30 to 120 seconds per fit. Put expensive studies and extended
+  comparisons in narrative documentation and test them separately.

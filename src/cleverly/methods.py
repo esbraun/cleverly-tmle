@@ -129,19 +129,19 @@ class CrossFitting:
 
     Parameters
     ----------
-    enabled : bool
+    enabled : bool, default=True
         Whether to estimate nuisances out of fold.
-    n_folds : int
+    n_folds : int, default=10
         Number of outer folds.
-    learner_folds : int
+    learner_folds : int, default=5
         Inner folds used by ensemble learners.
-    repeats : int
+    repeats : int, default=1
         Independent outer-fold assignments to average.
-    stratify_by : str
+    stratify_by : {"treatment", "treatment+outcome"}, default="treatment"
         Fold-stratification policy.
-    targeting_scheme : str
+    targeting_scheme : {"pooled", "fold"}, default="pooled"
         Pooled or fold-specific targeting scheme.
-    fold_evaluation : bool
+    fold_evaluation : bool, default=False
         Whether to retain fold-evaluated CV-TMLE estimates.
 
     See Also
@@ -180,25 +180,25 @@ class Targeting:
 
     Parameters
     ----------
-    fluctuation : str
+    fluctuation : {"logistic", "linear"}, default="logistic"
         Fluctuation submodel family.
-    algorithm : str
+    algorithm : {"iterative", "one_step"}, default="iterative"
         Targeting algorithm.
-    g_bounds : str, float, or tuple of float
+    g_bounds : {"auto"}, float, or tuple of float, default="auto"
         Treatment or cumulative-mechanism bounds.
-    q_bounds : tuple of float or None
+    q_bounds : tuple of float or None, default=None
         Optional outcome-regression bounds.
-    nuisance_bound : float
+    nuisance_bound : float, default=0.01
         Lower bound used by auxiliary nuisance regressions.
-    submodel_alpha : float
+    submodel_alpha : float, default=0.9995
         Logistic-submodel shrink bound.
-    target_weights : bool
+    target_weights : bool, default=False
         Whether probability weights enter the targeting score.
-    step_size : float
+    step_size : float, default=1e-3
         Step size for compatible targeting.
-    max_iter : int
+    max_iter : int, default=20
         Maximum targeting iterations.
-    tol : float
+    tol : float, default=1e-10
         Score-equation convergence tolerance.
 
     See Also
@@ -237,23 +237,23 @@ class Inference:
 
     Parameters
     ----------
-    alpha : float
+    alpha : float, default=0.05
         Significance level for reported intervals.
-    n_bootstrap : int
+    n_bootstrap : int, default=0
         Bootstrap fits. Zero disables refit bootstrap inference.
-    bootstrap_resampling : str
+    bootstrap_resampling : {"auto", "iid", "cluster"}, default="auto"
         Unit or cluster resampling policy.
-    simultaneous : bool
+    simultaneous : bool, default=True
         Whether multi-parameter results include simultaneous bands.
-    n_multiplier : int or {"auto"}
+    n_multiplier : int or {"auto"}, default="auto"
         Multiplier draws for simultaneous bands.
-    multiplier_kind : str
+    multiplier_kind : {"rademacher", "mammen", "normal"}, default="rademacher"
         Distribution of multiplier weights.
 
     See Also
     --------
     TMLEMethod : Method configuration this object is the inference half of.
-    Targeting : Owns ``submodel_alpha``, which is not an interval level.
+    Targeting : Owns ``submodel_alpha``, which is not a significance level.
     cleverly.inference.run_bootstrap : The refit bootstrap ``n_bootstrap`` requests.
 
     Examples
@@ -261,10 +261,12 @@ class Inference:
     Report 99 percent intervals and add a cluster bootstrap:
 
     >>> from cleverly import Inference
-    >>> Inference(alpha=0.01, n_bootstrap=200, bootstrap_resampling="cluster").alpha
-    0.01
+    >>> inference = Inference(alpha=0.01, n_bootstrap=200, bootstrap_resampling="cluster")
+    >>> inference.alpha, inference.n_bootstrap, inference.bootstrap_resampling
+    (0.01, 200, 'cluster')
 
-    ``alpha`` is the interval level.  The logistic-submodel bound lives on
+    ``alpha`` is the significance level. The confidence level is ``1 - alpha``. The
+    logistic-submodel bound lives on
     :class:`Targeting` and is spelled differently for that reason:
 
     >>> from cleverly import Targeting
@@ -295,11 +297,11 @@ class Runtime:
 
     Parameters
     ----------
-    random_state : int or None
+    random_state : int or None, default=None
         Seed for folds, learners, and resampling.
-    run_id : str or None
+    run_id : str or None, default=None
         User-defined identifier stored in provenance.
-    n_jobs : int
+    n_jobs : int, default=1
         Maximum parallel jobs requested by the fit.
 
     See Also
@@ -312,8 +314,8 @@ class Runtime:
     --------
     >>> from cleverly import Runtime
     >>> runtime = Runtime(random_state=0, run_id="pilot-2026-03", n_jobs=4)
-    >>> runtime.random_state, runtime.run_id
-    (0, 'pilot-2026-03')
+    >>> runtime.random_state, runtime.run_id, runtime.n_jobs
+    (0, 'pilot-2026-03', 4)
     """
 
     random_state: int | None = None
@@ -393,7 +395,7 @@ class EstimationMethod(Protocol):
 #: :meth:`TMLEMethod.with_overrides`.  Module level so the invariant that keeps it honest is
 #: testable: a shortcut spelled the same as one of the groups' fields must set *that* field.
 #: ``tests.unit.test_causal_study`` checks it, after ``alpha=`` was found routing to
-#: :attr:`Targeting.submodel_alpha` while :attr:`Inference.alpha` was the interval level.
+#: :attr:`Targeting.submodel_alpha` while :attr:`Inference.alpha` was the significance level.
 SHORTCUTS: dict[str, dict[str, str]] = {
     "models": {
         "outcome_learner": "outcome_learner",
@@ -546,16 +548,9 @@ class TMLEMethod:
 
         Notes
         -----
-        A shortcut that is also a field name must set that field. ``alpha=`` used to
-        route to :attr:`Targeting.submodel_alpha`, the logistic-submodel bound, following
-        the legacy ``TMLE(alpha=..., alpha_sig=...)`` spelling, while the field actually
-        *named* ``alpha`` was :attr:`Inference.alpha`, the significance level. So
-        ``estimate(alpha=0.10)`` was accepted, moved the shrink bound, and left the
-        interval at 95 percent: a silently wrong knob rather than an error. ``alpha=`` is
-        now the significance level, the bound is reached as ``submodel_alpha=``, and the
-        legacy ``alpha_sig=`` spelling is gone. ``tests.unit.test_causal_study`` pins the
-        rule. ``alpha_sig`` is still live inside
-        :class:`cleverly.estimators.TMLE`, so the migration note still has a reader.
+        ``alpha=`` sets :attr:`Inference.alpha`, the reported interval's significance
+        level. Use ``submodel_alpha=`` for :attr:`Targeting.submodel_alpha`, the separate
+        logistic-submodel bound.
         """
         groups = SHORTCUTS
         known = {name for fields in groups.values() for name in fields}
@@ -691,23 +686,23 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Seed, run identifier, and parallelism.
     name : str
         Stable method name.
-    strategy : str
+    strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
         Collaborative search strategy.
-    preorder : str or None
+    preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
-    ordering : tuple of str or None
+    ordering : tuple of str or None, default=None
         Explicit covariate order.
-    candidates : tuple of tuple of str or None
+    candidates : tuple of tuple of str or None, default=None
         Explicit nested adjustment candidates.
-    selection_folds : int
+    selection_folds : int, default=5
         Outer folds used to select a candidate.
-    selection_inner_folds : int
+    selection_inner_folds : int, default=2
         Inner folds used to evaluate learners during selection.
-    loss : str
+    loss : {"auto", "loglik", "squared"}, default="auto"
         Candidate-selection loss.
-    penalty : bool
+    penalty : bool, default=True
         Whether to apply the collaborative complexity penalty.
-    selection_estimand : str
+    selection_estimand : str, default="ate"
         Estimand used by the selector.
 
     See Also
@@ -789,23 +784,23 @@ class DRTMLEMethod(TMLEMethod):
         Seed, run identifier, and parallelism.
     name : str
         Stable method name.
-    guard : tuple of str
+    guard : tuple of {"Q", "g"}, default=("Q", "g")
         Nuisance components protected by the correction.
-    reduction : str
+    reduction : {"univariate", "bivariate"}, default="univariate"
         Reduced-regression family.
-    reduced_outcome_learner : estimator or None
+    reduced_outcome_learner : estimator or None, default=None
         Learner for the reduced outcome regression.
-    reduced_treatment_learner : estimator or None
+    reduced_treatment_learner : estimator or None, default=None
         Learner for the reduced treatment regression.
-    reduced_crossfit : str
+    reduced_crossfit : {"pooled", "nested"}, default="pooled"
         Cross-fitting policy for reduced regressions.
-    update_order : str
+    update_order : {"drtmle", "benkeser"}, default="drtmle"
         Order of reduced targeting updates.
-    evaluation : Any or None
+    evaluation : dataframe or None, default=None
         Optional evaluation data for a companion fit.
-    randomized : bool
+    randomized : bool, default=False
         Whether treatment probabilities are known by design.
-    treatment_probabilities : Any or None
+    treatment_probabilities : array-like or mapping, default=None
         Known treatment probabilities for randomized treatment.
 
     See Also

@@ -130,40 +130,29 @@ class ParameterEstimate:
 
     Examples
     --------
-    A fit produces these.  Building one directly shows what the interval is made of:
+    Read an estimate from a fitted result:
 
-    >>> import numpy as np
-    >>> from cleverly.inference import ParameterEstimate
-    >>> rng = np.random.default_rng(0)
-    >>> influence_curve = rng.normal(size=400)
-    >>> estimate = ParameterEstimate(
-    ...     name="ate",
-    ...     psi=1.5,
-    ...     influence_curve=influence_curve,
-    ...     variance=float(influence_curve.var(ddof=1) / 400),
-    ...     n=400,
-    ...     n_clusters=400,
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=80, seed=1)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
     ... )
-    >>> round(estimate.std_error, 3)
-    0.05
-    >>> tuple(round(bound, 2) for bound in estimate.ci)
-    (1.4, 1.6)
-
-    A ratio carries its log-scale estimate, and the interval is built there and
-    exponentiated, so it cannot come back negative:
-
-    >>> ratio = ParameterEstimate(
-    ...     name="rr",
-    ...     psi=2.0,
-    ...     influence_curve=influence_curve,
-    ...     variance=float(influence_curve.var(ddof=1) / 400),
-    ...     n=400,
-    ...     n_clusters=400,
-    ...     scale="ratio",
-    ...     log_psi=float(np.log(2.0)),
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
     ... )
-    >>> tuple(round(bound, 2) for bound in ratio.ci)
-    (1.81, 2.21)
+    >>> estimate = result["ate"]
+    >>> estimate.name, estimate.n
+    ('ate', 80)
+    >>> estimate.ci[0] < estimate.ci[1]
+    True
     """
 
     name: str

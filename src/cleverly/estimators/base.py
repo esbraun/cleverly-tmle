@@ -446,9 +446,7 @@ class TMLEResult:
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
-    >>> from cleverly import (
-    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
-    ... )
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
     >>> from cleverly.datasets import make_linear_ate
     >>> frame, _ = make_linear_ate(n=200, seed=0)
     >>> study = CausalStudy(
@@ -458,14 +456,10 @@ class TMLEResult:
     ...     ),
     ... )
     >>> result = study.identify(ATE()).estimate(
-    ...     method=TMLEMethod(
-    ...         models=ModelSpec(
-    ...             outcome_learner=LinearRegression(),
-    ...             treatment_learner=LogisticRegression(max_iter=1000),
-    ...         ),
-    ...         cross_fitting=CrossFitting(n_folds=5),
-    ...         runtime=Runtime(random_state=0),
-    ...     )
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
     ... )
 
     The result is a mapping from estimand alias to
@@ -474,13 +468,15 @@ class TMLEResult:
     >>> sorted(result.estimates)
     ['ate']
     >>> low, high = result["ate"].ci
-    >>> low < 1.5 < high
+    >>> low < high
     True
 
-    The process this frame comes from has an ATE of 1.5, so the interval covers it.  The
-    nuisance fits travel with the result, so every assessment runs without refitting:
+    The interval bounds are ordered. The default validation battery reads the fitted
+    artifacts without refitting:
 
-    >>> result.validate().passed
+    >>> result["ate"].std_error > 0
+    True
+    >>> len(result.validate().items) > 0
     True
     """
 
@@ -675,9 +671,9 @@ class TMLEResult:
 
         Applies the delta method to the *joint* influence curve, so the correlation
         between the estimands is handled rather than ignored:
-        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`.
-
-        >>> res.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])   # doctest: +SKIP
+        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`. For example,
+        ``result.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])`` compares two
+        means already stored on ``result``.
 
         Pass ``gradient`` when the function's derivative is known in closed form.  The
         default is a central difference, which is accurate to about ``1e-10`` relative
@@ -742,6 +738,33 @@ class TMLEResult:
         -------
         ValidationReport
             One item per check the fitted method declares, read off stored artifacts.
+
+        See Also
+        --------
+        cleverly.ValidationReport : The returned validation statuses.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run the broader diagnostic set.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> report = result.validate()
+        >>> len(report.items) > 0
+        True
         """
         from ..assessment import validate_result
 

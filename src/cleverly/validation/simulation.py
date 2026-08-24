@@ -300,8 +300,9 @@ class StudyResult:
 
         Parameters
         ----------
-        backend : str or None
-            Dataframe backend to return. ``None`` uses the configured default.
+        backend : {"pandas", "polars", "pyarrow"} or None, default=None
+            Dataframe backend to return. ``None`` uses pandas when installed, then the first
+            available backend.
 
         Returns
         -------
@@ -457,7 +458,8 @@ class CoverageStudy:
     ...     n_replicates=50,
     ...     seed=0,
     ... )
-    >>> print(study.run().summary())                                     # doctest: +SKIP
+    >>> study.n_replicates
+    50
     """
 
     def __init__(

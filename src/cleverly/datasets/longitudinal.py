@@ -341,8 +341,8 @@ def make_longitudinal(
         Whether to generate monotone censoring. False leaves every unit observed.
     cluster_size : int or None
         Rows per cluster. ``None`` leaves the rows independent.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -457,8 +457,8 @@ def make_longitudinal_weighted(
         Number of units in the population the sample is drawn from.
     seed : int, Generator, or None
         Seed or NumPy random generator.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -604,8 +604,8 @@ def make_longitudinal_survival(
         Whether to generate monotone censoring. False leaves every unit observed.
     cluster_size : int or None
         Rows per cluster. ``None`` leaves the rows independent.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
@@ -802,8 +802,8 @@ def make_longitudinal_competing(
         Seed or NumPy random generator.
     censoring : bool
         Whether to generate monotone censoring. False leaves every unit observed.
-    backend : str or None
-        Dataframe backend. The configured default is used when omitted.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
 
     Returns
     -------
