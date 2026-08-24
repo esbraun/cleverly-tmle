@@ -16,6 +16,7 @@ from importlib import import_module
 
 import pandas as pd
 
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
@@ -163,7 +164,6 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     a margin, and the composition is exactly where a hand-typed copy goes wrong.
     """
     margins = record.margins
-    shared = import_module("tests.studies.canonical_properties")
     declared: dict[str, float] = {
         "margin:confidence_level": margins.confidence_level,
         "margin:alpha": margins.alpha,
@@ -183,11 +183,15 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "margin:rmse_noninferiority": margins.rmse_noninferiority,
         "margin:coverage_noninferiority": margins.coverage_noninferiority,
         "margin:calibration_noninferiority": margins.calibration_noninferiority,
-        "margin:minimum_power": shared.MINIMUM_POWER,
-        "margin:root_n_slope": shared.ROOT_N_SLOPE,
-        "margin:root_n_slope_lower": shared.ROOT_N_SLOPE - shared.ROOT_N_SLOPE_MARGIN,
-        "margin:root_n_slope_upper": shared.ROOT_N_SLOPE + shared.ROOT_N_SLOPE_MARGIN,
-        "margin:excluded_slope": shared.EXCLUDED_SLOPE,
+        "margin:minimum_power": property_verdicts.MINIMUM_POWER,
+        "margin:root_n_slope": property_verdicts.ROOT_N_SLOPE,
+        "margin:root_n_slope_lower": (
+            property_verdicts.ROOT_N_SLOPE - property_verdicts.ROOT_N_SLOPE_MARGIN
+        ),
+        "margin:root_n_slope_upper": (
+            property_verdicts.ROOT_N_SLOPE + property_verdicts.ROOT_N_SLOPE_MARGIN
+        ),
+        "margin:excluded_slope": property_verdicts.EXCLUDED_SLOPE,
     }
     if "crossfit_overfitting" in record.property_cells:
         overfit = import_module("tests.studies.cvtmle_properties")
@@ -227,6 +231,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    # Its own entry rather than a second reader of the one above.  The two families are gated
+    # on separate displacements computed from separate arms, and a page that published one
+    # threshold for both would describe one of them wrongly however the numbers happened to
+    # compare.
+    if "survival_recursion_necessity" in record.property_cells:
+        declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
     return declared
 
 

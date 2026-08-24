@@ -149,6 +149,115 @@ def coverage_gain_interval(
     return interval.low, interval.high
 
 
+def replicate_row(
+    *,
+    property_name: str,
+    cell: str,
+    role: str,
+    replicate: int,
+    n: int,
+    requested: int,
+    truth: float,
+    estimate: Any,
+    alpha: float,
+) -> dict[str, Any]:
+    """One :data:`REPLICATE_COLUMNS` row, off an estimate that carries its own interval.
+
+    Shared with :func:`run_cells`, which builds the same row from a
+    :class:`~cleverly.validation.ReplicationRecord`.  A study whose fit reports several
+    parameters per replication cannot use ``run_cells`` yet and assembles its rows itself, so
+    this is the piece both paths need: the schema in one place rather than one copy per study
+    that hand-rolls its loop.
+    """
+    low, high = estimate.ci
+    return {
+        "property": property_name,
+        "cell": cell,
+        "role": role,
+        "replicate": replicate,
+        "n": n,
+        "requested_replicates": requested,
+        "failed_replicates": 0,
+        "truth": truth,
+        "estimate": float(estimate.psi),
+        "std_error": float(estimate.std_error),
+        "covered": int(low <= truth <= high),
+        "rejected": int(estimate.pvalue < alpha),
+    }
+
+
+def control_row(
+    *,
+    property_name: str,
+    cell: str,
+    replicate: int,
+    n: int,
+    requested: int,
+    truth: float,
+    estimate: float,
+    standard_error: float,
+    critical: float,
+) -> dict[str, Any]:
+    """The same row for a control that has no interval of its own.
+
+    An unfluctuated plug-in and a survivor-only recursion are numbers, not fits: neither has
+    an influence curve to report, and inventing one would make the control a claim about
+    inference where it is a claim about bias.  ``standard_error`` is therefore the *paired*
+    positive arm's, and the families that use this row are gated on their bias endpoints
+    alone.  The coverage and rejection columns exist so the row satisfies the shared schema
+    and so a reader can see how far off the point estimate sits in the table's own units.
+    """
+    half = critical * standard_error
+    return {
+        "property": property_name,
+        "cell": cell,
+        "role": "control",
+        "replicate": replicate,
+        "n": n,
+        "requested_replicates": requested,
+        "failed_replicates": 0,
+        "truth": truth,
+        "estimate": estimate,
+        "std_error": standard_error,
+        "covered": int(estimate - half <= truth <= estimate + half),
+        "rejected": int(abs(estimate / standard_error) > critical),
+    }
+
+
+def summary_interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval:
+    """One already-computed interval, read back off a summary row by column prefix."""
+    return Interval(
+        float(summary.loc[index, f"{prefix}_ci_lower"]),
+        float(summary.loc[index, f"{prefix}_ci_upper"]),
+    )
+
+
+def paired_displacement(rows: pd.DataFrame, family: str, left: str, right: str) -> float:
+    """How far ``right``'s mean sits from ``left``'s, in ``left``'s empirical spread.
+
+    The statistic a necessity family's *joint* claim is made of.  Each row's own endpoint says
+    the positive arm's bias is inside the margin and the control's is outside it, and a step
+    that did nothing at all would satisfy neither arm's rule in a way that distinguishes it --
+    because the control would then simply be the estimate.  So the pair needs a statement of
+    its own, and this is it.
+
+    Refuses arms that are not aligned on ``replicate`` rather than subtracting two means that
+    came off different draws, which is the whole reason the two arms are emitted from one
+    replication.
+    """
+    arms = {
+        name: rows.loc[(rows["property"] == family) & (rows["cell"] == cell)].sort_values(
+            "replicate"
+        )
+        for name, cell in (("left", left), ("right", right))
+    }
+    if not np.array_equal(arms["left"]["replicate"], arms["right"]["replicate"]):
+        raise ValueError(f"the {family} arms {left} and {right} are not paired on replication")
+    spread = float(arms["left"]["estimate"].std(ddof=1))
+    moved = float(arms["right"]["estimate"].mean() - arms["left"]["estimate"].mean())
+    return abs(moved) / spread
+
+
 def require_complete(rows: pd.DataFrame) -> None:
     """Refuse a property table that lost replications.
 

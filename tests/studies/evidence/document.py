@@ -223,7 +223,13 @@ def _has_exact_efficiency(row: Any) -> bool:
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.
 _BIAS_GATED = frozenset(
-    {"double_robustness", "robustness_contract", "selector_necessity", "targeting_necessity"}
+    {
+        "double_robustness",
+        "robustness_contract",
+        "selector_necessity",
+        "survival_recursion_necessity",
+        "targeting_necessity",
+    }
 )
 
 #: The generated blocks a study section carries, and the renderer for each.

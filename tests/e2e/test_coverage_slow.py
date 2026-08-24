@@ -26,9 +26,14 @@ instrument; cross-fitting keeps the standard error honest where in-sample fittin
 not; repeated folds shrink the spread across fold draws.
 
 **Designs with no registered study row.**  Clustered and weighted inference, missing
-outcomes, controlled direct effects, incremental interventions, and the longitudinal,
-survival and competing-risks families.  Each carries its own coverage and root-n checks,
-because none of them is covered by a point-treatment property cell.
+outcomes, controlled direct effects, incremental interventions, cross-fitted longitudinal
+and survival estimation, and competing risks.  Each carries its own coverage and root-n
+checks, because none is covered by an ordinary or point-treatment property cell.
+
+The registered LTMLE rows fit nuisances on the analysis sample.  The two longitudinal
+classes below instead exercise five-fold nuisance fitting, learned mechanisms, pooled
+targeting, and cross-fitted influence-curve inference.  They remain until separate
+cross-fitted end-of-study and survival rows establish those paths.
 
 These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
 are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather

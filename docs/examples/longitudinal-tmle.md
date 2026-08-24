@@ -544,7 +544,7 @@ does not reach, and their evidence is the exact-law and Gateaux work in the
 rather than a repeated-sampling row.
 
 The evidence row for the first part is
-[end-of-study longitudinal TMLE](../technical-reference/method-evidence.md#end-of-study-longitudinal-tmle).
+[ordinary end-of-study longitudinal TMLE](../technical-reference/method-evidence.md#ordinary-end-of-study-longitudinal-tmle).
 Positivity is comfortable throughout that study, so it does not speak to a fit whose stagewise
 report shows a small effective sample size.
 

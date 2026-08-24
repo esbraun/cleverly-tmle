@@ -19,6 +19,7 @@ from tests.studies.evidence.properties import (
     run_cells,
     se_ratio_interval,
 )
+from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import stream_seed
 
@@ -90,7 +91,7 @@ def generate(record: StudyRecord, variant: str, *, n_jobs: int = STUDY_JOBS) -> 
 def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataFrame:
     """Summarize the shared cells and make the overfitting control load-bearing."""
     margins = record.margins
-    summary, rates = canonical_properties.apply_shared_verdicts(
+    summary, rates = apply_shared_verdicts(
         rows,
         record,
         extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
@@ -142,4 +143,4 @@ def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataF
         summary.loc[mask, "passed"] = verdicts[cell]
         summary.loc[mask, "property_passed"] = joint
 
-    return canonical_properties.finish(summary, rates)
+    return finish(summary, rates)

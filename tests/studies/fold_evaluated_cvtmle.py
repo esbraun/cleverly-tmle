@@ -55,12 +55,15 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/fold_evaluated_cvtmle.py",
         "tests/studies/canonical_tmle.py",
+        # ``G_BOUNDS`` and ``N_FOLDS`` come from there, and both are result determining.
+        "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_properties.py",
         "tests/studies/cvtmle_properties.py",
         "tests/studies/fold_cvtmle_properties.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
+        "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),

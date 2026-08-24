@@ -222,9 +222,10 @@ under refinement.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [end-of-study longitudinal TMLE](method-evidence.md#end-of-study-longitudinal-tmle) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
+| [ordinary end-of-study longitudinal TMLE](method-evidence.md#ordinary-end-of-study-longitudinal-tmle) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
+| [ordinary survival-curve longitudinal TMLE](method-evidence.md#ordinary-survival-curve-longitudinal-tmle) | against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [the implementation validation grid](index.md#implementation-validation-grid) | the registered row, with its seven declared limits |
+| [the implementation validation grid](index.md#implementation-validation-grid) | the two ordinary registered rows and their declared limits; cross-fitted rows remain planned |
 
 Competing-risk correctness rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. No R comparison is claimed

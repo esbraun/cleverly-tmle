@@ -16,6 +16,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_properties
 from tests.studies.canonical_ctmle_selector import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
 SELECTOR_RMSE_RATIO = 0.50
 
@@ -128,8 +129,11 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = canonical_properties.apply_shared_verdicts(rows, STUDY)
-    summary["rmse_ratio"] = np.nan
+    # Through ``extra_columns`` rather than assigned afterwards.  The rate rows are built from
+    # ``summary.columns`` inside ``apply_shared_verdicts``, so a column added after the call is
+    # absent when they are built and arrives on them as NaN by ``concat`` instead of through the
+    # declared mechanism.  Same published value either way today; one of them is a coincidence.
+    summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("rmse_ratio",))
     necessity = rows.loc[rows["property"] == "selector_necessity"]
     collaborative = necessity.loc[necessity["cell"] == "collaborative"].sort_values("replicate")
     control = necessity.loc[necessity["cell"] == "empty_control"].sort_values("replicate")
@@ -146,4 +150,4 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[negative, "passed"] = summary.loc[negative, "bias_discriminated"]
     joint = bool(summary.loc[mask, "passed"].all() and ratio <= SELECTOR_RMSE_RATIO)
     summary.loc[mask, "property_passed"] = joint
-    return canonical_properties.finish(summary, rates)
+    return finish(summary, rates)

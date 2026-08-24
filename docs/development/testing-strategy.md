@@ -16,9 +16,17 @@ its expensive sampling once, commits the per-replication results, and the fast t
 every verdict, every published number, and every negative control against those artifacts. That
 gives repeated-sampling evidence at fast-tier cost.
 
-The slow tier is not retired. It still holds 124 tests across six modules, and they still have to
+The slow tier is not retired. It still holds 128 tests across six modules, and they still have to
 be run correctly when a change reaches them. Folding the remaining studies into registered studies
 is separate work. Until it lands, both sets of rules below apply.
+
+A claim leaves the slow tier when a registered cell establishes it more strongly, and not before.
+The ordinary longitudinal rows do not establish cross-fitted inference. Thirteen design families
+still have no registered row: fold repeats, DR-TMLE, multi-arm means, multi-arm selectors,
+clustering, weights, missing outcomes, controlled direct effects, incremental interventions,
+weighted longitudinal fits, competing risks, cross-fitted end-of-study LTMLE, and cross-fitted
+survival LTMLE. Each needs its own law, exact oracle, margins, and paired control before its slow
+tests can go.
 
 ## Choosing a fast test
 

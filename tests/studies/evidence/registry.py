@@ -196,6 +196,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
+    from tests.studies.canonical_ltmle_survival import STUDY as CANONICAL_LTMLE_SURVIVAL
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
@@ -206,4 +207,5 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_CTMLE_OAT,
         CANONICAL_LTMLE,
+        CANONICAL_LTMLE_SURVIVAL,
     )

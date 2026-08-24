@@ -1,4 +1,4 @@
-"""Independent repeated-sampling properties for end-of-study longitudinal TMLE."""
+"""Independent properties for ordinary end-of-study longitudinal TMLE."""
 
 from __future__ import annotations
 
@@ -15,9 +15,18 @@ from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS, STUDY
-from tests.studies.canonical_properties import apply_shared_verdicts, finish
-from tests.studies.evidence.inference import Interval
-from tests.studies.evidence.properties import REPLICATE_COLUMNS
+from tests.studies.evidence.properties import (
+    REPLICATE_COLUMNS,
+    control_row,
+    paired_displacement,
+    replicate_row,
+)
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    calibration_controls,
+    calibration_verdicts,
+    finish,
+)
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -215,34 +224,6 @@ def untargeted(frame: pd.DataFrame, label: str, configuration: str) -> float:
     return float(np.mean(earlier.predict(baseline)))
 
 
-def _row(
-    *,
-    property_name: str,
-    cell: str,
-    role: str,
-    replicate: int,
-    n: int,
-    requested: int,
-    truth: float,
-    estimate: Any,
-) -> dict[str, Any]:
-    low, high = estimate.ci
-    return {
-        "property": property_name,
-        "cell": cell,
-        "role": role,
-        "replicate": replicate,
-        "n": n,
-        "requested_replicates": requested,
-        "failed_replicates": 0,
-        "truth": truth,
-        "estimate": float(estimate.psi),
-        "std_error": float(estimate.std_error),
-        "covered": int(low <= truth <= high),
-        "rejected": int(estimate.pvalue < STUDY.margins.alpha),
-    }
-
-
 def _fit_replication(
     payload: tuple[str, str, int, int, int, int, str],
 ) -> list[dict[str, Any]]:
@@ -262,7 +243,7 @@ def _fit_replication(
             else "positive"
         )
         rows.append(
-            _row(
+            replicate_row(
                 property_name=property_name,
                 cell=f"{label}__{cell_suffix}",
                 role=role,
@@ -271,62 +252,30 @@ def _fit_replication(
                 requested=requested,
                 truth=truth,
                 estimate=result[name],
+                alpha=STUDY.margins.alpha,
             )
         )
         if property_name == "targeting_necessity":
+            # The standard error is the *targeted* fit's, which is what ``control_row``
+            # documents and why: the plug-in has no influence curve of its own to report.
+            left, right = CONTRASTS[label][len("ate_regimen[") : -1].split(" vs ")
+            plug_in = untargeted(frame, left, configuration) - untargeted(
+                frame, right, configuration
+            )
             rows.append(
-                _untargeted_row(
-                    frame,
-                    label=label,
-                    configuration=configuration,
+                control_row(
+                    property_name="targeting_necessity",
+                    cell=f"{label}__untargeted",
                     replicate=replicate,
                     n=n,
                     requested=requested,
                     truth=truth,
-                    targeted=result[name],
+                    estimate=plug_in,
+                    standard_error=float(result[name].std_error),
+                    critical=CRITICAL,
                 )
             )
     return rows
-
-
-def _untargeted_row(
-    frame: pd.DataFrame,
-    *,
-    label: str,
-    configuration: str,
-    replicate: int,
-    n: int,
-    requested: int,
-    truth: float,
-    targeted: Any,
-) -> dict[str, Any]:
-    """The same replication's plug-in, reported beside the estimate targeting produced.
-
-    The standard error is the *targeted* fit's, and deliberately: an untargeted plug-in has no
-    influence curve of its own to report, and inventing one would make the control a claim
-    about inference where it is a claim about bias.  The family is gated on the bias endpoints
-    alone; ``std_error`` and the coverage columns are here so the row satisfies the shared
-    replicate schema and so a reader can see how far off the point estimate sits in units the
-    rest of the table uses.
-    """
-    left, right = CONTRASTS[label][len("ate_regimen[") : -1].split(" vs ")
-    estimate = untargeted(frame, left, configuration) - untargeted(frame, right, configuration)
-    standard_error = float(targeted.std_error)
-    half = CRITICAL * standard_error
-    return {
-        "property": "targeting_necessity",
-        "cell": f"{label}__untargeted",
-        "role": "control",
-        "replicate": replicate,
-        "n": n,
-        "requested_replicates": requested,
-        "failed_replicates": 0,
-        "truth": truth,
-        "estimate": estimate,
-        "std_error": standard_error,
-        "covered": int(estimate - half <= truth <= estimate + half),
-        "rejected": int(abs(estimate / standard_error) > CRITICAL),
-    }
 
 
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
@@ -374,58 +323,26 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return payloads
 
 
-def _calibration_controls(rows: pd.DataFrame) -> pd.DataFrame:
-    source = rows.loc[
-        (rows["property"] == "interval_calibration")
-        & rows["cell"].str.endswith("__correctly_specified")
-    ]
-    controls: list[pd.DataFrame] = []
-    critical = CRITICAL
-    for label in CONTRASTS:
-        base = source.loc[source["cell"] == f"{label}__correctly_specified"].copy()
-        shrunken = base.copy()
-        shrunken["cell"] = f"{label}__shrunken_se_control"
-        shrunken["role"] = "control"
-        shrunken["std_error"] *= SHRUNKEN_SE_FACTOR
-        shrunken["covered"] = (
-            (shrunken["estimate"] - critical * shrunken["std_error"] <= shrunken["truth"])
-            & (shrunken["truth"] <= shrunken["estimate"] + critical * shrunken["std_error"])
-        ).astype(int)
-        shrunken["rejected"] = (
-            np.abs(shrunken["estimate"] / shrunken["std_error"]) > critical
-        ).astype(int)
-        controls.append(shrunken)
-
-        noisy = base.copy()
-        rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", label))
-        noisy["cell"] = f"{label}__noise_control"
-        noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(
-            scale=EFFICIENCY_SD[label] / np.sqrt(CALIBRATION_N), size=len(noisy)
-        )
-        noisy["covered"] = (
-            (noisy["estimate"] - critical * noisy["std_error"] <= noisy["truth"])
-            & (noisy["truth"] <= noisy["estimate"] + critical * noisy["std_error"])
-        ).astype(int)
-        noisy["rejected"] = (np.abs(noisy["estimate"] / noisy["std_error"]) > critical).astype(int)
-        controls.append(noisy)
-    return pd.concat(controls, ignore_index=True)
-
-
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
     rows = pd.DataFrame([row for result in outcomes for row in result])
-    rows = pd.concat([rows, _calibration_controls(rows)], ignore_index=True)
+    rows = pd.concat(
+        [
+            rows,
+            calibration_controls(
+                rows,
+                STUDY,
+                labels=tuple(CONTRASTS),
+                efficiency_bounds=EFFICIENCY_SD,
+                calibration_n=CALIBRATION_N,
+                shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+                critical=CRITICAL,
+            ),
+        ],
+        ignore_index=True,
+    )
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
-    )
-
-
-def _interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval:
-    """One already-computed interval, read back off the summary row."""
-    return Interval(
-        float(summary.loc[index, f"{prefix}_ci_lower"]),
-        float(summary.loc[index, f"{prefix}_ci_upper"]),
     )
 
 
@@ -435,10 +352,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     Double robustness, the size ladder and its small-sample control, the null, the power cell,
     the four rate rows and every calibration interval -- including the efficiency ratios, which
     the shared pass computes once against :data:`EFFICIENCY_SD` -- are
-    :func:`canonical_properties.apply_shared_verdicts`, exactly as they are for every other
-    registered study.  Two things are genuinely this study's own and only those are written
-    here: calibration cells that come in three *kinds* rather than one, and the targeting
-    family below.
+    :func:`~tests.studies.evidence.property_verdicts.apply_shared_verdicts`, exactly as they are
+    for every other registered study.  Two things are genuinely this study's own and only those
+    are written here: calibration cells that come in three *kinds* rather than one, and the
+    targeting family below.
     """
     margins = STUDY.margins
     summary, rates = apply_shared_verdicts(
@@ -449,25 +366,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
 
-    calibration = summary["property"] == "interval_calibration"
-    for index in summary.index[calibration]:
-        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
-        ratio = _interval(summary, index, "se_ratio")
-        empirical = _interval(summary, index, "efficiency_empirical")
-        reported = _interval(summary, index, "efficiency_reported")
-        coverage = _interval(summary, index, "coverage")
-        if kind == "correctly_specified":
-            passed = (
-                ratio.within(*margins.calibration_se_ratio)
-                and coverage.within(*margins.calibration_coverage)
-                and empirical.within(*EFFICIENCY_RATIO_BAND)
-                and reported.within(*EFFICIENCY_RATIO_BAND)
-            )
-        elif kind == "shrunken_se_control":
-            passed = ratio.high < margins.calibration_se_ratio[0]
-        else:
-            passed = empirical.low > EFFICIENCY_RATIO_BAND[1]
-        summary.loc[index, "passed"] = bool(passed)
+    calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
     _targeting_verdicts(summary, rows)
     return finish(summary, rates)
@@ -491,18 +390,12 @@ def _targeting_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
 
-    family = rows.loc[rows["property"] == "targeting_necessity"]
-    displacements: list[float] = []
-    for label in CONTRASTS:
-        arms = {
-            kind: family.loc[family["cell"] == f"{label}__{kind}"].sort_values("replicate")
-            for kind in ("targeted", "untargeted")
-        }
-        if not np.array_equal(arms["targeted"]["replicate"], arms["untargeted"]["replicate"]):
-            raise ValueError(f"the {label} targeting arms are not paired on replication")
-        spread = float(arms["targeted"]["estimate"].std(ddof=1))
-        moved = float(arms["untargeted"]["estimate"].mean() - arms["targeted"]["estimate"].mean())
-        displacements.append(abs(moved) / spread)
+    displacements = [
+        paired_displacement(
+            rows, "targeting_necessity", f"{label}__targeted", f"{label}__untargeted"
+        )
+        for label in CONTRASTS
+    ]
     # The family's claim is that targeting matters for *every* contrast it reports, so the
     # shared figure is the least displaced one rather than the average of the two.
     displacement = min(displacements)

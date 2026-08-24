@@ -1,4 +1,4 @@
-"""Canonical end-of-study longitudinal TMLE method-evidence study.
+"""Canonical ordinary end-of-study longitudinal TMLE method-evidence study.
 
 The paired comparison deliberately supplies the treatment and censoring mechanisms from
 the law to both implementations.  It therefore compares the sequential regressions,
@@ -53,11 +53,11 @@ CONTRAST_NAMES = (
 ESTIMANDS = (*MEAN_NAMES, *CONTRAST_NAMES)
 
 STUDY = StudyRecord(
-    name="end-of-study longitudinal TMLE",
+    name="ordinary end-of-study longitudinal TMLE",
     slug="canonical-ltmle",
     artifacts=ROOT / "tests" / "canonical" / "ltmle",
     document="docs/technical-reference/method-evidence.md",
-    anchor="end-of-study-longitudinal-tmle",
+    anchor="ordinary-end-of-study-longitudinal-tmle",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -68,12 +68,12 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_properties.py",
-        "tests/studies/canonical_properties.py",
         "tests/discrete_law_longitudinal.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
+        "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),
@@ -123,6 +123,10 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
+    "construction": "ordinary",
+    "outcome_kind": "end_of_study",
+    "horizon_mode": "terminal_only",
+    "r_survival_outcome": False,
     "cross_fit": False,
     "simultaneous_intervals": False,
     "variance_method": "ic",
@@ -187,7 +191,23 @@ class QuasiBinomialGLM(BaseEstimator):
 
 
 class KnownLongitudinalMechanism(BaseEstimator):
-    """The generating treatment or censoring probabilities, keyed by design shape."""
+    """The generating treatment or censoring probabilities, keyed by design shape.
+
+    Shared by the end-of-study study here and by the survival study in
+    ``tests.studies.canonical_ltmle_survival``, and reading a column by *position* is safe
+    across the two because of a contract rather than a coincidence.
+    :meth:`~cleverly.longitudinal.LongitudinalData.history_design` builds a mechanism's
+    conditioning set as ``[W, L_1, ..., L_t]`` followed by one block per earlier treatment,
+    plus the current one for a censoring model.  **An outcome node never enters it**, so the
+    survival panel's ``Y1`` cannot shift ``L2`` or ``A1`` out of the position this reads them
+    from, and both panels present ``[W1, W2, L2, A1]`` at the second treatment node and
+    ``[W1, W2, L2, A1, A2]`` at the second censoring node.
+
+    A width this does not recognise raises rather than guessing.  A *reordering* within a
+    width would not, and the guard against that one is the paired comparison: the outcome
+    regression here is a ``glm`` against a law with a ``tanh`` term in it, so a mechanism read
+    off the wrong columns biases this side and the agreement with R breaks loudly.
+    """
 
     def __init__(self, kind: str) -> None:
         self.kind = kind

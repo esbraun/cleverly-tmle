@@ -22,8 +22,18 @@ import re
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
+#: What a horizoned estimand key puts between the plan and the time, and what a competing-risk
+#: key puts between the plan and the cause.  Mirrored from
+#: :data:`cleverly.longitudinal.estimator.HORIZON_INFIX` and :data:`~.CAUSE_INFIX` rather than
+#: imported, for the reason the datasets mirror them: a description of a committed result must
+#: not depend on the estimator that produced it.
+_HORIZON = " @ t="
+_CAUSE = ", "
+
 #: Longitudinal property cells prefix the plan they belong to.
-_ARM = re.compile(r"^(?P<arm>static|dynamic)__(?P<cell>.+)$")
+_ARM = re.compile(
+    r"^(?P<arm>static|dynamic|static_t1|static_t2|dynamic_t2|always_t2)__(?P<cell>.+)$"
+)
 
 
 IMPLEMENTATIONS: dict[str, str] = {
@@ -46,6 +56,7 @@ SCENARIOS: dict[str, str] = {
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
     "censored_end_of_study": "two-time-point law with monotone censoring",
+    "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "continuous": "bounded continuous-outcome law with effect modification",
 }
 
@@ -74,6 +85,7 @@ REGIMENS: dict[str, str] = {
 PARAMETERISED: dict[str, str] = {
     "ey_regimen": "mean outcome under the plan",
     "ate_regimen": "difference in mean outcome between the plans",
+    "risk_regimen": "cumulative risk under the plan",
 }
 
 
@@ -102,6 +114,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "selector_necessity": "the collaborative selector is what produces the result, not the fit around it",
+    "survival_recursion_necessity": (
+        "the absorbing-event recursion is what produces cumulative risk, not an analysis "
+        "restricted to survivors"
+    ),
     "targeting_necessity": "the targeting step is what produces the result, not the plug-in beneath it",
     "type_i_error": "under a confounded sharp null the test rejects no more often than its nominal size",
 }
@@ -181,6 +197,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias, coverage and SE calibration at n = 500",
         "",  # the smallest rung's rule depends on its role; :func:`cell` sets it or raises
     ),
+    ("root_n_and_efficiency", "n_1000"): (
+        "bias, coverage and SE calibration at n = 1,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
     ("root_n_and_efficiency", "n_2000"): (
         "bias, coverage and SE calibration at n = 2,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
@@ -213,6 +233,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the identical backward recursion with no fluctuation at any node",
         "bias interval must fall entirely outside the margin",
     ),
+    ("survival_recursion_necessity", "survival"): (
+        "the survival estimator keeps failures in their event node and removes them afterward",
+        "bias interval inside the equivalence margin",
+    ),
+    ("survival_recursion_necessity", "survivor_only"): (
+        "the same horizon-two outcome analyzed only among first-node survivors",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("type_i_error", "sharp_null"): (
         "a confounded law whose true contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
@@ -220,7 +248,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 #: Longitudinal cells belong to one of the two plans a study contrasts.
-ARMS: dict[str, str] = {"static": "static plan", "dynamic": "dynamic plan"}
+ARMS: dict[str, str] = {
+    "static": "static plan",
+    "dynamic": "dynamic plan",
+    "static_t1": "static plan at horizon one",
+    "static_t2": "static plan at horizon two",
+    "dynamic_t2": "dynamic plan at horizon two",
+    "always_t2": "always-treat risk at horizon two",
+}
 
 
 class Undescribed(LookupError):
@@ -254,11 +289,32 @@ def estimand(key: str) -> str:
     name, argument = match.group("name"), match.group("argument")
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
-    return f"{PARAMETERISED[name]} {regimen(argument)}"
+    parameter = PARAMETERISED[name]
+    if name == "ate_regimen" and _HORIZON in argument:
+        # A contrast reported at a horizon is a difference of cumulative risks, because the
+        # only estimator that indexes a regimen mean by horizon is the survival recursion.
+        #
+        # Read off the notation rather than off the study's declared ``outcome_kind``, which
+        # is the thing that actually settles it.  That is tolerable only because the one other
+        # construction using this infix is competing risks, whose contrast carries a cause in
+        # the same bracket -- ``ate_regimen[always vs never, relapse @ t=2]`` -- and whose
+        # cumulative *incidence* is a different parameter.  Refused here rather than described
+        # wrongly: a cause-specific row needs its own entry, and the study that adds one has
+        # to say so instead of inheriting this wording by notation.
+        if _CAUSE in argument:
+            raise Undescribed(
+                f"{key!r} carries a cause as well as a horizon, so it is a cumulative "
+                f"incidence rather than a cumulative risk; give it its own description"
+            )
+        parameter = "difference in cumulative risk between the plans"
+    return f"{parameter} {regimen(argument)}"
 
 
 def regimen(argument: str) -> str:
     """A regimen label, or a contrast written as one label against another."""
+    if " @ t=" in argument:
+        label, horizon = argument.rsplit(" @ t=", 1)
+        return f"{regimen(label)} at horizon t = {horizon}"
     if " vs " in argument:
         treated, reference = argument.split(" vs ", 1)
         return f'"{regimen(treated)}" against "{regimen(reference)}"'
@@ -293,7 +349,7 @@ def cell(
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
-    if family == "root_n_and_efficiency" and base == "n_500":
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an
