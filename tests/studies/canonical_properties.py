@@ -408,17 +408,18 @@ def _rate_row(
         seed=stream_seed(record, "root_n_rate", *([label] if label else []), suffix),
     )
     row: dict[str, Any] = dict.fromkeys(columns, np.nan)
+    sizes = sorted({int(value) for value in rows["n"]})
     row.update(
         {
             "property": "root_n_rate",
             "cell": cell,
             "role": "positive",
-            "n": max(RATE_SIZES),
-            "replicates": RATE_REPLICATES * len(RATE_SIZES),
+            "n": max(sizes),
+            "replicates": len(rows),
             # The slope is fitted across all three sizes.  ``n`` and ``replicates`` above
             # are the largest and the sum, which read as one big cell; this is what the
             # published table shows instead.
-            "rate_sizes": ";".join(f"{size:,}" for size in RATE_SIZES),
+            "rate_sizes": ";".join(f"{size:,}" for size in sizes),
             "failed_replicates": 0,
             "slope": fitted.slope,
             "slope_ci_lower": fitted.interval.low,

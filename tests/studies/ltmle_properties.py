@@ -1,4 +1,4 @@
-"""Independent repeated-sampling properties for end-of-study longitudinal TMLE."""
+"""Independent properties for ordinary end-of-study longitudinal TMLE."""
 
 from __future__ import annotations
 

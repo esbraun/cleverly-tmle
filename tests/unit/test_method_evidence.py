@@ -402,7 +402,13 @@ class TestPublishedVerdicts:
 #: Property families whose per-row verdict is the bias claim read in both directions: a
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
-    {"double_robustness", "robustness_contract", "selector_necessity", "targeting_necessity"}
+    {
+        "double_robustness",
+        "robustness_contract",
+        "selector_necessity",
+        "survival_recursion_necessity",
+        "targeting_necessity",
+    }
 )
 
 #: Families whose rows answer to other endpoints -- coverage, an SE ratio, a rejection rate,

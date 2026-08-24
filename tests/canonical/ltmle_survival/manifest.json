@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "study": "ordinary end-of-study longitudinal TMLE",
-  "slug": "canonical-ltmle",
+  "study": "ordinary survival-curve longitudinal TMLE",
+  "slug": "canonical-ltmle-survival",
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
@@ -25,20 +25,23 @@
   "configuration": {
     "replicates": 1600,
     "n": 2000,
-    "seed": 20260822,
+    "seed": 20260823,
     "scenarios": {
-      "censored_end_of_study": [
-        "ey_regimen[never]",
-        "ey_regimen[always]",
-        "ey_regimen[treat then continue if l2 positive]",
-        "ate_regimen[always vs never]",
-        "ate_regimen[treat then continue if l2 positive vs never]"
+      "censored_survival_curve": [
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[treat then continue if l2 positive @ t=2]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[treat then continue if l2 positive vs never @ t=2]"
       ]
     },
     "construction": "ordinary",
-    "outcome_kind": "end_of_study",
-    "horizon_mode": "terminal_only",
-    "r_survival_outcome": false,
+    "outcome_kind": "absorbing_event",
+    "horizon_mode": "all_prefixes",
+    "r_survival_outcome": true,
     "cross_fit": false,
     "simultaneous_intervals": false,
     "variance_method": "ic",
@@ -46,6 +49,10 @@
     "g_bounds": [
       1e-08,
       1.0
+    ],
+    "horizons": [
+      1,
+      2
     ],
     "regimens": [
       "never",
@@ -83,10 +90,11 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle.py": "be1cf193b91515fe2225fe8528c89d7371b8252c94f08f83cba6a855d5d248bb",
-    "tests/studies/ltmle_properties.py": "065654f1789c35897d77748eb17a5a9cf3f0a0111ff77f5da27974b4cac9e720",
+    "tests/studies/canonical_ltmle_survival.py": "ad5808d536e39dbcbbcb041be341ee4348b6dd92ec226cc8a25a55e682cb71dd",
+    "tests/studies/ltmle_survival_properties.py": "ee78c2f30856572ec060c9c1ac8f6796b77f2b4c60ad6e629f7defc34b52b55a",
     "tests/studies/canonical_properties.py": "747070f007d682210611c1c20e76e96fa3d15f896e8446cfb20ffb59070fe57a",
-    "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/discrete_law_survival.py": "4dbdcfd4d67f84fd16c669c7d97975a8f65bc96be404e60852ef018ad4da173c",
+    "src/cleverly/datasets/longitudinal.py": "fcb25762893bbed0985abbee7361a3f57ca189942cbdf748649679c0ed500b02",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
@@ -96,15 +104,14 @@
   },
   "reference_sha256": {
     "Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "run_study.R": "9f75920e7a64493fa3daa7e23ea0c44eeed250d88409ac43ec5169963a0676da",
-    "generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743"
+    "run_study.R": "8b32fa86933e003b945e117f8bbaee5a3eb945d43eb2d614bffd2be25e099304"
   },
   "sha256": {
-    "replicates.csv.gz": "09baf175614a92a3eee5527b087026b9a936fa1d98b73010b882c55d61f622e7",
-    "summary.csv": "19b06742e0ffaec86370a7ffa1c92fe9ec89394b2cd9ea424795aaf79d7dc363",
-    "equivalence.csv": "6660b42ebdc967b4203c723646bc9e08ae28620183c4c75d58cb5eceb60f3962",
-    "performance-tests.csv": "4feb491faeaa589b1693d329892c0167bfb253d5ea019b9b583592771f46124a",
-    "property-replicates.csv.gz": "ff41c8d9623b5d097d69d2b4dab0306081af6c6a273968bc74aadafd6fdba7f2",
-    "properties.csv": "58908407cc4e8077a89a4ac27e0f410a15a5d698e6bf6f0876a6fb53e8a7ef9b"
+    "replicates.csv.gz": "107c9916639095bde4eeccc3c1f45e0286ae110b7d0c70c5aeebdcf284016fd5",
+    "summary.csv": "0143dc0fd55e304c1ec8ed86f9307e0aeca505b33d7b97699edf1f98ee6ca3aa",
+    "equivalence.csv": "93b6a3bf88af6fe99fd83c68f9e9febe190492b39e2da3465565d92df1757b3b",
+    "performance-tests.csv": "3f00d6eeb06ab236aca8639339d30b0e6e3860e15523f0bc4a9dc0f9f849326d",
+    "property-replicates.csv.gz": "49cc9e5694395bbf928ecad08244e4696550e85f0a58302e23696a875164ad20",
+    "properties.csv": "6bc52f45a4c93cda888becf28e8ba1ef46f24f9a838b85049000265cb21f8435"
   }
 }

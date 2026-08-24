@@ -1,4 +1,4 @@
-# Canonical R `ltmle` evidence
+# Canonical R `ltmle` evidence for ordinary end-of-study LTMLE
 
 This directory freezes two end-of-study fits and one survival fit from R `ltmle` 1.3-0.
 It answers two deliberately narrow questions that the independent exact laws cannot:

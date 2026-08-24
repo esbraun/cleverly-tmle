@@ -1,4 +1,4 @@
-"""Canonical end-of-study longitudinal TMLE method-evidence study.
+"""Canonical ordinary end-of-study longitudinal TMLE method-evidence study.
 
 The paired comparison deliberately supplies the treatment and censoring mechanisms from
 the law to both implementations.  It therefore compares the sequential regressions,
@@ -53,11 +53,11 @@ CONTRAST_NAMES = (
 ESTIMANDS = (*MEAN_NAMES, *CONTRAST_NAMES)
 
 STUDY = StudyRecord(
-    name="end-of-study longitudinal TMLE",
+    name="ordinary end-of-study longitudinal TMLE",
     slug="canonical-ltmle",
     artifacts=ROOT / "tests" / "canonical" / "ltmle",
     document="docs/technical-reference/method-evidence.md",
-    anchor="end-of-study-longitudinal-tmle",
+    anchor="ordinary-end-of-study-longitudinal-tmle",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -123,6 +123,10 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
+    "construction": "ordinary",
+    "outcome_kind": "end_of_study",
+    "horizon_mode": "terminal_only",
+    "r_survival_outcome": False,
     "cross_fit": False,
     "simultaneous_intervals": False,
     "variance_method": "ic",
