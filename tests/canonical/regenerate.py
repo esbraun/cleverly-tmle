@@ -121,7 +121,11 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     parser.add_argument("--replicates", type=int, default=study.PRIMARY_REPLICATES)
     parser.add_argument("--n", type=int, default=study.PRIMARY_N)
     parser.add_argument("--skip-properties", action="store_true")
-    parser.add_argument("--primary-only", action="store_true", help="skip the property study")
+    parser.add_argument(
+        "--primary-only",
+        action="store_true",
+        help="write disposable primary diagnostics without properties or a manifest",
+    )
     parser.add_argument("--allow-failures", action="store_true")
     parser.add_argument("--output", type=Path, default=here)
     parser.add_argument("--jobs", type=int, default=available_cores())
@@ -205,7 +209,7 @@ def _property_artifacts(
     Returns the summary when it was computed, and ``None`` when the artefacts were reused or
     stubbed -- so the failure gate below can tell "every cell passed" from "no cell ran".
     """
-    if not (arguments.skip_properties or arguments.primary_only):
+    if not arguments.skip_properties:
         rows = properties.generate_property_rows(n_jobs=arguments.jobs)
         write_csv(
             rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
@@ -282,6 +286,15 @@ def main(
         else equivalence(rows, summaries, performance, record=record, n_jobs=arguments.jobs)
     )
     write_csv(paired, paths["equivalence.csv"])
+
+    if arguments.primary_only:
+        print(performance.to_string(index=False))
+        print(paired.to_string(index=False))
+        print(
+            "primary-only probe: no property artefacts or publishable manifest were written",
+            flush=True,
+        )
+        return
 
     property_summary = _property_artifacts(properties, arguments, here, paths)
 

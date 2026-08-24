@@ -86,13 +86,13 @@ STUDY = StudyRecord(
         # for the same reason ``canonical_tmle.py`` is declared by the three studies that
         # import from it.
         "tests/studies/canonical_ltmle.py",
-        "tests/studies/canonical_properties.py",
         "tests/discrete_law_survival.py",
         "src/cleverly/datasets/longitudinal.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
+        "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),

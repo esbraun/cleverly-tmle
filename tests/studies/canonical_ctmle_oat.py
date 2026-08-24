@@ -64,6 +64,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
+        "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),

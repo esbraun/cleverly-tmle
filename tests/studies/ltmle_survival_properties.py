@@ -16,17 +16,17 @@ from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS
 from tests.studies.canonical_ltmle_survival import PROPERTY_LABELS, STUDY
-from tests.studies.canonical_properties import (
-    apply_shared_verdicts,
-    calibration_controls,
-    calibration_verdicts,
-    finish,
-)
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
     paired_displacement,
     replicate_row,
+)
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    calibration_controls,
+    calibration_verdicts,
+    finish,
 )
 from tests.studies.evidence.seeds import stream_seed
 

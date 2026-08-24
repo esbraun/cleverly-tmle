@@ -15,17 +15,17 @@ from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS, STUDY
-from tests.studies.canonical_properties import (
-    apply_shared_verdicts,
-    calibration_controls,
-    calibration_verdicts,
-    finish,
-)
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
     paired_displacement,
     replicate_row,
+)
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    calibration_controls,
+    calibration_verdicts,
+    finish,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -352,10 +352,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     Double robustness, the size ladder and its small-sample control, the null, the power cell,
     the four rate rows and every calibration interval -- including the efficiency ratios, which
     the shared pass computes once against :data:`EFFICIENCY_SD` -- are
-    :func:`canonical_properties.apply_shared_verdicts`, exactly as they are for every other
-    registered study.  Two things are genuinely this study's own and only those are written
-    here: calibration cells that come in three *kinds* rather than one, and the targeting
-    family below.
+    :func:`~tests.studies.evidence.property_verdicts.apply_shared_verdicts`, exactly as they are
+    for every other registered study.  Two things are genuinely this study's own and only those
+    are written here: calibration cells that come in three *kinds* rather than one, and the
+    targeting family below.
     """
     margins = STUDY.margins
     summary, rates = apply_shared_verdicts(

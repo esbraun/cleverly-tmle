@@ -24,8 +24,8 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies import canonical_properties, cvtmle_properties
-from tests.studies.evidence import descriptions
+from tests.studies import cvtmle_properties
+from tests.studies.evidence import descriptions, property_verdicts
 from tests.studies.evidence.claims import (
     describe,
     load,
@@ -1135,9 +1135,9 @@ class TestTheQuantityVocabulary:
         assert declared["margin:coverage_floor"] == margins.coverage_floor
         assert declared["margin:se_ratio_sanity_upper"] == margins.se_ratio_sanity[1]
         assert declared["margin:type_i_ceiling"] == margins.alpha + margins.type_i_margin
-        assert declared["margin:minimum_power"] == canonical_properties.MINIMUM_POWER
+        assert declared["margin:minimum_power"] == property_verdicts.MINIMUM_POWER
         assert declared["margin:root_n_slope_lower"] == (
-            canonical_properties.ROOT_N_SLOPE - canonical_properties.ROOT_N_SLOPE_MARGIN
+            property_verdicts.ROOT_N_SLOPE - property_verdicts.ROOT_N_SLOPE_MARGIN
         )
         if "crossfit_overfitting" in study.property_cells:
             assert declared["margin:overfit_se_floor"] == cvtmle_properties.OVERFIT_SE_FLOOR

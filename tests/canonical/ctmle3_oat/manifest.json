@@ -70,12 +70,13 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ctmle_oat.py": "99d231b586579d75b7c128c00edc10ade3cdd1dee03a174edfe70e5f8316c43e",
-    "tests/studies/ctmle_oat_properties.py": "95637d8bf5eee6c9490f79eff82f1714c8e7bf934dbecbf83659d99865eaeb77",
-    "tests/studies/canonical_properties.py": "8a39dadba5257fccfa914e1c9c47f0f8652984c12ca888aaec387c8f5f18b557",
+    "tests/studies/canonical_ctmle_oat.py": "e64364d5c472c87aadb586f7350aae27dca5ae7ef7869c286085a4358941de6b",
+    "tests/studies/ctmle_oat_properties.py": "040ddc2654df7941df6e75e0043ac6af1c3b84123c2f5bd69ec805cb125cf899",
+    "tests/studies/canonical_properties.py": "6ccf61032a3e466803df59e2531ccf80a8882045aad8376d3708de2c97b04caa",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "7f755f90c27b63007e7419d0eef2bfb4b3b3bfd474cc156ed78d5890258be531",
+    "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
+    "tests/studies/evidence/property_verdicts.py": "5b2c63f514a89650de667528d50933b98c79b7fa3addc5fe43d15b738ab8c23a",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },

@@ -21,6 +21,7 @@ from tests.studies.evidence.properties import (
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
+from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.seeds import stream_seed
 
 OAT_NULL_REPLICATES = 800
@@ -169,7 +170,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = canonical_properties.apply_shared_verdicts(
+    summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
         extra_columns=(
@@ -266,4 +267,4 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         summary.loc[mask, "passed"] = design_verdicts[cell]
         summary.loc[mask, "property_passed"] = design_joint
 
-    return canonical_properties.finish(summary, rates)
+    return finish(summary, rates)

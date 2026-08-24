@@ -15,7 +15,6 @@ import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 
-from tests.studies.canonical_properties import ROOT_N_SLOPE_MARGIN
 from tests.studies.evidence.claims import matches
 from tests.studies.evidence.document import render
 from tests.studies.evidence.inference import (
@@ -32,10 +31,33 @@ from tests.studies.evidence.inference import (
 )
 from tests.studies.evidence.pairing import paired_wide
 from tests.studies.evidence.properties import Rate, rate, require_complete
+from tests.studies.evidence.property_verdicts import ROOT_N_SLOPE_MARGIN, calibration_verdicts
 from tests.studies.evidence.registry import Margins, registered
 from tests.studies.evidence.seeds import stream_seed
 
 CONFIDENCE = 0.99
+
+
+def test_calibration_verdicts_refuse_an_unknown_control_kind() -> None:
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"],
+            "cell": ["static__unknown_control"],
+            **{
+                f"{prefix}_ci_{endpoint}": [1.0]
+                for prefix in (
+                    "se_ratio",
+                    "efficiency_empirical",
+                    "efficiency_reported",
+                    "coverage",
+                )
+                for endpoint in ("lower", "upper")
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="unknown calibration cell kind 'unknown_control'"):
+        calibration_verdicts(summary, margins=Margins(), efficiency_band=(0.9, 1.1))
 
 
 class TestInterval:

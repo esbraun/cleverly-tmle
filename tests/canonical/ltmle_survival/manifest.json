@@ -90,16 +90,16 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_survival.py": "848e67dbc7867e43699467b4f0eaa1e87e6efae8614d3f8f79faaeab7394a9a2",
-    "tests/studies/ltmle_survival_properties.py": "b8d4f730e3607b82b267ce14cca9fad64daf810d98ef314a50378eb798f09393",
-    "tests/studies/canonical_ltmle.py": "ddcdd24a2db1ba0194095ade37c2095c71db7b93d96253fc7f649d5995d45945",
-    "tests/studies/canonical_properties.py": "e4b1b559358d96f2b04e1a303e8faa57a8fdfff7b324d3bcf8406bde55d8ed9c",
+    "tests/studies/canonical_ltmle_survival.py": "be0141ef1dc895244ab605071fd06a21f40bfeb6579429cc921413e391676aed",
+    "tests/studies/ltmle_survival_properties.py": "06a050d4e3ea35d376a077c012c5653d8450ec0cfa0289436e833a2f1466124f",
+    "tests/studies/canonical_ltmle.py": "8e6dd63f5e5c187e3acb3e4dabfa50c49765f9fb4a94da356d2cf49126f7a556",
     "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
     "src/cleverly/datasets/longitudinal.py": "fcb25762893bbed0985abbee7361a3f57ca189942cbdf748649679c0ed500b02",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
+    "tests/studies/evidence/property_verdicts.py": "5b2c63f514a89650de667528d50933b98c79b7fa3addc5fe43d15b738ab8c23a",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
