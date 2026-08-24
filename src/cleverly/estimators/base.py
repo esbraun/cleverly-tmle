@@ -389,15 +389,17 @@ class CVTargeting:
 
 @dataclass(frozen=True)
 class TMLEResult:
-    """The result of a TMLE fit.
+    """Store a fitted point-treatment TMLE result.
 
     Behaves like a mapping from estimand name to
     :class:`~cleverly.inference.ParameterEstimate`, and carries the nuisance fits so
     that sensitivity and validation analyses can be run without refitting.
 
-    Attributes
+    Parameters
     ----------
-    repeats:
+    estimates : dict of str to ParameterEstimate
+        Estimates keyed by stable parameter alias.
+    repeats : tuple of RepeatFit
         One :class:`~cleverly.estimators._nuisance.RepeatFit` per draw of the
         cross-fitting split -- a one-element tuple for an ordinary fit, ``R`` of them
         under ``repeats=R``.  This is where the nuisances and the fluctuations actually
@@ -405,12 +407,77 @@ class TMLEResult:
         which is what keeps every analysis written against a single fit working unchanged.
         Anything that must account for *all* the draws -- and every analysis that produces
         a number, as against one that describes a mechanism, must -- iterates this.
-    intermediate_value:
+    data : CausalData
+        Validated study data and dataframe backend.
+    config : TMLEConfig
+        Normalized implementation configuration.
+    estimator : Any or None
+        Fitted estimator that produced this result.
+    provenance : Provenance or None
+        Runtime, dependency, and data fingerprints.
+    simultaneous : SimultaneousBands or None
+        Joint confidence bands for multi-parameter fits.
+    bootstrap : BootstrapResult or None
+        Optional refit-bootstrap draws and failure counts.
+    intermediate_value : float or None
         The level of the intermediate variable this fit targets, or ``None`` for an
         ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
         estimate here is a controlled direct effect holding ``Z`` at this level, and the
         same data yields a different parameter at the other one.  See
         :mod:`cleverly.estimators.direct_effect`.
+    extra : dict
+        Method-specific fitted artifacts.
+    identified_effect : IdentifiedEffect or None
+        Causal question and identifying assumptions.
+    method : EstimationMethod or None
+        Typed public method configuration.
+    parameter_keys : dict of str to ParameterKey
+        Structured identities for reported aliases.
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs.
+
+    See Also
+    --------
+    cleverly.ParameterEstimate : One entry of :attr:`estimates`.
+    cleverly.assessment.DiagnosticsFacade : Reached as ``result.diagnostics``.
+    cleverly.assessment.SensitivityFacade : Reached as ``result.sensitivity``.
+    cleverly.longitudinal.LongitudinalResult : The same contract for a sequential fit.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
+    ... )
+
+    The result is a mapping from estimand alias to
+    :class:`~cleverly.inference.ParameterEstimate`:
+
+    >>> sorted(result.estimates)
+    ['ate']
+    >>> low, high = result["ate"].ci
+    >>> low < high
+    True
+
+    The interval bounds are ordered. The default validation battery reads the fitted
+    artifacts without refitting:
+
+    >>> result["ate"].std_error > 0
+    True
+    >>> len(result.validate().items) > 0
+    True
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -487,6 +554,12 @@ class TMLEResult:
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
+
+        Returns
+        -------
+        dict of str to float
+            Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
+            Zero for an ordinary one-draw fit.
         """
         if self.n_repeats < 2:
             raise ValueError(
@@ -522,7 +595,18 @@ class TMLEResult:
         return sole_estimate(self.estimates)
 
     def psi(self, name: str | None = None) -> float:
-        """Point estimate for ``name``, or for the sole parameter when omitted."""
+        """Return one point estimate.
+
+        Parameters
+        ----------
+        name : str or None
+            Parameter alias. ``None`` requires a single-parameter result.
+
+        Returns
+        -------
+        float
+            Point estimate on its reported scale.
+        """
         return self.estimate.psi if name is None else self[name].psi
 
     @property
@@ -532,10 +616,12 @@ class TMLEResult:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return self.data.n
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
+        """Return influence curves by parameter alias."""
         return estimate_curves(self.estimates)
 
     @property
@@ -552,13 +638,23 @@ class TMLEResult:
     # ------------------------------------------------------------- contrasts
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
-        """Joint covariance matrix of the requested estimates.
+        """Return joint covariance for selected estimates.
 
         The estimands are *not* independent -- they are functionals of one targeted
         distribution and share most of their influence curve -- so a contrast built
         from two of them needs this rather than the two variances.  Computed from the
         influence curves at the right independent unit, so a clustered fit gets the
         cluster-level covariance.
+
+        Parameters
+        ----------
+        names : sequence of str or None
+            Aliases in output order. ``None`` selects all estimates.
+
+        Returns
+        -------
+        ndarray
+            Covariance matrix in the requested order.
         """
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
@@ -575,9 +671,9 @@ class TMLEResult:
 
         Applies the delta method to the *joint* influence curve, so the correlation
         between the estimands is handled rather than ignored:
-        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`.
-
-        >>> res.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])   # doctest: +SKIP
+        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`. For example,
+        ``result.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])`` compares two
+        means already stored on ``result``.
 
         Pass ``gradient`` when the function's derivative is known in closed form.  The
         default is a central difference, which is accurate to about ``1e-10`` relative
@@ -585,6 +681,24 @@ class TMLEResult:
 
         The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
         carries its own influence curve and can itself be fed back into a contrast.
+
+        Parameters
+        ----------
+        function : callable
+            Smooth scalar function of the selected estimates.
+        names : sequence of str
+            Aliases passed to ``function`` in order.
+        name : str or None
+            Alias for the derived estimate.
+        scale : str
+            Reported scale of the derived estimate.
+        gradient : callable or None
+            Analytic gradient. ``None`` uses central differences.
+
+        Returns
+        -------
+        ParameterEstimate
+            Derived estimate with influence-curve inference.
         """
         return smooth_contrast(
             self.estimates,
@@ -618,7 +732,40 @@ class TMLEResult:
         return DiagnosticsFacade(self)
 
     def validate(self) -> ValidationReport:
-        """Run the inexpensive method-appropriate checks without refitting."""
+        """Run the inexpensive method-appropriate checks without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per check the fitted method declares, read off stored artifacts.
+
+        See Also
+        --------
+        cleverly.ValidationReport : The returned validation statuses.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run the broader diagnostic set.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> report = result.validate()
+        >>> len(report.items) > 0
+        True
+        """
         from ..assessment import validate_result
 
         return validate_result(self)
@@ -655,13 +802,29 @@ class TMLEResult:
 
         Loading joblib data can execute arbitrary Python code. Only load files from a
         trusted source in a compatible Python and dependency environment.
+
+        Parameters
+        ----------
+        path : path-like
+            Destination file.
+
+        Returns
+        -------
+        Path
+            Resolved output path.
         """
         from .serialize import save as _save
 
         return _save(self, path)
 
     def to_frame(self) -> Any:
-        """Tidy results, one row per estimand, in the caller's dataframe backend."""
+        """Tidy results, one row per estimand, in the caller's dataframe backend.
+
+        Returns
+        -------
+        dataframe
+            One row per estimand, in the backend the data arrived in.
+        """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
         payload: dict[str, Any] = {}
         keys: list[str] = []
@@ -709,6 +872,16 @@ class TMLEResult:
         Nothing is re-estimated: the interval and the p-value come from the influence
         curve the fit already reported, read on the scale ``scale`` names.  This is a
         *view*, in the sense :meth:`cleverly.longitudinal.LTMLEResult.curve` is one.
+
+        Parameters
+        ----------
+        scale : {"link", "ratio"}
+            Coefficient scale to report.
+
+        Returns
+        -------
+        dataframe
+            One row per working-model coefficient in the input backend.
         """
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
@@ -755,13 +928,25 @@ class TMLEResult:
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
     def influence_frame(self) -> Any:
-        """One column per estimand of per-observation influence-curve values."""
+        """One column per estimand of per-observation influence-curve values.
+
+        Returns
+        -------
+        dataframe
+            One column per estimand of per-observation influence-curve values.
+        """
         return self.data.frame_like(
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
     def summary(self) -> str:
-        """A printable report of the fit."""
+        """A printable report of the fit.
+
+        Returns
+        -------
+        str
+            A printable report: the estimates, the settings, then the diagnostics.
+        """
         data = self.data
         header = ["Targeted maximum likelihood estimation", "=" * 38]
         facts = [

@@ -49,7 +49,18 @@ __all__ = [
 
 
 class AssessmentStatus(StrEnum):
-    """The five deliberately distinct outcomes of an assessment operation."""
+    """Status returned by a diagnostic or validation operation.
+
+    ``NOT_APPLICABLE`` means that the operation does not apply to the fitted
+    estimand. ``UNAVAILABLE`` means that the operation applies, but the result
+    does not contain the artifacts needed to run it.
+
+    Parameters
+    ----------
+    *values
+        Present because :class:`enum.StrEnum` gives every member a synthetic
+        constructor. Reach a status by name, as ``AssessmentStatus.PASSED``.
+    """
 
     PASSED = "passed"
     FAILED = "failed"
@@ -60,7 +71,35 @@ class AssessmentStatus(StrEnum):
 
 @dataclass(frozen=True)
 class AssessmentCapability:
-    """What one assessment operation needs and how it executes."""
+    """Describe whether and how a result supports one assessment operation.
+
+    Parameters
+    ----------
+    operation : str
+        Public operation name on a diagnostics or sensitivity facade.
+    result_family : str
+        Result family for which the declaration applies.
+    methods : tuple of str
+        Estimation methods covered by the declaration.
+    available : bool
+        Whether the operation can run on the result family.
+    status : AssessmentStatus
+        Status to report when the operation cannot run.
+    required_artifacts : tuple of str
+        Fitted artifacts that the operation reads.
+    execution : {"summarize", "retarget", "refit"}
+        Most expensive work the operation performs.
+    deterministic_from_saved : bool
+        Whether saved artifacts determine the result without a refit.
+    interpretation : str
+        Statistical question that the operation answers.
+    cost : {"cheap", "moderate", "expensive"}
+        Relative cost category used by combined reports.
+    reason : str or None
+        Explanation when the operation is not available.
+    requires_arguments : tuple of str
+        Caller-supplied arguments that have no default.
+    """
 
     operation: str
     result_family: str
@@ -293,7 +332,39 @@ class AssessmentItem:
 
 @dataclass(frozen=True)
 class DiagnosticReport:
-    """The status of each requested diagnostic, including deliberate omissions."""
+    """Collect statuses from a combined diagnostic or sensitivity run.
+
+    Parameters
+    ----------
+    items : tuple of AssessmentItem
+        Results for the requested operations.
+    include_refits : bool
+        Whether the run allowed operations that refit nuisance models.
+    include_retargets : bool
+        Whether the run allowed operations that retarget cached nuisances.
+    backend : str or None
+        Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
+
+    See Also
+    --------
+    ValidationReport : The battery that reads stored artifacts only.
+    cleverly.assessment.DiagnosticsFacade : What produces this report.
+    cleverly.AssessmentCapability : The declaration behind one item.
+
+    Notes
+    -----
+    An unavailable item remains in the report. This makes a skipped or refused
+    operation visible to the caller.
+
+    Examples
+    --------
+    >>> from cleverly import AssessmentStatus, DiagnosticReport
+    >>> from cleverly.assessment import AssessmentItem
+    >>> item = AssessmentItem("support", AssessmentStatus.PASSED, "no material warning")
+    >>> report = DiagnosticReport(items=(item,))
+    >>> report["support"].status == AssessmentStatus.PASSED
+    True
+    """
 
     items: tuple[AssessmentItem, ...]
     #: The two cost classes a caller can opt into, declared separately because they are
@@ -306,12 +377,41 @@ class DiagnosticReport:
     backend: str | None = None
 
     def __getitem__(self, name: str) -> AssessmentItem:
+        """Return the report item named ``name``.
+
+        Parameters
+        ----------
+        name
+            Operation name to retrieve.
+
+        Returns
+        -------
+        AssessmentItem
+            Matching report item.
+
+        Raises
+        ------
+        KeyError
+            If the report does not contain ``name``.
+        """
         for item in self.items:
             if item.name == name:
                 return item
         raise KeyError(f"no diagnostic named {name!r}; have {[item.name for item in self.items]}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return report items as a dataframe.
+
+        Parameters
+        ----------
+        data : Any
+            Optional dataframe whose backend selects the output type.
+
+        Returns
+        -------
+        Any
+            A pandas or Polars dataframe with one row per operation.
+        """
         return emit_frame(
             {
                 "check": [item.name for item in self.items],
@@ -324,6 +424,13 @@ class DiagnosticReport:
         )
 
     def summary(self) -> str:
+        """Return a printable table of operation statuses.
+
+        Returns
+        -------
+        str
+            A printable table, one line per requested operation.
+        """
         return format_table(
             ["diagnostic", "status", "detail"],
             [[item.name, item.status.value, item.detail] for item in self.items],
@@ -332,13 +439,55 @@ class DiagnosticReport:
 
 @dataclass(frozen=True)
 class ValidationReport:
-    """The inexpensive default battery; it never refits nuisance models."""
+    """Collect results from the inexpensive validation battery.
+
+    Parameters
+    ----------
+    items : tuple of AssessmentItem
+        Validation checks and their statuses.
+    backend : str or None
+        Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
+
+    See Also
+    --------
+    DiagnosticReport : The combined run, which may retarget or refit.
+    cleverly.estimators.TMLEResult : Carries the artifacts this battery reads.
+    cleverly.validation.score_check : One of the checks the battery runs.
+
+    Notes
+    -----
+    The default battery reads stored artifacts. It does not refit nuisance
+    models.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
+    ... )
+    >>> report = result.validate()
+    >>> len(report.items) > 0
+    True
+    """
 
     items: tuple[AssessmentItem, ...]
     backend: str | None = None
 
     @property
     def passed(self) -> bool:
+        """Return whether every required check passed."""
         return all(
             item.status not in {AssessmentStatus.FAILED, AssessmentStatus.UNAVAILABLE}
             for item in self.items
@@ -348,12 +497,41 @@ class ValidationReport:
         return self.passed
 
     def __getitem__(self, name: str) -> AssessmentItem:
+        """Return the validation item named ``name``.
+
+        Parameters
+        ----------
+        name
+            Check name to retrieve.
+
+        Returns
+        -------
+        AssessmentItem
+            Matching validation item.
+
+        Raises
+        ------
+        KeyError
+            If the report does not contain ``name``.
+        """
         for item in self.items:
             if item.name == name:
                 return item
         raise KeyError(f"no validation check named {name!r}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return validation items as a dataframe.
+
+        Parameters
+        ----------
+        data : Any
+            Optional dataframe whose backend selects the output type.
+
+        Returns
+        -------
+        Any
+            A pandas or Polars dataframe with one row per check.
+        """
         return emit_frame(
             {
                 "check": [item.name for item in self.items],
@@ -366,6 +544,13 @@ class ValidationReport:
         )
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per validation check.
+        """
         heading = "Validation: PASS" if self.passed else "Validation: ATTENTION REQUIRED"
         return "\n".join(
             [
@@ -381,7 +566,23 @@ class ValidationReport:
 
 @dataclass(frozen=True)
 class Replayability:
-    """Which post-fit actions remain possible from the current result state."""
+    """Describe which post-fit actions a saved result can reproduce.
+
+    Parameters
+    ----------
+    summarize_existing_artifacts : bool
+        Whether stored diagnostics can be summarized.
+    retarget_cached_nuisances : bool
+        Whether targeting can run again without fitting nuisance models.
+    evaluate_stored_representer : bool
+        Whether the stored representer can evaluate another parameter.
+    refit_nuisances : bool
+        Whether the result retains enough configuration for nuisance refits.
+    evaluate_new_data : bool
+        Whether the fitted result can score new observations.
+    unreconstructible : tuple of str
+        Missing components that prevent reconstruction.
+    """
 
     summarize_existing_artifacts: bool
     retarget_cached_nuisances: bool
@@ -923,16 +1124,68 @@ def _cost_refusal(
 
 
 class DiagnosticsFacade(_CapabilityFacade):
-    """Unified diagnostics for point and longitudinal causal results."""
+    """Access diagnostics supported by a fitted causal result.
+
+    Parameters
+    ----------
+    result : TMLEResult or LongitudinalResult
+        Fitted point-treatment or longitudinal result.
+
+    See Also
+    --------
+    SensitivityFacade : The analyses that ask what would overturn the estimate.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.DiagnosticReport : What :meth:`run_all` returns.
+
+    Notes
+    -----
+    Access this facade through ``result.diagnostics``. Inspect
+    :attr:`capabilities` before optional or potentially expensive operations.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
+    ... )
+    >>> support = result.diagnostics.support()
+    >>> support.n
+    200
+    """
 
     _kind = "diagnostic"
     _attribute = "diagnostics"
 
     @property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
+        """Return declared operations and their availability."""
         return assessment_capabilities(self._result)
 
     def stagewise(self) -> LongitudinalDiagnostics:
+        """Return support and targeting diagnostics by longitudinal stage.
+
+        Returns
+        -------
+        LongitudinalDiagnostics
+            Diagnostics for each regimen and time point.
+
+        Raises
+        ------
+        CapabilityError
+            If the fitted result is not longitudinal.
+        """
         self._require("stagewise")
         return _cached(
             self._result,
@@ -943,6 +1196,14 @@ class DiagnosticsFacade(_CapabilityFacade):
         )
 
     def support(self) -> Any:
+        """Return the support diagnostic for the fitted intervention.
+
+        Returns
+        -------
+        PositivityReport or LongitudinalDiagnostics or SupportReport or dict
+            Support diagnostic specialized for arms, regimens, shifts, or incremental
+            interventions.
+        """
         self._require("support")
         if _family(self._result) == "longitudinal":
             return self.stagewise()
@@ -991,6 +1252,13 @@ class DiagnosticsFacade(_CapabilityFacade):
         return _cached(self._result, "diagnostics.support", (), {}, compute)
 
     def nuisance_models(self) -> Any:
+        """Return held-out fit diagnostics for nuisance models.
+
+        Returns
+        -------
+        NuisanceDiagnostics or LongitudinalNuisanceDiagnostics
+            Held-out diagnostics for point or sequential nuisance models.
+        """
         self._require("nuisance_models")
 
         def compute() -> Any:
@@ -1005,6 +1273,18 @@ class DiagnosticsFacade(_CapabilityFacade):
     def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
         """Whether targeting solved the score equations this fit relies on.
 
+        Parameters
+        ----------
+        tolerance : float
+            Relative tolerance used to evaluate the fitted score equations.
+
+        Returns
+        -------
+        ScoreCheck or LongitudinalScoreDiagnostics
+            Score-equation checks for the fitted result family.
+
+        Notes
+        -----
         ``tolerance`` gates both families but on the scale each one's score lives on, and
         the two are not interchangeable.  A point-treatment fit compares the score in the
         outcome's own units against ``tolerance * se / sqrt(n)``
@@ -1037,6 +1317,25 @@ class DiagnosticsFacade(_CapabilityFacade):
         tolerance: float = DEFAULT_TOLERANCE,
         identity_tolerance: float = IDENTITY_TOLERANCE,
     ) -> Any:
+        """Return correction-equation checks for a DRTMLE fit.
+
+        Parameters
+        ----------
+        tolerance : float
+            Tolerance for the reduced correction score.
+        identity_tolerance : float
+            Tolerance for the correction identity.
+
+        Returns
+        -------
+        CorrectionCheck
+            Correction diagnostics for the fitted result.
+
+        Raises
+        ------
+        CapabilityError
+            If the fitted method does not use the correction system.
+        """
         self._require("corrections")
         from .validation.drtmle import correction_check
 
@@ -1059,6 +1358,27 @@ class DiagnosticsFacade(_CapabilityFacade):
         estimands: Sequence[str] | None = None,
         mechanism: bool = False,
     ) -> Any:
+        """Retarget estimates across a sequence of mechanism bounds.
+
+        Parameters
+        ----------
+        bounds : sequence of float or None
+            Mechanism bounds to evaluate. Default bounds are used when omitted.
+        estimands : sequence of str or None
+            Reported estimands to include. All compatible estimands are the default.
+        mechanism : bool
+            For an incremental intervention, vary a separate observation mechanism.
+
+        Returns
+        -------
+        dataframe
+            Estimates and uncertainty at each requested bound.
+
+        Raises
+        ------
+        CapabilityError
+            If the requested curve changes the estimand or cannot be replayed.
+        """
         self._require("truncation_curve")
         from .sensitivity.positivity import truncation_curve
 
@@ -1080,6 +1400,23 @@ class DiagnosticsFacade(_CapabilityFacade):
         )
 
     def refute(self, **kwargs: Any) -> Any:
+        """Refit the analysis under the requested data perturbations.
+
+        Parameters
+        ----------
+        **kwargs
+            Options forwarded to :func:`cleverly.validation.refute`.
+
+        Returns
+        -------
+        RefutationResult
+            Refutation results for each requested perturbation.
+
+        Raises
+        ------
+        CapabilityError
+            If the fitted estimator cannot be reconstructed.
+        """
         self._require("refute")
         if not replayability(self._result).refit_nuisances:
             missing = replayability(self._result).unreconstructible
@@ -1100,6 +1437,47 @@ class DiagnosticsFacade(_CapabilityFacade):
     def run_all(
         self, *, include_refits: bool = False, include_retargets: bool = False
     ) -> DiagnosticReport:
+        """Run available diagnostics that need no new arguments.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Include operations that refit nuisance models.
+        include_retargets : bool
+            Include operations that retarget cached nuisance predictions.
+
+        Returns
+        -------
+        DiagnosticReport
+            One item for every declared diagnostic operation.
+
+        See Also
+        --------
+        cleverly.DiagnosticReport : The combined operation statuses.
+        DiagnosticsFacade.capabilities : Declare availability and cost before execution.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> report = result.diagnostics.run_all()
+        >>> report.include_refits, report.include_retargets
+        (False, False)
+        """
         return self._run_all(include_refits=include_refits, include_retargets=include_retargets)
 
 
@@ -1254,21 +1632,56 @@ def _reduction_conditioning_warning(result: Any) -> str | None:
 
 
 class SensitivityFacade(_CapabilityFacade):
-    """Capability-aware sensitivity operations with normalized persistent caching."""
+    """Access sensitivity analyses supported by a fitted causal result.
+
+    Parameters
+    ----------
+    result : TMLEResult or LongitudinalResult
+        Fitted point-treatment or longitudinal result.
+
+    See Also
+    --------
+    DiagnosticsFacade : The checks that ask whether the fit itself is sound.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.sensitivity.evalue.evalue : The same analysis as a free function.
+
+    Notes
+    -----
+    Access this facade through ``result.sensitivity``. Methods use the fitted
+    estimate and nuisance artifacts as their first input. Their remaining
+    arguments match the corresponding functions in :mod:`cleverly.sensitivity`.
+    Inspect :attr:`capabilities` to distinguish an unsupported analysis from one
+    that needs additional arguments or expensive work.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
+    ... )
+    >>> capability = result.sensitivity.capability("omitted_confounding")
+    >>> capability.available, capability.cost
+    (True, 'cheap')
+    """
 
     _kind = "sensitivity"
     _attribute = "sensitivity"
 
     @cached_property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
-        """The eight declarations, computed once per facade.
-
-        Unlike the diagnostics table these depend on the individual fit -- whether it
-        carries an observation mechanism, whether its estimator can be replayed -- so they
-        cannot be module-level data.  Cached because ``capability`` looks one row up by
-        rebuilding the tuple, which otherwise constructs all eight records on every
-        operation call and once more per row inside a combined report.
-        """
+        """Return sensitivity operations, their availability, cost, and requirements."""
         family = _family(self._result)
         longitudinal = family == "longitudinal"
         missing = (
@@ -1386,27 +1799,186 @@ class SensitivityFacade(_CapabilityFacade):
         )
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
+        """Bound omitted-confounder bias for a reported estimand.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.omitted_variable_bounds`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        SensitivityBounds
+            Bias bounds for each requested estimand.
+
+        See Also
+        --------
+        cleverly.sensitivity.omitted_variable_bounds : The same bound as a free function.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> result = study.identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> bounds = result.sensitivity.omitted_confounding(cf_y=0.05, cf_d=0.05)
+        >>> bounds.lower < result["ate"].psi < bounds.upper
+        True
+        """
         return self._dispatch("omitted_confounding", args, kwargs)
 
     def robustness_value(self, *args: Any, **kwargs: Any) -> Any:
+        """Return the confounding strength needed to cross the null.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.robustness_value`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        dict of str to float
+            Null-crossing strengths for the estimate and confidence limit, plus the
+            maximum-bias scale.
+
+        See Also
+        --------
+        cleverly.sensitivity.robustness_value : The same value as a free function.
+        """
         return self._dispatch("robustness_value", args, kwargs)
 
     def elements(self, *args: Any, **kwargs: Any) -> Any:
+        """Return the variance elements used by omitted-variable bounds.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.sensitivity_elements`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        SensitivityElements
+            The variance elements the omitted-variable bounds are built from.
+
+        See Also
+        --------
+        cleverly.sensitivity.sensitivity_elements : The same elements as a free function.
+        """
         return self._dispatch("elements", args, kwargs)
 
     def benchmark(self, *args: Any, **kwargs: Any) -> Any:
+        """Benchmark confounding strength against observed covariates.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.benchmark`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        BenchmarkResult
+            Confounding strength expressed in units of the named observed covariates.
+
+        See Also
+        --------
+        cleverly.sensitivity.benchmark : The same benchmark as a free function.
+        """
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:
+        """Evaluate bias bounds over a confounding-strength grid.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.contour_data`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        dataframe
+            Bias bounds over the requested grid of confounding strengths.
+
+        See Also
+        --------
+        cleverly.sensitivity.contour_data : The same grid as a free function.
+        """
         return self._dispatch("contour", args, kwargs)
 
     def evalue(self, *args: Any, **kwargs: Any) -> Any:
+        """Return an E-value on the risk-ratio scale.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.evalue`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        EValue
+            The minimum risk-ratio association that would explain the effect away.
+
+        See Also
+        --------
+        cleverly.sensitivity.evalue : The same E-value as a free function.
+        """
         return self._dispatch("evalue", args, kwargs)
 
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
+        """Vary unobserved-outcome odds under a missingness tilt.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.missingness_tilt`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        dataframe
+            One row per tilt value and estimand.
+
+        See Also
+        --------
+        cleverly.sensitivity.missingness_tilt : The same tilt as a free function.
+        """
         return self._dispatch("missingness", args, kwargs)
 
     def tipping_gamma(self, *args: Any, **kwargs: Any) -> Any:
+        """Find the missingness tilt at which the estimate crosses its null.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.tipping_gamma`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        float or None
+            The tilt at which the requested estimand reaches its null.
+
+        See Also
+        --------
+        cleverly.sensitivity.tipping_gamma : The same search as a free function.
+        """
         return self._dispatch("tipping_gamma", args, kwargs)
 
     def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
@@ -1455,4 +2027,18 @@ class SensitivityFacade(_CapabilityFacade):
     def run_all(
         self, *, include_refits: bool = False, include_retargets: bool = False
     ) -> DiagnosticReport:
+        """Run available sensitivity analyses that need no new arguments.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Include operations that refit nuisance models.
+        include_retargets : bool
+            Include operations that retarget cached nuisance predictions.
+
+        Returns
+        -------
+        DiagnosticReport
+            One item for every declared sensitivity operation.
+        """
         return self._run_all(include_refits=include_refits, include_retargets=include_retargets)

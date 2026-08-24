@@ -81,7 +81,28 @@ def _evalue_for_limit(limit: float, *, above_null: bool) -> float:
 
 @dataclass(frozen=True)
 class EValue:
-    """E-values for a point estimate and the confidence limit nearest the null."""
+    """E-values for a point estimate and the confidence limit nearest the null.
+
+    Parameters
+    ----------
+    estimand : str
+        Alias of the estimand this row describes.
+    scale : str
+        Scale the estimate was reported on before conversion.
+    risk_ratio : float
+        The estimate expressed as a risk ratio.
+    risk_ratio_ci : tuple of float
+        That ratio's confidence interval.
+    point : float
+        Risk-ratio association an unmeasured confounder would need with both
+        treatment and outcome to explain the point estimate away.
+    limit : float
+        The same association needed to move the confidence limit across the null.
+    approximate : bool
+        Whether reaching the risk-ratio scale needed an approximate conversion.
+    note : str
+        Explanation of that conversion, when one was used.
+    """
 
     estimand: str
     scale: str
@@ -93,6 +114,13 @@ class EValue:
     note: str = ""
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable report, one line per reported quantity.
+        """
         lines = [
             f"E-value for {self.estimand!r} ({self.scale} scale)",
             "-" * 40,
@@ -116,6 +144,13 @@ class EValue:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, float | str | bool]:
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict
+            A JSON-compatible mapping of every reported field.
+        """
         return {
             "estimand": self.estimand,
             "scale": self.scale,
@@ -187,6 +222,19 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     estimand here is ``"rr[medium vs low]"`` rather than ``"rr"``, and the *stem* is what
     picks the conversion.  One E-value per contrast, on the same terms as one
     omitted-variable bound per contrast: each is a statement about the two arms it names.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    estimand : str or None
+        Alias to report on. ``None`` picks the ratio-scale estimand the fit
+        reported, which is the scale an E-value is defined on.
+
+    Returns
+    -------
+    EValue
+        The association needed to explain the estimate and the interval away.
     """
     if estimand is None:
         estimand = _default_estimand(result)

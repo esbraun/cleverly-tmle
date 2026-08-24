@@ -59,7 +59,23 @@ _CALIBRATION_BINS = 10
 
 @dataclass(frozen=True)
 class NuisanceModelReport:
-    """Fit quality for one nuisance model."""
+    """Fit quality for one nuisance model.
+
+    Parameters
+    ----------
+    name : str
+        Which nuisance this report describes.
+    kind : str
+        Whether it is a regression or a classification.
+    metrics : dict of str to float
+        Out-of-fold fit metrics.
+    calibration : dict of str to list of float
+        Binned mean prediction and observed rate.
+    learner_weights : dict of str to float
+        Ensemble weight per candidate.
+    learner_risks : dict of str to float
+        Cross-validated risk per candidate.
+    """
 
     name: str
     kind: str
@@ -69,6 +85,14 @@ class NuisanceModelReport:
     learner_risks: dict[str, float]
 
     def row(self) -> list[str]:
+        """Return this model's metrics as one row of the diagnostics table.
+
+        Returns
+        -------
+        list of str
+            The formatted cells, in the column order
+            :meth:`NuisanceDiagnostics.summary` prints.
+        """
         order = ("auc", "brier", "log_loss", "r2", "mse", "calibration_slope")
         return [self.name] + [
             f"{self.metrics[key]:.4f}" if key in self.metrics else "-" for key in order
@@ -77,7 +101,17 @@ class NuisanceModelReport:
 
 @dataclass(frozen=True)
 class NuisanceDiagnostics:
-    """Out-of-fold fit quality for every nuisance model in a TMLE fit."""
+    """Out-of-fold fit quality for every nuisance model in a TMLE fit.
+
+    Parameters
+    ----------
+    models : tuple of NuisanceModelReport
+        One report per fitted nuisance model.
+    n_repeats : int
+        Cross-fitting draws the fit averaged over. The reports describe the first.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    """
 
     models: tuple[NuisanceModelReport, ...]
     #: How many cross-fitting draws the fit averaged over.  The reports above describe the
@@ -99,6 +133,19 @@ class NuisanceDiagnostics:
         raise KeyError(f"no nuisance model named {name!r}; have {[m.name for m in self.models]}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return tabular output in the input dataframe backend.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            One row per nuisance model, with its fit metrics.
+        """
         keys: list[str] = []
         for model in self.models:
             for key in model.metrics:
@@ -113,11 +160,32 @@ class NuisanceDiagnostics:
         return emit_frame(payload, data, backend=self.backend)
 
     def calibration_frame(self, name: str, data: Any = None) -> Any:
-        """Binned observed-vs-predicted table for one model."""
+        """Binned observed-vs-predicted table for one model.
+
+        Parameters
+        ----------
+        name : str
+            Which nuisance model to tabulate.
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            One row per bin, with the mean prediction and the observed rate in it.
+        """
         payload = dict(self[name].calibration)
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per nuisance model.
+        """
         lines = [
             "Nuisance model diagnostics (out of fold)",
             "-" * 40,
@@ -144,7 +212,13 @@ class NuisanceDiagnostics:
         return "\n".join(lines)
 
     def verdict(self) -> str:
-        """A reading of the diagnostics that says what to do about them."""
+        """A reading of the diagnostics that says what to do about them.
+
+        Returns
+        -------
+        str
+            A reading of the diagnostics that says what to do about them.
+        """
         notes: list[str] = []
         for model in self.models:
             auc = model.metrics.get("auc")
@@ -218,7 +292,18 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
 
 
 def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
-    """Out-of-fold diagnostics for every nuisance model in the fit."""
+    """Out-of-fold diagnostics for every nuisance model in the fit.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+
+    Returns
+    -------
+    NuisanceDiagnostics
+        One report per nuisance model, read off the stored fits.
+    """
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []

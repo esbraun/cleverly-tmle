@@ -1,17 +1,20 @@
 # Exceptions and warnings
 
-```{autosummary}
-:toctree: generated
-:nosignatures:
+Catch `CleverlyError` subclasses when an application can recover from invalid data, configuration,
+or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or weighting.
 
-cleverly.CleverlyError
-cleverly.CapabilityError
-cleverly.DataError
-cleverly.MethodConfigurationError
-cleverly.NotFittedError
-cleverly.ConvergenceWarning
-cleverly.PositivityWarning
-cleverly.WeightingWarning
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.CleverlyError
+   cleverly.CapabilityError
+   cleverly.DataError
+   cleverly.MethodConfigurationError
+   cleverly.NotFittedError
+   cleverly.ConvergenceWarning
+   cleverly.PositivityWarning
+   cleverly.WeightingWarning
 ```
 
 ## Package version

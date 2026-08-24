@@ -1,21 +1,21 @@
 # Study design and identification
 
-```{autosummary}
-:toctree: generated
-:nosignatures:
+Use these objects to declare the observed data, identify a causal quantity, and start estimation.
+`CausalStudy` is the main entry point. The protocols support advanced identification extensions.
 
-cleverly.CausalStudy
-cleverly.PointTreatment
-cleverly.LongitudinalTreatment
-cleverly.Estimand
-cleverly.IdentificationProvider
-cleverly.ExplicitAdjustmentProvider
-cleverly.IdentifiedEffect
-cleverly.CausalResult
-cleverly.ParameterKey
-cleverly.Provenance
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.CausalStudy
+   cleverly.PointTreatment
+   cleverly.LongitudinalTreatment
+   cleverly.Estimand
+   cleverly.IdentificationProvider
+   cleverly.ExplicitAdjustmentProvider
+   cleverly.IdentifiedEffect
+   cleverly.Provenance
 ```
 
-The intended entry point is `CausalStudy(data, design=...)`, followed by `identify()` and
-`estimate()`. Provider protocols are documented for extensions; using one does not waive the
-identification and evidence requirements.
+Call `CausalStudy(data, design=...)`, then call `identify()` or `estimate()`. An identification
+provider extends this sequence. It does not waive the identification and evidence requirements.

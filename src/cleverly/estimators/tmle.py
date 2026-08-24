@@ -62,9 +62,16 @@ Example
 -------
 >>> from cleverly.estimators import TMLE
 >>> from cleverly.datasets import make_nonlinear_ate
->>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
->>> res = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A").single()
->>> print(res.summary())                      # doctest: +SKIP
+>>> from sklearn.linear_model import LinearRegression, LogisticRegression
+>>> frame, _ = make_nonlinear_ate(n=200, seed=0)
+>>> res = TMLE(
+...     outcome_learner=LinearRegression(),
+...     treatment_learner=LogisticRegression(max_iter=1000),
+...     n_folds=2,
+...     random_state=0,
+... ).fit(frame, outcome="Y", treatment="A").single()
+>>> sorted(res.estimates)
+['atc', 'ate', 'att', 'ey0', 'ey1']
 """
 
 from __future__ import annotations
@@ -2801,8 +2808,8 @@ def tmle(
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
     ... ).single()
-    >>> round(res.psi("ate"), 1)                    # doctest: +SKIP
-    1.0
+    >>> bool(np.isfinite(res.psi("ate")))
+    True
     """
     data = CausalData.from_arrays(
         Y,

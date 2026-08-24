@@ -111,6 +111,14 @@ class CorrelationScreener(BaseEstimator, SelectorMixin):
     >>> from sklearn.linear_model import LogisticRegression
     >>> from sklearn.pipeline import make_pipeline
     >>> model = make_pipeline(CorrelationScreener(), LogisticRegression())
+
+    Parameters
+    ----------
+    threshold : float
+        Absolute correlation a covariate must reach to be retained.
+    min_retain : int or None
+        Smallest number of covariates to keep, whatever the threshold rejects.
+        ``None`` keeps only what clears it.
     """
 
     def __init__(
@@ -127,6 +135,22 @@ class CorrelationScreener(BaseEstimator, SelectorMixin):
         y: FloatArray,
         sample_weight: FloatArray | None = None,
     ) -> CorrelationScreener:
+        """Fit this object to training data.
+
+        Parameters
+        ----------
+        X : ndarray
+            ``(n, p)`` covariates.
+        y : ndarray
+            ``(n,)`` target the correlation is taken against.
+        sample_weight : ndarray or None
+            ``(n,)`` weights, or ``None`` for equal weights.
+
+        Returns
+        -------
+        CorrelationScreener
+            This object, fitted, as scikit-learn expects.
+        """
         matrix = np.asarray(X, dtype=float)
         if matrix.ndim == 1:
             matrix = matrix.reshape(-1, 1)

@@ -59,7 +59,25 @@ DEFAULT_TESTS: tuple[str, ...] = ("placebo", "random_common_cause", "subset")
 
 @dataclass(frozen=True)
 class RefutationTest:
-    """The outcome of one refutation test."""
+    """The outcome of one refutation test.
+
+    Parameters
+    ----------
+    name : str
+        Which refutation was run.
+    estimand : str
+        Alias the test was run for.
+    original : float
+        The estimate before the refutation.
+    values : tuple of float
+        Estimates the refutation produced.
+    expectation : str
+        What those values should look like if the fit is sound.
+    passed : bool
+        Whether they did.
+    detail : str
+        What was seen, in the test's own terms.
+    """
 
     name: str
     estimand: str
@@ -71,18 +89,44 @@ class RefutationTest:
 
     @property
     def mean(self) -> float:
+        """Return the mean estimate across this test's replicates.
+
+        Returns
+        -------
+        float
+            Mean over the finite replicates, and ``nan`` when none are finite. A
+            replicate that failed to converge is dropped rather than propagated.
+        """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.mean()) if finite.size else float("nan")
 
     @property
     def spread(self) -> float:
+        """Return how far this test's replicates spread around their mean.
+
+        Returns
+        -------
+        float
+            Sample standard deviation over the finite replicates, and ``nan`` when
+            fewer than two are finite.
+        """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.std(ddof=1)) if finite.size > 1 else float("nan")
 
 
 @dataclass(frozen=True)
 class RefutationResult:
-    """All refutation tests run on a fit."""
+    """All refutation tests run on a fit.
+
+    Parameters
+    ----------
+    tests : tuple of RefutationTest
+        One record per refutation run.
+    estimand : str
+        Alias the tests were run for.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    """
 
     tests: tuple[RefutationTest, ...]
     estimand: str
@@ -93,6 +137,7 @@ class RefutationResult:
 
     @property
     def passed(self) -> bool:
+        """Return whether every required check passed."""
         return all(test.passed for test in self.tests)
 
     def __bool__(self) -> bool:
@@ -105,6 +150,19 @@ class RefutationResult:
         raise KeyError(f"no test named {name!r}; have {[t.name for t in self.tests]}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return tabular output in the input dataframe backend.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            One row per refutation test.
+        """
         payload = {
             "test": [test.name for test in self.tests],
             "estimand": [test.estimand for test in self.tests],
@@ -117,6 +175,13 @@ class RefutationResult:
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per refutation test.
+        """
         lines = [
             f"Refutation tests for {self.estimand!r}",
             "-" * 34,
@@ -163,14 +228,29 @@ def refute(
 
     Parameters
     ----------
-    n_replicates:
+    result : TMLEResult
+        A fitted result to refute.
+    estimand : str
+        Alias the tests are run for.
+    tests : sequence of str
+        Which refutations to run.
+    n_replicates : int
         Replicates per randomised test.  The default is deliberately small because each
         one is a full refit; raise it when a borderline result needs resolving.
-    tolerance:
+    subset_fraction : float
+        Share of rows the subset test refits on.
+    negative_control_outcome : str or None
+        An outcome the treatment cannot affect.  Required to run that test.
+    random_state : int or None
+        Seed for the randomised tests.
+    tolerance : float
         How many standard errors a null test may deviate before failing.  The default of
         3 keeps the false-alarm rate low across several tests.
-    negative_control_outcome:
-        An outcome the treatment cannot affect.  Required to run that test.
+
+    Returns
+    -------
+    RefutationResult
+        One record per test run, with what it expected and what it saw.
     """
     estimator = result.estimator
     if estimator is None:

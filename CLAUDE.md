@@ -70,3 +70,29 @@ Check those against the code, tests, artifacts, and sources.
 Scope is `README.md` and every reader-facing Markdown, RST, or notebook source under `docs/`.
 Generated API pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not
 sweep unrelated pages unless the user requests a broad documentation review.
+
+## Docstrings
+
+Docstrings are numpydoc, and `sphinx.ext.napoleon` is not installed. The loose `name:` form that
+napoleon accepted is now a build error, because `pages.yml` builds with `-W` and `docs/conf.py`
+enables `GL06, GL07, PR01, PR02, PR04, PR10, RT01`. Write `name : type` always, one entry per
+parameter. Two names on one line become one parameter with a comma in its name.
+
+- Document a frozen dataclass's fields under `Parameters`. numpydoc reads the generated signature,
+  so a field described only under `Attributes` reads as undocumented. Reserve `Attributes` for
+  derived properties.
+- Give a property-backed attribute its name and type and no description. numpydoc renders the
+  property's own docstring over anything written there.
+- Where a synthetic signature produces a finding nobody can fix, use the inline
+  `# numpydoc ignore=PR01` form on the definition line. Do not use `numpydoc_validation_exclude`,
+  which drops the object from every check rather than one.
+- `Examples` and `See Also` are required on the task spine only, which
+  `tests/unit/test_documentation_api.py:EXAMPLE_TARGETS` declares. The targets include core
+  methods so a direct method anchor explains its own call. Every See Also entry carries a
+  description.
+- Show the smallest normal use of the documented object or method. Start with the common case.
+  Include every import, use compact data, and check deterministic output. Do not use an example
+  to assert a statistical guarantee from one sample.
+- An example must run in the fast tier without `doctest.SKIP`. Pass explicit learners to fits;
+  the default learner library costs 30 to 120 seconds per fit. Put expensive studies and extended
+  comparisons in narrative documentation and test them separately.

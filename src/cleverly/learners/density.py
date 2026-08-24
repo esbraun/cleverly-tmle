@@ -122,20 +122,20 @@ def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
 class DensityDiagnostics:
     """What the density fit looked like, for the report and for the positivity check.
 
-    Attributes
+    Parameters
     ----------
-    n_bins:
+    n_bins : int
         Bins actually used, after duplicate quantiles were dropped.
-    edges:
+    edges : ndarray
         The bin boundaries.
-    min_density:
+    min_density : float
         Smallest :math:`\\hat g(A_i \\mid W_i)` over the sample.  The denominator of every
         clever covariate, so the number a positivity problem shows up in first.
-    integrated:
+    integrated : tuple of float
         ``(min, max)`` of :math:`\\int \\hat g(a \\mid W_i)\\,da` over rows.  Both should be
         one to machine precision; anything else is a bug in the hazard product, not a
         modelling matter.
-    learner:
+    learner : tuple of SuperLearnerDiagnostics
         Per-fold Super Learner diagnostics, empty when the learner is not an ensemble.
     """
 
@@ -162,11 +162,11 @@ class ConditionalDensity:
     :func:`~cleverly.load`, a bootstrap resample and every
     :meth:`~cleverly.estimators.TMLE.retarget` without the learner being refit.
 
-    Attributes
+    Parameters
     ----------
-    bin_probabilities:
+    bin_probabilities : ndarray
         ``(n, B)``, rows summing to one.  Out-of-fold predictions.
-    edges:
+    edges : ndarray
         ``(B + 1,)`` bin boundaries, strictly increasing.
     """
 
@@ -189,10 +189,18 @@ class ConditionalDensity:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.bin_probabilities.shape[0])
 
     @property
     def n_bins(self) -> int:
+        """Return the number of bins the treatment support is divided into.
+
+        Returns
+        -------
+        int
+            Bin count, which is the second axis of :attr:`bin_probabilities`.
+        """
         return int(self.bin_probabilities.shape[1])
 
     @property
@@ -211,6 +219,16 @@ class ConditionalDensity:
         ``-1`` rather than a clamp, so a caller that evaluates outside the observed range
         gets a zero density and can see that it did, instead of silently reading the
         nearest edge bin.
+
+        Parameters
+        ----------
+        values : ndarray
+            ``(n,)`` treatment values, one per row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` bin index per row, and ``-1`` where the value is outside the support.
         """
         a = np.asarray(values, dtype=float).reshape(-1)
         index = np.digitize(a, self.edges) - 1
@@ -223,6 +241,16 @@ class ConditionalDensity:
 
         A pure lookup into :attr:`bin_probabilities`, so this can be called as often as an
         estimand needs without refitting anything.
+
+        Parameters
+        ----------
+        values : ndarray
+            ``(n,)`` treatment values, one per row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` density at those values, and zero outside the support.
         """
         a = np.asarray(values, dtype=float).reshape(-1)
         if a.size != self.n:
@@ -240,6 +268,11 @@ class ConditionalDensity:
         The hazard product is constructed to sum to one exactly, so this is a check on the
         arithmetic rather than on the model; it is reported because a silent failure here
         would rescale every clever covariate by an amount no other diagnostic would see.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` integral of the fitted density over the support, per row.
         """
         return np.asarray(self.bin_probabilities.sum(axis=1), dtype=float)
 
@@ -249,6 +282,19 @@ class ConditionalDensity:
         The resolution guard described in the module docstring: a shift that moves nobody
         across an edge has a clever covariate of exactly one everywhere and estimates
         nothing, however clean the fit looks.
+
+        Parameters
+        ----------
+        shifted : ndarray
+            ``(n,)`` dose the policy assigns.
+        observed : ndarray
+            ``(n,)`` dose actually received.
+
+        Returns
+        -------
+        float
+            Share of rows whose shifted dose falls in a different bin. A shift that
+            moves nobody across a bin boundary is invisible to a binned density.
         """
         return float(np.mean(self.bin_of(shifted) != self.bin_of(observed)))
 
@@ -259,6 +305,16 @@ class ConditionalDensity:
         :meth:`~cleverly.interventions.RegimeSet.subset` slices its densities: re-deriving
         the edges from the resample would give the subset a different discretisation from
         the fit it is meant to be a replicate of.
+
+        Parameters
+        ----------
+        index : array_like
+            Row positions or a boolean mask.
+
+        Returns
+        -------
+        ConditionalDensity
+            The same density over the selected rows.
         """
         idx = np.asarray(index)
         if idx.dtype == bool:

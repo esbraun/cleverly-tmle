@@ -82,6 +82,16 @@ class Intervention(Protocol):
     covariate, the influence curve, the positivity report, the parameter names -- is
     written against the ``(n, K)`` matrix and needs to know nothing about which kind of
     intervention produced it.
+
+    Parameters
+    ----------
+    *args, **kwargs
+        Present because :func:`typing.runtime_checkable` gives a protocol a synthetic
+        constructor.  A protocol is implemented, not instantiated.
+
+    Attributes
+    ----------
+    name : str
     """
 
     @property
@@ -96,7 +106,18 @@ class Intervention(Protocol):
         ...
 
     def density(self, data: CausalData) -> FloatArray:
-        """``(n, K)`` array of :math:`g^\\star(a \\mid W_i)`, columns in arm-code order."""
+        """Evaluate this regime's arm probabilities for every row.
+
+        Parameters
+        ----------
+        data : CausalData
+            Validated study data, which supplies the covariates and the arm order.
+
+        Returns
+        -------
+        ndarray
+            ``(n, K)`` array of :math:`g^\\star(a \\mid W_i)`, columns in arm-code order.
+        """
         ...
 
 
@@ -166,6 +187,13 @@ class Static:
     here for two reasons beyond completeness: it is the reference a rule is usually
     contrasted against, and a fit whose regimes are all :class:`Static` must reproduce
     the ordinary arm fit exactly, which is what ``tests/unit/test_regimes.py`` asserts.
+
+    Parameters
+    ----------
+    level : Any
+        The treatment level to assign to every row, as the caller spells it.
+    name : str
+        Label used in reported parameter names.  Empty builds ``"always <level>"``.
     """
 
     level: Any
@@ -176,6 +204,18 @@ class Static:
             object.__setattr__(self, "name", f"always {self.level}")
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate this regime's arm probabilities for every row.
+
+        Parameters
+        ----------
+        data : CausalData
+            Validated study data, which supplies the covariates and the arm order.
+
+        Returns
+        -------
+        ndarray
+            ``(n, K)`` density, columns in arm-code order.
+        """
         code = _code_for(data, self.level)
         return _one_hot(np.full(data.n, code), data.n_arms).astype(float)
 
@@ -195,12 +235,31 @@ class Rule:
     Every returned level is checked against the declared support before it becomes a
     density, so a rule with a typo or an off-by-one fails naming the levels that exist
     rather than producing a regime nobody asked for.
+
+    Parameters
+    ----------
+    rule : callable
+        Maps the covariate frame to the treatment level assigned to each row.
+    name : str
+        Label used in reported parameter names.
     """
 
     rule: Callable[[Any], Any]
     name: str
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate this regime's arm probabilities for every row.
+
+        Parameters
+        ----------
+        data : CausalData
+            Validated study data, which supplies the covariates and the arm order.
+
+        Returns
+        -------
+        ndarray
+            ``(n, K)`` density, columns in arm-code order.
+        """
         assigned = _as_array(self.rule(_covariate_frame(data)))
         if assigned.shape[0] != data.n or assigned.ndim > 1:
             raise DataError(
@@ -223,12 +282,31 @@ class Stochastic:
     :math:`W`, not one derived from the estimated mechanism: the influence curve this
     package reports for a regime has no term for :math:`g^\\star` depending on
     :math:`P`.  See the module docstring, and :func:`refuse_unsupported`.
+
+    Parameters
+    ----------
+    density_fn : callable
+        Maps the covariate frame to an ``(n, K)`` array of arm probabilities.
+    name : str
+        Label used in reported parameter names.
     """
 
     density_fn: Callable[[Any], Any]
     name: str
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate this regime's arm probabilities for every row.
+
+        Parameters
+        ----------
+        data : CausalData
+            Validated study data, which supplies the covariates and the arm order.
+
+        Returns
+        -------
+        ndarray
+            ``(n, K)`` density, columns in arm-code order.
+        """
         values = np.asarray(_as_array(self.density_fn(_covariate_frame(data))), dtype=float)
         if values.shape != (data.n, data.n_arms):
             raise DataError(
@@ -296,6 +374,15 @@ class RegimeSet:
     curves) can then be handled by code that does not count regimes or know what they
     mean, while every reported name uses what the user called them.
 
+    Parameters
+    ----------
+    names : tuple of str
+        Regime labels in code order.
+    values : ndarray
+        ``(n, K, R)`` evaluated densities.
+    reference : float
+        Code of the regime contrasts are taken against.
+
     Attributes
     ----------
     names:
@@ -337,9 +424,20 @@ class RegimeSet:
     ) -> RegimeSet:
         """Evaluate every intervention on ``data`` and assemble the set.
 
-        ``reference`` names the regime contrasts are taken against; without it the first
-        one supplied is used, mirroring the arm convention where the reference defaults to
-        the lowest code.
+        Parameters
+        ----------
+        interventions : sequence of Intervention
+            The regimes to evaluate, in the order their codes will follow.
+        data : CausalData
+            Validated study data to evaluate them on.
+        reference : str or None
+            Label of the regime contrasts are taken against.  ``None`` uses the first one
+            supplied, mirroring the arm convention where the reference is the lowest code.
+
+        Returns
+        -------
+        RegimeSet
+            The evaluated densities, keyed by code.
         """
         if len(interventions) < 1:
             raise DataError("at least one intervention is required")
@@ -359,14 +457,17 @@ class RegimeSet:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.values.shape[0])
 
     @property
     def n_arms(self) -> int:
+        """Return the number of treatment arms."""
         return int(self.values.shape[1])
 
     @property
     def n_regimes(self) -> int:
+        """Return the number of regimens."""
         return len(self.names)
 
     @property
@@ -380,10 +481,33 @@ class RegimeSet:
         return {float(r): name for r, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
+        """Return the label a regime code was supplied under.
+
+        Parameters
+        ----------
+        code : float
+            Regime code.
+
+        Returns
+        -------
+        str
+            The label, as the caller spelled it.
+        """
         return self.labels[float(code)]
 
     def column(self, code: float) -> FloatArray:
-        """One regime's ``(n, K)`` density."""
+        """Return one regime's evaluated density.
+
+        Parameters
+        ----------
+        code : float
+            Regime code.
+
+        Returns
+        -------
+        ndarray
+            ``(n, K)`` density for that regime alone.
+        """
         return np.asarray(self.values[:, :, round(float(code))], dtype=float)
 
     def subset(self, index: Any) -> RegimeSet:
@@ -393,6 +517,16 @@ class RegimeSet:
         function of :math:`W` alone the two agree exactly, and slicing is what keeps a
         loaded result (which carries the evaluated densities but not the callables that
         made them) usable everywhere a fitted one is.
+
+        Parameters
+        ----------
+        index : array_like
+            Row positions or a boolean mask.
+
+        Returns
+        -------
+        RegimeSet
+            The same regimes over the selected rows.
         """
         idx = np.asarray(index)
         if idx.dtype == bool:

@@ -67,6 +67,13 @@ class Folds:
 
     ``assignment[i]`` is the index of the fold that holds out observation ``i``.
     Iterating yields ``(train_index, test_index)`` pairs like scikit-learn.
+
+    Parameters
+    ----------
+    assignment : ndarray
+        ``assignment[i]`` is the index of the fold that holds out observation ``i``.
+    n_folds : int
+        Number of folds the assignment ranges over.
     """
 
     assignment: IntArray
@@ -115,6 +122,7 @@ class Folds:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.assignment.shape[0])
 
     def __len__(self) -> int:
@@ -134,6 +142,18 @@ class Folds:
             yield train, test
 
     def test_index(self, fold: int) -> IntArray:
+        """Return held-out row indices for one fold.
+
+        Parameters
+        ----------
+        fold : int
+            Fold index.
+
+        Returns
+        -------
+        ndarray
+            Positions of the rows that fold holds out.
+        """
         return np.flatnonzero(self.assignment == fold)
 
     @classmethod
@@ -143,11 +163,22 @@ class Folds:
         This is the ``cross_fit=False`` path -- it reproduces R's
         ``cvQinit = FALSE`` behaviour, where the initial fit is evaluated on the
         same data that produced it.
+
+        Parameters
+        ----------
+        n : int
+            Number of observations.
+
+        Returns
+        -------
+        Folds
+            A one-fold partition holding every row.
         """
         return cls(np.zeros(n, dtype=np.int64), 1)
 
     @property
     def is_single(self) -> bool:
+        """Return whether this object contains one fold."""
         return self.n_folds == 1
 
 
@@ -244,13 +275,22 @@ def make_folds(
 
     Parameters
     ----------
-    stratify:
-        Labels to balance across folds -- pass the treatment indicator.
-    cluster:
+    n : int
+        Number of observations to partition.
+    n_folds : int
+        Folds requested. Reduced, with a warning, when the data cannot support it.
+    stratify : ndarray or None
+        Labels to balance across folds.  Pass the treatment indicator.
+    cluster : ndarray or None
         Cluster codes; every row of a cluster lands in the same fold.
-    random_state:
+    random_state : int, Generator, or None
         Seed or generator.  With ``cluster`` and ``stratify`` both given the
         split is deterministic given the seed, so a fit is reproducible.
+
+    Returns
+    -------
+    Folds
+        A checked partition, cluster-respecting and stratified as asked.
     """
     if n < 2:
         raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
@@ -334,27 +374,27 @@ class CrossFitPlan:
     :class:`~cleverly.estimators.targeting.TargetingSpec` is -- so the settings appear
     once and cannot drift.
 
-    Attributes
+    Parameters
     ----------
-    n_folds:
+    n_folds : int
         Outer folds, the ones that make the nuisance predictions out of fold.  ``1``
         means ``cross_fit=False``.
-    learner_folds:
+    learner_folds : int
         Inner folds, which score Super Learner's candidates *inside* one outer training
         fold.  A separate declaration rather than the same one: this is model selection,
         not what makes a prediction out of fold, and its stratum is the learner's own
         target -- the treatment for the mechanism, the outcome for the regression.
-    scheme:
+    scheme : str
         Which family of split was built, resolved from what the data declared rather
         than chosen: ``"grouped"`` whenever ``id=`` named clusters, otherwise
         ``"stratified"`` or ``"vfold"``.
-    stratify_by:
+    stratify_by : tuple of str
         What the outer folds were balanced on, as user-facing names.  Empty when nothing
         was -- a continuous dose has no strata to balance.
-    random_state:
+    random_state : int or None
         Seed for the split.  Not enough to reproduce it on its own; see
         :mod:`cleverly.provenance`.
-    repeats:
+    repeats : int
         How many independent draws of the whole split the fit averaged over.  ``1`` is
         an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
         not a scheme of its own -- repeating a grouped split gives grouped splits.
@@ -378,6 +418,13 @@ class CrossFitPlan:
         return self.repeats > 1
 
     def describe(self) -> str:
+        """Return a readable description.
+
+        Returns
+        -------
+        str
+            One line naming the fold count, the repeats, and the stratification.
+        """
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"
@@ -396,6 +443,11 @@ class CrossFitPlan:
         One repeat passes ``random_state`` straight through rather than spawning from it,
         which is what makes ``repeats=1`` bit-for-bit an ordinary fit rather than merely
         an equivalent one.  ``tests/unit/test_repeated_crossfit.py`` enforces that.
+
+        Returns
+        -------
+        tuple of int or None
+            One seed per repeat, derived from :attr:`random_state`.
         """
         if not self.repeated:
             return (self.random_state,)

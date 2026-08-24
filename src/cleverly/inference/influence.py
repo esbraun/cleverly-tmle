@@ -92,23 +92,67 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 class ParameterEstimate:
     """A point estimate with everything needed to do inference on it.
 
-    Attributes
+    Parameters
     ----------
-    psi:
+    name : str
+        Stable alias of the estimand.
+    psi : float
         The estimate, on the outcome's original scale.
-    influence_curve:
+    influence_curve : ndarray
         Per-observation influence curve on the *inference* scale -- the original
         outcome scale for levels and differences, the log scale for ratios.
-    variance, std_error:
-        Variance and standard error on the inference scale.
-    ci, pvalue:
-        Wald interval and two-sided p-value.  For a ratio the interval is built on
-        the log scale and exponentiated, so it cannot include a negative value and
-        has far better small-sample coverage than a symmetric interval would.
-    log_psi:
+    variance : float
+        Variance on the inference scale.
+    n : int
+        Number of observations behind the estimate.
+    n_clusters : int
+        Independent clusters behind it, which is what the variance divides by.
+    scale : {"level", "difference", "ratio", "fraction"}
+        Scale the estimate is reported on, which decides how the interval is built.
+    alpha : float
+        Significance level of :attr:`ci`.
+    log_psi : float or None
         Present for ratios only: the estimate on the log scale.
-    bootstrap:
+    bootstrap : BootstrapSummary or None
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
+
+    Attributes
+    ----------
+    std_error : float
+    ci : tuple of float
+    pvalue : float
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult : The mapping these are read out of.
+    cleverly.inference.influence_variance : The variance an estimate is given.
+    cleverly.inference.simultaneous_bands : Joint bands over several of these.
+
+    Examples
+    --------
+    Read an estimate from a fitted result:
+
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import ATE, CausalStudy, PointTreatment
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=80, seed=1)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     n_folds=2,
+    ...     random_state=0,
+    ... )
+    >>> estimate = result["ate"]
+    >>> estimate.name, estimate.n
+    ('ate', 80)
+    >>> estimate.ci[0] < estimate.ci[1]
+    True
     """
 
     name: str
@@ -160,9 +204,28 @@ class ParameterEstimate:
         return float(np.mean(self.influence_curve))
 
     def with_bootstrap(self, summary: BootstrapSummary) -> ParameterEstimate:
+        """Return a copy with bootstrap inference attached.
+
+        Parameters
+        ----------
+        summary : BootstrapSummary
+            Percentile interval and bootstrap standard error to attach.
+
+        Returns
+        -------
+        ParameterEstimate
+            A copy carrying that summary. The analytic interval is unchanged.
+        """
         return replace(self, bootstrap=summary)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict
+            A JSON-compatible mapping of every reported field.
+        """
         low, high = self.ci
         row: dict[str, Any] = {
             "estimand": self.name,

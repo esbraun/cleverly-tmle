@@ -27,7 +27,21 @@ __all__ = ["VariableImportanceEntry", "VariableImportanceResult", "variable_impo
 
 @dataclass(frozen=True)
 class VariableImportanceEntry:
-    """One candidate exposure's target estimate and declared adjustment set."""
+    """One candidate exposure's target estimate and declared adjustment set.
+
+    Parameters
+    ----------
+    candidate : str
+        Candidate exposure column.
+    parameter : str
+        Estimand alias targeted for it.
+    adjustment_set : tuple of str
+        Covariates adjusted for, as declared.
+    estimate : ParameterEstimate
+        The estimate and its influence curve.
+    adjusted_pvalue : float
+        Its p-value after the multiplicity adjustment.
+    """
 
     candidate: str
     parameter: str
@@ -38,7 +52,19 @@ class VariableImportanceEntry:
 
 @dataclass(frozen=True)
 class VariableImportanceResult:
-    """Candidate-exposure estimates with multiplicity-adjusted null tests."""
+    """Candidate-exposure estimates with multiplicity-adjusted null tests.
+
+    Parameters
+    ----------
+    entries : tuple of VariableImportanceEntry
+        One entry per candidate and parameter.
+    fits : mapping of str to TMLEResult
+        The fit behind each candidate.
+    method : str
+        Multiplicity adjustment applied to the p-values.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns.
+    """
 
     entries: tuple[VariableImportanceEntry, ...]
     fits: Mapping[str, TMLEResult]
@@ -55,7 +81,13 @@ class VariableImportanceResult:
         return iter(self.entries)
 
     def to_frame(self) -> Any:
-        """One row per candidate/parameter, sorted by adjusted p-value."""
+        """One row per candidate/parameter, sorted by adjusted p-value.
+
+        Returns
+        -------
+        dataframe
+            One row per candidate and parameter, sorted by adjusted p-value.
+        """
         payload: dict[str, Any] = {
             "candidate": [entry.candidate for entry in self.entries],
             "parameter": [entry.parameter for entry in self.entries],
@@ -110,6 +142,39 @@ def variable_importance(
     Tests are two-sided on each parameter's native null (zero for differences/levels,
     one for ratios), then adjusted jointly by Benjamini--Hochberg.  This corrects the
     one-tail normal probability used by the historical ``tmle3_vim`` helper.
+
+    Parameters
+    ----------
+    data : dataframe
+        Observed study data.
+    outcome : str
+        Outcome column.
+    candidates : sequence of str
+        Columns to fit as the treatment, one at a time.
+    covariates : sequence of str
+        Baseline adjustment columns, shared by every candidate.
+    estimand : str
+        Alias targeted for each candidate.
+    estimator : TMLE or None
+        Configured estimator to reuse. ``None`` builds one with the defaults.
+    adjust_for_other_candidates : bool
+        Whether the other candidates join the baseline covariates. Set it false when
+        they are descendants, colliders, or otherwise should not be conditioned on.
+    delta : str or None
+        Outcome-observation indicator column.
+    weights : str or None
+        Probability-weight column.
+    weights_type : {"probability"}
+        Interpretation of ``weights``.
+    weights_estimated : bool
+        Whether the supplied weights were estimated from these data.
+    id : str or None
+        Independent-cluster identifier used for variance estimation.
+
+    Returns
+    -------
+    VariableImportanceResult
+        One entry per candidate, with its estimate and adjusted p-value.
     """
     if not is_dataframe(data):
         raise TypeError(

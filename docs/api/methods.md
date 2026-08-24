@@ -1,17 +1,20 @@
 # Estimation methods
 
-```{autosummary}
-:toctree: generated
-:nosignatures:
+Use a method object to configure nuisance learning, cross-fitting, targeting, inference, and
+runtime behavior. Pass the configured object to `IdentifiedEffect.estimate()`.
 
-cleverly.EstimationMethod
-cleverly.TMLEMethod
-cleverly.CollaborativeTMLEMethod
-cleverly.DRTMLEMethod
-cleverly.ModelSpec
-cleverly.CrossFitting
-cleverly.Targeting
-cleverly.Inference
-cleverly.Runtime
-cleverly.MethodAvailability
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.EstimationMethod
+   cleverly.TMLEMethod
+   cleverly.CollaborativeTMLEMethod
+   cleverly.DRTMLEMethod
+   cleverly.ModelSpec
+   cleverly.CrossFitting
+   cleverly.Targeting
+   cleverly.Inference
+   cleverly.Runtime
+   cleverly.MethodAvailability
 ```

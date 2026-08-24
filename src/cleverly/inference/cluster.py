@@ -109,7 +109,20 @@ def influence_variance(
     influence_curve: FloatArray,
     cluster: IntArray | None = None,
 ) -> float:
-    """Variance of an estimator from its influence curve."""
+    """Variance of an estimator from its influence curve.
+
+    Parameters
+    ----------
+    influence_curve : ndarray
+        ``(n,)`` influence curve.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes. ``None`` treats the rows as independent.
+
+    Returns
+    -------
+    float
+        Variance of the estimator on the inference scale.
+    """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     n = ic.shape[0]
     if n < 2:
@@ -227,6 +240,18 @@ def influence_covariance(
     Needed for the delta method on a function of estimands and for simultaneous
     confidence bands, both of which depend on how the estimands covary rather
     than only on their individual variances.
+
+    Parameters
+    ----------
+    influence_curves : ndarray
+        ``(n, k)`` influence curves, one column per estimand.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes. ``None`` treats the rows as independent.
+
+    Returns
+    -------
+    ndarray
+        ``(k, k)`` covariance matrix of the estimators.
     """
     ic = np.asarray(influence_curves, dtype=float)
     if ic.ndim != 2:

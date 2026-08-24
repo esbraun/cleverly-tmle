@@ -100,12 +100,12 @@ _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
 class Shift:
     """Add ``delta`` to everyone's treatment, up to ``cap``.
 
-    Attributes
+    Parameters
     ----------
-    delta:
+    delta : float
         How far to move the treatment.  ``0.0`` is the *natural course* -- the policy that
         changes nothing -- whose mean is :math:`E[Y]` and which is the usual reference.
-    cap:
+    cap : float or None
         The largest treatment value the policy will assign; a unit whose shifted dose would
         exceed it keeps its own.  **Required, with no default**, and it is a declaration
         rather than something estimated.
@@ -120,7 +120,7 @@ class Shift:
         indicator zeroed, and it warns with the share of rows whose shifted dose leaves the
         observed range -- because there :math:`\\bar Q` is being extrapolated and
         identification needs :math:`A + \\delta` to be supported.
-    name:
+    name : str
         What this policy is called in reported parameter names.  Defaults to ``"+0.5"`` /
         ``"-1"`` style, with ``"natural course"`` for ``delta=0``.
     """
@@ -139,7 +139,20 @@ class Shift:
             object.__setattr__(self, "name", default)
 
     def apply(self, treatment: FloatArray) -> tuple[FloatArray, BoolArray]:
-        """``(shifted, capped)`` -- the assigned dose, and which rows the cap held back."""
+        """``(shifted, capped)`` -- the assigned dose, and which rows the cap held back.
+
+        Parameters
+        ----------
+        treatment : ndarray
+            ``(n,)`` observed dose.
+
+        Returns
+        -------
+        shifted : ndarray
+            ``(n,)`` dose the policy assigns.
+        capped : ndarray
+            ``(n,)`` boolean, true where the cap held the row at its own dose.
+        """
         a = np.asarray(treatment, dtype=float).reshape(-1)
         moved = np.asarray(a + self.delta, dtype=float)
         if self.cap is None:
@@ -158,31 +171,34 @@ class ShiftSet:
     result loaded from disk -- targets the same declared policies without the density
     being refit or the caller's objects being reachable.
 
-    Attributes
+    Parameters
     ----------
-    names:
+    names : tuple of str
         One per shift, in the order they were declared.  Report labels.
-    deltas:
+    deltas : tuple of float
         The shift sizes, in declaration order.  Note these are *not* the keys of the
         per-parameter arrays: those are the **codes** ``0.0 .. S-1.0``, exactly as
         :class:`~cleverly.interventions.RegimeSet` keys by regime code rather than by the
         regime itself.  Two shifts could share a delta only by being different policies
         with different caps, and a float key derived from a user-supplied number is a
         worse dictionary key than an ordinal.
-    shifted:
+    shifted : ndarray
         ``(n, S)``, :math:`d_r(A_i, W_i)`.
-    ratio:
+    ratio : ndarray
         ``(n, S)``, :math:`h_r(A_i, W_i)` -- the clever covariate at the *observed*
         treatment.  **Untruncated**, exactly as :attr:`Propensity.values
         <cleverly.estimators._nuisance.Propensity.values>` is: the bound belongs to
         targeting time so a truncation curve can sweep it without refitting.
-    ratio_at:
+    ratio_at : ndarray
         ``(n, S, S)``, :math:`h_r(d_s(A_i, W_i), W_i)` at ``[i, s, r]``.  The fluctuation
         updates :math:`\\bar Q` as a function of :math:`(a, W)`, so obtaining
         :math:`\\bar Q^*(d_s(A,W), W)` needs the covariate evaluated *at the shifted dose*
         -- hence a matrix per row rather than a vector.
-    capped:
+    capped : ndarray
         ``(n, S)`` boolean, whether the cap held that row back.
+
+    reference : float
+        Code of the shift contrasts are taken against.
     """
 
     names: tuple[str, ...]
@@ -231,6 +247,22 @@ class ShiftSet:
         Every entry is a lookup into ``density``'s stored bin probabilities, so
         :math:`g(A \\mid W)` and :math:`g(A - \\delta \\mid W)` for one row necessarily come
         from the same out-of-fold model -- there is no second model to get wrong.
+
+        Parameters
+        ----------
+        shifts : tuple of Shift
+            The policies to evaluate, in the order their codes will follow.
+        data : CausalData
+            Validated study data, which supplies the observed dose.
+        density : ConditionalDensity
+            Estimated conditional density of the dose given the covariates.
+        reference : str or None
+            Label of the shift contrasts are taken against. ``None`` uses the first.
+
+        Returns
+        -------
+        ShiftSet
+            Every policy evaluated on the data and that density.
         """
         if not shifts:
             raise DataError("at least one shift is required")
@@ -271,10 +303,12 @@ class ShiftSet:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.shifted.shape[0])
 
     @property
     def n_shifts(self) -> int:
+        """Return the number of shift policies."""
         return len(self.names)
 
     @property
@@ -288,6 +322,18 @@ class ShiftSet:
         return {float(index): name for index, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
+        """Return the label for one indexed policy.
+
+        Parameters
+        ----------
+        code : float
+            Shift code.
+
+        Returns
+        -------
+        str
+            The label the shift was declared under.
+        """
         return self.labels[float(code)]
 
     @property
@@ -308,6 +354,16 @@ class ShiftSet:
         :meth:`~cleverly.interventions.RegimeSet.subset` gives: a policy is the same
         policy on a subsample, and re-deriving it would let the resample redefine the
         estimand.
+
+        Parameters
+        ----------
+        index : array_like
+            Row positions or a boolean mask.
+
+        Returns
+        -------
+        ShiftSet
+            The same policies over the selected rows.
         """
         idx = np.asarray(index)
         if idx.dtype == bool:
@@ -365,7 +421,38 @@ def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArra
 
 @dataclass(frozen=True)
 class ShiftSupport:
-    """Overlap for one shift: how hard the density ratio is working, and where it fails."""
+    """Overlap for one shift: how hard the density ratio is working, and where it fails.
+
+    Parameters
+    ----------
+    name : str
+        Report label of the shift.
+    delta : float
+        The dose shift this row describes.
+    cap : float or None
+        The declared cap, or ``None`` for an uncapped policy.
+    min_density : float
+        Smallest estimated density at a shifted dose, which is the denominator
+        the clever covariate divides by.
+    ratio_quantiles : dict of float to float
+        Quantiles of the density ratio at the observed dose.
+    max_ratio : float
+        The largest such ratio: how much one row can move the estimate.
+    effective_sample_size : float
+        Kish effective sample size of those ratios.
+    ess_ratio : float
+        That size as a share of ``n``.
+    capped_fraction : float
+        Share of rows the cap held back, which is how much of the population the
+        policy leaves at its own dose.
+    unsupported : int
+        Rows whose shifted dose falls where the estimated density is exactly zero.
+        The parameter is not identified for those rows at all.
+    min_mechanism : float or None
+        Smallest product of the further mechanisms that divide the covariate beside
+        the ratio, or ``None`` when the fit declared neither. When it is not ``None``
+        the quantiles and the effective sample size above are of the whole weight.
+    """
 
     name: str
     delta: float
@@ -383,6 +470,13 @@ class ShiftSupport:
     min_mechanism: float | None = None
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per row of the report.
+        """
         quantiles = ", ".join(f"{q:.0%}: {v:.3g}" for q, v in sorted(self.ratio_quantiles.items()))
         mechanism = (
             "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
@@ -419,6 +513,23 @@ def check_shift_support(
     :mod:`cleverly.sensitivity.positivity` makes the same argument about ``1 / g`` and a
     population weight.  Passing nothing reports the ratio by itself, which is what a fit
     with no such mechanism means.
+
+    Parameters
+    ----------
+    shifts : ShiftSet
+        The evaluated policies to report on.
+    density : ConditionalDensity
+        The estimated density the ratios were built from.
+    treatment : ndarray
+        ``(n,)`` observed dose.
+    mechanisms : sequence of ndarray
+        Further ``(n, S + 1)`` denominators the fit declared. Only column ``0``,
+        the value at the row's own dose, is read.
+
+    Returns
+    -------
+    dict of str to ShiftSupport
+        One record per shift, keyed by its report label.
     """
     a = np.asarray(treatment, dtype=float).reshape(-1)
     observed_density = density.density_at(a)

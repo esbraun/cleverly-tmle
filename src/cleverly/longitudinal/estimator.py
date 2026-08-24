@@ -353,11 +353,81 @@ class LongitudinalConfig:
 
 @dataclass(frozen=True)
 class LongitudinalResult(Mapping[str, ParameterEstimate]):
-    """Estimates under each regimen, with everything needed to do inference on them.
+    """Store estimates and fitted artifacts for longitudinal regimens.
 
     Behaves as a mapping from parameter name to
     :class:`~cleverly.inference.ParameterEstimate`, so ``result["ey_regimen[always]"]``
     and ``for name in result`` both work.
+
+    Parameters
+    ----------
+    estimates : dict of str to ParameterEstimate
+        Estimates keyed by stable parameter alias.
+    fits : dict of str to RegimenFit
+        Sequential fits by regimen, cause, and horizon.
+    data : LongitudinalData
+        Validated time-ordered study data.
+    config : LongitudinalConfig
+        Normalized sequential-estimator configuration.
+    scaler : OutcomeScaler
+        Transformation between observed and targeting scales.
+    mechanism : Mechanism
+        Fitted treatment and observation mechanisms.
+    provenance : Provenance
+        Runtime, dependency, and data fingerprints.
+    simultaneous : SimultaneousBands or None
+        Joint confidence bands.
+    parameter_index : dict or None
+        Structured regimen, cause, and horizon index.
+    msm : RegimenMSM or None
+        Working marginal structural model.
+    msm_fits : tuple of MSMRegimenFit
+        Projection fits by cause.
+    identified_effect : IdentifiedEffect or None
+        Causal question and identifying assumptions.
+    method : EstimationMethod or None
+        Typed public method configuration.
+    parameter_keys : dict of str to ParameterKey
+        Structured identities for reported aliases.
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs.
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult : The same contract for a point-treatment fit.
+    cleverly.RegimeContrast : The estimand a study declares to get this contrast.
+    cleverly.LongitudinalTreatment : The design that names these nodes.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import LTMLE
+    >>> frame, _ = make_longitudinal(n=200, seed=0)
+    >>> result = LTMLE(
+    ...     {"always": 1, "never": 0},
+    ...     n_folds=2,
+    ...     random_state=0,
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     censoring_learner=LogisticRegression(max_iter=1000),
+    ... ).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+
+    The regimen means and their contrast are keyed by the labels the regimens were
+    declared under:
+
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    >>> low, high = result["ey_regimen[always]"].ci
+    >>> low < high
+    True
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -409,17 +479,42 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return self.data.n
 
     def psi(self, name: str | None = None) -> float:
+        """Return a point estimate by parameter alias.
+
+        Parameters
+        ----------
+        name : str or None
+            Parameter alias. ``None`` is allowed only when the fit reported one.
+
+        Returns
+        -------
+        float
+            The point estimate for that parameter.
+        """
         return self.estimate.psi if name is None else self[name].psi
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
+        """Return influence curves by parameter alias."""
         return estimate_curves(self.estimates)
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
-        """Joint covariance of the requested estimates, at the right independent unit."""
+        """Return joint covariance for selected estimates.
+
+        Parameters
+        ----------
+        names : sequence of str or None
+            Aliases in output order. ``None`` selects all estimates.
+
+        Returns
+        -------
+        ndarray
+            Covariance matrix at the independent observation or cluster level.
+        """
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -431,7 +526,26 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         scale: Scale = "difference",
         gradient: Callable[[FloatArray], FloatArray] | None = None,
     ) -> ParameterEstimate:
-        """A smooth function of several regimens, with the delta method on the joint curve."""
+        """Return a smooth contrast with joint delta-method inference.
+
+        Parameters
+        ----------
+        function : callable
+            Smooth scalar function of the selected estimates.
+        names : sequence of str
+            Aliases passed to ``function`` in order.
+        name : str or None
+            Alias for the derived estimate.
+        scale : str
+            Reported scale of the derived estimate.
+        gradient : callable or None
+            Analytic gradient. ``None`` uses central differences.
+
+        Returns
+        -------
+        ParameterEstimate
+            Derived estimate with influence-curve inference.
+        """
         return smooth_contrast(
             self.estimates,
             function,
@@ -462,7 +576,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return DiagnosticsFacade(self)
 
     def validate(self) -> Any:
-        """Run the inexpensive stagewise default battery without refitting."""
+        """Run the inexpensive stagewise default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per stagewise check, read off stored artifacts.
+        """
         from ..assessment import validate_result
 
         return validate_result(self)
@@ -495,6 +615,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The ``total`` column carries a standard error because the sum is itself a
         parameter with an influence curve -- the sum of the causes' curves -- so
         ``excess`` can be read against it rather than eyeballed.
+
+        Returns
+        -------
+        dataframe
+            One row per regimen and horizon, with the incidences summed over causes.
         """
         if not self.data.is_competing:
             raise ValueError(
@@ -531,12 +656,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def sensitivity(self) -> Any:
+        """Return the sensitivity-analysis facade."""
         from ..assessment import SensitivityFacade
 
         return SensitivityFacade(self)
 
     def save(self, path: Any) -> Any:
-        """Persist the complete fitted result to a trusted joblib artifact."""
+        """Persist the complete fitted result to a trusted joblib artifact.
+
+        Parameters
+        ----------
+        path : path-like
+            Destination file.
+
+        Returns
+        -------
+        Path
+            Resolved output path.
+        """
         from ..estimators.serialize import save as _save
 
         return _save(self, path)
@@ -562,6 +699,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         The ``time`` column lives here rather than on :meth:`to_frame`, which keeps the
         column names a point-treatment fit reports.
+
+        Parameters
+        ----------
+        scale : {"risk", "survival"}
+            Outcome scale for levels and contrasts.
+
+        Returns
+        -------
+        dataframe
+            One row per regimen, cause, and horizon in the input backend.
         """
         if scale not in ("risk", "survival"):
             raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
@@ -635,6 +782,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         Refused on an identity-link fit, where :math:`e^\\beta` of a risk difference is
         not a quantity, and on a fit with no working model.  Nothing is re-estimated.
+
+        Parameters
+        ----------
+        scale : {"link", "ratio"}
+            Coefficient scale to report.
+
+        Returns
+        -------
+        dataframe
+            One row per working-model coefficient in the input backend.
         """
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
@@ -677,13 +834,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         are the ones a point-treatment fit reports under the same names.  Two result
         objects in one library disagreeing on the name of every column is a worse cost
         than the one this saved.
+
+        Returns
+        -------
+        dataframe
+            One row per reported parameter, in the backend the data arrived in.
         """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
         payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
         return self.data.frame_like(payload)
 
     def summary(self) -> str:
-        """A printable report: the estimates, then the settings, then the leverage."""
+        """A printable report: the estimates, then the settings, then the leverage.
+
+        Returns
+        -------
+        str
+            A printable report: the estimates, the settings, then the leverage.
+        """
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
         rows = []
         for name, estimate in self.estimates.items():

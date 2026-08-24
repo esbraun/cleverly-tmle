@@ -56,6 +56,16 @@ def load(path: str | Path) -> Any:
 
     Never load a file from an untrusted source: joblib deserialization can execute
     arbitrary Python code.
+
+    Parameters
+    ----------
+    path : str or Path
+        File written by :meth:`~cleverly.estimators.TMLEResult.save`.
+
+    Returns
+    -------
+    TMLEResult or LongitudinalResult
+        The stored result, with the artifacts the file carried.
     """
     source = Path(path)
     with source.open("rb") as handle:

@@ -30,7 +30,20 @@ LibraryEntry = tuple[str, Learner]
 
 
 def default_library(task: Task, *, random_state: int | None = None) -> list[LibraryEntry]:
-    """Return the concrete default ensemble for one prediction task."""
+    """Return the concrete default ensemble for one prediction task.
+
+    Parameters
+    ----------
+    task : {"classification", "regression"}
+        Which prediction task the candidates must suit.
+    random_state : int or None
+        Seed passed to every candidate that takes one.
+
+    Returns
+    -------
+    list of tuple
+        One ``(name, estimator)`` pair per candidate, in a fixed order.
+    """
     if task not in {"classification", "regression"}:
         raise ValueError(f"task must be 'classification' or 'regression'; got {task!r}")
     boost_common: dict[str, Any] = {

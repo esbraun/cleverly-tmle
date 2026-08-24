@@ -58,7 +58,31 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ReplicationRecord:
-    """One estimand from one successful repeated-sampling draw."""
+    """One estimand from one successful repeated-sampling draw.
+
+    Parameters
+    ----------
+    replicate : int
+        Index of the draw.
+    seed : int
+        Seed that produced it.
+    estimand : str
+        Alias this record is for.
+    truth : float
+        The estimand's true value under the process.
+    estimate : float
+        What the estimator reported.
+    std_error : float
+        The standard error it reported.
+    covered : bool
+        Whether the interval contained ``truth``.
+    rejected : bool
+        Whether the null was rejected at ``alpha``.
+    inference_estimate : float
+        The estimate on the inference scale.
+    alpha : float
+        Significance level the interval was built at.
+    """
 
     replicate: int
     seed: int
@@ -74,7 +98,19 @@ class ReplicationRecord:
 
 @dataclass(frozen=True)
 class ReplicationFailure:
-    """A failed draw retained with enough context to diagnose the study."""
+    """A failed draw retained with enough context to diagnose the study.
+
+    Parameters
+    ----------
+    replicate : int
+        Index of the draw that failed.
+    seed : int
+        Seed that produced it, so the failure can be reproduced.
+    error_type : str
+        Exception class raised.
+    message : str
+        Its message.
+    """
 
     replicate: int
     seed: int
@@ -223,7 +259,25 @@ def summarize_replications(
 
 @dataclass(frozen=True)
 class StudyResult:
-    """The full output of a :class:`CoverageStudy`."""
+    """The full output of a :class:`CoverageStudy`.
+
+    Parameters
+    ----------
+    summaries : dict of str to EstimandSummary
+        Bias, coverage and rejection rate per estimand.
+    replications : tuple of ReplicationRecord
+        One record per estimand per successful draw.
+    failures : tuple of ReplicationFailure
+        One record per draw that raised.
+    n : int
+        Sample size per replication.
+    n_replicates : int
+        Replications requested.
+    alpha : float
+        Significance level coverage was measured at.
+    label : str
+        Name of the study, for reports.
+    """
 
     summaries: dict[str, EstimandSummary]
     replications: tuple[ReplicationRecord, ...]
@@ -235,12 +289,26 @@ class StudyResult:
 
     @property
     def n_failed(self) -> int:
+        """Return the number of failed replications."""
         return len(self.failures)
 
     def __getitem__(self, estimand: str) -> EstimandSummary:
         return self.summaries[estimand]
 
     def to_frame(self, backend: str | None = None) -> Any:
+        """Return tabular output in the input dataframe backend.
+
+        Parameters
+        ----------
+        backend : {"pandas", "polars", "pyarrow"} or None, default=None
+            Dataframe backend to return. ``None`` uses pandas when installed, then the first
+            available backend.
+
+        Returns
+        -------
+        dataframe
+            One row per estimand, with bias and coverage.
+        """
         from ..utils.frames import frame_from_dict
 
         rows = [summary.to_dict() for summary in self.summaries.values()]
@@ -248,6 +316,13 @@ class StudyResult:
         return frame_from_dict(payload, backend=backend)
 
     def summary(self) -> str:
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per estimand.
+        """
         level = 1.0 - self.alpha
         lines = [
             f"Simulation study: {self.label}",
@@ -290,7 +365,13 @@ class StudyResult:
         return "\n".join(lines)
 
     def verdict(self) -> str:
-        """Reading of the study, naming the specific failure mode where there is one."""
+        """Reading of the study, naming the specific failure mode where there is one.
+
+        Returns
+        -------
+        str
+            A reading of the study, naming the failure mode where there is one.
+        """
         notes: list[str] = []
         target = 1.0 - self.alpha
         for summary in self.summaries.values():
@@ -326,25 +407,31 @@ class CoverageStudy:
 
     Parameters
     ----------
-    dgp:
+    dgp : DGP or callable
         A :class:`~cleverly.datasets.DGP`, or a callable
         ``(n, seed) -> (frame, truth)`` following the convention of the generators in
         :mod:`cleverly.datasets`.
-    estimator:
+    estimator : callable
         A zero-argument factory returning a fresh estimator per replication.  A factory
         rather than an instance, so replications cannot share fitted state.
-    n, n_replicates:
-        Sample size per replication, and how many replications.
-    estimands:
+    n : int
+        Sample size per replication.
+    n_replicates : int
+        How many replications to run.
+    estimands : sequence of str or None
         Which estimands to summarise; defaults to whatever the first fit reports.
-    fit_kwargs:
-        Passed to ``fit`` -- column names, ``delta=``, ``id=`` and so on.
-    truth_key:
+    fit_kwargs : mapping or None
+        Passed to ``fit``.  Column names, ``delta=``, ``id=`` and so on.
+    seed : int or None
+        Seed the per-replication seeds are spawned from.
+    n_jobs : int
+        Number of joblib workers across replications.
+    truth_key : {"population", "sample"}
         ``"population"`` (default) compares against the population estimand, fixed
         across replications; ``"sample"`` compares against each replication's realised
         sample estimand, which removes one source of variability but changes what
         coverage means.
-    intermediate_value:
+    intermediate_value : object or None
         The level of the intermediate variable to study, for a controlled direct effect.
         Required when ``fit_kwargs`` contains ``intermediate=``, because such a fit
         returns one result per level and each level is a *different parameter*: the
@@ -352,8 +439,11 @@ class CoverageStudy:
         at the same level, so the two cannot silently disagree.  See
         :mod:`cleverly.estimators.direct_effect`.
 
-    Example
-    -------
+    label : str
+        Name of the study, used in its reports.
+
+    Examples
+    --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
     >>> from cleverly.estimators import TMLE
     >>> from cleverly.datasets import nonlinear_dgp
@@ -368,7 +458,8 @@ class CoverageStudy:
     ...     n_replicates=50,
     ...     seed=0,
     ... )
-    >>> print(study.run().summary())                                     # doctest: +SKIP
+    >>> study.n_replicates
+    50
     """
 
     def __init__(
@@ -460,7 +551,13 @@ class CoverageStudy:
         return result[self.intermediate_value]
 
     def run(self) -> StudyResult:
-        """Execute the study."""
+        """Execute the study.
+
+        Returns
+        -------
+        StudyResult
+            Per-replication records, per-estimand summaries, and the failures.
+        """
         import warnings
 
         seeds = np.random.SeedSequence(self.seed).generate_state(self.n_replicates)

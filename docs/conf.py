@@ -18,16 +18,17 @@ release = __version__
 
 extensions = [
     "myst_nb",
+    "numpydoc",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
-    "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_copybutton",
     "sphinx_design",
 ]
 
 root_doc = "index"
+templates_path = ["_templates"]
 source_suffix = {".rst": "restructuredtext", ".md": "myst-nb", ".ipynb": "myst-nb"}
 exclude_patterns = ["_build", "api/generated/*.md", "Thumbs.db", ".DS_Store"]
 
@@ -47,12 +48,37 @@ myst_enable_extensions = [
 myst_heading_anchors = 3
 
 autosummary_generate = True
-autodoc_typehints = "description"
+# Types belong in the signature, not the description.  numpydoc renders a docstring as one
+# ``:Parameters:`` field rather than one ``:param x:`` field per parameter, so autodoc finds
+# nothing to merge its annotations into and appends a second, description-less Parameters block.
+autodoc_typehints = "signature"
 autodoc_typehints_format = "short"
 autodoc_member_order = "bysource"
 autoclass_content = "both"
-napoleon_google_docstring = True
-napoleon_numpy_docstring = True
+
+# Public class pages expose the methods and attributes that the class defines.  Inherited
+# container helpers stay on their defining class so result pages do not fill with Mapping methods.
+numpydoc_show_class_members = False
+numpydoc_show_inherited_class_members = False
+numpydoc_class_members_toctree = False
+numpydoc_attributes_as_param_list = True
+numpydoc_xref_param_type = True
+# The build fails on a docstring that is structurally incomplete, because `pages.yml`
+# builds with `-W`.  What is deliberately *off*: GL01, because a summary on the opening-quote
+# line is house style here; ES01, because an extended summary is not owed by every one-line
+# accessor; and EX01 and SA01, because Examples and See Also are required on the task spine
+# only.  `tests/unit/test_documentation_api.py` enforces those two, since numpydoc's Sphinx
+# configuration can require a check of every object or of none, and 140 pro-forma
+# constructor examples are noise.
+numpydoc_validation_checks = {
+    "GL06",  # known section names
+    "GL07",  # standard section order
+    "PR01",  # every parameter is documented
+    "PR02",  # no documented parameter that the signature does not have
+    "PR04",  # every parameter carries a type
+    "PR10",  # the "name : type" form, which numpydoc needs to split the two
+    "RT01",  # a function that returns something says what
+}
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
