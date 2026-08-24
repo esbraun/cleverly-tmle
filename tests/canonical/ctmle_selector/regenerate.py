@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tests.canonical.ctmle_regenerate import main
+from tests.canonical.regenerate import Reference, main
 from tests.studies import canonical_ctmle_selector, ctmle_selector_properties
 
 if __name__ == "__main__":
@@ -10,6 +10,5 @@ if __name__ == "__main__":
         canonical_ctmle_selector,
         ctmle_selector_properties,
         here=Path(__file__).resolve().parent,
-        image="cleverly-ctmle-reference:18de559",
-        runner="run_ctmle.R",
+        reference=Reference(image="cleverly-ctmle-reference:18de559", runner="run_ctmle.R"),
     )
