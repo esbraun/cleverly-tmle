@@ -1529,6 +1529,17 @@ class CausalStudy:
         ------
         CapabilityError
             If the estimand type or its composition with the design is unsupported.
+
+        Notes
+        -----
+        A string is refused rather than resolved. A provider dereferences
+        ``estimand.name`` as its first act, so ``identify("ate")`` -- the spelling every
+        legacy ``TMLE(estimands=("ate",))`` call site used -- died with
+        ``AttributeError: 'str' object has no attribute 'name'`` and no mention of
+        estimands. The type check sits here because this is the one place every path
+        passes through. It refuses rather than resolves because one public question
+        normalizes to one evidenced engine request, and strings would drive a second
+        convenience path beside it.
         """
         if not isinstance(estimand, PointEstimand):
             raise CapabilityError(
@@ -1633,6 +1644,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         -----
         The check runs before nuisance fitting. A method marked unavailable raises
         :class:`CapabilityError` when selected.
+
+        A controlled direct effect is refused here rather than mid-fit. Its functional
+        target is the *contrast's* name -- ``ate``, ``rr`` -- so a check that read only
+        the target declared both variants available for it, and both engines then
+        refused once fitting had already started. Refusing before any nuisance is built
+        is the boundary ``docs/architecture-invariants.md`` exists to hold.
         """
         point = not self.functional.longitudinal
         target = self.functional.target

@@ -194,7 +194,13 @@ class ConditionalDensity:
 
     @property
     def n_bins(self) -> int:
-        """Return the public value produced by this operation."""
+        """Return the number of bins the treatment support is divided into.
+
+        Returns
+        -------
+        int
+            Bin count, which is the second axis of :attr:`bin_probabilities`.
+        """
         return int(self.bin_probabilities.shape[1])
 
     @property

@@ -543,6 +543,19 @@ class TMLEMethod:
         ------
         MethodConfigurationError
             If an option is not supported by the method.
+
+        Notes
+        -----
+        A shortcut that is also a field name must set that field. ``alpha=`` used to
+        route to :attr:`Targeting.submodel_alpha`, the logistic-submodel bound, following
+        the legacy ``TMLE(alpha=..., alpha_sig=...)`` spelling, while the field actually
+        *named* ``alpha`` was :attr:`Inference.alpha`, the significance level. So
+        ``estimate(alpha=0.10)`` was accepted, moved the shrink bound, and left the
+        interval at 95 percent: a silently wrong knob rather than an error. ``alpha=`` is
+        now the significance level, the bound is reached as ``submodel_alpha=``, and the
+        legacy ``alpha_sig=`` spelling is gone. ``tests.unit.test_causal_study`` pins the
+        rule. ``alpha_sig`` is still live inside
+        :class:`cleverly.estimators.TMLE`, so the migration note still has a reader.
         """
         groups = SHORTCUTS
         known = {name for fields in groups.values() for name in fields}

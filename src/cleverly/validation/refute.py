@@ -89,13 +89,27 @@ class RefutationTest:
 
     @property
     def mean(self) -> float:
-        """Return the mean refutation estimate."""
+        """Return the mean estimate across this test's replicates.
+
+        Returns
+        -------
+        float
+            Mean over the finite replicates, and ``nan`` when none are finite. A
+            replicate that failed to converge is dropped rather than propagated.
+        """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.mean()) if finite.size else float("nan")
 
     @property
     def spread(self) -> float:
-        """Return the refutation estimate spread."""
+        """Return how far this test's replicates spread around their mean.
+
+        Returns
+        -------
+        float
+            Sample standard deviation over the finite replicates, and ``nan`` when
+            fewer than two are finite.
+        """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.std(ddof=1)) if finite.size > 1 else float("nan")
 
