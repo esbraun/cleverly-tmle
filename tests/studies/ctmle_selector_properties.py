@@ -128,8 +128,13 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = canonical_properties.apply_shared_verdicts(rows, STUDY)
-    summary["rmse_ratio"] = np.nan
+    # Through ``extra_columns`` rather than assigned afterwards.  The rate rows are built from
+    # ``summary.columns`` inside ``apply_shared_verdicts``, so a column added after the call is
+    # absent when they are built and arrives on them as NaN by ``concat`` instead of through the
+    # declared mechanism.  Same published value either way today; one of them is a coincidence.
+    summary, rates = canonical_properties.apply_shared_verdicts(
+        rows, STUDY, extra_columns=("rmse_ratio",)
+    )
     necessity = rows.loc[rows["property"] == "selector_necessity"]
     collaborative = necessity.loc[necessity["cell"] == "collaborative"].sort_values("replicate")
     control = necessity.loc[necessity["cell"] == "empty_control"].sort_values("replicate")

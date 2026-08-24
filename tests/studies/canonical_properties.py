@@ -30,8 +30,9 @@ from tests.studies.evidence.properties import (
     ratio_intervals,
     run_cells,
     summarize_cells,
+    summary_interval,
 )
-from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.registry import Margins, StudyRecord
 from tests.studies.evidence.seeds import stream_seed
 
 #: Sized by what the claim needs, not by habit.  The 99% interval's half-width is about
@@ -431,6 +432,97 @@ def _rate_row(
         }
     )
     rates.append(row)
+
+
+def calibration_controls(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    labels: Sequence[str],
+    efficiency_bounds: Mapping[str, float],
+    calibration_n: int,
+    shrunken_se_factor: float,
+    critical: float,
+) -> pd.DataFrame:
+    """The calibration cell's two deliberately invalid arms, derived from its own rows.
+
+    Neither control needs a fit.  ``shrunken_se_control`` multiplies the reported standard
+    error by a declared factor below one, so it must fail the SE-ratio band while the estimates
+    stay exactly where they were.  ``noise_control`` adds one efficiency-bound unit of
+    independent noise to each estimate, so the *empirical* ratio must rise above the band while
+    the reported standard errors stay where they were.  Between them the two arms move each
+    half of the calibration claim on its own, which is what stops a cell that is right on
+    average and wrong replication by replication from passing.
+
+    A pure transformation of ``rows``: it draws no sample and fits nothing, so a study gains
+    these arms without spending replications on them.  Shared rather than copied because the
+    arithmetic is the same wherever the claim is, and only the declared constants differ.
+    """
+    source = rows.loc[
+        (rows["property"] == "interval_calibration")
+        & rows["cell"].str.endswith("__correctly_specified")
+    ]
+    controls: list[pd.DataFrame] = []
+    for label in labels:
+        base = source.loc[source["cell"] == f"{label}__correctly_specified"].copy()
+        shrunken = base.copy()
+        shrunken["cell"] = f"{label}__shrunken_se_control"
+        shrunken["role"] = "control"
+        shrunken["std_error"] *= shrunken_se_factor
+        controls.append(_recompute_interval_columns(shrunken, critical))
+
+        noisy = base.copy()
+        rng = np.random.default_rng(stream_seed(record, "efficiency_noise", label))
+        noisy["cell"] = f"{label}__noise_control"
+        noisy["role"] = "control"
+        noisy["estimate"] += rng.normal(
+            scale=efficiency_bounds[label] / np.sqrt(calibration_n), size=len(noisy)
+        )
+        controls.append(_recompute_interval_columns(noisy, critical))
+    return pd.concat(controls, ignore_index=True)
+
+
+def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataFrame:
+    """Rebuild ``covered`` and ``rejected`` after a mutation moved an estimate or an SE."""
+    half = critical * rows["std_error"]
+    rows["covered"] = (
+        (rows["estimate"] - half <= rows["truth"]) & (rows["truth"] <= rows["estimate"] + half)
+    ).astype(int)
+    rows["rejected"] = (np.abs(rows["estimate"] / rows["std_error"]) > critical).astype(int)
+    return rows
+
+
+def calibration_verdicts(
+    summary: pd.DataFrame, *, margins: Margins, efficiency_band: tuple[float, float]
+) -> None:
+    """Read each calibration cell's verdict against the rule its *kind* answers to.
+
+    :func:`apply_shared_verdicts` writes the one-kind rule, which is right for a study whose
+    calibration cell has no controls.  A study that declares the two arms above has three kinds
+    held to three different rules, and each row must publish the verdict of its own kind rather
+    than the positive arm's.  Written here rather than per study for the reason the arms are:
+    the rules belong to the instrument, and only the band belongs to the study that can compute
+    an exact bound at all.
+    """
+    calibration = summary["property"] == "interval_calibration"
+    for index in summary.index[calibration]:
+        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
+        ratio = summary_interval(summary, index, "se_ratio")
+        empirical = summary_interval(summary, index, "efficiency_empirical")
+        reported = summary_interval(summary, index, "efficiency_reported")
+        coverage = summary_interval(summary, index, "coverage")
+        if kind == "correctly_specified":
+            passed = (
+                ratio.within(*margins.calibration_se_ratio)
+                and coverage.within(*margins.calibration_coverage)
+                and empirical.within(*efficiency_band)
+                and reported.within(*efficiency_band)
+            )
+        elif kind == "shrunken_se_control":
+            passed = ratio.high < margins.calibration_se_ratio[0]
+        else:
+            passed = empirical.low > efficiency_band[1]
+        summary.loc[index, "passed"] = bool(passed)
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:

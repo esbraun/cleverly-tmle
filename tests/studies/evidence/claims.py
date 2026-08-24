@@ -227,6 +227,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    # Its own entry rather than a second reader of the one above.  The two families are gated
+    # on separate displacements computed from separate arms, and a page that published one
+    # threshold for both would describe one of them wrongly however the numbers happened to
+    # compare.
+    if "survival_recursion_necessity" in record.property_cells:
+        declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
     return declared
 
 

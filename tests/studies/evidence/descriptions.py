@@ -22,6 +22,14 @@ import re
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
+#: What a horizoned estimand key puts between the plan and the time, and what a competing-risk
+#: key puts between the plan and the cause.  Mirrored from
+#: :data:`cleverly.longitudinal.estimator.HORIZON_INFIX` and :data:`~.CAUSE_INFIX` rather than
+#: imported, for the reason the datasets mirror them: a description of a committed result must
+#: not depend on the estimator that produced it.
+_HORIZON = " @ t="
+_CAUSE = ", "
+
 #: Longitudinal property cells prefix the plan they belong to.
 _ARM = re.compile(
     r"^(?P<arm>static|dynamic|static_t1|static_t2|dynamic_t2|always_t2)__(?P<cell>.+)$"
@@ -69,7 +77,6 @@ ESTIMANDS: dict[str, str] = {
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
-    "continue_if_l2": "treat, then continue only if L2 is positive",
     "never": "treat at neither time",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
 }
@@ -283,7 +290,22 @@ def estimand(key: str) -> str:
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
-    if name == "ate_regimen" and " @ t=" in argument:
+    if name == "ate_regimen" and _HORIZON in argument:
+        # A contrast reported at a horizon is a difference of cumulative risks, because the
+        # only estimator that indexes a regimen mean by horizon is the survival recursion.
+        #
+        # Read off the notation rather than off the study's declared ``outcome_kind``, which
+        # is the thing that actually settles it.  That is tolerable only because the one other
+        # construction using this infix is competing risks, whose contrast carries a cause in
+        # the same bracket -- ``ate_regimen[always vs never, relapse @ t=2]`` -- and whose
+        # cumulative *incidence* is a different parameter.  Refused here rather than described
+        # wrongly: a cause-specific row needs its own entry, and the study that adds one has
+        # to say so instead of inheriting this wording by notation.
+        if _CAUSE in argument:
+            raise Undescribed(
+                f"{key!r} carries a cause as well as a horizon, so it is a cumulative "
+                f"incidence rather than a cumulative risk; give it its own description"
+            )
         parameter = "difference in cumulative risk between the plans"
     return f"{parameter} {regimen(argument)}"
 

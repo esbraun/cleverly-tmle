@@ -191,7 +191,23 @@ class QuasiBinomialGLM(BaseEstimator):
 
 
 class KnownLongitudinalMechanism(BaseEstimator):
-    """The generating treatment or censoring probabilities, keyed by design shape."""
+    """The generating treatment or censoring probabilities, keyed by design shape.
+
+    Shared by the end-of-study study here and by the survival study in
+    ``tests.studies.canonical_ltmle_survival``, and reading a column by *position* is safe
+    across the two because of a contract rather than a coincidence.
+    :meth:`~cleverly.longitudinal.LongitudinalData.history_design` builds a mechanism's
+    conditioning set as ``[W, L_1, ..., L_t]`` followed by one block per earlier treatment,
+    plus the current one for a censoring model.  **An outcome node never enters it**, so the
+    survival panel's ``Y1`` cannot shift ``L2`` or ``A1`` out of the position this reads them
+    from, and both panels present ``[W1, W2, L2, A1]`` at the second treatment node and
+    ``[W1, W2, L2, A1, A2]`` at the second censoring node.
+
+    A width this does not recognise raises rather than guessing.  A *reordering* within a
+    width would not, and the guard against that one is the paired comparison: the outcome
+    regression here is a ``glm`` against a law with a ``tanh`` term in it, so a mechanism read
+    off the wrong columns biases this side and the agreement with R breaks loudly.
+    """
 
     def __init__(self, kind: str) -> None:
         self.kind = kind

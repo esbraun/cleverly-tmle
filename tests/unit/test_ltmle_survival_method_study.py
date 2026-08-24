@@ -30,6 +30,35 @@ def test_the_primary_study_reports_every_unique_parameter_once() -> None:
     np.testing.assert_array_equal(dynamic.influence_curve_scaled, always.influence_curve_scaled)
 
 
+def _mass(probs: np.ndarray, **pattern: int) -> float:
+    return float(sum(probs[index] for index in law._index(**pattern)))
+
+
+def baseline_only(probs: np.ndarray, arm: int, horizon: int) -> float:
+    """The cumulative risk an analysis that never conditions on ``L2`` would report.
+
+    Written longhand off the support rather than by disabling something in the estimator, for
+    the reason every deliberate-mutation control in this suite is: a flag on the code under
+    audit makes the control a statement about a branch in it.  The only difference from
+    :func:`law.functional` is where the second hazard conditions -- on ``(W, A1, A2, C2 = 1)``
+    with ``L2`` marginalised out of the *observed* law, rather than on ``L2`` as well.  Since
+    ``A2`` and ``C2`` both depend on ``L2``, conditioning on them reweights it, which is the
+    bias a longitudinal fit exists to remove.
+    """
+    total = _mass(probs)
+    psi = 0.0
+    for w in (0, 1):
+        share = _mass(probs, w=w) / total
+        hazard1 = _mass(probs, w=w, a1=arm, c1=1, y1=1) / _mass(probs, w=w, a1=arm, c1=1)
+        if horizon == 1:
+            psi += share * hazard1
+            continue
+        reached = _mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1)
+        events = _mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1, y2=1)
+        psi += share * (hazard1 + (1.0 - hazard1) * events / reached)
+    return psi
+
+
 def test_the_null_is_exact_and_remains_a_survival_problem() -> None:
     assert properties.NULL_PROBS.sum() == pytest.approx(1.0, abs=1e-15)
     assert all(value == pytest.approx(0.0, abs=1e-14) for value in properties.NULL_TRUTH.values())
@@ -37,6 +66,37 @@ def test_the_null_is_exact_and_remains_a_survival_problem() -> None:
     assert properties.NULL_H1[1, 0] != properties.NULL_H1[1, 1]
     assert properties.NULL_H2[0, 0, 0, 0] != properties.NULL_H2[0, 0, 1, 0]
     assert properties.NULL_H2[1, 0, 0, 0] != properties.NULL_H2[1, 0, 1, 0]
+
+
+def test_the_horizon_two_null_is_one_a_longitudinal_fit_has_to_work_for() -> None:
+    """The deliberate-mutation control: dropping ``L2`` must miss the null.
+
+    The witnesses above say each hazard moves with something.  They do not say that an
+    estimator has to be longitudinal to find the truth, and that is the claim the type-I cell
+    rests on -- a null a baseline-only standardisation already recovers cannot tell a
+    sequential-regression fit from a pair of cross-sections.
+    """
+    naive = baseline_only(properties.NULL_PROBS, 1, 2) - baseline_only(properties.NULL_PROBS, 0, 2)
+    assert abs(naive) > 1e-3, "an analysis that ignores L2 already recovers the horizon-two null"
+
+
+def test_the_horizon_one_null_carries_no_longitudinal_content() -> None:
+    """And the other direction, pinned so the published limitation cannot drift from it.
+
+    Nothing time varying precedes ``Y1``, so at the first horizon the baseline-only analysis
+    *is* the identified functional and the cell cannot witness longitudinal adjustment.  It is
+    still not a null no estimator has to work for: censoring at ``C1`` depends on ``W`` and on
+    the arm, so a crude comparison of arms is biased under it.
+    """
+    naive = baseline_only(properties.NULL_PROBS, 1, 1) - baseline_only(properties.NULL_PROBS, 0, 1)
+    assert naive == pytest.approx(0.0, abs=1e-15)
+
+    def crude(arm: int) -> float:
+        return _mass(properties.NULL_PROBS, a1=arm, c1=1, y1=1) / _mass(
+            properties.NULL_PROBS, a1=arm, c1=1
+        )
+
+    assert abs(crude(1) - crude(0)) > 1e-3
 
 
 def test_every_power_control_has_a_material_effect() -> None:

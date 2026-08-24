@@ -76,6 +76,7 @@
   "study_module_sha256": {
     "tests/studies/fold_evaluated_cvtmle.py": "861a98ff5d2083ec09d21249ec8697c893d85ca5381a78a02d7978d7387a795b",
     "tests/studies/canonical_tmle.py": "0612fff90cad1d9db4dd44d6f77283b339aa0e5a6de109ac043fe52669c10f18",
+    "tests/studies/canonical_cvtmle.py": "83a2026ab0a0f1d4fff21efff29642ffc0c245661befa7502679143bf24712f2",
     "tests/studies/canonical_properties.py": "723b9b36428f6351406951f370acb2295166efbc155b8781a6a3803f05329332",
     "tests/studies/cvtmle_properties.py": "bb57d29637bc3541ec9ccb34a99890b6b17502015b5d1807c4e4dbf7d8b40542",
     "tests/studies/fold_cvtmle_properties.py": "06bd6e95f9734b8477f07953d5376bc88b50ae0bb513733c2eddb57b486835b9",

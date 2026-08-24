@@ -57,11 +57,13 @@ __all__ = [
     "TRUTH",
     "CellMeans",
     "N",
+    "counts",
     "eif",
     "first_row_of",
     "frame",
     "functional",
     "gateaux",
+    "probabilities",
 ]
 
 #: Rows in the realised sample.  ``2 * 4**7``: one factor of two for ``P(W)`` and seven
@@ -176,14 +178,23 @@ _NODES = ("w", "a1", "c1", "y1", "l2", "a2", "c2", "y2")
 _COLUMNS = ("W", "A1", "C1", "Y1", "L2", "A2", "C2", "Y2")
 
 
-def _mass_of(point: tuple[Any, ...]) -> float:
-    """``P`` of one support point, as a product of the conditionals above."""
+def _mass_of(point: tuple[Any, ...], h1: Any = None, h2: Any = None) -> float:
+    """``P`` of one support point, as a product of the conditionals above.
+
+    ``h1`` and ``h2`` replace the two hazards and nothing else, so a law derived here shares
+    this one's treatment, censoring and :math:`L_2` mechanisms exactly and differs only in
+    what the event answers.  That is what a sharp null or a power alternative needs: change a
+    mechanism too and the derived law is a different problem rather than the same problem with
+    a different effect.
+    """
     w, a1, c1, y1, l2, a2, c2, y2 = point
+    first = H1 if h1 is None else h1
+    second = H2 if h2 is None else h2
     mass = P_W[w] * (G1[w] if a1 == 1 else 1.0 - G1[w])
     if c1 == 0:
         return float(mass * (1.0 - C1[w, a1]))
     mass *= C1[w, a1]
-    mass *= H1[w, a1] if y1 == 1 else 1.0 - H1[w, a1]
+    mass *= first[w, a1] if y1 == 1 else 1.0 - first[w, a1]
     if y1 == 1:
         return float(mass)
     mass *= P_L2[w, a1] if l2 == 1 else 1.0 - P_L2[w, a1]
@@ -191,21 +202,34 @@ def _mass_of(point: tuple[Any, ...]) -> float:
     if c2 == 0:
         return float(mass * (1.0 - C2[w, a1, l2, a2]))
     mass *= C2[w, a1, l2, a2]
-    return float(mass * (H2[w, a1, l2, a2] if y2 == 1 else 1.0 - H2[w, a1, l2, a2]))
+    return float(mass * (second[w, a1, l2, a2] if y2 == 1 else 1.0 - second[w, a1, l2, a2]))
 
 
-def _counts() -> np.ndarray:
-    counts = np.array([_mass_of(point) * N for point in SUPPORT])
-    rounded = np.rint(counts)
-    if np.max(np.abs(counts - rounded)) > 1e-6:  # pragma: no cover - guards the constants
+def counts(h1: Any = None, h2: Any = None) -> np.ndarray:
+    """Rows per support point in an ``N``-row sample that realises the law exactly."""
+    values = np.array([_mass_of(point, h1, h2) * N for point in SUPPORT])
+    rounded = np.rint(values)
+    if np.max(np.abs(values - rounded)) > 1e-6:  # pragma: no cover - guards the constants
         raise AssertionError(
             "the cell probabilities are not multiples of 1/N, so no sample of N rows can "
-            "realise the law exactly -- keep every conditional a multiple of 1/4"
+            "realise the law exactly -- keep every hazard a multiple of 1/4"
         )
     return rounded.astype(int)
 
 
-COUNTS = _counts()
+def probabilities(h1: Any = None, h2: Any = None) -> np.ndarray:
+    """Cell probabilities, optionally with the hazards replaced.
+
+    Taken from the counts rather than from the products, so a law derived here is bit-for-bit
+    the empirical law of the sample :func:`frame` would lay out for it.  Every exactness
+    argument in this module rests on that property, and a derived law has to *inherit* it
+    rather than approximately share it -- which is why this route rounds to whole rows and
+    refuses a hazard off the quarter grid instead of normalising whatever it was handed.
+    """
+    return counts(h1, h2) / N
+
+
+COUNTS = counts()
 
 #: ``P`` over the support, taken from the counts so it is bit-for-bit the empirical law
 #: of :func:`frame`.

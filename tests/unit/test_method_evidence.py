@@ -354,6 +354,20 @@ class TestPublishedVerdicts:
                 >= study.properties().TARGETING_DISPLACEMENT
             )
 
+        recursion = published.loc[published["property"] == "survival_recursion_necessity"]
+        if not recursion.empty:
+            # The same shape as targeting above, and needed for the same reason: each row's own
+            # bias endpoint is satisfied by a recursion that does nothing, because the
+            # survivor-only arm would then be the estimate.  The joint clause is the
+            # displacement, and it was ungated when the family arrived -- classifying the family
+            # as bias-gated checks the rows and says nothing about the claim over the pair.
+            assert recursion["property_passed"].nunique() == 1
+            assert bool(recursion["property_passed"].iloc[0]) is bool(
+                recursion["passed"].all()
+                and recursion["recursion_displacement"].iloc[0]
+                >= study.properties().RECURSION_DISPLACEMENT
+            )
+
         design = published.loc[published["property"] == "generated_design"]
         if not design.empty:
             margins = study.margins
@@ -1143,6 +1157,11 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
+            )
+        if "survival_recursion_necessity" in study.property_cells:
+            assert (
+                declared["margin:recursion_displacement"]
+                == study.properties().RECURSION_DISPLACEMENT
             )
         if any(
             cell.endswith("noise_control")

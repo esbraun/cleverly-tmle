@@ -1321,9 +1321,9 @@ same horizon-specific parameters without treating a terminal outcome as a surviv
 | `targeting_necessity` | `static_t1__untargeted` | control | static plan at horizon one: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0448 to -0.0408, margin 0.0067 | pass |
 | `targeting_necessity` | `static_t2__targeted` | positive | static plan at horizon two: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0033 to 0.0034, margin 0.0113 | pass |
 | `targeting_necessity` | `static_t2__untargeted` | control | static plan at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0366 to -0.0299, margin 0.0114 | pass |
-| `type_i_error` | `dynamic_t2__sharp_null` | positive | dynamic plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0450, 0.0283 to 0.0674 | pass |
+| `type_i_error` | `dynamic_t2__sharp_null` | positive | dynamic plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0537, 0.0353 to 0.0777 | pass |
 | `type_i_error` | `static_t1__sharp_null` | positive | static plan at horizon one: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0500, 0.0323 to 0.0733 | pass |
-| `type_i_error` | `static_t2__sharp_null` | positive | static plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0375, 0.0224 to 0.0584 | pass |
+| `type_i_error` | `static_t2__sharp_null` | positive | static plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0575, 0.0384 to 0.0821 | pass |
 <!-- /generated -->
 
 The property study samples an exact binary survival law. It checks static risks at both horizons
@@ -1333,6 +1333,36 @@ efficiency, root-n rates, calibration, null size, power, and targeting controls.
 The survival-recursion control is separate from targeting. It replaces cumulative risk with a
 survivor-only terminal hazard while leaving the rest of the procedure unchanged. The control must
 miss the exact time-two risk, while the correct recursion must recover it.
+
+The two horizons do not behave alike. The study measures that difference on one set of draws, so
+the comparison is internal to the calibration cell rather than across studies.
+
+The first horizon is calibrated. Its SE ratio and its coverage both surround their nominal values.
+At the second horizon the whole SE-ratio interval sits below one and the whole coverage interval
+sits below nominal. The empirical spread runs above the exact efficiency bound there, while the
+reported standard error sits on it. So the reported standard error understates the sampling spread
+at the second horizon by a few percent. The measured-values table below carries all four endpoints.
+
+Both intervals stay inside the declared calibration bands, so the cell passes. The second backward
+regression is the source, and it is why this cell carries four times the shared calibration budget.
+A reader who needs calibrated horizon-two inference at this sample size should treat the shortfall
+as measured rather than as absent.
+
+The sharp null keeps the treatment, censoring, and `L2` mechanisms of the law and replaces the two
+hazards. Every replacement value is a multiple of one quarter, so an `N`-row sample realises the
+null law exactly, as it does the law it derives from. All three contrasts are exactly zero under
+it.
+
+At the second horizon a baseline-only standardisation returns 0.0349 rather than zero, so the null
+is one an estimator has to be longitudinal to find. At the first horizon it returns exactly zero,
+because no time-varying node precedes the first event node. The first-horizon type-I cells
+therefore test baseline and censoring adjustment and not longitudinal adjustment. A crude
+comparison of arms is biased by -0.05 under the null at that horizon, so those cells are not
+vacuous either.
+
+The power alternative keeps the law's own first hazard and replaces the second. It gives the two
+horizon-two contrasts different values, so the two horizon-two power cells report two parameters
+rather than one number twice.
 
 ### Measured values
 
@@ -1360,6 +1390,13 @@ the committed results and checked at the precision printed.
 | `max_calibration_excess_upper` | 8.055e-08 | largest paired calibration-excess bound |
 | `max_targeting_displacement` | 0.3560 | largest final-fluctuation move, in standard errors |
 | `median_targeting_displacement` | 0.0343 | median final-fluctuation move, in standard errors |
+| `properties[targeting_necessity/static_t1__targeted]:targeting_displacement` | 0.7387 | least-displaced contrast, in targeted standard deviations |
+| `properties[survival_recursion_necessity/always_t2__survival]:recursion_displacement` | 3.6840 | survivor-only control's distance, in recursion standard deviations |
+| `properties[interval_calibration/static_t1__correctly_specified]:se_ratio` | 0.9880 | horizon-one reported SE over empirical spread |
+| `properties[interval_calibration/static_t1__correctly_specified]:coverage` | 0.9455 | horizon-one calibration coverage |
+| `properties[interval_calibration/static_t2__correctly_specified]:se_ratio_ci_upper` | 0.9774 | highest horizon-two SE ratio the draws support |
+| `properties[interval_calibration/static_t2__correctly_specified]:coverage_ci_upper` | 0.9407 | highest horizon-two coverage the draws support |
+| `properties[interval_calibration/static_t2__correctly_specified]:replicates` | 9600 | replications the horizon-two calibration cell required |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -1386,17 +1423,22 @@ the committed results and checked at the precision printed.
 | `margin:efficiency_ratio_lower` | 0.9000 | exact-EIF ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | exact-EIF ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | deliberate SE mutation factor |
-| `margin:targeting_displacement` | 0.2500 | least the paired control must move the estimate |
+| `margin:targeting_displacement` | 0.2500 | least the fluctuation must move the estimate |
+| `margin:recursion_displacement` | 0.2500 | least the survivor-only control must move the estimate |
 
 ### Limitations
 
 | limitation | what it means for use |
 | --- | --- |
 | This is the ordinary row | Nuisances are fitted on the analysis sample. A cross-fitted survival row remains separate planned evidence |
-| Inference is pointwise | The study reports each horizon separately. It does not validate a simultaneous confidence band for the whole curve |
-| The event process has two horizons | Both backward prefixes are exercised, but longer follow-up may introduce different finite-sample behavior |
+| Inference is pointwise | The study reports each horizon separately. It does not validate a simultaneous confidence band for the whole curve. Each horizon is also targeted in its own backward pass, so the reported curve is not constrained to increase |
+| Horizon-two inference is mildly anticonservative at n = 2,000 | The reported standard error sits a few percent below the sampling spread, and coverage sits below nominal. Both endpoints stay inside the declared calibration bands. The first horizon does not show this on the same draws |
+| The event process has two horizons | Both backward prefixes are exercised. Longer follow-up may compound the horizon-two shortfall above, and this study cannot say by how much |
+| The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |
+| `initial_estimate` measures the final fluctuation only | The earlier node's regression is of the *already targeted* later node. R's `fit$Q[[1]]` regresses the updated `Q.kplus1` and `cleverly`'s first step does the same. So `max_targeting_displacement` and `median_targeting_displacement` measure the last fluctuation rather than the whole targeting step. They are not the quantity `margin:targeting_displacement` bounds, which is the targeted-against-unfluctuated distance in the property study |
 | The paired study fixes the mechanisms | It isolates survival recursion, sequential regression, targeting, and inference. It does not claim parity for learned treatment or censoring models |
 | Positivity is comfortable | No primary cell validates active truncation or near-positivity behavior |
+| The size ladder starts at n = 1,000 | Every other registered study starts at 500. An absorbing event thins the risk set, so at 500 some samples of the property law leave the horizon-two parameter unestimable and the estimator refuses. The rate cells therefore say nothing below 1,000 |
 | Failure is absorbing and has one cause | Competing-risk cumulative incidence remains a different parameter with no R parity claim |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal

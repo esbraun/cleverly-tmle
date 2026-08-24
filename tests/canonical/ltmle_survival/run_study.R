@@ -28,7 +28,28 @@ mechanism <- function(frame, abar, horizon) {
   p_a1 <- plogis(0.3 * frame$W1 - 0.4 * frame$W2)
   p_c1 <- plogis(2.2 + 0.3 * frame$W1 - 0.3 * abar[, 1])
   if (horizon == 1) return(cbind(p_a1, p_c1))
+  # L2 is absent for two structurally different reasons here, and both are filled with a
+  # value in range so the numeric gform matrix is well defined.  A numeric gform is an input,
+  # and an input with NA in it depends on how ltmle happens to carry one through a cumulative
+  # product; the bound check below still runs with na.rm in case a future version produces one.
+  #
+  # A unit censored at C1 left before the second node, so nothing downstream reads its
+  # probabilities -- the end-of-study study relies on the same thing.  A unit that had the
+  # event at Y1 is the case that study does not have, and the filler is irrelevant for it for
+  # a stronger reason: with survivalOutcome = TRUE that row is deterministic after the event,
+  # and ltmle's CalcG sets `g[deterministic.newdata] <- 1` regardless of what this matrix says
+  # ("a=abar deterministically after death", ltmle/R/ltmle.R).  So the supplied probability is
+  # not merely unused downstream, it is overwritten.
   l2 <- ifelse(is.na(frame$L2), 0, frame$L2)
+  # Numeric gform columns carry P(A_t = 1 | history), not the probability of the assigned arm.
+  # ltmle selects p or 1-p from abar internally, as cleverly does.
+  #
+  # The conditioning differs from cleverly's and both are right.  Here the two history terms
+  # are abar[, 1], the arm the *regimen* assigns; cleverly's KnownLongitudinalMechanism reads
+  # the observed A1.  The clever covariate needs g on the intervened history, and on the
+  # followed path the two coincide, so the difference lives entirely among units the follower
+  # mask has already zeroed.  That the two implementations then agree to 1e-10 is incidental
+  # evidence that neither lets an off-path probability reach the estimate.
   p_a2 <- plogis(0.5 * l2 + 0.6 * abar[, 1] - 0.2 * frame$W2)
   p_c2 <- plogis(2.4 + 0.2 * l2)
   cbind(p_a1, p_c1, p_a2, p_c2)
@@ -70,6 +91,10 @@ fit_regimen <- function(frame, label, horizon) {
       variance.method = "ic"
     )
   )
+  # Not suppressWarnings(): ltmle warns about a binary censoring column being coerced to a
+  # factor on every fit, and blanket suppression made that notice indistinguishable from a
+  # positivity warning about the very quantity this study reports.  Only the known message is
+  # muffled; anything else stops the run.
   targeted <- withCallingHandlers(
     do.call(ltmle, arguments),
     warning = function(condition) {

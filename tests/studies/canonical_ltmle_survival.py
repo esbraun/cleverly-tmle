@@ -80,6 +80,12 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_ltmle_survival.py",
         "tests/studies/ltmle_survival_properties.py",
+        # This study's nuisance models live there: it imports ``QuasiBinomialGLM``,
+        # ``KnownLongitudinalMechanism`` and ``G_BOUNDS`` from the end-of-study module rather
+        # than restating them, so a change to either learner changes these numbers.  Declared
+        # for the same reason ``canonical_tmle.py`` is declared by the three studies that
+        # import from it.
+        "tests/studies/canonical_ltmle.py",
         "tests/studies/canonical_properties.py",
         "tests/discrete_law_survival.py",
         "src/cleverly/datasets/longitudinal.py",

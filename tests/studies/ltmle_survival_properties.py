@@ -16,14 +16,33 @@ from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS
 from tests.studies.canonical_ltmle_survival import PROPERTY_LABELS, STUDY
-from tests.studies.canonical_properties import apply_shared_verdicts, finish
-from tests.studies.evidence.inference import Interval
-from tests.studies.evidence.properties import REPLICATE_COLUMNS
+from tests.studies.canonical_properties import (
+    apply_shared_verdicts,
+    calibration_controls,
+    calibration_verdicts,
+    finish,
+)
+from tests.studies.evidence.properties import (
+    REPLICATE_COLUMNS,
+    control_row,
+    paired_displacement,
+    replicate_row,
+)
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
 RATE_REPLICATES = 800
+#: The ladder starts at 1,000 rather than at the 500 the end-of-study study uses, and the
+#: reason is the absorbing event rather than a preference.  At ``n = 500`` this law does not
+#: always *have* a horizon-two parameter: sweeping this study's own
+#: ``stream_seed(STUDY, "property_sample", "root_n_and_efficiency", "n_500", replicate)``
+#: stream, replicate 80 leaves five followers of ``always`` through the second node and every
+#: one of them has ``Y2 = 0``, so the second regression has nothing to separate and the
+#: estimator refuses with ``LongitudinalError``.  That refusal is correct, and
+#: ``docs/development/method-benchmarking.md`` forbids replacing a failed replication, so 500
+#: is unavailable here.  The end-of-study law keeps it because it has no risk set to thin: its
+#: outcome sits at the end, so no unit leaves before the node the plan is followed through.
 RATE_SIZES = (1_000, 2_000, 8_000)
 #: The horizon-two SE-ratio interval is the binding calibration endpoint.  A 2,400-draw
 #: pilot put its lower endpoint near 0.92 around a point ratio near 0.95.  Four times that
@@ -41,6 +60,20 @@ RECURSION_N = DOUBLE_ROBUST_N
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
 TARGETING_DISPLACEMENT = 0.25
+
+#: How far the survivor-only control must sit from the survival recursion, in empirical
+#: standard deviations of the recursion's own estimate, before the family will call the
+#: recursion load bearing.
+#:
+#: The same number as :data:`TARGETING_DISPLACEMENT`, and declared separately rather than
+#: reused, because the two families answer different questions and a reader has to be able to
+#: see which threshold each verdict was read against.  The *value* is the same for the reason
+#: that one is: it is :attr:`Margins.standardized_bias`, the bias a positive cell is allowed
+#: to carry, so a control has to move the estimate by at least as much as the study is
+#: prepared to overlook.  Publishing one margin under one description for two families is how
+#: a page comes to state a rule nothing checks.
+RECURSION_DISPLACEMENT = TARGETING_DISPLACEMENT
+
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 REGIMENS = law.REGIMEN_SPEC
@@ -55,56 +88,46 @@ EFFICIENCY_SD = {
     for label, name in CONTRASTS.items()
 }
 
-# A null that still needs longitudinal adjustment.  The first hazard has opposing
-# conditional treatment effects whose marginal effects cancel.  The second hazard varies
-# with L2, while every regimen-specific L2 average is one half.  All three contrasts are
-# therefore exactly zero without making either hazard a baseline-only constant.
+# A sharp null that still needs the whole recursion.  The first hazard has opposing
+# conditional treatment effects whose marginal effects cancel.  The second hazard varies with
+# L2 on every followed path, and the three plans' weighted second-node averages coincide.  So
+# all three contrasts are exactly zero without making either hazard a baseline-only constant,
+# and a baseline-only standardisation comes out biased by 0.0349 rather than by nothing.
+# ``test_ltmle_survival_method_study`` asserts that bias.  It is the only witness that says
+# this null is one a longitudinal fit has to work for.
+#
+# Every value is a multiple of 1/4, which is not cosmetic: ``law.probabilities`` rounds to
+# whole rows and refuses anything else, so the derived law is realised *exactly* by an N-row
+# sample just as ``law.PROBS`` is.  A hazard off that grid leaves the null usable for sampling
+# and unusable for any exact-law control built on ``law.frame()``.
 NULL_H1 = np.array([[0.25, 0.50], [0.75, 0.50]])
 NULL_H2 = np.array(law.H2, copy=True)
-NULL_H2[0, 0, 0, 0], NULL_H2[0, 0, 1, 0] = 0.40, 0.80
-NULL_H2[1, 0, 0, 0], NULL_H2[1, 0, 1, 0] = 0.25, 0.75
-for w in (0, 1):
-    NULL_H2[w, 1, 0, 0] = 0.20
-    NULL_H2[w, 1, 0, 1] = 0.20
-    NULL_H2[w, 1, 1, 1] = 0.60
+NULL_H2[0, 0, 0, 0], NULL_H2[0, 0, 1, 0] = 0.25, 0.75
+NULL_H2[1, 0, 0, 0], NULL_H2[1, 0, 1, 0] = 0.75, 0.25
+NULL_H2[0, 1, 0, 1], NULL_H2[0, 1, 1, 1] = 0.25, 0.50
+NULL_H2[1, 1, 0, 1], NULL_H2[1, 1, 1, 1] = 0.75, 0.25
+NULL_H2[0, 1, 0, 0] = 0.50
+NULL_H2[1, 1, 0, 0] = 0.50
 
-# The original horizon-two static effect is intentionally small.  A power control must
-# reject reliably, so use a predeclared alternative with low treated and high untreated
-# second-node hazards.  The horizon-one alternative remains the original law.
+# The original horizon-two static effect is intentionally small, so the power cell needs a
+# predeclared alternative.  This one keeps the law's own first hazard and replaces the second
+# on the quarter grid, for the reason the null does.
+#
+# It also makes the two horizon-two contrasts *different parameters*: always comes to -0.2578
+# and the dynamic plan to -0.1953.  The previous alternative left the second hazard constant
+# in L2 on every followed path, which made those two contrasts numerically identical and
+# published two power cells for one claim -- in a section whose own opening says it reports
+# each unique parameter once.
 POWER_H2 = np.array(law.H2, copy=True)
-POWER_H2[:, 0, :, 0] = 0.80
-POWER_H2[:, 1, :, 1] = 0.15
-POWER_H2[:, 1, 0, 0] = 0.15
+POWER_H2[0, 0, 0, 0], POWER_H2[0, 0, 1, 0] = 0.75, 0.50
+POWER_H2[1, 0, 0, 0], POWER_H2[1, 0, 1, 0] = 0.50, 0.75
+POWER_H2[0, 1, 0, 1], POWER_H2[0, 1, 1, 1] = 0.25, 0.50
+POWER_H2[1, 1, 0, 1], POWER_H2[1, 1, 1, 1] = 0.50, 0.25
+POWER_H2[0, 1, 0, 0] = 0.75
+POWER_H2[1, 1, 0, 0] = 0.75
 
-
-def probabilities(h1: np.ndarray, h2: np.ndarray) -> np.ndarray:
-    """Observable support probabilities under replacement survival hazards."""
-    masses: list[float] = []
-    for point in law.SUPPORT:
-        w, a1, c1, y1, l2, a2, c2, y2 = point
-        mass = law.P_W[w] * (law.G1[w] if a1 == 1 else 1.0 - law.G1[w])
-        if c1 == 0:
-            masses.append(float(mass * (1.0 - law.C1[w, a1])))
-            continue
-        mass *= law.C1[w, a1]
-        mass *= h1[w, a1] if y1 == 1 else 1.0 - h1[w, a1]
-        if y1 == 1:
-            masses.append(float(mass))
-            continue
-        mass *= law.P_L2[w, a1] if l2 == 1 else 1.0 - law.P_L2[w, a1]
-        mass *= law.G2[w, a1, l2] if a2 == 1 else 1.0 - law.G2[w, a1, l2]
-        if c2 == 0:
-            masses.append(float(mass * (1.0 - law.C2[w, a1, l2, a2])))
-            continue
-        mass *= law.C2[w, a1, l2, a2]
-        mass *= h2[w, a1, l2, a2] if y2 == 1 else 1.0 - h2[w, a1, l2, a2]
-        masses.append(float(mass))
-    out = np.asarray(masses, dtype=float)
-    return out / out.sum()
-
-
-NULL_PROBS = probabilities(NULL_H1, NULL_H2)
-POWER_PROBS = probabilities(law.H1, POWER_H2)
+NULL_PROBS = law.probabilities(NULL_H1, NULL_H2)
+POWER_PROBS = law.probabilities(h2=POWER_H2)
 NULL_TRUTH = {label: float(law.functional(NULL_PROBS, name)) for label, name in CONTRASTS.items()}
 POWER_TRUTH = {label: float(law.functional(POWER_PROBS, name)) for label, name in CONTRASTS.items()}
 
@@ -222,62 +245,6 @@ def survivor_only(frame: pd.DataFrame) -> float:
     return float(result.psi("ey_regimen[always]"))
 
 
-def _row(
-    *,
-    property_name: str,
-    cell: str,
-    role: str,
-    replicate: int,
-    n: int,
-    requested: int,
-    truth: float,
-    estimate: Any,
-) -> dict[str, Any]:
-    low, high = estimate.ci
-    return {
-        "property": property_name,
-        "cell": cell,
-        "role": role,
-        "replicate": replicate,
-        "n": n,
-        "requested_replicates": requested,
-        "failed_replicates": 0,
-        "truth": truth,
-        "estimate": float(estimate.psi),
-        "std_error": float(estimate.std_error),
-        "covered": int(low <= truth <= high),
-        "rejected": int(estimate.pvalue < STUDY.margins.alpha),
-    }
-
-
-def _control_row(
-    *,
-    property_name: str,
-    cell: str,
-    replicate: int,
-    n: int,
-    requested: int,
-    truth: float,
-    estimate: float,
-    standard_error: float,
-) -> dict[str, Any]:
-    half = CRITICAL * standard_error
-    return {
-        "property": property_name,
-        "cell": cell,
-        "role": "control",
-        "replicate": replicate,
-        "n": n,
-        "requested_replicates": requested,
-        "failed_replicates": 0,
-        "truth": truth,
-        "estimate": estimate,
-        "std_error": standard_error,
-        "covered": int(estimate - half <= truth <= estimate + half),
-        "rejected": int(abs(estimate / standard_error) > CRITICAL),
-    }
-
-
 def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
     property_name, suffix, replicate, n, requested, seed, configuration = payload
     probs = (
@@ -305,7 +272,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
             else "positive"
         )
         rows.append(
-            _row(
+            replicate_row(
                 property_name=property_name,
                 cell=f"{label}__{suffix}",
                 role=role,
@@ -314,6 +281,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 requested=requested,
                 truth=truth,
                 estimate=result[name],
+                alpha=STUDY.margins.alpha,
             )
         )
         if property_name == "targeting_necessity":
@@ -323,7 +291,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 frame, right, horizon, configuration
             )
             rows.append(
-                _control_row(
+                control_row(
                     property_name=property_name,
                     cell=f"{label}__untargeted",
                     replicate=replicate,
@@ -332,6 +300,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                     truth=truth,
                     estimate=unfluctuated,
                     standard_error=float(result[name].std_error),
+                    critical=CRITICAL,
                 )
             )
     return rows
@@ -344,7 +313,7 @@ def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str,
     name = "risk_regimen[always @ t=2]"
     estimate = result[name]
     truth = float(law.TRUTH[name])
-    positive = _row(
+    positive = replicate_row(
         property_name="survival_recursion_necessity",
         cell="always_t2__survival",
         role="positive",
@@ -353,8 +322,9 @@ def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str,
         requested=requested,
         truth=truth,
         estimate=estimate,
+        alpha=STUDY.margins.alpha,
     )
-    control = _control_row(
+    control = control_row(
         property_name="survival_recursion_necessity",
         cell="always_t2__survivor_only",
         replicate=replicate,
@@ -363,6 +333,7 @@ def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str,
         truth=truth,
         estimate=survivor_only(frame),
         standard_error=float(estimate.std_error),
+        critical=CRITICAL,
     )
     return [positive, control]
 
@@ -409,43 +380,6 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return payloads
 
 
-def _calibration_controls(rows: pd.DataFrame) -> pd.DataFrame:
-    source = rows.loc[
-        (rows["property"] == "interval_calibration")
-        & rows["cell"].str.endswith("__correctly_specified")
-    ]
-    controls: list[pd.DataFrame] = []
-    for label in CONTRASTS:
-        base = source.loc[source["cell"] == f"{label}__correctly_specified"].copy()
-        shrunken = base.copy()
-        shrunken["cell"] = f"{label}__shrunken_se_control"
-        shrunken["role"] = "control"
-        shrunken["std_error"] *= SHRUNKEN_SE_FACTOR
-        shrunken["covered"] = (
-            (shrunken["estimate"] - CRITICAL * shrunken["std_error"] <= shrunken["truth"])
-            & (shrunken["truth"] <= shrunken["estimate"] + CRITICAL * shrunken["std_error"])
-        ).astype(int)
-        shrunken["rejected"] = (
-            np.abs(shrunken["estimate"] / shrunken["std_error"]) > CRITICAL
-        ).astype(int)
-        controls.append(shrunken)
-
-        noisy = base.copy()
-        rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", label))
-        noisy["cell"] = f"{label}__noise_control"
-        noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(
-            scale=EFFICIENCY_SD[label] / np.sqrt(CALIBRATION_N), size=len(noisy)
-        )
-        noisy["covered"] = (
-            (noisy["estimate"] - CRITICAL * noisy["std_error"] <= noisy["truth"])
-            & (noisy["truth"] <= noisy["estimate"] + CRITICAL * noisy["std_error"])
-        ).astype(int)
-        noisy["rejected"] = (np.abs(noisy["estimate"] / noisy["std_error"]) > CRITICAL).astype(int)
-        controls.append(noisy)
-    return pd.concat(controls, ignore_index=True)
-
-
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
     rows = pd.DataFrame([row for result in outcomes for row in result])
@@ -465,34 +399,21 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         [
             rows,
             pd.DataFrame([row for result in recursion for row in result]),
-            _calibration_controls(rows),
+            calibration_controls(
+                rows,
+                STUDY,
+                labels=PROPERTY_LABELS,
+                efficiency_bounds=EFFICIENCY_SD,
+                calibration_n=CALIBRATION_N,
+                shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+                critical=CRITICAL,
+            ),
         ],
         ignore_index=True,
     )
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
-
-
-def _interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval:
-    return Interval(
-        float(summary.loc[index, f"{prefix}_ci_lower"]),
-        float(summary.loc[index, f"{prefix}_ci_upper"]),
-    )
-
-
-def _paired_displacement(rows: pd.DataFrame, family: str, left: str, right: str) -> float:
-    arms = {
-        name: rows.loc[(rows["property"] == family) & (rows["cell"] == cell)].sort_values(
-            "replicate"
-        )
-        for name, cell in (("left", left), ("right", right))
-    }
-    if not np.array_equal(arms["left"]["replicate"], arms["right"]["replicate"]):
-        raise ValueError(f"{family} controls are not paired on replication")
-    spread = float(arms["left"]["estimate"].std(ddof=1))
-    moved = float(arms["right"]["estimate"].mean() - arms["left"]["estimate"].mean())
-    return abs(moved) / spread
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -505,25 +426,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     margins = STUDY.margins
 
-    calibration = summary["property"] == "interval_calibration"
-    for index in summary.index[calibration]:
-        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
-        ratio = _interval(summary, index, "se_ratio")
-        empirical = _interval(summary, index, "efficiency_empirical")
-        reported = _interval(summary, index, "efficiency_reported")
-        coverage = _interval(summary, index, "coverage")
-        if kind == "correctly_specified":
-            passed = (
-                ratio.within(*margins.calibration_se_ratio)
-                and coverage.within(*margins.calibration_coverage)
-                and empirical.within(*EFFICIENCY_RATIO_BAND)
-                and reported.within(*EFFICIENCY_RATIO_BAND)
-            )
-        elif kind == "shrunken_se_control":
-            passed = ratio.high < margins.calibration_se_ratio[0]
-        else:
-            passed = empirical.low > EFFICIENCY_RATIO_BAND[1]
-        summary.loc[index, "passed"] = bool(passed)
+    calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
     targeting = summary["property"] == "targeting_necessity"
     summary.loc[targeting & (summary["role"] == "positive"), "passed"] = summary.loc[
@@ -533,7 +436,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         targeting & (summary["role"] == "control"), "bias_discriminated"
     ]
     displacements = [
-        _paired_displacement(
+        paired_displacement(
             rows,
             "targeting_necessity",
             f"{label}__targeted",
@@ -554,7 +457,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[recursion & (summary["role"] == "control"), "passed"] = summary.loc[
         recursion & (summary["role"] == "control"), "bias_discriminated"
     ]
-    recursion_displacement = _paired_displacement(
+    recursion_displacement = paired_displacement(
         rows,
         "survival_recursion_necessity",
         "always_t2__survival",
@@ -562,6 +465,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     summary.loc[recursion, "recursion_displacement"] = recursion_displacement
     summary.loc[recursion, "property_passed"] = bool(
-        summary.loc[recursion, "passed"].all() and recursion_displacement >= TARGETING_DISPLACEMENT
+        summary.loc[recursion, "passed"].all() and recursion_displacement >= RECURSION_DISPLACEMENT
     )
     return finish(summary, rates)
