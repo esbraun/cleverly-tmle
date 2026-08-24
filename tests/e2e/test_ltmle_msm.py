@@ -18,12 +18,14 @@ affine relabelling is what makes it fail.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 import sklearn.linear_model
 
+from cleverly.assessment import _longitudinal_msm_scores
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
@@ -38,7 +40,7 @@ FAST: dict[str, Any] = {
     "outcome_learner": sklearn.linear_model.LinearRegression(),
     "pseudo_learner": sklearn.linear_model.LinearRegression(),
     "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
-    "n_folds": 3,
+    "n_folds": 1,
     "learner_folds": 3,
     "random_state": 0,
     "simultaneous": False,
@@ -119,32 +121,73 @@ class TestItReportsTheProjection:
         epsilons = [step.fluctuation.epsilon for fit in result.fits.values() for step in fit.steps]
         assert max(float(np.max(np.abs(eps))) for eps in epsilons) > 1e-8
 
-    def test_the_pooled_score_is_solved_at_every_node(self, fitted: Any) -> None:
-        """The estimating equation the pooled fluctuation exists to zero.
+    @staticmethod
+    def _stitched_score(result: Any, time: int) -> Any:
+        """``sum_i sum_c w_i h(c,V_i) phi(c,V_i) h^c_t(i) (Z - Qbar*)`` at one node.
 
-        At each node, ``sum_i sum_c w_i h(c,V_i) phi(c,V_i) h^c_t(i) (Z - Qbar*) = 0``,
-        summed over the units that *followed* -- one equation per term, shared across the
-        cells. Checked on ordinary data rather than on the exact law, and deliberately:
-        there the initial fit is exact, so the score is zero before targeting and this
-        would pass however the fluctuation were written. It is what catches an ``at_risk``
-        mask where ``trained_on`` belongs, which the exact law cannot see.
+        One equation per term, shared across the cells, and summed over the units that
+        *followed*. Written out here rather than read off the fluctuation, because what it
+        is used for below is checking the fluctuation's own ``score`` against an
+        independent computation of the same quantity.
         """
-        result, _ = fitted
         model = result.msm
         covariate = model.weighted_design_at(result.msm_fits[0].beta)
         weights = result.data.weights
-        cells = list(model.cells)
+        score = np.zeros(model.n_terms)
+        for index, cell in enumerate(model.cells):
+            step = next(s for s in result.fits[cell.label].steps if s.time == time)
+            residual = step.pseudo_outcome - step.targeted
+            score += np.einsum("i,ip,i->p", weights * step.clever, covariate[:, index, :], residual)
+        return score
+
+    def test_the_pooled_score_is_solved_at_every_node(self) -> None:
+        """The estimating equation the pooled fluctuation exists to zero.
+
+        Checked on ordinary data rather than on the exact law, and deliberately: there the
+        initial fit is exact, so the score is zero before targeting and this would pass
+        however the fluctuation were written. It is what catches an ``at_risk`` mask where
+        ``trained_on`` belongs, which the exact law cannot see.
+
+        At ``n_folds=1``, because that is the evidenced longitudinal MSM construction and
+        the equation posed to its solver.
+        """
+        frame, _ = make_longitudinal(n=3000, seed=0)
+        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **{**FAST, "n_folds": 1}).fit(
+            frame, **COLUMNS
+        )
+        model = result.msm
+        covariate = model.weighted_design_at(result.msm_fits[0].beta)
+        scale = float(np.sum(result.data.weights * np.abs(covariate).max(axis=(1, 2))))
         for time in (1, 2):
-            score = np.zeros(model.n_terms)
-            for index, cell in enumerate(cells):
-                key = cell.label
-                step = next(s for s in result.fits[key].steps if s.time == time)
-                residual = step.pseudo_outcome - step.targeted
-                score += np.einsum(
-                    "i,ip,i->p", weights * step.clever, covariate[:, index, :], residual
-                )
-            scale = float(np.sum(weights * np.abs(covariate).max(axis=(1, 2))))
-            np.testing.assert_allclose(score / scale, np.zeros(model.n_terms), atol=1e-9)
+            np.testing.assert_allclose(
+                self._stitched_score(result, time) / scale, np.zeros(model.n_terms), atol=1e-9
+            )
+
+    def test_the_reported_score_is_the_score_of_the_reported_fit(self, fitted: Any) -> None:
+        """What the aggregated node fluctuation carries is the *stitched* score.
+
+        Independent of the fluctuation: the left side is built from the step arrays and the
+        model's own weighted design, the right side is what the aggregation computed. They
+        agree only if the aggregation stacked the cells, the loss weights and the mask the
+        way the pooled solve did.
+
+        The identity link is what makes them comparable at all -- ``weighted_design_at``
+        reads the *reported* beta, and above one fold each fold fluctuated at its own, so
+        under a link the two sides are covariates built at different coefficients.
+        """
+        result, _ = fitted
+        assert result.msm.link == "identity"
+        # `Fluctuation.score` is a *mean* over the stacked rows, and every cell is live at
+        # both nodes of an end-of-study fit, so the divisor is `C * n`.
+        stacked = result.msm.n_cells * result.n
+        for time in (1, 2):
+            step = next(s for s in result.fits["always"].steps if s.time == time)
+            np.testing.assert_allclose(
+                self._stitched_score(result, time) / stacked,
+                np.asarray(step.fluctuation.score),
+                rtol=1e-10,
+                atol=1e-16,
+            )
 
     def test_the_report_carries_no_contrast(self, fitted: Any) -> None:
         """A working model reports coefficients; a difference of two is ``contrast()``."""
@@ -162,13 +205,19 @@ class TestItReportsTheProjection:
         )
 
 
+#: The evidenced fold count for a longitudinal working model.
+FOLD_COUNTS = [1]
+
+
 class TestASaturatedModelIsThePerRegimenReport:
-    def test_every_coefficient_is_its_regimen_s_mean(self) -> None:
+    @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
+    def test_every_coefficient_is_its_regimen_s_mean(self, n_folds: int) -> None:
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never", "early")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS)
-        model = LTMLE(spec, msm=saturated(labels), **FAST).fit(frame, **COLUMNS)
+        settings = {**FAST, "n_folds": n_folds}
+        plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
+        model = LTMLE(spec, msm=saturated(labels), **settings).fit(frame, **COLUMNS)
         for label in labels:
             expected = plain[f"ey_regimen[{label}]"]
             got = model[f"msm_regimen[{label}]"]
@@ -180,17 +229,25 @@ class TestASaturatedModelIsThePerRegimenReport:
                 atol=1e-12,
             )
 
-    def test_it_holds_through_a_link(self) -> None:
+    @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
+    def test_it_holds_through_a_link(self, n_folds: int) -> None:
         """Which is what says a link is a reparameterisation rather than a second
-        estimator: ``expit(beta_r)`` is the regimen's mean."""
+        estimator: ``expit(beta_r)`` is the regimen's mean.
+
+        Above one fold each outer fold alternates to its *own* ``beta`` on its training
+        rows, so this also says the reported coefficient is the projection of the stitched
+        fit rather than any fold's -- if it were a fold's, or an average of them, the
+        identity would miss by the spread across folds.
+        """
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS)
+        settings = {**FAST, "n_folds": n_folds}
+        plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
         design = saturated(labels)
-        linked = LTMLE(spec, msm=MSM(design=design.design, terms=labels, link="logit"), **FAST).fit(
-            frame, **COLUMNS
-        )
+        linked = LTMLE(
+            spec, msm=MSM(design=design.design, terms=labels, link="logit"), **settings
+        ).fit(frame, **COLUMNS)
         for label in labels:
             beta = linked[f"msm_regimen[{label}]"].psi
             assert 1.0 / (1.0 + np.exp(-beta)) == pytest.approx(
@@ -272,6 +329,88 @@ class TestTheProjectionIsSolvedOnTheOutcomeScale:
 
 
 class TestTheSurroundingMachineryStillWorks:
+    def test_cross_fitted_diagnostic_pools_cells_and_uses_the_stitched_design(self) -> None:
+        """A private artifact probe for the engine retained behind the public refusal."""
+        n = 4
+        cells = (SimpleNamespace(horizon=1), SimpleNamespace(horizon=1))
+        model = SimpleNamespace(
+            cells=cells,
+            n_terms=2,
+            terms=TERMS,
+            weights=np.column_stack([np.ones(n), np.full(n, 2.0)]),
+        )
+        records = tuple(
+            SimpleNamespace(score=np.array([1e-8, -1e-8]), score_scale=np.ones(2)) for _ in range(2)
+        )
+        fluctuation = SimpleNamespace(
+            folds=records,
+            converged=True,
+            n_iter=2,
+            failure=None,
+            score_scale=np.ones(2),
+        )
+        residuals = (np.array([1.0, -0.5, 0.25, -0.25]), np.array([-0.2, 0.3, -0.1, 0.4]))
+        fits = tuple(
+            SimpleNamespace(
+                steps=(
+                    SimpleNamespace(
+                        time=1,
+                        clever=np.ones(n),
+                        pseudo_outcome=residual,
+                        targeted=np.zeros(n),
+                        fluctuation=fluctuation,
+                    ),
+                )
+            )
+            for residual in residuals
+        )
+        design = np.array(
+            [
+                [[1.0, 0.0], [1.0, 1.0]],
+                [[1.0, 0.0], [1.0, 1.5]],
+                [[1.0, 0.0], [1.0, 2.0]],
+                [[1.0, 0.0], [1.0, 2.5]],
+            ]
+        )
+        msm_fit = SimpleNamespace(
+            model=model,
+            fits=fits,
+            cause=None,
+            fluctuation_design=design,
+        )
+        result = SimpleNamespace(
+            msm=object(),
+            msm_fits=(msm_fit,),
+            data=SimpleNamespace(
+                n=n,
+                weights=np.ones(n),
+                cluster=None,
+                backend=None,
+            ),
+            scaler=SimpleNamespace(range=1.0),
+        )
+
+        diagnostics = _longitudinal_msm_scores(result, tolerance=1e-3)
+        assert len(diagnostics.rows) == 4
+        stitching = [row for row in diagnostics.rows if row.kind == "stitching"]
+        assert [row.component for row in stitching] == list(TERMS)
+        assert all(row.regimen is None for row in stitching)
+        expected = np.mean(
+            design[:, 0, :] * residuals[0][:, None] + 2.0 * design[:, 1, :] * residuals[1][:, None],
+            axis=0,
+        )
+        np.testing.assert_allclose([row.score for row in stitching], expected)
+
+    def test_score_diagnostics_report_each_pooled_component_once_per_node(
+        self, fitted: Any
+    ) -> None:
+        result, _ = fitted
+        rows = result.diagnostics.score_equations().rows
+        assert len(rows) == 2 * len(TERMS)
+        assert {row.component for row in rows} == set(TERMS)
+        assert {row.regimen for row in rows} == {None}
+        assert {row.kind for row in rows} == {"solver"}
+
     def test_diagnostics_reports_one_epsilon_column_per_term(self, fitted: Any) -> None:
         """The pooled epsilon is shared across the regimens, so a single column would
         print the first coefficient on every row and read as though each had its own."""
@@ -311,6 +450,10 @@ class TestTheSurroundingMachineryStillWorks:
 
 
 class TestItRefusesByName:
+    def test_cross_fitted_working_model_inference_is_refused_pending_evidence(self) -> None:
+        with pytest.raises(ValueError, match="unsaturated projection property"):
+            LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), n_folds=2)
+
     def test_a_reference_regimen_and_a_working_model_cannot_be_combined(self) -> None:
         with pytest.raises(ValueError, match="reference= names the regimen"):
             LTMLE(SPEC, reference="never", msm=MSM(design=dose, terms=TERMS))

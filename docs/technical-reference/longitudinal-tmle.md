@@ -148,11 +148,34 @@ der Laan (2012) is the survival implementation reference.
 | `regimens=` | static plans, dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
-| `msm=` | a working model over the regimen and horizon cells. See [MSM projections](msm-projections.md) |
+| `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
-| `n_folds=`, `learner_folds=` | one split serves every node and every regimen, so a unit is out of fold in all of them at once |
+| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. Each fold fits a complete mechanism, backward recursion, and targeting sequence on its training rows. The result stitches predictions only on held-out rows. The fit keeps one mechanism slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
+
+### What cross-fitting splits
+
+The whole backward recursion is the unit of splitting for regimen means. Fold $k$ fits every
+mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
+report.
+
+Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
+to the same regimen means. It does not validate an unsaturated coefficient projection under
+cross-fitting. That composition needs a separate property and repeated-sampling study.
+
+**A cross-fitted fit does not solve the pooled score equation, and is not meant to.** Fold $k$ fits
+its fluctuation coefficient on the rows it does not report, so the score of the stitched fit is a
+mean-zero residual rather than a solved equation. Two consequences follow.
+
+- `res.diagnostics.score_equations()` reports two rows per node. The `solver` row asks whether each
+  fold reached the root of its own equation, and that answer is at solver tolerance. The
+  `stitching` row asks whether the pooled residual sits where sampling would leave it, and reports
+  a $z$ statistic against the residual's own standard error.
+- The reported standard error runs above the actual sampling spread. Measured over 300 replications
+  of `make_longitudinal` at $n = 500$: the ratio of reported standard error to the spread of the
+  estimates was 1.01 at one fold and 1.09 at ten, for `ate_regimen[always vs never]`. The intervals
+  are conservative rather than invalid. Coverage was 0.960 at one fold and 0.967 at ten.
 
 Seventeen point-treatment keywords are refused **by name** on a longitudinal design, each with its
 own reason. The list is in `_REFUSED` in
@@ -225,7 +248,7 @@ under refinement.
 | [ordinary end-of-study longitudinal TMLE](method-evidence.md#ordinary-end-of-study-longitudinal-tmle) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
 | [ordinary survival-curve longitudinal TMLE](method-evidence.md#ordinary-survival-curve-longitudinal-tmle) | against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [the implementation validation grid](index.md#implementation-validation-grid) | the two ordinary registered rows and their declared limits; cross-fitted rows remain planned |
+| [the implementation validation grid](index.md#implementation-validation-grid) | the two ordinary registered rows and their declared limits. The cross-fitted implementation does not yet have a registered evidence row |
 
 Competing-risk correctness rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. No R comparison is claimed

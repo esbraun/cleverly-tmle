@@ -300,7 +300,7 @@ The two cross-fitted rows below remain proposed work.
 
 End-of-study rows validate one terminal regimen mean per plan. Survival rows validate cumulative
 risk by horizon and the absorbing-event recursion. Ordinary rows fit nuisances on the analysis
-sample. Cross-fitted rows must validate fold assignment, training masks, pooled targeting, and
+sample. Cross-fitted rows must validate fold assignment, training masks, fold-specific targeting, and
 cross-fitted influence-curve inference. Competing risks and MSM projections are outside this core.
 
 ### L1. Stochastic categorical policies at a node
@@ -348,6 +348,10 @@ are not sufficient.
 Register a separate repeated-sampling row for the terminal regimen mean under the package's
 declared cross-fit construction. Use a canonical implementation only after its fold semantics,
 targeting scope, plug-in evaluation set, and variance agree with the package's parameter.
+
+The runtime construction is implemented. Each outer fold fits and targets a complete backward
+recursion on its training rows. The result evaluates and stitches that recursion on the held-out
+rows. Registration and its committed repeated-sampling artifacts remain open.
 
 The row must add fold balance and leakage mutations, flexible-learner overfit controls, exact-law
 and Gateaux gates, double robustness, root-n rates, calibration, null size, power, and targeting

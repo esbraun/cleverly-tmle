@@ -125,6 +125,12 @@ previous reader had is not a citation; a page number is.
   (`LF_static`, `Param_TSM`, `Param_MSM`) confirms equality-density/static-intervention indexing
   but is not a longitudinal categorical oracle. The companion Poulos repository was inspected at
   [`0e8dc6e`](https://github.com/jvpoulos/multi-ltmle/tree/0e8dc6eca1012e5a3eab7aa80b772cf432b8f032).
+- Source audit snapshot (2026-08-24): R `lmtp` 1.5.4 at
+  [`f04a2b4`](https://github.com/nt-williams/lmtp/tree/f04a2b47f46debc515ce4ae778e05ebfde922c44).
+  Its `cf_tmle` function runs one complete backward recursion per outer fold. Its
+  `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
+  The public API accepts a fold count but not a realized assignment. A paired study therefore
+  needs a pinned internal adapter before it can claim exact fold parity.
 - Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
   structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
   10.1016/j.jspi.2005.12.008.

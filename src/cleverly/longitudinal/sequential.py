@@ -48,6 +48,13 @@ carries the *targeted* prediction forward, not the initial one: the outcome of s
 :math:`t` is :math:`\bar Q^*_{t+1}`, so a residual left by one step is regressed away by
 the next rather than accumulating.
 
+With outer cross-fitting, that whole recursion is the unit of splitting.  Fold :math:`k`
+fits every mechanism, regression and fluctuation on its training complement, carries those
+fold-specific targeted predictions backwards, and evaluates the completed recursion only on
+fold :math:`k`'s held-out rows.  The estimator stitches those held-out rows after all folds
+finish.  A held-out outcome therefore cannot enter an earlier pseudo-outcome or fluctuation
+that is used to predict its own row.
+
 The clever covariate is the reciprocal of a **cumulative** product, and that is the whole
 positivity story of a longitudinal fit: :math:`T` probabilities multiply, so a mechanism
 that looks harmless node by node can leave a handful of units carrying most of the
@@ -90,6 +97,7 @@ it is supposed to apply.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -97,13 +105,29 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.weighting import effective_sample_size
-from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import LongitudinalError
-from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
+from ..estimators._nuisance import cross_fit_companion, cross_fit_predictions
+from ..exceptions import ConvergenceWarning, LongitudinalError
+from ..fluctuation._score import score_columns, score_scale
+from ..fluctuation.iterative import (
+    Fluctuation,
+    FoldFluctuation,
+    InitialFit,
+    TargetingFailure,
+    TargetingLabel,
+    dominant_failure,
+    solve_fluctuation,
+)
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
 from ..utils.bounds import OutcomeScaler, bound
-from ..utils.phases import phase
+from ..utils.parallel import map_parallel
+from ..utils.phases import (
+    PhaseProfile,
+    collect_phases,
+    merge_worker_phases,
+    phase,
+    profiling,
+)
 from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
 
@@ -153,6 +177,11 @@ class Mechanism:
 
     treatment: tuple[dict[str, FloatArray], ...]
     censoring: tuple[dict[str, FloatArray], ...]
+    #: Predictions from each outer-fold model on every row.  Entry ``[t][label]`` has
+    #: shape ``(K, n)``.  The recursion uses slab ``k`` for both the training and held-out
+    #: rows of outer fold ``k``.  Empty only on mechanisms made by older persisted fits.
+    treatment_by_fold: tuple[dict[str, FloatArray], ...] = ()
+    censoring_by_fold: tuple[dict[str, FloatArray], ...] = ()
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -177,7 +206,12 @@ class Mechanism:
         return self.cumulative_with_unbounded(data, plan, bounds)[1]
 
     def cumulative_with_unbounded(
-        self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
+        self,
+        data: LongitudinalData,
+        plan: Plan,
+        bounds: tuple[float, float],
+        *,
+        fold: int | None = None,
     ) -> tuple[FloatArray, FloatArray]:
         """Raw and bounded cumulative mechanism probabilities for one regimen.
 
@@ -191,9 +225,23 @@ class Mechanism:
         raw_columns = []
         bounded_columns = []
         for time in range(1, data.n_times + 1):
-            running = running * self.treatment[time - 1][plan.label]
+            treatment = self.treatment[time - 1][plan.label]
+            censoring = self.censoring[time - 1][plan.label]
+            if fold is not None:
+                # Both factors, not just the one this law happens to use: a mechanism
+                # missing only its censoring slabs would sail through a treatment-only
+                # check and then raise `IndexError` from inside the product below, which
+                # names neither the cause nor the repair.
+                if not self.treatment_by_fold or not self.censoring_by_fold:
+                    raise LongitudinalError(
+                        "this mechanism has no outer-fold prediction slabs; refit it before "
+                        "using fold-specific longitudinal targeting"
+                    )
+                treatment = self.treatment_by_fold[time - 1][plan.label][fold]
+                censoring = self.censoring_by_fold[time - 1][plan.label][fold]
+            running = running * treatment
             if data.censoring_names:
-                running = running * self.censoring[time - 1][plan.label]
+                running = running * censoring
             raw_columns.append(running)
             bounded_columns.append(bound(running, lower, upper))
         return np.column_stack(raw_columns), np.column_stack(bounded_columns)
@@ -220,7 +268,14 @@ class NodeInputs:
 
     time: int
     at_risk: BoolArray
+    #: Every row that followed the regimen through this node.  ``clever`` is nonzero
+    #: exactly here, whichever rows the regression was fitted on.
     trained_on: BoolArray
+    #: The rows the regression was actually fitted on: ``trained_on``, and under outer
+    #: cross-fitting that intersected with the fold's training complement.  This is the
+    #: mask the fluctuation solves its score over, so that a held-out row contributes to
+    #: no coefficient that fluctuates it.
+    fitted_on: BoolArray
     pseudo_outcome: FloatArray
     initial: FloatArray
     counterfactual: FloatArray
@@ -232,8 +287,10 @@ class SequentialStep:
     """One node of the backward recursion, kept so a fit can be inspected node by node."""
 
     time: int
-    #: Rows the regression was fitted on: followed the regimen and stayed under
-    #: observation through this node.
+    #: Rows eligible for the regression: followed the regimen and stayed under
+    #: observation through this node.  With cross-fitting, each outer model uses the
+    #: eligible rows in its training complement.  ``fluctuation.folds`` identifies those
+    #: complements through their held-out indices.
     trained_on: BoolArray
     #: Rows whose history at this node is observed and regimen-consistent -- the set the
     #: regression *predicts* for, and the population the assigned arm is a statement
@@ -279,7 +336,16 @@ class RegimenFit:
     steps: tuple[SequentialStep, ...]
     #: Raw cumulative treatment-and-censoring probability before ``g_bounds``.
     cumulative_unbounded: FloatArray
-    #: The same prefixes after applying ``g_bounds``; these enter the score and EIF.
+    #: The same prefixes after applying ``g_bounds``.
+    #:
+    #: **On a cross-fitted fit these are the out-of-fold prefixes and are not what the
+    #: clever covariate was built from.**  Each outer fold's recursion reads its own
+    #: mechanism slab, so ``step.clever`` is stitched from ``K`` fold-specific covariates
+    #: and ``1 / cumulative`` does not reproduce it.  Both are honest reports of different
+    #: things: this is the mechanism the fit estimated, and ``step.clever`` is the weight
+    #: each row was actually targeted and scored with.  A diagnostic that wants the weight
+    #: must read ``step.clever``; one that wants the mechanism, or how much of it the
+    #: bounds moved, reads these.
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
     #: column for a static plan; for a rule it is the thing ``diagnostics()`` reports,
@@ -409,6 +475,8 @@ def fit_mechanism(
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
+    treatment_by_fold: list[dict[str, FloatArray]] = []
+    censoring_by_fold: list[dict[str, FloatArray]] = []
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -427,7 +495,7 @@ def fit_mechanism(
                 data.treatment_levels[time - 1],
                 data.treatment_names[time - 1],
             )
-            probabilities, _ = cross_fit_predictions(
+            probabilities, companion, _ = cross_fit_companion(
                 treatment_learner,
                 data.history_design(time),
                 arm,
@@ -435,6 +503,7 @@ def fit_mechanism(
                 folds,
                 task="classification",
                 predict_designs=designs,
+                companion_designs=designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
@@ -448,9 +517,23 @@ def fit_mechanism(
                 for plan in plans
             }
         )
+        fold_probabilities = {
+            plan.label: companion[plan.label][:, rows, plan.arm(time).astype(np.int64)]
+            for plan in plans
+        }
+        # Predicting one validation slice and predicting all rows can differ in the last
+        # bit for a BLAS-backed learner.  The production OOF value is authoritative on the
+        # held-out rows; the companion slab exists for the training complement around it.
+        for fold, (_, test) in enumerate(folds):
+            for plan in plans:
+                fold_probabilities[plan.label][fold, test] = treatment[-1][plan.label][test]
+        treatment_by_fold.append(fold_probabilities)
 
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
+            censoring_by_fold.append(
+                {plan.label: np.ones((folds.n_folds, data.n), dtype=float) for plan in plans}
+            )
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
         censor_designs = {
@@ -458,7 +541,7 @@ def fit_mechanism(
             for plan in plans
         }
         with phase("mechanism_fit"):
-            predictions, _ = cross_fit_predictions(
+            predictions, censor_companion, _ = cross_fit_companion(
                 censoring_learner,
                 data.history_design(time, include_current=True),
                 stayed,
@@ -466,13 +549,23 @@ def fit_mechanism(
                 folds,
                 task="classification",
                 predict_designs=censor_designs,
+                companion_designs=censor_designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
             )
         censoring.append(predictions)
-    return Mechanism(tuple(treatment), tuple(censoring))
+        for fold, (_, test) in enumerate(folds):
+            for plan in plans:
+                censor_companion[plan.label][fold, test] = predictions[plan.label][test]
+        censoring_by_fold.append(censor_companion)
+    return Mechanism(
+        tuple(treatment),
+        tuple(censoring),
+        tuple(treatment_by_fold),
+        tuple(censoring_by_fold),
+    )
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
@@ -502,6 +595,8 @@ def prepare_node(
     folds: Folds,
     cause: str | None = None,
     masks: RegimenMasks | None = None,
+    fit_rows: BoolArray | None = None,
+    outer_fold: int | None = None,
     n_jobs: int = 1,
 ) -> NodeInputs:
     """One node's masks, pseudo-outcome, regression and clever covariate.
@@ -517,17 +612,37 @@ def prepare_node(
     that again per horizon; they are the same arrays either way, which is what
     ``tests/unit/test_longitudinal_masks.py`` checks and what makes the default -- build
     them for this one node -- a convenience rather than a second code path.
+
+    ``fit_rows`` narrows the rows the regression is **fitted** on without narrowing the
+    rows ``clever`` is nonzero at.  The two are the same set on an ordinary pass and come
+    apart under outer cross-fitting, where fold ``k``'s regression trains on the followers
+    in its training complement while the clever covariate stays a statement about every
+    follower.  Passing them as one mask -- which ``trained_on`` was until the outer
+    recursion needed both -- silently zeroes the held-out rows' covariate and drops them
+    from the score.  ``outer_fold`` names the fold in the refusal below, and reports the
+    one-based number a reader can find in ``result.folds``.
     """
-    with phase("mask_construction"):
-        if masks is None:
+    if masks is None:
+        # Only around the scan, and only when there is one: reading two prefix slices off
+        # masks the caller already built is not mask construction, and counting it as such
+        # reports one entry per node for the work the once-per-regimen scan exists to
+        # avoid -- which is the opposite of what the phase was added to show.
+        with phase("mask_construction"):
             masks = data.regimen_masks(plan.values)
-        at_risk = masks.at_risk(time)
-        trained_on = masks.following(time)
-    if not trained_on.any():
+    at_risk = masks.at_risk(time)
+    trained_on = masks.following(time)
+    fitted_on = trained_on if fit_rows is None else trained_on & fit_rows
+    if not fitted_on.any():
+        where = (
+            "while remaining in the study"
+            if outer_fold is None
+            else f"in outer training fold {outer_fold + 1}"
+        )
         raise LongitudinalError(
-            f"no unit followed regimen {plan.label!r} through time {time} while "
-            "remaining in the study, so the sequential regression there has nothing "
-            "to fit. The regimen is not supported by this sample."
+            f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
+            "the sequential regression there has nothing to fit. The regimen is not "
+            "supported by this sample."
+            + ("" if outer_fold is None else " Use fewer folds, or a supported regimen.")
             + _risk_set_hint(data, plan, time)
             + _rule_hint(plan, data, at_risk, time)
         )
@@ -537,7 +652,7 @@ def prepare_node(
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     if task == "classification":
-        _check_outcome_varies(data, next_outcome, trained_on, plan, time, horizon, cause)
+        _check_outcome_varies(data, next_outcome, fitted_on, plan, time, horizon, cause)
     with phase("outcome_learner_fit"):
         predictions, _ = cross_fit_predictions(
             learner,
@@ -547,7 +662,7 @@ def prepare_node(
             folds,
             task=task,  # type: ignore[arg-type]
             predict_designs={"history": design},
-            fit_mask=trained_on,
+            fit_mask=fitted_on,
             groups=data.cluster,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
@@ -561,6 +676,7 @@ def prepare_node(
         time=time,
         at_risk=at_risk,
         trained_on=trained_on,
+        fitted_on=fitted_on,
         pseudo_outcome=next_outcome,
         initial=initial,
         counterfactual=counterfactual,
@@ -669,6 +785,23 @@ def fit_regimen(
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
         raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
+    if not folds.is_single:
+        return _fit_regimen_crossfit(
+            data,
+            plan,
+            mechanism,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            scaler=scaler,
+            g_bounds=g_bounds,
+            horizon=horizon,
+            cause=cause,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            n_jobs=n_jobs,
+        )
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     carried = seed_carried(data, scaler)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
@@ -708,7 +841,7 @@ def fit_regimen(
                     "sequential",
                 ),
                 data.weights * node.counterfactual,
-                node.trained_on,
+                node.fitted_on,
                 alpha=alpha,
                 max_iter=max_iter,
                 tol=tol,
@@ -757,6 +890,323 @@ def fit_regimen(
         cumulative=cumulative,
         assignment=np.asarray(plan.values),
         obs_weights=np.asarray(data.weights, dtype=float),
+    )
+
+
+@dataclass(frozen=True)
+class _FoldSolve:
+    """What the parent needs from one outer fold's node solve, without its arrays.
+
+    A whole :class:`~cleverly.fluctuation.Fluctuation` carries a full-length
+    :class:`~cleverly.fluctuation.InitialFit`, so returning ``K`` of them per node from
+    ``K`` worker processes pickles ``K * T * 2n`` floats for the sake of a handful of
+    scalars.  The stitched arrays the parent reports are assembled from each fold's
+    held-out slice instead, which is ``n / K`` rows rather than ``n``.
+    """
+
+    record: FoldFluctuation
+    #: Observation-weight mass of the fold's held-out rows.  The reported ``epsilon`` is
+    #: the average across folds weighted by this, so a weighted fit averages by the
+    #: weights it was fitted with rather than by row counts.
+    mass: float
+    failure: TargetingFailure | None
+    hessian_condition: float
+    loglik: float
+    method: TargetingLabel
+    names: tuple[str, ...]
+
+
+def aggregate_fold_fluctuations(
+    solves: Sequence[_FoldSolve],
+    *,
+    outcome: FloatArray,
+    initial: FloatArray,
+    targeted: FloatArray,
+    covariate: FloatArray,
+    loss_weights: FloatArray,
+    mask: BoolArray,
+) -> Fluctuation:
+    r"""Combine outer-training solves without reporting a score that no array has.
+
+    The five arrays are the stitched fit's own, assembled by the caller, because the two
+    callers stack them differently.  A per-regimen node fluctuates by an intercept over
+    ``n`` rows; a working-model node fluctuates by :math:`(dm/d\eta)\varphi` over the ``C``
+    live cells stacked, which is ``C * n`` rows and ``p`` columns.  Taking the arrays rather
+    than rebuilding them here is what lets one aggregation serve both -- the first version
+    hardcoded the intercept, and a second copy is how the two would drift apart.
+
+    **The score here is the score of the stitched fit**, computed from the arrays this
+    object is returned beside, and not the average of the ``K`` per-fold scores.  Each of
+    those is at solver tolerance by construction, so averaging them reports
+    :math:`10^{-14}` for a fit whose pooled relative score is :math:`10^{-2}`, and
+    :meth:`~cleverly.assessment.DiagnosticsFacade.score_equations` then signs off on a fit
+    that nothing checked.  :meth:`cleverly.TMLE._solve_by_fold` recomputes the pooled score
+    for the same reason, through the same helpers in :mod:`cleverly.fluctuation._score`.
+
+    **The pooled score is not zero, and is not meant to be.**  Each fold fits its
+    ``epsilon`` on its *training* complement, so the equation a fold solved is not the one
+    its held-out rows pose.  What the pooled residual has to be is sampling noise about
+    zero, which is a different claim and needs a different instrument:
+    :attr:`~cleverly.fluctuation.Fluctuation.folds` carries the per-fold solves that did
+    reach their roots, and :func:`~cleverly.assessment.score_equations` reports the two
+    verdicts as separate rows.
+
+    ``converged`` is therefore ``all`` of the fold solves rather than a relative-score test
+    on the aggregate.  A solver that reached its root in every fold converged; that the
+    pooled residual is nonzero is a property of the construction and not a failure.
+    """
+    masses = np.asarray([solve.mass for solve in solves], dtype=float)
+    reasons = [solve.failure or "unknown" for solve in solves]
+    failed = [index for index, solve in enumerate(solves) if not solve.record.converged]
+    conditions = [solve.hessian_condition for solve in solves]
+    finite = [value for value in conditions if np.isfinite(value)]
+    return Fluctuation(
+        epsilon=np.asarray(
+            np.average(
+                np.vstack([np.asarray(solve.record.epsilon, dtype=float) for solve in solves]),
+                axis=0,
+                weights=masses,
+            ),
+            dtype=float,
+        ),
+        targeted=InitialFit(targeted, {_REGIMEN_ARM: targeted}),
+        score=score_columns(outcome, targeted, covariate, loss_weights, mask),
+        converged=all(solve.record.converged for solve in solves),
+        n_iter=sum(solve.record.n_iter for solve in solves),
+        # Several fold solves have no single iteration trajectory. Their complete traces
+        # live on the fold records instead of masquerading as one aggregate trace.
+        trace=(),
+        method=solves[0].method,
+        names=solves[0].names,
+        score_scale=score_scale(covariate, loss_weights, mask),
+        folds=tuple(solve.record for solve in solves),
+        score_initial=score_columns(outcome, initial, covariate, loss_weights, mask),
+        n_solver_calls=len(solves),
+        failure=dominant_failure(reasons, failed),
+        # Not an average: a condition number says how badly identified the worst solve's
+        # epsilon was, and averaging that with well-conditioned folds hides the one fold
+        # the reader needs.  `nan` only when no fold reported one at all.
+        hessian_condition=max(finite) if finite else float("nan"),
+        loglik=float(np.average([solve.loglik for solve in solves], weights=masses)),
+    )
+
+
+def _fit_regimen_crossfit(
+    data: LongitudinalData,
+    plan: Plan,
+    mechanism: Mechanism,
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    horizon: int,
+    cause: str | None,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    n_jobs: int,
+) -> RegimenFit:
+    """Run one complete backward recursion per outer fold and stitch held-out rows.
+
+    The node arithmetic is :func:`prepare_node`'s, called once per fold with that fold's
+    mechanism slab, its training complement as ``fit_rows``, and a one-fold split -- which
+    is a fit on the named rows and a prediction everywhere, and is what an outer fold's
+    model is.  Writing the node out a second time here is what let the first version of
+    this function drift: it dropped both refusal hints, and every mask was a second chance
+    to disagree with the pass it is supposed to be.
+    """
+    cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
+    with phase("mask_construction"):
+        masks = data.regimen_masks(plan.values)
+    inner = Folds.single(data.n)
+    # Read once, in the parent: a worker process has no collector of its own and so
+    # cannot tell whether anybody asked for a profile.
+    wanted = profiling()
+    intercept = np.ones((data.n, 1))
+    weights = np.asarray(data.weights, dtype=float)
+    stitched: dict[int, dict[str, FloatArray]] = {
+        time: {
+            name: np.full(data.n, _FILLER, dtype=float)
+            for name in ("pseudo", "initial", "targeted", "clever")
+        }
+        for time in range(1, horizon + 1)
+    }
+    fold_solves: dict[int, list[_FoldSolve]] = {time: [] for time in range(1, horizon + 1)}
+
+    def run_fold(
+        fold: int, train: IntArray, test: IntArray
+    ) -> tuple[
+        IntArray,
+        dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, _FoldSolve]],
+        PhaseProfile | None,
+    ]:
+        _, fold_cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds, fold=fold)
+        outer_train = np.zeros(data.n, dtype=bool)
+        outer_train[train] = True
+        outputs: dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, _FoldSolve]] = {}
+        with collect_phases(wanted) as profile:
+            carried = seed_carried(data, scaler)
+            for time in range(horizon, 0, -1):
+                node = prepare_node(
+                    data,
+                    plan,
+                    fold_cumulative,
+                    carried,
+                    time,
+                    horizon,
+                    outcome_learner=outcome_learner,
+                    pseudo_learner=pseudo_learner,
+                    folds=inner,
+                    cause=cause,
+                    masks=masks,
+                    fit_rows=outer_train,
+                    outer_fold=fold,
+                )
+                with phase("fluctuation"):
+                    # `warn=False`, and the count reported once by
+                    # `warn_on_fold_convergence`: K folds at T nodes would otherwise emit
+                    # K * T warnings for one problem.
+                    fluctuation = solve_fluctuation(
+                        node.pseudo_outcome,
+                        InitialFit(node.initial, {_REGIMEN_ARM: node.initial}),
+                        Submodel(
+                            intercept,
+                            {_REGIMEN_ARM: intercept},
+                            (f"epsilon[{plan.label}, t={time}]",),
+                            "sequential",
+                        ),
+                        weights * node.counterfactual,
+                        node.fitted_on,
+                        alpha=alpha,
+                        max_iter=max_iter,
+                        tol=tol,
+                        warn=False,
+                    )
+                targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
+                outputs[time] = (
+                    node.pseudo_outcome[test],
+                    node.initial[test],
+                    targeted[test],
+                    node.clever[test],
+                    _FoldSolve(
+                        record=FoldFluctuation(
+                            index=test,
+                            epsilon=fluctuation.epsilon,
+                            score=fluctuation.score,
+                            converged=fluctuation.converged,
+                            n_iter=fluctuation.n_iter,
+                            trace=fluctuation.trace,
+                            score_scale=fluctuation.score_scale,
+                        ),
+                        mass=float(weights[test].sum()),
+                        failure=fluctuation.failure,
+                        hessian_condition=fluctuation.hessian_condition,
+                        loglik=fluctuation.loglik,
+                        method=fluctuation.method,
+                        names=fluctuation.names,
+                    ),
+                )
+                carried = np.where(node.at_risk, targeted, _FILLER)
+        return test, outputs, profile
+
+    jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
+    # One parent phase over the whole fan-out, with the workers' phases merged underneath
+    # it rather than into it.  Adding worker time to the parent's own totals would break
+    # `sum(exclusive) <= total_seconds`: K folds running at once accumulate more processor
+    # time than the parent spent waiting for them.
+    with phase("outer_fold_recursion"):
+        outcomes = map_parallel(run_fold, jobs, n_jobs=n_jobs)
+    for _, _, profile in outcomes:
+        merge_worker_phases(profile)
+    for test, outputs, _ in outcomes:
+        for time, (pseudo, initial, targeted, clever, solve) in outputs.items():
+            stitched[time]["pseudo"][test] = pseudo
+            stitched[time]["initial"][test] = initial
+            stitched[time]["targeted"][test] = targeted
+            stitched[time]["clever"][test] = clever
+            fold_solves[time].append(solve)
+
+    steps = tuple(
+        SequentialStep(
+            time=time,
+            trained_on=masks.following(time),
+            at_risk=masks.at_risk(time),
+            pseudo_outcome=stitched[time]["pseudo"],
+            initial=stitched[time]["initial"],
+            targeted=stitched[time]["targeted"],
+            clever=stitched[time]["clever"],
+            fluctuation=aggregate_fold_fluctuations(
+                fold_solves[time],
+                outcome=stitched[time]["pseudo"],
+                initial=stitched[time]["initial"],
+                targeted=stitched[time]["targeted"],
+                # The sequential submodel is an intercept and the cumulative inverse
+                # probability rides in the loss weight, so the score's `h` is that
+                # intercept and its weights are `w * clever`.  `clever` is already zero off
+                # the followers, which is why the mask can be the population rather than a
+                # second place the same fact is written down.
+                covariate=intercept,
+                loss_weights=weights * stitched[time]["clever"],
+                mask=masks.following(time),
+            ),
+        )
+        for time in range(1, horizon + 1)
+    )
+    warn_on_fold_convergence([(step.time, step.fluctuation) for step in steps], plan.label)
+    psi = float(np.average(steps[0].targeted, weights=data.weights))
+    influence = steps[0].targeted - psi
+    for step in steps:
+        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
+    influence = data.weights * influence
+    return RegimenFit(
+        regimen=plan.regimen,
+        psi_scaled=psi,
+        influence_curve_scaled=influence,
+        horizon=horizon,
+        cause=cause,
+        steps=steps,
+        cumulative_unbounded=cumulative_unbounded,
+        cumulative=cumulative,
+        assignment=np.asarray(plan.values),
+        obs_weights=weights,
+    )
+
+
+def warn_on_fold_convergence(nodes: Sequence[tuple[int, Fluctuation]], label: str) -> None:
+    """Report the outer folds that did not converge, once, naming the modes.
+
+    The per-fold solves run with ``warn=False`` so that ``K`` folds at ``T`` nodes cannot
+    emit ``K * T`` warnings for one problem.  That alone would leave a fit able to fail in
+    three folds of ten and say nothing at all, because the aggregate ``converged`` is then
+    the only place it shows and the pooled score is nonzero on a healthy fit anyway.  So it
+    is said here, once per regimen or working model, which is what
+    :meth:`cleverly.TMLE._solve_by_fold` does for the point-treatment fold-targeting path.
+
+    ``nodes`` is ``(time, aggregated fluctuation)`` rather than the steps it came from, so
+    that the working-model path -- whose one fluctuation per node is shared by every live
+    cell -- says it once for the model rather than once per cell saying the same thing.
+    """
+    failures = [
+        (time, record)
+        for time, fluctuation in nodes
+        for record in fluctuation.folds
+        if not record.converged
+    ]
+    if not failures:
+        return
+    modes = sorted(
+        {fluctuation.failure or "unknown" for _, fluctuation in nodes if not fluctuation.converged}
+    )
+    times = sorted({time for time, _ in failures})
+    warnings.warn(
+        f"{len(failures)} outer-fold targeting solve(s) did not converge for {label!r}, "
+        f"at node(s) {times} ({', '.join(modes)}). The stitched score cannot show this, "
+        "because it is not the equation those solves posed; inspect "
+        "step.fluctuation.folds for the per-fold detail.",
+        ConvergenceWarning,
+        stacklevel=3,
     )
 
 

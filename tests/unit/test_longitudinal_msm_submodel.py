@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_longitudinal
 from cleverly.fluctuation.submodel import Submodel
-from cleverly.learners.crossfit import make_folds
+from cleverly.learners.crossfit import Folds, make_folds
 from cleverly.learners.super_learner import resolve_learner
 from cleverly.longitudinal import LongitudinalData, resolve_plans, resolve_regimens
 from cleverly.longitudinal import msm as longitudinal_msm
@@ -51,7 +51,18 @@ def flat_design(label: Any, horizon: int, frame: Any) -> np.ndarray:
     return np.column_stack([np.ones(n), np.full(n, DURATION[label])])
 
 
-def setup() -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
+def setup(folds: Any = None) -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
+    """The fixture every claim here is checked against.
+
+    ``folds`` defaults to a **single** outer fold, and that is a statement about what this
+    file tests rather than an economy. Every claim below is array-level and about the node
+    arithmetic -- what rank a block has, which columns are zero, which array is the loss
+    weight -- and that arithmetic is the same in every outer fold. Above one fold the
+    module runs one complete alternation per fold, so the same claims would be restated
+    ``K`` times and the "deepest node first" ordering ``calls_of`` documents would become
+    fold-major. What *is* about folds is checked once, in
+    :class:`TestEachOuterFoldGetsItsOwnPass`, against the mask that actually changes.
+    """
     frame, _ = make_longitudinal(n=N, seed=0)
     data = LongitudinalData.from_frame(
         frame,
@@ -62,7 +73,7 @@ def setup() -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
         censoring=["C1", "C2"],
     )
     plans = resolve_plans(resolve_regimens(SPEC, data.n_times), data)
-    folds = make_folds(data.n, n_folds=2, random_state=0)
+    folds = Folds.single(data.n) if folds is None else folds
     classifier = resolve_learner(
         LogisticRegression(max_iter=1000), task="classification", n_folds=2, random_state=0
     )
@@ -80,9 +91,11 @@ def setup() -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
     return data, plans, mechanism, {"mechanism_kwargs": kwargs}
 
 
-def calls_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Every pooled fluctuation call, deepest node first."""
-    data, plans, mechanism, extra = setup()
+def calls_of(
+    design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch, folds: Any = None
+) -> Any:
+    """Every pooled fluctuation call, deepest node first within each outer pass."""
+    data, plans, mechanism, extra = setup(folds)
     seen: list[tuple[Submodel, np.ndarray, np.ndarray]] = []
     original = longitudinal_msm.solve_fluctuation
 
@@ -106,9 +119,11 @@ def calls_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatc
     return data, plans, mechanism, extra, seen
 
 
-def submodels_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> Any:
+def submodels_of(
+    design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch, folds: Any = None
+) -> Any:
     """Every ``Submodel`` a pooled fit hands to the fluctuation, deepest node first."""
-    data, plans, mechanism, extra, seen = calls_of(design, terms, monkeypatch)
+    data, plans, mechanism, extra, seen = calls_of(design, terms, monkeypatch, folds)
     return data, plans, mechanism, extra, [submodel for submodel, _, _ in seen]
 
 
@@ -177,6 +192,53 @@ class TestASaturatedModelIsBlockDiagonal:
                     weight_blocks[index][step.trained_on],
                     data.weights[step.trained_on] * step.clever[step.trained_on],
                 )
+
+
+class TestEachOuterFoldGetsItsOwnPass:
+    """What changes above one fold, and the only thing that does at this level.
+
+    The node arithmetic is fold-invariant, so the claims above are checked once. What is
+    not fold-invariant is *which rows the score is taken over*: each outer fold fits its
+    fluctuation on the followers in its own training complement, and stitching the wrong
+    mask into the wrong fold is a defect no array-shape claim can see.
+    """
+
+    def test_one_complete_pass_per_fold_each_fitted_on_its_own_training_rows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        folds = make_folds(N, n_folds=2, random_state=0)
+        data, plans, _, _, seen = calls_of(saturated_design, LABELS, monkeypatch, folds)
+        masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
+        # One pass per fold, each a full backward sweep: the identity link alternates once.
+        assert len(seen) == folds.n_folds * data.n_times
+
+        for position, (_, _, mask) in enumerate(seen):
+            fold, depth = divmod(position, data.n_times)
+            time = data.n_times - depth
+            training = np.ones(data.n, dtype=bool)
+            training[list(folds)[fold][1]] = False
+            for index, label in enumerate(LABELS):
+                block = np.split(mask, len(LABELS))[index]
+                np.testing.assert_array_equal(block, masks[label].following(time) & training)
+
+    def test_the_folds_between_them_cover_every_follower(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The nonzero witness for the masks above: each is a strict subset, and their
+        union is the population the single-fold pass fits on."""
+        folds = make_folds(N, n_folds=2, random_state=0)
+        data, plans, _, _, seen = calls_of(saturated_design, LABELS, monkeypatch, folds)
+        masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
+        deepest = [
+            mask for position, (_, _, mask) in enumerate(seen) if position % data.n_times == 0
+        ]
+        for index, label in enumerate(LABELS):
+            followers = masks[label].following(data.n_times)
+            blocks = [np.split(mask, len(LABELS))[index] for mask in deepest]
+            for block in blocks:
+                assert block.sum() < followers.sum()
+            union = np.logical_or.reduce(blocks)
+            np.testing.assert_array_equal(union, followers)
 
 
 class TestTheLossWeightsMultiply:

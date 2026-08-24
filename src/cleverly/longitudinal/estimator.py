@@ -373,6 +373,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Transformation between observed and targeting scales.
     mechanism : Mechanism
         Fitted treatment and observation mechanisms.
+    folds : Folds
+        Realized outer-fold assignment.
     provenance : Provenance
         Runtime, dependency, and data fingerprints.
     simultaneous : SimultaneousBands or None
@@ -436,6 +438,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     config: LongitudinalConfig
     scaler: OutcomeScaler
     mechanism: Mechanism
+    folds: Folds
     provenance: Provenance
     simultaneous: SimultaneousBands | None = None
     #: ``name -> (regimen, cause, horizon)`` for every reported parameter, composed when
@@ -956,7 +959,26 @@ class LTMLE:
         library read as a regression.
     n_folds:
         Outer cross-fitting folds; one split serves every node and every regimen, so a
-        unit is out of fold in all of them at once.
+        unit is out of fold in all of them at once.  Above one fold each fold runs a
+        complete mechanism, backward regression and targeting sequence on its training
+        rows, and only its held-out rows are stitched into the report.  The fit therefore
+        keeps one mechanism prediction slab per fold, so the mechanism costs ``n_folds``
+        times the memory of a single-fold fit and a saved result grows by the same factor.
+
+        Two properties of this construction are worth knowing before reading its output.
+        Each fold's fluctuation coefficient is fitted on rows the fold does not report, so
+        the *pooled* score equation is not solved -- :meth:`.DiagnosticsFacade.
+        score_equations` reports that residual as its own row rather than folding it into
+        the solver verdict.  Measured over 300 replications of
+        :func:`~cleverly.datasets.make_longitudinal` at ``n=500``, the ratio of reported
+        standard error to the spread of the estimates was 1.01 at one fold and 1.09 at
+        ten.  This finite result applies to that law and configuration.  It does not
+        establish the direction for other laws, weights, clusters, survival outcomes, or
+        sample sizes.
+
+        A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
+        inference remains refused until a dedicated unsaturated projection property and
+        repeated-sampling study establish it.
     g_bounds:
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair
@@ -1085,6 +1107,13 @@ class LTMLE:
                 "decided by the design you gave msm=, and an intercept is whatever that "
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
+            )
+        if self.msm is not None and self.n_folds > 1:
+            raise ValueError(
+                "msm= with n_folds > 1 is not supported. Cross-fitted longitudinal MSM "
+                "coefficient inference needs a dedicated unsaturated projection property "
+                "and repeated-sampling study before it can be reported. Pass n_folds=1 "
+                "for the evidenced in-sample longitudinal MSM construction."
             )
 
     @staticmethod
@@ -1303,6 +1332,7 @@ class LTMLE:
             config=config,
             scaler=scaler,
             mechanism=mechanism,
+            folds=folds,
             provenance=self._provenance(prepared, folds),
             simultaneous=bands,
             parameter_index=parameter_index,

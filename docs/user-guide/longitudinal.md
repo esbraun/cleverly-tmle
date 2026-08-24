@@ -35,6 +35,19 @@ result = study.estimate(
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
 keys. A regimen cannot look ahead or change interpretation between stages.
 
+With `n_folds > 1`, each outer training fold runs the complete backward recursion. The fit stores
+the realized assignment in `result.folds`. Each sequential step stores its targeting details in
+`step.fluctuation.folds`.
+
+Each fold targets on its own training rows, so the fit does not drive the pooled score equation to
+zero. `res.diagnostics.score_equations()` reports one row for the per-fold solves and one for the
+stitched residual.
+
+One repeated-sampling study observed standard-error ratios from 1.0170 to 1.1007 at `n=2000`.
+Those results apply only to the named `make_longitudinal` law and estimator settings. They do not
+establish conservative variance for other laws, weights, clusters, survival outcomes, or sample
+sizes.
+
 ## Survival outcomes
 
 An outcome sequence declares one absorbing event process and makes horizon part of the estimand.
@@ -75,6 +88,11 @@ keeping all prior competing events out of later risk sets.
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
+
+Use `n_folds=1` for a longitudinal MSM projection. Cross-fitted coefficient inference is refused
+until an unsaturated projection property and a repeated-sampling study validate that construction.
+A saturated reduction alone does not validate an unsaturated projection or its coefficient
+influence curve.
 
 ## Diagnostics
 

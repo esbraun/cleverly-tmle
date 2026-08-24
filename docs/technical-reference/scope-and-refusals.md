@@ -34,6 +34,7 @@ rather than implying the request was ill-posed.
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](../user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](../user-guide.md#tilting-the-odds-of-treatment) |
 | the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](../user-guide.md#treatment-given-over-time) |
+| longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
 | blocked-temporal and rolling-origin splits | [cross-fitting](../user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide.md#observation-weights-and-which-population-they-define). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 

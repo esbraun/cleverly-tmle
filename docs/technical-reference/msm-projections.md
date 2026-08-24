@@ -102,6 +102,10 @@ carries the loss weight the plain recursion uses. The pooled Newton convergence 
 are taken over all the stacked rows, so the two can stop on different iterates. On a law the sample
 realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
 
+**The longitudinal projection requires `n_folds=1`.** The saturated identity holds for that
+supported construction. Cross-fitted unsaturated coefficient inference needs a dedicated property
+and repeated-sampling study. The package refuses it until that evidence exists.
+
 **Under a link, one round of the alternation is a whole backward pass.** The coefficient enters the
 covariate through the derivative of the inverse link, so each targeted regression moves with it. A
 targeted regression is the previous node's regression *target*, so every earlier node's learner is
@@ -124,8 +128,9 @@ scale, because a coefficient vector has no single scale to map back with.
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
 | `link="log"`, `link="logit"` | the covariate reads the coefficient, so the fluctuation and the projection alternate. `res.coefficients(scale="ratio")` exponentiates them |
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
-| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design |
+| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. It requires `n_folds=1` |
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
+| point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
 
 One thing is **refused rather than approximated**, in the sense
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) sets out.
