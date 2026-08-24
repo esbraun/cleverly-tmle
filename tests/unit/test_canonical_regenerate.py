@@ -140,3 +140,55 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
 
     with pytest.raises(RuntimeError, match="statistical property gates failed"):
         regenerate.main(study, SimpleNamespace(), here=tmp_path)
+
+
+def test_cached_reference_phase_is_reused_only_when_compatible(tmp_path: Any) -> None:
+    cached = pd.DataFrame(
+        {
+            "implementation": ["reference", "reference"],
+            "replicate": [0, 1],
+            "n": [50, 50],
+        }
+    )
+    path = tmp_path / "r-results.csv"
+    cached.to_csv(path, index=False)
+    phase = regenerate._Phase(
+        rows=_rows("subject"),
+        cached=True,
+        paths={"r-results.csv": path},
+    )
+    reference = SimpleNamespace(
+        run=lambda *args, **kwargs: pytest.fail("the compatible cached reference was rerun")
+    )
+    arguments = argparse.Namespace(replicates=2, n=50, skip_r=False)
+
+    rows = regenerate._reference_rows(
+        SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
+        reference,
+        arguments,
+        tmp_path,
+        phase,
+    )
+
+    pd.testing.assert_frame_equal(rows, cached)
+
+
+def test_incompatible_cached_reference_phase_is_refused(tmp_path: Any) -> None:
+    path = tmp_path / "r-results.csv"
+    pd.DataFrame({"implementation": ["reference"], "replicate": [0], "n": [50]}).to_csv(
+        path, index=False
+    )
+    phase = regenerate._Phase(
+        rows=_rows("subject"),
+        cached=True,
+        paths={"r-results.csv": path},
+    )
+
+    with pytest.raises(RuntimeError, match="incompatible replications"):
+        regenerate._reference_rows(
+            SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
+            regenerate.Reference("image", "runner"),
+            argparse.Namespace(replicates=2, n=50, skip_r=False),
+            tmp_path,
+            phase,
+        )

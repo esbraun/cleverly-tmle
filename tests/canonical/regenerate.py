@@ -11,9 +11,9 @@ the end-of-study copy it was cloned from still lacked both.
 
 Three shapes have to fit through one driver, so they are declared rather than branched on:
 
-* **A mounted runner.**  The two ``ltmle`` studies bind their directory at ``/fixture`` and
-  pass the script as an argument, so the image carries only the packages.  Their Dockerfiles
-  are byte-identical as a result, and one image serves both.
+* **A mounted runner.**  The ``ltmle`` studies bind their reference sources at ``/fixture`` and
+  pass the script as an argument, so the image carries only the packages.  Related studies can
+  share a Docker context while retaining separate runners and artifact directories.
 * **A baked runner.**  The ``tmle3`` and ``ctmle`` studies ``COPY`` the script into the image
   and name it in the ``ENTRYPOINT``, so the container takes only the three data paths.
 * **No reference at all.**  ``cvtmle_fold`` compares against nothing, because no maintained
@@ -61,31 +61,41 @@ class Reference:
 
     ``mount_runner`` picks between the two container conventions.  ``False`` is the baked form:
     the image's ``ENTRYPOINT`` already names the script, so the container is handed only the
-    three data paths.  ``True`` binds the study directory read-only at ``/fixture`` and passes
-    the script as the first argument, which is what lets two studies share one image.
+    three data paths.  ``True`` binds ``runner_root`` read-only at ``/fixture`` and passes the
+    script as the first argument.  The root defaults to the study directory.
 
     ``extra_files`` are further reference sources whose bytes belong in the manifest -- a
-    second R script a maintainer runs by hand, for instance.  They are hashed and not executed.
+    sourced adapter or a second script a maintainer runs by hand, for instance.
     """
 
     image: str
     runner: str
     mount_runner: bool = False
     extra_files: tuple[str, ...] = ()
+    #: Optional shared Docker context.  The cross-fitted longitudinal studies use one
+    #: digest-pinned ``lmtp`` image while keeping separate runners and artefact directories.
+    build_context: Path | None = None
+    #: Optional root mounted at ``/fixture``.  ``runner`` and ``extra_files`` are relative
+    #: to this root when supplied; existing studies continue to resolve them from ``here``.
+    runner_root: Path | None = None
 
     def files(self, here: Path) -> list[Path]:
+        context = self.build_context or here
+        root = self.runner_root or here
         return [
-            here / "Dockerfile",
-            here / self.runner,
-            *(here / name for name in self.extra_files),
+            context / "Dockerfile",
+            root / self.runner,
+            *(root / name for name in self.extra_files),
         ]
 
     def run(self, here: Path, samples: Path, truths: Path, output: Path, *, cores: int) -> None:
-        subprocess.run(["docker", "build", "-t", self.image, str(here)], check=True)
+        context = self.build_context or here
+        root = self.runner_root or here
+        subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
         mounts = ["-v", f"{samples.parent.resolve()}:/work"]
         arguments: list[str] = []
         if self.mount_runner:
-            mounts += ["-v", f"{here.resolve()}:/fixture:ro"]
+            mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
             arguments.append(f"/fixture/{self.runner}")
         subprocess.run(
             [
@@ -129,12 +139,12 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     parser.add_argument("--allow-failures", action="store_true")
     parser.add_argument("--output", type=Path, default=here)
     parser.add_argument("--jobs", type=int, default=available_cores())
+    parser.add_argument(
+        "--cache", type=Path, help="reuse a previous Python phase from this directory"
+    )
     if reference is not None:
         parser.add_argument(
             "--skip-r", action="store_true", help="reuse the committed reference rows"
-        )
-        parser.add_argument(
-            "--cache", type=Path, help="reuse a previous Python phase from this directory"
         )
     arguments = parser.parse_args()
     if arguments.replicates < 2 or arguments.n < 50:
@@ -188,6 +198,15 @@ def _reference_rows(
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-r")
         return rows
+    cached_reference = phase.paths["r-results.csv"]
+    if phase.cached and cached_reference.exists():
+        rows = pd.read_csv(cached_reference)
+        expected = set(range(arguments.replicates))
+        observed = set(rows["replicate"].unique())
+        if observed != expected or set(rows["n"].unique()) != {arguments.n}:
+            raise RuntimeError("the cached reference phase has incompatible replications")
+        print(f"reusing the cached reference phase in {cached_reference.parent}", flush=True)
+        return rows
     reference.run(
         here,
         phase.paths["samples.csv.gz"],
@@ -195,7 +214,7 @@ def _reference_rows(
         phase.paths["r-results.csv"],
         cores=arguments.jobs,
     )
-    return pd.read_csv(phase.paths["r-results.csv"])
+    return pd.read_csv(cached_reference)
 
 
 def _property_artifacts(

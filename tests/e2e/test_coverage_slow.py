@@ -26,14 +26,8 @@ instrument; cross-fitting keeps the standard error honest where in-sample fittin
 not; repeated folds shrink the spread across fold draws.
 
 **Designs with no registered study row.**  Clustered and weighted inference, missing
-outcomes, controlled direct effects, incremental interventions, cross-fitted longitudinal
-and survival estimation, and competing risks.  Each carries its own coverage and root-n
-checks, because none is covered by an ordinary or point-treatment property cell.
-
-The registered LTMLE rows fit nuisances on the analysis sample.  The two longitudinal
-classes below instead exercise five-fold nuisance fitting, learned mechanisms, fold-specific
-targeting, and cross-fitted influence-curve inference.  They remain until separate
-cross-fitted end-of-study and survival rows establish those paths.
+outcomes, controlled direct effects, incremental interventions, and competing risks. Each carries
+its own coverage and root-n checks because no registered property cell covers it.
 
 These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
 are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather
@@ -59,20 +53,16 @@ import sklearn.linear_model
 
 from cleverly.datasets import (
     DGP,
-    RULE_LABEL,
     binary_outcome_dgp,
     cde_dgp,
     instrument_dgp,
     linear_dgp,
-    make_longitudinal,
     make_longitudinal_competing,
-    make_longitudinal_survival,
     make_longitudinal_weighted,
     make_multi_arm,
     missing_outcome_dgp,
     multi_arm_dgp,
     nonlinear_dgp,
-    rule_arm_at_node_two,
     weak_overlap_dgp,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -1179,163 +1169,6 @@ class TestAnIncrementalIntervention:
         assert abs(study.bias) < max(3.0 * study.bias_se, 0.01), study
 
 
-class TestLongitudinalInference:
-    """The statistical-validation tier for ``LTMLE``, which had none.
-
-    The class fits at ``n_folds=5``, so what it measures is the fold-specific construction:
-    one complete mechanism, backward regression and targeting sequence per outer fold,
-    stitched on held-out rows. That construction does not solve the pooled score equation.
-    The standard-error test below records calibration for this law and configuration.
-
-    The harness took no adapting beyond one line in ``CoverageStudy._select``:
-    ``make_longitudinal`` already follows the ``(n, seed) -> (frame, truth)`` convention
-    and already keys its truth by the names a fit reports.  What blocked it was the study
-    keying into the result for an ``intermediate=`` level, which a longitudinal result
-    answers with a ``KeyError`` -- swallowed by the replicate loop, so every replication
-    "failed" and the study blamed the estimator configuration.
-
-    **The dynamic-rule case in this class has not run at these settings**, and is recorded
-    that way rather than implied to have passed. It was added between two scheduled nightlies.
-    What *was* run is a reduced check at ``n=800`` over 12 replicates: the
-    rule's bias there was ``-0.002`` against ``longitudinal_rule_truth``, which says the
-    estimator is pointed at the right parameter and says nothing about coverage, since 12
-    replicates cannot resolve a rate.  To check it before the next nightly, dispatch that
-    workflow with ``selection`` set to this class's node id.
-    """
-
-    COLUMNS: ClassVar[dict[str, Any]] = {
-        "outcome": "Y",
-        "treatment": ["A1", "A2"],
-        "baseline": ["W1", "W2"],
-        "time_varying": [[], ["L2"]],
-        "censoring": ["C1", "C2"],
-    }
-
-    #: The dynamic regimen ``make_longitudinal`` ships a quadrature truth for, written on
-    #: the fit's side of the split: ``rule_arm_at_node_two`` fixes the threshold and this
-    #: pulls the column, so the two cannot drift apart on the arithmetic while the
-    #: plumbing stays written twice.  Its followers are a covariate-dependent set, which
-    #: is the whole reason it earns a place in the statistical tier -- the exact law
-    #: proves the influence curve, and this asks whether the interval built from it
-    #: covers under repeated sampling.
-    REGIMENS: ClassVar[dict[str, Any]] = {
-        "always": 1,
-        "never": 0,
-        RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
-    }
-
-    def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
-        return CoverageStudy(
-            dgp=make_longitudinal,
-            estimator=lambda: LTMLE(
-                self.REGIMENS,
-                reference="never",
-                outcome_learner=sklearn.linear_model.LinearRegression(),
-                pseudo_learner=sklearn.linear_model.LinearRegression(),
-                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-                n_folds=5,
-                learner_folds=3,
-                simultaneous=False,
-                random_state=0,
-            ),
-            n=n,
-            n_replicates=reps,
-            estimands=(
-                "ey_regimen[always]",
-                "ey_regimen[never]",
-                "ate_regimen[always vs never]",
-                f"ey_regimen[{RULE_LABEL}]",
-                f"ate_regimen[{RULE_LABEL} vs never]",
-            ),
-            fit_kwargs=self.COLUMNS,
-            seed=2024,
-            n_jobs=STUDY_JOBS,
-        ).run()
-
-    @pytest.fixture(scope="class")
-    def study(self) -> Any:
-        """One ``n=2000`` study, shared by the two tests that read it.
-
-        The coverage and the standard-error tests ask two questions of the *same* 400
-        replications -- did the intervals cover, and was the reported variance the actual
-        one -- and building the study twice answered them from two independent draws for
-        no reason.  Under ``pytest -n auto`` the saving is not guaranteed: xdist
-        distributes by test, so the two can still land on two workers and build it once
-        each.  That is the cost the class had before, never more, and a serial run halves
-        it -- which is the run a developer checking one case does.
-        """
-        return self._run(n=2000)
-
-    @pytest.fixture(scope="class")
-    def rates(self) -> tuple[Any, Any]:
-        """The ``n=500`` and ``n=4000`` studies the consistency check compares."""
-        return self._run(n=500), self._run(n=4000)
-
-    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
-        """The mechanism is logistic-linear in the recorded history, so ``glm`` gets it
-        right and a shortfall here is the inference machinery rather than the nuisances.
-
-        Measured at 400 replications and ``n=2000``, under the fold-specific construction:
-        coverage ran from 0.9600 to 0.9650 across the five estimands, against a Monte Carlo
-        standard error of about 0.010. Every measured cell sits above nominal.
-        """
-        for name in study.summaries:
-            summary = study[name]
-            assert summary.coverage > 0.90, summary
-            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
-
-    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
-        """The influence-curve variance against the actual spread of the estimates.
-
-        A sequential fit divides by a product of ``2T`` probabilities, so this is where an
-        optimistic variance would show first -- and an optimistic variance is how a
-        coverage shortfall usually arises.
-
-        **The band is not symmetric about this construction, and the numbers say by how
-        much.** Measured at 400 replications and ``n=2000``: ``se_ratio`` ran from 1.0170
-        (``ey_regimen[always]``) to 1.1007 (``ate_regimen[always vs never]``), with bias no
-        larger than 0.00053 anywhere. So the fit is unbiased and its intervals are wide,
-        which leaves 0.05 of headroom under the ceiling and 0.17 under the floor.
-
-        The same measurement at ``n=500`` gives 1.09 to 1.14. These finite Monte Carlo
-        results describe this law and configuration only. They do not establish a variance
-        direction for other laws, MSMs, weights, clusters, survival outcomes, or limits.
-
-        The ceiling therefore stays at 1.15 rather than tightening to what was measured.
-        Tightening it would gate a property nobody has bounded theoretically, on one law,
-        using the run that discovered it.
-        """
-        for name in study.summaries:
-            assert 0.85 < study[name].se_ratio < 1.15, study[name]
-
-    def test_the_bias_shrinks_faster_than_root_n(self, rates: tuple[Any, Any]) -> None:
-        """Root-n consistency: ``sqrt(n) * bias`` stays bounded as ``n`` grows.
-
-        The outcome regression carries a ``tanh`` term that ``glm`` cannot represent, so
-        this is the double-robustness claim under repeated sampling -- a correct mechanism
-        carrying a misspecified regression.
-
-        The rule is checked here as well as the constant pair, and costs no extra fits:
-        every replicate already estimates all five parameters, so this reads two more
-        columns off studies that were run anyway.  It is the half of the claim the
-        coverage tests do not make -- a rule's followers are a covariate-dependent set at
-        every node, and consistency of *that* recursion is a different statement from
-        whether the interval built on it covers at one ``n``.
-
-        A loop rather than ``parametrize`` deliberately.  ``pytest -n auto`` distributes
-        by test, so two parametrised cases can land on two workers and rebuild both
-        studies -- which would turn a free second assertion into a second pair of studies.
-        """
-        for name in ("ate_regimen[always vs never]", f"ate_regimen[{RULE_LABEL} vs never]"):
-            small, large = (study[name] for study in rates)
-            assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (
-                name,
-                small,
-                large,
-            )
-            assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (name, small, large)
-
-
 class TestAWeightedLongitudinalFitUnderRepeatedSampling:
     """Does the weighted sequential fit cover, on a sample that was drawn on purpose?
 
@@ -1458,108 +1291,6 @@ class TestAWeightedLongitudinalFitUnderRepeatedSampling:
             summary = ignored[name]
             assert abs(summary.bias) > 5.0 * summary.bias_se, summary
             assert summary.coverage < 0.8, summary
-
-
-class TestASurvivalOutcomeUnderRepeatedSampling:
-    """The statistical tier for the survival curve.
-
-    ``tests/discrete_law_survival.py`` proves the influence curve *is* the efficient one,
-    on a law the sample realises exactly.  That is a statement at one distribution with
-    exact nuisances; this asks the different question the exact law cannot -- whether the
-    interval built from that curve covers under repeated sampling, with estimated
-    nuisances and a misspecified outcome regression.
-
-    Every horizon is checked, not just the last.  The horizons are not interchangeable:
-    the risk at ``t = 1`` comes from a one-node recursion whose terminal regression is a
-    node no end-of-study fit ever targets terminally, and the risk at ``t = 2`` from a
-    two-node one whose first node carries a composed pseudo-outcome.  A shortfall could
-    sit in either.
-
-    **This class has not run at these settings**, and is recorded that way rather than implied to
-    have passed. What *was* run is a reduced check at ``n=1500`` over 8
-    replicates in ``tests/e2e/test_ltmle.py``, which found the bias within Monte Carlo
-    error at every horizon -- that says the estimator is pointed at the right parameter
-    and says nothing about coverage, since 8 replicates cannot resolve a rate.  To check
-    it before the next nightly, dispatch the workflow with ``selection`` set to this
-    class's node id.
-    """
-
-    COLUMNS: ClassVar[dict[str, Any]] = {
-        "outcome": ["Y1", "Y2"],
-        "treatment": ["A1", "A2"],
-        "baseline": ["W1", "W2"],
-        "time_varying": [[], ["L2"]],
-        "censoring": ["C1", "C2"],
-    }
-
-    ESTIMANDS: ClassVar[tuple[str, ...]] = (
-        "risk_regimen[always @ t=1]",
-        "risk_regimen[always @ t=2]",
-        "risk_regimen[never @ t=1]",
-        "risk_regimen[never @ t=2]",
-        "ate_regimen[always vs never @ t=1]",
-        "ate_regimen[always vs never @ t=2]",
-    )
-
-    def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
-        return CoverageStudy(
-            dgp=make_longitudinal_survival,
-            estimator=lambda: LTMLE(
-                {"always": 1, "never": 0},
-                reference="never",
-                outcome_learner=sklearn.linear_model.LinearRegression(),
-                pseudo_learner=sklearn.linear_model.LinearRegression(),
-                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-                n_folds=5,
-                learner_folds=3,
-                simultaneous=False,
-                random_state=0,
-            ),
-            n=n,
-            n_replicates=reps,
-            estimands=self.ESTIMANDS,
-            fit_kwargs=self.COLUMNS,
-            seed=2025,
-            n_jobs=STUDY_JOBS,
-        ).run()
-
-    @pytest.fixture(scope="class")
-    def study(self) -> Any:
-        """One ``n=2000`` study, shared by the tests that read it."""
-        return self._run(n=2000)
-
-    @pytest.fixture(scope="class")
-    def rates(self) -> tuple[Any, Any]:
-        return self._run(n=500), self._run(n=4000)
-
-    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
-        for name in study.summaries:
-            summary = study[name]
-            assert summary.coverage > 0.90, summary
-            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
-
-    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
-        """The influence-curve variance against the actual spread of the estimates."""
-        for name in study.summaries:
-            summary = study[name]
-            assert summary.se_ratio == pytest.approx(1.0, abs=0.15), summary
-
-    def test_the_estimator_is_root_n_consistent_at_every_horizon(
-        self, rates: tuple[Any, Any]
-    ) -> None:
-        """Both hazards carry a ``tanh`` term ``glm`` cannot represent.
-
-        So this is the double-robustness claim under repeated sampling, made once per
-        horizon: a correct mechanism carrying a misspecified regression at both nodes.
-        """
-        for name in ("ate_regimen[always vs never @ t=1]", "ate_regimen[always vs never @ t=2]"):
-            small, large = (study[name] for study in rates)
-            assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (
-                name,
-                small,
-                large,
-            )
-            assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (name, small, large)
 
 
 class TestCompetingRisksUnderRepeatedSampling:

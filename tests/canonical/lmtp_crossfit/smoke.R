@@ -26,9 +26,16 @@ fit <- lmtp_tmle_with_folds(
   control = lmtp_control(
     .trim = 1,
     .learners_outcome_folds = 2,
-    .learners_trt_folds = 2
+    .learners_trt_folds = 2,
+    .return_full_fits = TRUE
   )
 )
 summary <- ife::tidy(fit$estimate)
-stopifnot(nrow(summary) == 1L, is.finite(summary$estimate), is.finite(summary$std.error))
+stopifnot(
+  nrow(summary) == 1L,
+  is.finite(summary$estimate),
+  is.finite(summary$std.error),
+  length(fit$initial) == n,
+  identical(fit$fold_assignment, assignment)
+)
 cat(sprintf("lmtp %s adapter smoke passed\n", packageVersion("lmtp")))

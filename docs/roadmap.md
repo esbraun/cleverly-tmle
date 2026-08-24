@@ -21,8 +21,6 @@ not block another track unless its dependency says so.
 | Longitudinal | L4 | Sensitivity analysis | source audit for each operation | L3 ordering only | [L4](#l4-sensitivity-analysis) |
 | Longitudinal | L5 | Additional longitudinal estimands | waiting on published theory | L4 ordering only | [L5](#l5-additional-longitudinal-estimands) |
 | Longitudinal | L6 | Time-respecting cross-fitting | source audit | L5 | [L6](#l6-time-respecting-cross-fitting) |
-| Longitudinal | L7 | Cross-fitted end-of-study LTMLE evidence | source audit | ordinary end-of-study evidence and a declared cross-fit construction | [L7](#l7-cross-fitted-end-of-study-ltmle-evidence) |
-| Longitudinal | L8 | Cross-fitted survival-curve LTMLE evidence | source audit | ordinary survival evidence and L7's cross-fit contract | [L8](#l8-cross-fitted-survival-curve-ltmle-evidence) |
 | DR-TMLE | D1 | Multi-arm missing-outcome DR-TMLE | waiting on published theory | a multi-arm corrected influence curve | [D1](#d1-multi-arm-missing-outcome-dr-tmle) |
 | DR-TMLE | D2 | Other refused DR-TMLE compositions | waiting on published theory | composition-specific reduced regressions and corrected curve | [D2](#d2-other-refused-dr-tmle-compositions) |
 | Later candidates | C1 | Replicate-weight designs | source audit | weighted-law variance construction | [C1](#c1-replicate-weight-designs) |
@@ -289,19 +287,10 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ## Longitudinal track
 
-The ultimate core LTMLE evidence has four distinct rows. The two ordinary rows are implemented and
-registered in the [validation grid](technical-reference/index.md#implementation-validation-grid).
-The two cross-fitted rows below remain proposed work.
-
-| outcome construction | ordinary nuisance fitting | cross-fitted nuisance fitting |
-| --- | --- | --- |
-| end-of-study regimen mean | implemented and registered | L7 planned |
-| absorbing survival curve across horizons | implemented and registered | L8 planned |
-
-End-of-study rows validate one terminal regimen mean per plan. Survival rows validate cumulative
-risk by horizon and the absorbing-event recursion. Ordinary rows fit nuisances on the analysis
-sample. Cross-fitted rows must validate fold assignment, training masks, fold-specific targeting, and
-cross-fitted influence-curve inference. Competing risks and MSM projections are outside this core.
+The four core LTMLE evidence rows are implemented and registered in the
+[validation grid](technical-reference/index.md#implementation-validation-grid). They separate
+end-of-study and survival parameters from ordinary and cross-fitted nuisance estimation. The
+remaining items below are proposed extensions to that core.
 
 ### L1. Stochastic categorical policies at a node
 
@@ -342,30 +331,6 @@ Audit blocked-temporal and rolling-origin splitting separately against published
 dependence assumptions match the supported data. Record which rows may train every prediction and
 which asymptotic argument licenses its interval. Ordered indices passed through iid fold machinery
 are not sufficient.
-
-### L7. Cross-fitted end-of-study LTMLE evidence
-
-Register a separate repeated-sampling row for the terminal regimen mean under the package's
-declared cross-fit construction. Use a canonical implementation only after its fold semantics,
-targeting scope, plug-in evaluation set, and variance agree with the package's parameter.
-
-The runtime construction is implemented. Each outer fold fits and targets a complete backward
-recursion on its training rows. The result evaluates and stitches that recursion on the held-out
-rows. Registration and its committed repeated-sampling artifacts remain open.
-
-The row must add fold balance and leakage mutations, flexible-learner overfit controls, exact-law
-and Gateaux gates, double robustness, root-n rates, calibration, null size, power, and targeting
-necessity. It must not reuse the ordinary row's R comparison as cross-fit parity evidence.
-
-### L8. Cross-fitted survival-curve LTMLE evidence
-
-Repeat the cross-fit contract for cumulative risk at multiple horizons. Preserve the ordinary
-survival row's absorbing-event and survivor-only controls, then add horizon-specific leakage and
-fold-evaluation mutations. Dynamic and static plans must both appear beyond the first horizon.
-
-Use the canonical R implementation only if it exposes equivalent fold and targeting semantics.
-Otherwise publish a zero-row comparator artifact and rest the row on independent truth and theory
-properties. Simultaneous bands, competing risks, and MSM projections remain separate studies.
 
 ## DR-TMLE track
 

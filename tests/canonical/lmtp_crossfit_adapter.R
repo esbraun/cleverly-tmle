@@ -69,7 +69,28 @@ lmtp_tmle_with_folds <- function(
   regressions <- lmtp_internal("cf_tmle")(
     task, density$density_ratios, learners_outcome, control, progress
   )
-  lmtp_internal("theta_dr")(
+  if (!isTRUE(control$.return_full_fits)) {
+    stop("the evidence runner requires .return_full_fits=TRUE for its targeting witness")
+  }
+  initial <- rep(NA_real_, nrow(data))
+  for (fold in seq_along(task$folds)) {
+    natural_fold <- lmtp_internal("get_folded_data")(task$natural, task$folds, fold)
+    shifted_fold <- lmtp_internal("get_folded_data")(task$shifted, task$folds, fold)
+    y0 <- task$is_outcome_free(natural_fold$valid, 0)
+    c0 <- task$observed(natural_fold$valid, 0)
+    d0 <- task$is_competing_risk_free(natural_fold$valid, 0)
+    valid <- c0 & y0 & d0
+    history <- task$vars$history("L", 2)
+    first_treatment <- lmtp_internal("current_trt")(task$vars$A, 1)
+    under_shift <- natural_fold$valid[valid, c("..i..lmtp_id", history)]
+    under_shift[, first_treatment] <- shifted_fold$valid[valid, first_treatment]
+    predicted <- predict(regressions$fits[[fold]][[1]], under_shift, 1e-05)
+    held_out <- task$folds[[fold]]$validation_set[valid]
+    initial[held_out] <- predicted
+  }
+  if (anyNA(initial)) stop("the initial plug-in did not cover every held-out row")
+
+  result <- lmtp_internal("theta_dr")(
     task = task,
     sequential_regressions = list(
       natural = regressions$natural,
@@ -81,4 +102,7 @@ lmtp_tmle_with_folds <- function(
     shift = "supplied shifted data with exact folds",
     is_sdr = FALSE
   )
+  result$initial <- initial
+  result$fold_assignment <- as.integer(fold_assignment)
+  result
 }
