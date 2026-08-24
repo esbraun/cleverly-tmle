@@ -38,7 +38,7 @@ FAST: dict[str, Any] = {
     "outcome_learner": sklearn.linear_model.LinearRegression(),
     "pseudo_learner": sklearn.linear_model.LinearRegression(),
     "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
-    "n_folds": 3,
+    "n_folds": 1,
     "learner_folds": 3,
     "random_state": 0,
     "simultaneous": False,
@@ -311,6 +311,10 @@ class TestTheSurroundingMachineryStillWorks:
 
 
 class TestItRefusesByName:
+    def test_cross_fitting_a_working_model_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="complete pooled-regimen recursion"):
+            LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), n_folds=3)
+
     def test_a_reference_regimen_and_a_working_model_cannot_be_combined(self) -> None:
         with pytest.raises(ValueError, match="reference= names the regimen"):
             LTMLE(SPEC, reference="never", msm=MSM(design=dose, terms=TERMS))

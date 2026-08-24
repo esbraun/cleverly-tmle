@@ -48,6 +48,13 @@ carries the *targeted* prediction forward, not the initial one: the outcome of s
 :math:`t` is :math:`\bar Q^*_{t+1}`, so a residual left by one step is regressed away by
 the next rather than accumulating.
 
+With outer cross-fitting, that whole recursion is the unit of splitting.  Fold :math:`k`
+fits every mechanism, regression and fluctuation on its training complement, carries those
+fold-specific targeted predictions backwards, and evaluates the completed recursion only on
+fold :math:`k`'s held-out rows.  The estimator stitches those held-out rows after all folds
+finish.  A held-out outcome therefore cannot enter an earlier pseudo-outcome or fluctuation
+that is used to predict its own row.
+
 The clever covariate is the reciprocal of a **cumulative** product, and that is the whole
 positivity story of a longitudinal fit: :math:`T` probabilities multiply, so a mechanism
 that looks harmless node by node can leave a handful of units carrying most of the
@@ -97,12 +104,14 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.weighting import effective_sample_size
-from ..estimators._nuisance import cross_fit_predictions
+from ..estimators._nuisance import cross_fit_companion, cross_fit_predictions, fit_on_rows
 from ..exceptions import LongitudinalError
-from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
+from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit, solve_fluctuation
 from ..fluctuation.submodel import Submodel
+from ..learners._fitting import predict_mean
 from ..learners.crossfit import Folds
 from ..utils.bounds import OutcomeScaler, bound
+from ..utils.parallel import map_parallel
 from ..utils.phases import phase
 from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
@@ -153,6 +162,11 @@ class Mechanism:
 
     treatment: tuple[dict[str, FloatArray], ...]
     censoring: tuple[dict[str, FloatArray], ...]
+    #: Predictions from each outer-fold model on every row.  Entry ``[t][label]`` has
+    #: shape ``(K, n)``.  The recursion uses slab ``k`` for both the training and held-out
+    #: rows of outer fold ``k``.  Empty only on mechanisms made by older persisted fits.
+    treatment_by_fold: tuple[dict[str, FloatArray], ...] = ()
+    censoring_by_fold: tuple[dict[str, FloatArray], ...] = ()
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -177,7 +191,12 @@ class Mechanism:
         return self.cumulative_with_unbounded(data, plan, bounds)[1]
 
     def cumulative_with_unbounded(
-        self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
+        self,
+        data: LongitudinalData,
+        plan: Plan,
+        bounds: tuple[float, float],
+        *,
+        fold: int | None = None,
     ) -> tuple[FloatArray, FloatArray]:
         """Raw and bounded cumulative mechanism probabilities for one regimen.
 
@@ -191,9 +210,19 @@ class Mechanism:
         raw_columns = []
         bounded_columns = []
         for time in range(1, data.n_times + 1):
-            running = running * self.treatment[time - 1][plan.label]
+            treatment = self.treatment[time - 1][plan.label]
+            censoring = self.censoring[time - 1][plan.label]
+            if fold is not None:
+                if not self.treatment_by_fold:
+                    raise LongitudinalError(
+                        "this mechanism has no outer-fold prediction slabs; refit it before "
+                        "using fold-specific longitudinal targeting"
+                    )
+                treatment = self.treatment_by_fold[time - 1][plan.label][fold]
+                censoring = self.censoring_by_fold[time - 1][plan.label][fold]
+            running = running * treatment
             if data.censoring_names:
-                running = running * self.censoring[time - 1][plan.label]
+                running = running * censoring
             raw_columns.append(running)
             bounded_columns.append(bound(running, lower, upper))
         return np.column_stack(raw_columns), np.column_stack(bounded_columns)
@@ -232,8 +261,10 @@ class SequentialStep:
     """One node of the backward recursion, kept so a fit can be inspected node by node."""
 
     time: int
-    #: Rows the regression was fitted on: followed the regimen and stayed under
-    #: observation through this node.
+    #: Rows eligible for the regression: followed the regimen and stayed under
+    #: observation through this node.  With cross-fitting, each outer model uses the
+    #: eligible rows in its training complement.  ``fluctuation.folds`` identifies those
+    #: complements through their held-out indices.
     trained_on: BoolArray
     #: Rows whose history at this node is observed and regimen-consistent -- the set the
     #: regression *predicts* for, and the population the assigned arm is a statement
@@ -409,6 +440,8 @@ def fit_mechanism(
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
+    treatment_by_fold: list[dict[str, FloatArray]] = []
+    censoring_by_fold: list[dict[str, FloatArray]] = []
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -427,7 +460,7 @@ def fit_mechanism(
                 data.treatment_levels[time - 1],
                 data.treatment_names[time - 1],
             )
-            probabilities, _ = cross_fit_predictions(
+            probabilities, companion, _ = cross_fit_companion(
                 treatment_learner,
                 data.history_design(time),
                 arm,
@@ -435,6 +468,7 @@ def fit_mechanism(
                 folds,
                 task="classification",
                 predict_designs=designs,
+                companion_designs=designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
@@ -448,9 +482,23 @@ def fit_mechanism(
                 for plan in plans
             }
         )
+        fold_probabilities = {
+            plan.label: companion[plan.label][:, rows, plan.arm(time).astype(np.int64)]
+            for plan in plans
+        }
+        # Predicting one validation slice and predicting all rows can differ in the last
+        # bit for a BLAS-backed learner.  The production OOF value is authoritative on the
+        # held-out rows; the companion slab exists for the training complement around it.
+        for fold, (_, test) in enumerate(folds):
+            for plan in plans:
+                fold_probabilities[plan.label][fold, test] = treatment[-1][plan.label][test]
+        treatment_by_fold.append(fold_probabilities)
 
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
+            censoring_by_fold.append(
+                {plan.label: np.ones((folds.n_folds, data.n), dtype=float) for plan in plans}
+            )
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
         censor_designs = {
@@ -458,7 +506,7 @@ def fit_mechanism(
             for plan in plans
         }
         with phase("mechanism_fit"):
-            predictions, _ = cross_fit_predictions(
+            predictions, censor_companion, _ = cross_fit_companion(
                 censoring_learner,
                 data.history_design(time, include_current=True),
                 stayed,
@@ -466,13 +514,23 @@ def fit_mechanism(
                 folds,
                 task="classification",
                 predict_designs=censor_designs,
+                companion_designs=censor_designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
             )
         censoring.append(predictions)
-    return Mechanism(tuple(treatment), tuple(censoring))
+        for fold, (_, test) in enumerate(folds):
+            for plan in plans:
+                censor_companion[plan.label][fold, test] = predictions[plan.label][test]
+        censoring_by_fold.append(censor_companion)
+    return Mechanism(
+        tuple(treatment),
+        tuple(censoring),
+        tuple(treatment_by_fold),
+        tuple(censoring_by_fold),
+    )
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
@@ -669,6 +727,23 @@ def fit_regimen(
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
         raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
+    if not folds.is_single:
+        return _fit_regimen_crossfit(
+            data,
+            plan,
+            mechanism,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            scaler=scaler,
+            g_bounds=g_bounds,
+            horizon=horizon,
+            cause=cause,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            n_jobs=n_jobs,
+        )
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     carried = seed_carried(data, scaler)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
@@ -753,6 +828,213 @@ def fit_regimen(
         horizon=horizon,
         cause=cause,
         steps=tuple(steps),
+        cumulative_unbounded=cumulative_unbounded,
+        cumulative=cumulative,
+        assignment=np.asarray(plan.values),
+        obs_weights=np.asarray(data.weights, dtype=float),
+    )
+
+
+def _aggregate_fold_fluctuations(
+    fluctuations: Sequence[tuple[IntArray, Fluctuation]],
+    targeted: FloatArray,
+) -> Fluctuation:
+    """Combine outer-training solves without hiding their fold-specific coefficients."""
+    records = tuple(
+        FoldFluctuation(
+            index=test,
+            epsilon=fluctuation.epsilon,
+            score=fluctuation.score,
+            converged=fluctuation.converged,
+            n_iter=fluctuation.n_iter,
+        )
+        for test, fluctuation in fluctuations
+    )
+    masses = np.asarray([record.n for record in records], dtype=float)
+
+    def average(field: str) -> FloatArray:
+        values = [np.asarray(getattr(item, field), dtype=float) for _, item in fluctuations]
+        return np.asarray(np.average(np.vstack(values), axis=0, weights=masses), dtype=float)
+
+    failures = [item.failure for _, item in fluctuations if item.failure is not None]
+    standard_errors = [item.epsilon_std_error for _, item in fluctuations]
+    epsilon_std_error = (
+        None
+        if any(value is None for value in standard_errors)
+        else np.asarray(
+            np.average(
+                np.vstack([np.asarray(value) for value in standard_errors]),
+                axis=0,
+                weights=masses,
+            ),
+            dtype=float,
+        )
+    )
+    first = fluctuations[0][1]
+    return Fluctuation(
+        epsilon=average("epsilon"),
+        targeted=InitialFit(targeted, {_REGIMEN_ARM: targeted}),
+        score=average("score"),
+        converged=all(item.converged for _, item in fluctuations),
+        n_iter=sum(item.n_iter for _, item in fluctuations),
+        trace=tuple(item.trace[-1] if item.trace else float("nan") for _, item in fluctuations),
+        method=first.method,
+        names=first.names,
+        score_scale=average("score_scale"),
+        folds=records,
+        score_initial=average("score_initial"),
+        n_solver_calls=len(fluctuations),
+        failure=failures[0] if failures else None,
+        hessian_condition=float(np.nanmax([item.hessian_condition for _, item in fluctuations])),
+        epsilon_std_error=epsilon_std_error,
+        loglik=float(np.average([item.loglik for _, item in fluctuations], weights=masses)),
+    )
+
+
+def _fit_regimen_crossfit(
+    data: LongitudinalData,
+    plan: Plan,
+    mechanism: Mechanism,
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    horizon: int,
+    cause: str | None,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    n_jobs: int,
+) -> RegimenFit:
+    """Run one complete backward recursion per outer fold and stitch held-out rows."""
+    cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
+    with phase("mask_construction"):
+        masks = data.regimen_masks(plan.values)
+    stitched: dict[int, dict[str, FloatArray]] = {
+        time: {
+            name: np.full(data.n, _FILLER, dtype=float)
+            for name in ("pseudo", "initial", "targeted", "clever")
+        }
+        for time in range(1, horizon + 1)
+    }
+    fold_fluctuations: dict[int, list[tuple[IntArray, Fluctuation]]] = {
+        time: [] for time in range(1, horizon + 1)
+    }
+
+    def run_fold(
+        fold: int, train: IntArray, test: IntArray
+    ) -> tuple[
+        IntArray, dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, Fluctuation]]
+    ]:
+        _, fold_cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds, fold=fold)
+        carried = seed_carried(data, scaler)
+        outer_train = np.zeros(data.n, dtype=bool)
+        outer_train[train] = True
+        outputs: dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, Fluctuation]] = {}
+        for time in range(horizon, 0, -1):
+            at_risk = masks.at_risk(time)
+            followers = masks.following(time)
+            trained_on = followers & outer_train
+            if not trained_on.any():
+                raise LongitudinalError(
+                    f"no unit followed regimen {plan.label!r} through time {time} in outer "
+                    f"training fold {fold + 1}; use fewer folds or a supported regimen"
+                )
+            with phase("pseudo_outcome"):
+                pseudo_outcome = _pseudo_outcome(data, carried, time, cause)
+            learner = outcome_learner if time == horizon else pseudo_learner
+            task = (
+                "classification" if time == horizon and data.family == "binomial" else "regression"
+            )
+            if task == "classification":
+                _check_outcome_varies(data, pseudo_outcome, trained_on, plan, time, horizon, cause)
+            with phase("outcome_learner_fit"):
+                model = fit_on_rows(
+                    learner,
+                    data.covariate_history(time),
+                    pseudo_outcome,
+                    data.weights,
+                    np.flatnonzero(trained_on),
+                    task,  # type: ignore[arg-type]
+                    data.cluster,
+                )
+                prediction = np.clip(
+                    predict_mean(model, data.covariate_history(time), task),  # type: ignore[arg-type]
+                    0.0,
+                    1.0,
+                )
+            with phase("clever_covariate"):
+                initial = np.where(at_risk, prediction, _FILLER)
+                denominator = np.where(at_risk, fold_cumulative[:, time - 1], 1.0)
+                counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
+                clever = np.where(followers, counterfactual, 0.0)
+            intercept = np.ones((data.n, 1))
+            with phase("fluctuation"):
+                fluctuation = solve_fluctuation(
+                    pseudo_outcome,
+                    InitialFit(initial, {_REGIMEN_ARM: initial}),
+                    Submodel(
+                        intercept,
+                        {_REGIMEN_ARM: intercept},
+                        (f"epsilon[{plan.label}, t={time}]",),
+                        "sequential",
+                    ),
+                    data.weights * counterfactual,
+                    trained_on,
+                    alpha=alpha,
+                    max_iter=max_iter,
+                    tol=tol,
+                )
+            targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
+            outputs[time] = (
+                pseudo_outcome[test],
+                initial[test],
+                targeted[test],
+                clever[test],
+                fluctuation,
+            )
+            carried = np.where(at_risk, targeted, _FILLER)
+        return test, outputs
+
+    jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
+    outcomes = map_parallel(run_fold, jobs, n_jobs=n_jobs)
+    for test, outputs in outcomes:
+        for time, (pseudo, initial, targeted, clever, fluctuation) in outputs.items():
+            stitched[time]["pseudo"][test] = pseudo
+            stitched[time]["initial"][test] = initial
+            stitched[time]["targeted"][test] = targeted
+            stitched[time]["clever"][test] = clever
+            fold_fluctuations[time].append((test, fluctuation))
+
+    steps = tuple(
+        SequentialStep(
+            time=time,
+            trained_on=masks.following(time),
+            at_risk=masks.at_risk(time),
+            pseudo_outcome=stitched[time]["pseudo"],
+            initial=stitched[time]["initial"],
+            targeted=stitched[time]["targeted"],
+            clever=stitched[time]["clever"],
+            fluctuation=_aggregate_fold_fluctuations(
+                fold_fluctuations[time], stitched[time]["targeted"]
+            ),
+        )
+        for time in range(1, horizon + 1)
+    )
+    psi = float(np.average(steps[0].targeted, weights=data.weights))
+    influence = steps[0].targeted - psi
+    for step in steps:
+        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
+    influence = data.weights * influence
+    return RegimenFit(
+        regimen=plan.regimen,
+        psi_scaled=psi,
+        influence_curve_scaled=influence,
+        horizon=horizon,
+        cause=cause,
+        steps=steps,
         cumulative_unbounded=cumulative_unbounded,
         cumulative=cumulative,
         assignment=np.asarray(plan.values),

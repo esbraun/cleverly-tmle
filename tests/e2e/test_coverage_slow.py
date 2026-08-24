@@ -31,7 +31,7 @@ and survival estimation, and competing risks.  Each carries its own coverage and
 checks, because none is covered by an ordinary or point-treatment property cell.
 
 The registered LTMLE rows fit nuisances on the analysis sample.  The two longitudinal
-classes below instead exercise five-fold nuisance fitting, learned mechanisms, pooled
+classes below instead exercise five-fold nuisance fitting, learned mechanisms, fold-specific
 targeting, and cross-fitted influence-curve inference.  They remain until separate
 cross-fitted end-of-study and survival rows establish those paths.
 

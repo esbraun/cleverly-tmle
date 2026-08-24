@@ -126,11 +126,11 @@ def test_an_ltmle_fit_reports_every_phase_it_declares() -> None:
         "inference",
     }
     assert expected <= set(profile.counts)
-    # Two regimens x two nodes for the per-node phases; one scan per regimen plus the
-    # mechanism's, which is what the change to a prefix scan is *for*.
-    assert profile.counts["outcome_learner_fit"] == 4
-    assert profile.counts["fluctuation"] == 4
-    assert profile.counts["mask_construction"] == 5
+    # Two folds x two regimens x two nodes for each fold-specific recursion.  Masks are
+    # scanned once per regimen, plus once for the shared mechanism.
+    assert profile.counts["outcome_learner_fit"] == 8
+    assert profile.counts["fluctuation"] == 8
+    assert profile.counts["mask_construction"] == 3
     assert profile.total_seconds > 0.0
     assert sum(profile.exclusive.values()) <= profile.total_seconds
 

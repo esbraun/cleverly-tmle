@@ -373,6 +373,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Transformation between observed and targeting scales.
     mechanism : Mechanism
         Fitted treatment and observation mechanisms.
+    folds : Folds
+        Realized outer-fold assignment.
     provenance : Provenance
         Runtime, dependency, and data fingerprints.
     simultaneous : SimultaneousBands or None
@@ -436,6 +438,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     config: LongitudinalConfig
     scaler: OutcomeScaler
     mechanism: Mechanism
+    folds: Folds
     provenance: Provenance
     simultaneous: SimultaneousBands | None = None
     #: ``name -> (regimen, cause, horizon)`` for every reported parameter, composed when
@@ -1086,6 +1089,13 @@ class LTMLE:
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
             )
+        if self.msm is not None and self.n_folds > 1:
+            raise ValueError(
+                "msm= with n_folds > 1 is not supported. Fold-specific longitudinal "
+                "targeting requires one complete pooled-regimen recursion per outer fold; "
+                "the working-model path currently has only the in-sample pooled recursion. "
+                "Pass n_folds=1 or fit regimen means without msm=."
+            )
 
     @staticmethod
     def profile_phases() -> AbstractContextManager[PhaseProfile]:
@@ -1303,6 +1313,7 @@ class LTMLE:
             config=config,
             scaler=scaler,
             mechanism=mechanism,
+            folds=folds,
             provenance=self._provenance(prepared, folds),
             simultaneous=bands,
             parameter_index=parameter_index,

@@ -56,8 +56,9 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly.datasets import make_nonlinear_ate
+from cleverly.datasets import make_longitudinal, make_nonlinear_ate
 from cleverly.estimators import TMLE
+from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel, resolve_n_jobs
 
 #: Two is enough and four is not better.  What is being checked is that the parallel branch
@@ -85,6 +86,29 @@ def _fit(n_jobs: int) -> Any:
 
 
 FRAME, _TRUTH = make_nonlinear_ate(n=600, seed=0)
+LONG_FRAME, _LONG_TRUTH = make_longitudinal(n=300, seed=31)
+
+
+def _fit_longitudinal(n_jobs: int) -> Any:
+    return LTMLE(
+        {"always": 1, "never": 0},
+        reference="never",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=3,
+        learner_folds=2,
+        random_state=0,
+        simultaneous=False,
+        n_jobs=n_jobs,
+    ).fit(
+        LONG_FRAME,
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    )
 
 
 class TestOneFit:
@@ -173,3 +197,15 @@ class TestMapParallel:
         """``0`` is the value that would otherwise mean whatever joblib decided that day."""
         with pytest.raises(ValueError, match="positive integer"):
             resolve_n_jobs(0)
+
+
+def test_the_longitudinal_outer_recursions_are_parallel_invariant() -> None:
+    """Scheduling complete outer-fold recursions cannot change stitched held-out rows."""
+    serial = _fit_longitudinal(1)
+    parallel = _fit_longitudinal(PARALLEL_JOBS)
+    np.testing.assert_array_equal(serial.folds.assignment, parallel.folds.assignment)
+    for name, curve in serial.influence_curves.items():
+        np.testing.assert_allclose(curve, parallel.influence_curves[name], rtol=0.0, atol=0.0)
+    for label, fit in serial.fits.items():
+        for left, right in zip(fit.steps, parallel.fits[label].steps, strict=True):
+            np.testing.assert_allclose(left.targeted, right.targeted, rtol=0.0, atol=0.0)

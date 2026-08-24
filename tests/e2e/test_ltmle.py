@@ -115,16 +115,16 @@ def test_every_score_equation_is_solved(
 ) -> None:
     """Targeting is what makes the reported variance the variance of anything.
 
-    One score per node per regimen, driven to zero relative to the largest value it
-    could take; and the influence curve of each parameter averages to zero, which is the
-    same statement read at the level of the report.
+    Each outer-training recursion solves one score per node and regimen.  The held-out
+    influence curve has sampling variation and need not average to zero in one sample.
     """
     result, _ = fitted
     for fit in result.fits.values():
         for step in fit.steps:
             assert step.fluctuation.relative_score_norm < 1e-8
+            assert all(record.converged for record in step.fluctuation.folds)
     for curve in result.influence_curves.values():
-        assert abs(float(np.mean(curve))) < 1e-8
+        assert np.isfinite(curve).all()
 
 
 def test_recovers_the_truth_on_average() -> None:
@@ -1094,7 +1094,7 @@ class TestASurvivalOutcome:
             for step in fit.steps:
                 assert step.fluctuation.relative_score_norm < 1e-8
         for name in result:
-            assert abs(float(np.mean(result.influence_curves[name]))) < 1e-8
+            assert np.isfinite(result.influence_curves[name]).all()
 
     def test_the_survival_view_is_the_complement_of_the_risk(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]

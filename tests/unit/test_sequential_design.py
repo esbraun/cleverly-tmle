@@ -30,6 +30,7 @@ import pytest
 import sklearn.linear_model
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.datasets import make_longitudinal_survival
 from cleverly.longitudinal import LTMLE, LongitudinalData
 
 COLUMNS: dict[str, Any] = {
@@ -88,23 +89,26 @@ def panel(n: int = 200, *, seed: int = 5) -> pd.DataFrame:
 def designs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, np.ndarray]]:
     """Every design matrix ``sequential`` hands a nuisance fit, in the order it hands it.
 
-    Recorded at :func:`cleverly.estimators._nuisance.cross_fit_predictions` as the
-    ``sequential`` module sees it, rather than through a learner: a learner is cloned per
-    fold and reached only after the call, so spying there would pin what sklearn received
-    instead of what this module passed.  The outcome sequence is the one whose
-    ``predict_designs`` is keyed ``"history"``; the mechanism keys by regimen label.
+    The mechanism uses ``cross_fit_companion`` to retain each fold model's predictions on
+    all rows.  The outcome recursion uses ``fit_on_rows`` once per outer fold and node.
+    Spying on both call sites pins the designs that this module hands to the fit helpers.
     """
     from cleverly.longitudinal import sequential
 
-    original = sequential.cross_fit_predictions
+    original_companion = sequential.cross_fit_companion
+    original_fit = sequential.fit_on_rows
     recorded: list[tuple[str, np.ndarray]] = []
 
-    def spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
-        keys = tuple(kwargs["predict_designs"])
-        recorded.append(("outcome" if keys == ("history",) else "mechanism", np.array(design)))
-        return original(learner, design, *args, **kwargs)
+    def companion_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
+        recorded.append(("mechanism", np.array(design)))
+        return original_companion(learner, design, *args, **kwargs)
 
-    monkeypatch.setattr(sequential, "cross_fit_predictions", spy)
+    def fit_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
+        recorded.append(("outcome", np.array(design)))
+        return original_fit(learner, design, *args, **kwargs)
+
+    monkeypatch.setattr(sequential, "cross_fit_companion", companion_spy)
+    monkeypatch.setattr(sequential, "fit_on_rows", fit_spy)
     return recorded
 
 
@@ -132,8 +136,8 @@ def test_the_outcome_regression_is_handed_the_covariate_history(
     ).fit(data)
 
     outcome_designs = [matrix for kind, matrix in designs if kind == "outcome"]
-    # One per node per regimen, and the recursion runs backwards within each regimen.
-    expected = [data.covariate_history(time) for time in (2, 1)] * len(REGIMENS)
+    # One per outer fold, node, and regimen.  Each fold completes its recursion backwards.
+    expected = [data.covariate_history(time) for time in (2, 1)] * (2 * len(REGIMENS))
     assert len(outcome_designs) == len(expected)
     for seen, want in zip(outcome_designs, expected, strict=True):
         np.testing.assert_array_equal(seen, want)
@@ -168,6 +172,90 @@ def test_the_mechanism_is_handed_the_treatment_columns(
     # ``K - 1`` reading of the same rule is pinned on the three-level panel below.
     assert widths == {1, 2, 3, 4}
     assert widths - {data.covariate_history(time).shape[1] for time in (1, 2)}
+
+
+def _crossfit_result(frame: pd.DataFrame) -> Any:
+    return LTMLE(
+        {"never": 0},
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        simultaneous=False,
+        random_state=0,
+    ).fit(LongitudinalData.from_frame(frame, **COLUMNS))
+
+
+def test_each_row_uses_one_complete_outer_training_recursion() -> None:
+    """A held-out outcome cannot alter any prediction used for its own row."""
+    frame = panel()
+    row = int(np.flatnonzero(frame["Y"].notna().to_numpy())[0])
+    original = _crossfit_result(frame)
+    changed = frame.copy()
+    changed.loc[row, "Y"] = 1.0 - changed.loc[row, "Y"]
+    perturbed = _crossfit_result(changed)
+
+    np.testing.assert_array_equal(original.folds.assignment, perturbed.folds.assignment)
+    for left, right in zip(
+        original.fits["never"].steps, perturbed.fits["never"].steps, strict=True
+    ):
+        assert left.initial[row] == right.initial[row]
+        assert left.targeted[row] == right.targeted[row]
+
+
+def test_fold_artifacts_cover_each_row_and_match_the_stitched_mechanism() -> None:
+    """The public fold record identifies every held-out prediction and update."""
+    result = _crossfit_result(panel())
+    fit = result.fits["never"]
+    for step in fit.steps:
+        indices = np.concatenate([record.index for record in step.fluctuation.folds])
+        np.testing.assert_array_equal(np.sort(indices), np.arange(result.n))
+        assert step.fluctuation.n_solver_calls == result.folds.n_folds
+
+    for time, node in enumerate(result.mechanism.treatment):
+        slabs = result.mechanism.treatment_by_fold[time]["never"]
+        stitched = slabs[result.folds.assignment, np.arange(result.n)]
+        np.testing.assert_allclose(stitched, node["never"], rtol=0.0, atol=0.0)
+
+
+def test_a_held_out_terminal_event_cannot_enter_its_survival_recursion() -> None:
+    """The horizon-two survival recursion has the same whole-fold leakage boundary."""
+    frame, _ = make_longitudinal_survival(n=500, seed=41, backend="pandas")
+    eligible = (
+        (frame["Y1"] == 0.0) & frame["Y2"].notna() & frame["C1"].eq(1.0) & frame["C2"].eq(1.0)
+    )
+    row = int(np.flatnonzero(eligible.to_numpy())[0])
+
+    def fit(candidate: pd.DataFrame) -> Any:
+        return LTMLE(
+            {"never": 0},
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            simultaneous=False,
+            random_state=0,
+        ).fit(
+            candidate,
+            outcome=("Y1", "Y2"),
+            treatment=("A1", "A2"),
+            baseline=("W1", "W2"),
+            time_varying=((), ("L2",)),
+            censoring=("C1", "C2"),
+        )
+
+    original = fit(frame)
+    changed = frame.copy()
+    changed.loc[row, "Y2"] = 1.0 - changed.loc[row, "Y2"]
+    perturbed = fit(changed)
+    np.testing.assert_array_equal(original.folds.assignment, perturbed.folds.assignment)
+    left = original.fits["never @ t=2"]
+    right = perturbed.fits["never @ t=2"]
+    for left_step, right_step in zip(left.steps, right.steps, strict=True):
+        assert left_step.initial[row] == right_step.initial[row]
+        assert left_step.targeted[row] == right_step.targeted[row]
 
 
 class TestAThreeLevelArmEntersAsIndicators:

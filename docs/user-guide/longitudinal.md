@@ -35,6 +35,10 @@ result = study.estimate(
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
 keys. A regimen cannot look ahead or change interpretation between stages.
 
+With `n_folds > 1`, each outer training fold runs the complete backward recursion. The fit stores
+the realized assignment in `result.folds`. Each sequential step stores its targeting details in
+`step.fluctuation.folds`.
+
 ## Survival outcomes
 
 An outcome sequence declares one absorbing event process and makes horizon part of the estimand.
@@ -75,6 +79,7 @@ keeping all prior competing events out of later risk sets.
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
+Set `n_folds=1` for this projection. Fold-specific pooled-regimen targeting is not implemented.
 
 ## Diagnostics
 
