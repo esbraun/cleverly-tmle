@@ -125,7 +125,7 @@ def test_a_saturated_msm_accepts_the_same_categorical_plans() -> None:
     result = LTMLE(
         SPEC,
         msm=MSM(design=design, terms=labels),
-        **{**SETTINGS, "n_folds": 1},
+        **SETTINGS,
     ).fit(categorical_treatments(frame), outcome="Y", **COLUMNS)
     assert set(result) == {f"msm_regimen[{label}]" for label in labels}
     assert result.converged

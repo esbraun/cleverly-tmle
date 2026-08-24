@@ -96,11 +96,23 @@ therefore solves a **single** fluctuation over the regimens stacked, with one sh
 The backward recursion is lockstep: outer over the nodes, inner over the regimens, one update,
 all carried forward together.
 
-**A saturated working model reproduces the per-regimen report**, and not bit for bit on the
-estimate. One indicator per regimen makes the stacked design exactly block diagonal, and each block
-carries the loss weight the plain recursion uses. The pooled Newton convergence test and line search
-are taken over all the stacked rows, so the two can stop on different iterates. On a law the sample
-realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
+**A saturated working model reproduces the per-regimen report at `n_folds=1`**, and not bit for bit
+on the estimate. One indicator per regimen makes the stacked design exactly block diagonal, and each
+block carries the loss weight the plain recursion uses. The pooled Newton convergence test and line
+search are taken over all the stacked rows, so the two can stop on different iterates. On a law the
+sample realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
+
+**Above one fold the identity does not hold, because the two paths run different constructions.**
+Both fit nuisances out of fold. The regimen-mean path then runs one complete backward recursion per
+outer fold and stitches held-out rows. This path targets pooled over the whole sample, because a
+fold-specific pooled-regimen recursion is not implemented.
+
+Both paths estimate the same parameter. Across five seeds at $n = 1500$ the largest disagreement was
+0.69 standard errors. `TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic` in
+[`tests/e2e/test_ltmle_msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/e2e/test_ltmle_msm.py)
+measures it. One difference is worth stating plainly: this path solves its pooled score equation and
+the regimen-mean path does not. See
+[longitudinal TMLE](longitudinal-tmle.md#cross-fitting-runs-two-constructions).
 
 **Under a link, one round of the alternation is a whole backward pass.** The coefficient enters the
 covariate through the derivative of the inverse link, so each targeted regression moves with it. A

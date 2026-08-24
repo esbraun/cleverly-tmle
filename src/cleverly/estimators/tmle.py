@@ -110,7 +110,7 @@ from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
     InitialFit,
-    TargetingFailure,
+    dominant_failure,
 )
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
@@ -2269,7 +2269,7 @@ class TMLE:
             folds=tuple(fold_records),
             score_initial=score_before,
             n_solver_calls=len(fold_records),
-            failure=_dominant_failure(reasons, failed),
+            failure=dominant_failure(reasons, failed),
             # Each fold solved its own projection, so there is no single beta the pooled
             # covariate was built at; the per-fold ones live on the pieces that were
             # stitched, and the *reported* coefficients come from the stitched fit.
@@ -2826,17 +2826,3 @@ def tmle(
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)
-
-
-def _dominant_failure(reasons: Sequence[str], failed: Sequence[int]) -> TargetingFailure | None:
-    """The most common failure mode across folds, for the summary line.
-
-    A single label cannot describe ten folds, so the per-fold detail stays on
-    ``Fluctuation.folds``; this is only what to print when there is room for one word.
-    """
-    if not failed:
-        return None
-    modes = [reasons[i] for i in failed if reasons[i] != "unknown"]
-    if not modes:
-        return "max_iter_reached"
-    return cast("TargetingFailure", max(set(modes), key=modes.count))

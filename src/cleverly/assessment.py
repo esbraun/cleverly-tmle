@@ -30,6 +30,7 @@ from .validation.score import DEFAULT_TOLERANCE
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
     "SENSITIVITY_ROUTES",
+    "STITCHED_SCORE_Z_TOLERANCE",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentStatus",
@@ -46,6 +47,27 @@ __all__ = [
     "replayability",
     "validate_result",
 ]
+
+
+#: How far a cross-fitted longitudinal fit's *stitched* score may sit from zero, in
+#: standard errors of its own residual, before :func:`_longitudinal_scores` calls it a
+#: defect rather than sampling.
+#:
+#: The stitched score is not a solved equation.  Each outer fold fits its ``epsilon`` on
+#: the rows it does not report, so what the pooled residual has to be is a mean-zero draw,
+#: and the scale to judge a mean-zero draw on is its own standard error.  Measured over 300
+#: replications of ``make_longitudinal`` at ``n=500`` and five folds, the mean ``|z|`` per
+#: parameter ran from 0.006 to 0.08.  Four standard errors is therefore a long way outside
+#: anything the construction produces, while a fold-mapping or stitching defect -- which
+#: multiplies the residual by a constant rather than perturbing it -- moves ``z`` by orders
+#: of magnitude and cannot hide under it.
+#:
+#: Not a caller argument.  ``tolerance`` on
+#: :meth:`~cleverly.assessment.DiagnosticsFacade.score_equations` is a *relative-score*
+#: tolerance, and one number cannot mean both "close enough to solved" and "consistent with
+#: noise"; passing it to both gates would silently apply ``1e-3`` standard errors here and
+#: fail every cross-fitted fit.
+STITCHED_SCORE_Z_TOLERANCE = 4.0
 
 
 class AssessmentStatus(StrEnum):
@@ -762,22 +784,44 @@ class LongitudinalDiagnostics:
 
 @dataclass(frozen=True)
 class LongitudinalScoreRow:
-    """One node's targeting score, and the verdict two separate gates reach about it.
+    """One verdict about one node's targeting.
 
     ``converged`` is the fit's own flag: whether that node's Newton step settled against
-    the targeting tolerance it was configured with.  ``passed`` additionally holds the
-    node's ``relative_score`` to the tolerance the *caller* asked for.  They are kept apart
-    because they can disagree, and because only their conjunction is safe -- a caller
-    tolerance may tighten the verdict and may never license a fluctuation whose step
-    failed.
+    the targeting tolerance it was configured with.  ``passed`` additionally holds the row
+    to the tolerance the *caller* asked for.  They are kept apart because they can
+    disagree, and because only their conjunction is safe -- a caller tolerance may tighten
+    the verdict and may never license a fluctuation whose step failed.
+
+    ``kind`` says which question the row answers, because a cross-fitted fit poses two and
+    they have different right answers.
+
+    ``"solver"``
+        Did the fluctuation reach the root of the equation it was *given*?  On an ordinary
+        fit that equation is the node's own score and ``relative_score`` is it.  On a
+        cross-fitted fit it is each outer fold's score on its training complement, and
+        ``relative_score`` is the largest across the folds.  Either way the answer should
+        be at solver tolerance, and a failure here is a solver failure.
+
+    ``"stitching"``
+        Is the score of the *stitched* fit where sampling alone would leave it?  Emitted
+        only on a cross-fitted fit, where the answer is not zero and is not meant to be:
+        every fold fits its ``epsilon`` on rows it does not report, so the pooled residual
+        is noise about zero rather than a solved equation.  ``z`` is that residual over its
+        own standard error and ``relative_score`` is the raw magnitude, reported so the
+        reader can see what the ``z`` is a ratio of.  A stitching, indexing or fold-mapping
+        defect moves ``z`` by orders of magnitude, which is what this row is for.
     """
 
     regimen: str
     cause: str | None
     horizon: int | None
     time: int
+    kind: str
     score: float
     relative_score: float
+    #: The score over its own standard error.  ``nan`` on a ``"solver"`` row, whose claim
+    #: is that the score is zero rather than that it is small relative to anything.
+    z: float
     converged: bool
     passed: bool
     n_iter: int
@@ -786,19 +830,25 @@ class LongitudinalScoreRow:
 
 @dataclass(frozen=True)
 class LongitudinalScoreDiagnostics:
-    """Stagewise targeting scores, gated at the tolerance they were asked for.
+    """Stagewise targeting verdicts, gated at the tolerances they were asked for.
 
-    ``tolerance`` bounds each node's *relative* score -- the largest score component as a
-    fraction of its maximum possible magnitude, which is the quantity the sequential
-    targeting loop itself gates on.  The point-treatment report answers the same question
-    on a different scale, comparing the score in the outcome's own units against
+    ``tolerance`` bounds a ``"solver"`` row's *relative* score -- the largest score
+    component as a fraction of its maximum possible magnitude, which is the quantity the
+    sequential targeting loop itself gates on.  The point-treatment report answers the same
+    question on a different scale, comparing the score in the outcome's own units against
     ``tolerance * se / sqrt(n)``; see :data:`~cleverly.validation.score.DEFAULT_TOLERANCE`.
     The number is carried here so a report says which gate produced its verdict.
+
+    ``z_tolerance`` bounds a ``"stitching"`` row instead, in standard errors, because that
+    row's score is not a solved equation and holding it to a relative tolerance would fail
+    every cross-fitted fit for doing exactly what it is supposed to do.  A fit with no
+    cross-fitting emits no such row and ``z_tolerance`` never binds.
     """
 
     rows: tuple[LongitudinalScoreRow, ...]
     tolerance: float
     backend: str | None = None
+    z_tolerance: float = STITCHED_SCORE_Z_TOLERANCE
 
     @property
     def passed(self) -> bool:
@@ -811,8 +861,10 @@ class LongitudinalScoreDiagnostics:
                 "cause": [row.cause for row in self.rows],
                 "horizon": [row.horizon for row in self.rows],
                 "time": [row.time for row in self.rows],
+                "kind": [row.kind for row in self.rows],
                 "score": [row.score for row in self.rows],
                 "relative_score": [row.relative_score for row in self.rows],
+                "z": [row.z for row in self.rows],
                 "converged": [row.converged for row in self.rows],
                 "passed": [row.passed for row in self.rows],
                 "n_iter": [row.n_iter for row in self.rows],
@@ -878,6 +930,15 @@ def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
 
 
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
+    """One row per node: how heavy the weights got and how much the bounds moved.
+
+    ``max_weight`` and ``effective_n`` read ``step.clever``, and ``share_truncated`` reads
+    ``fit.cumulative``.  On a cross-fitted fit those are not two views of one array: the
+    covariate is stitched from each fold's own mechanism slab while ``cumulative`` is the
+    out-of-fold mechanism, so ``1 / cumulative`` does not reproduce the weight.  Each column
+    is read from the array that answers its own question -- what a row was weighted by, and
+    how far the bounds moved the mechanism -- rather than both from whichever one is nearer.
+    """
     terms = () if result.msm is None else result.msm.terms
     epsilon_names = ("epsilon",) if result.msm is None else tuple(f"epsilon[{t}]" for t in terms)
     # One column shape for the whole frame rather than one per row: the level sets are a
@@ -924,32 +985,99 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     )
 
 
-def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
-    """Every node's targeting score, gated at ``tolerance`` on the relative scale.
+def _stitched_score_z(step: Any, weights: FloatArray) -> float:
+    r"""The stitched score over its own standard error.
 
-    The gate is a *conjunction*, and deliberately so.  Sequential targeting settles against
-    its own ``tol`` -- ``1e-10``, far tighter than the default asked for here -- so requiring
-    ``converged`` as well leaves the default verdict exactly what it was while letting a
-    caller tighten it.  Gating on the relative score alone would do the opposite: a node
-    whose Newton step failed but whose residual score happens to sit under a loose tolerance
-    would be reported as passing, which is the one answer this diagnostic must never give.
+    The score is :math:`P_n[w H (Z - \bar Q^*)]` and its rows are independent, so the scale
+    to read it against is :math:`\operatorname{sd}(w H (Z - \bar Q^*)) / \sqrt n` -- the
+    same quantity, drawn again.  Dividing by the *relative* scale instead would answer a
+    different question: how large the score is against the largest it could be, which is the
+    right question for an equation somebody solved and the wrong one for a residual nobody
+    did.
+
+    Returns ``nan`` when the residual has no spread, which is a degenerate node rather than
+    a perfect one and is not something to report a ``z`` of zero for.
+    """
+    contribution = weights * step.clever * (step.pseudo_outcome - step.targeted)
+    spread = float(np.std(contribution, ddof=1)) if contribution.size > 1 else 0.0
+    if not spread:
+        return float("nan")
+    return float(np.mean(contribution) / (spread / np.sqrt(contribution.size)))
+
+
+def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
+    """Every node's targeting verdicts: one row per question the node's fit poses.
+
+    The solver gate is a *conjunction*, and deliberately so.  Sequential targeting settles
+    against its own ``tol`` -- ``1e-10``, far tighter than the default asked for here -- so
+    requiring ``converged`` as well leaves the default verdict exactly what it was while
+    letting a caller tighten it.  Gating on the relative score alone would do the opposite: a
+    node whose Newton step failed but whose residual score happens to sit under a loose
+    tolerance would be reported as passing, which is the one answer this diagnostic must
+    never give.
+
+    A cross-fitted node earns a second row, because the first one stops being able to see
+    the thing that can go wrong.  Its ``K`` solves each reach their own root on their own
+    training complement, so the solver row is at machine precision whatever the stitched fit
+    looks like -- including when the folds were stitched back in the wrong order, or a slab
+    was read for the wrong fold.  The stitching row is where that shows.
     """
     rows = []
     for fit in result.fits.values():
+        weights = np.asarray(fit.obs_weights, dtype=float)
         for step in fit.steps:
             fluctuation = step.fluctuation
-            relative = float(fluctuation.relative_score_norm)
+            horizon = fit.horizon if result.data.is_survival else None
             converged = bool(fluctuation.converged)
+            # On a cross-fitted node the solved equations are the folds' own, and the
+            # aggregate `score` is the stitched fit's -- a different quantity, reported on
+            # the row below.  The worst fold is the honest summary of `K` solves: an
+            # average would let nine good folds hide one that did not move.
+            solver_relative = (
+                max(
+                    float(np.max(np.abs(record.score)) / max(scale, 1e-300))
+                    for record in fluctuation.folds
+                    for scale in [float(np.max(np.abs(fluctuation.score_scale)))]
+                )
+                if fluctuation.folds
+                else float(fluctuation.relative_score_norm)
+            )
+            solver_score = (
+                max(float(np.max(np.abs(record.score))) for record in fluctuation.folds)
+                if fluctuation.folds
+                else float(fluctuation.score_norm)
+            )
             rows.append(
                 LongitudinalScoreRow(
                     fit.regimen.label,
                     fit.cause,
-                    fit.horizon if result.data.is_survival else None,
+                    horizon,
                     step.time,
-                    float(result.scaler.range * fluctuation.score_norm),
-                    relative,
+                    "solver",
+                    float(result.scaler.range * solver_score),
+                    solver_relative,
+                    float("nan"),
                     converged,
-                    converged and relative <= tolerance,
+                    converged and solver_relative <= tolerance,
+                    int(fluctuation.n_iter),
+                    fluctuation.failure,
+                )
+            )
+            if not fluctuation.folds:
+                continue
+            z = _stitched_score_z(step, weights)
+            rows.append(
+                LongitudinalScoreRow(
+                    fit.regimen.label,
+                    fit.cause,
+                    horizon,
+                    step.time,
+                    "stitching",
+                    float(result.scaler.range * fluctuation.score_norm),
+                    float(fluctuation.relative_score_norm),
+                    z,
+                    converged,
+                    bool(np.isfinite(z) and abs(z) <= STITCHED_SCORE_Z_TOLERANCE),
                     int(fluctuation.n_iter),
                     fluctuation.failure,
                 )
@@ -1293,6 +1421,15 @@ class DiagnosticsFacade(_CapabilityFacade):
         fraction of its maximum possible magnitude -- which is the quantity the sequential
         targeting loop gates on, and it can only tighten a node's verdict beyond the fit's
         own convergence flag.
+
+        **A cross-fitted longitudinal fit gets two rows per node**, because it poses two
+        questions with different right answers.  Its ``"solver"`` row asks whether every
+        outer fold reached the root of its own equation, which ``tolerance`` gates as
+        above.  Its ``"stitching"`` row asks whether the score of the *stitched* fit sits
+        where sampling would leave it -- which is not zero, because each fold fits its
+        coefficient on rows it does not report -- and is gated in standard errors by
+        :data:`STITCHED_SCORE_Z_TOLERANCE` instead.  Holding that row to ``tolerance``
+        would fail every cross-fitted fit for doing what the construction does.
         """
         self._require("score_equations")
 

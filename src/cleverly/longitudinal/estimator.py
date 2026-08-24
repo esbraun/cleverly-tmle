@@ -959,7 +959,26 @@ class LTMLE:
         library read as a regression.
     n_folds:
         Outer cross-fitting folds; one split serves every node and every regimen, so a
-        unit is out of fold in all of them at once.
+        unit is out of fold in all of them at once.  Above one fold each fold runs a
+        complete mechanism, backward regression and targeting sequence on its training
+        rows, and only its held-out rows are stitched into the report.  The fit therefore
+        keeps one mechanism prediction slab per fold, so the mechanism costs ``n_folds``
+        times the memory of a single-fold fit and a saved result grows by the same factor.
+
+        Two properties of this construction are worth knowing before reading its output.
+        Each fold's fluctuation coefficient is fitted on rows the fold does not report, so
+        the *pooled* score equation is not solved -- :meth:`.DiagnosticsFacade.
+        score_equations` reports that residual as its own row rather than folding it into
+        the solver verdict -- and the influence-curve standard error runs above the actual
+        sampling spread.  Measured over 300 replications of
+        :func:`~cleverly.datasets.make_longitudinal` at ``n=500``, the ratio of reported
+        standard error to the spread of the estimates was 1.01 at one fold and 1.09 at
+        ten.  The intervals are conservative rather than invalid.
+
+        ``msm=`` does not use this construction.  It fits nuisances out of fold and then
+        targets pooled over the whole sample, so it solves its score equation and carries
+        neither property.  The two are different finite-sample estimators of the same
+        parameter.
     g_bounds:
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair
@@ -1088,13 +1107,6 @@ class LTMLE:
                 "decided by the design you gave msm=, and an intercept is whatever that "
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
-            )
-        if self.msm is not None and self.n_folds > 1:
-            raise ValueError(
-                "msm= with n_folds > 1 is not supported. Fold-specific longitudinal "
-                "targeting requires one complete pooled-regimen recursion per outer fold; "
-                "the working-model path currently has only the in-sample pooled recursion. "
-                "Pass n_folds=1 or fit regimen means without msm=."
             )
 
     @staticmethod

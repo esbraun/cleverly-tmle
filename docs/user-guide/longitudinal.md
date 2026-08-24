@@ -39,6 +39,10 @@ With `n_folds > 1`, each outer training fold runs the complete backward recursio
 the realized assignment in `result.folds`. Each sequential step stores its targeting details in
 `step.fluctuation.folds`.
 
+Each fold targets on its own training rows, so the fit does not drive the pooled score equation to
+zero. `res.diagnostics.score_equations()` reports one row for the per-fold solves and one for the
+stitched residual. The reported standard error is conservative under this construction.
+
 ## Survival outcomes
 
 An outcome sequence declares one absorbing event process and makes horizon part of the estimand.
@@ -79,7 +83,11 @@ keeping all prior competing events out of later risk sets.
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
-Set `n_folds=1` for this projection. Fold-specific pooled-regimen targeting is not implemented.
+
+This projection accepts `n_folds > 1`. It fits nuisances out of fold and then targets the cells
+pooled over the whole sample. The regimen-mean path instead runs one complete recursion per fold.
+The two are different finite-sample estimators of the same parameter. See
+[longitudinal TMLE](../technical-reference/longitudinal-tmle.md).
 
 ## Diagnostics
 

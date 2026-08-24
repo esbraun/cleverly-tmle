@@ -18,7 +18,7 @@ affine relabelling is what makes it fail.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -38,7 +38,7 @@ FAST: dict[str, Any] = {
     "outcome_learner": sklearn.linear_model.LinearRegression(),
     "pseudo_learner": sklearn.linear_model.LinearRegression(),
     "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
-    "n_folds": 1,
+    "n_folds": 3,
     "learner_folds": 3,
     "random_state": 0,
     "simultaneous": False,
@@ -162,13 +162,21 @@ class TestItReportsTheProjection:
         )
 
 
+#: The saturated-model identity is an algebraic one, and it holds where the two paths run
+#: the *same* construction.  With ``n_folds=1`` they do.  Above one fold they do not -- see
+#: :class:`TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic` -- so the identity is
+#: pinned here at the fold count that makes it a statement about the working model rather
+#: than about cross-fitting.
+POOLED: dict[str, Any] = {**FAST, "n_folds": 1}
+
+
 class TestASaturatedModelIsThePerRegimenReport:
     def test_every_coefficient_is_its_regimen_s_mean(self) -> None:
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never", "early")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS)
-        model = LTMLE(spec, msm=saturated(labels), **FAST).fit(frame, **COLUMNS)
+        plain = LTMLE(spec, reference="never", **POOLED).fit(frame, **COLUMNS)
+        model = LTMLE(spec, msm=saturated(labels), **POOLED).fit(frame, **COLUMNS)
         for label in labels:
             expected = plain[f"ey_regimen[{label}]"]
             got = model[f"msm_regimen[{label}]"]
@@ -186,16 +194,66 @@ class TestASaturatedModelIsThePerRegimenReport:
         frame, _ = make_longitudinal(n=1500, seed=1)
         labels = ("always", "never")
         spec = {label: SPEC[label] for label in labels}
-        plain = LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS)
+        plain = LTMLE(spec, reference="never", **POOLED).fit(frame, **COLUMNS)
         design = saturated(labels)
-        linked = LTMLE(spec, msm=MSM(design=design.design, terms=labels, link="logit"), **FAST).fit(
-            frame, **COLUMNS
-        )
+        linked = LTMLE(
+            spec, msm=MSM(design=design.design, terms=labels, link="logit"), **POOLED
+        ).fit(frame, **COLUMNS)
         for label in labels:
             beta = linked[f"msm_regimen[{label}]"].psi
             assert 1.0 / (1.0 + np.exp(-beta)) == pytest.approx(
                 plain[f"ey_regimen[{label}]"].psi, rel=1e-9
             )
+
+
+class TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic:
+    """Above one fold, ``msm=`` and the regimen means run different constructions.
+
+    The regimen-mean path runs one complete backward recursion per outer fold and stitches
+    held-out rows.  The working-model path fits nuisances out of fold and then targets the
+    declared cells *pooled* over the whole sample, because a fold-specific pooled-regimen
+    recursion is not implemented.  Both estimate the same parameter and both are valid.
+    They are not the same finite-sample estimator, so the saturated identity above is a
+    ``n_folds=1`` statement and this is what replaces it above one fold.
+
+    Written as a test rather than left to a docstring because the identity holding at one
+    fold and failing at three is exactly the kind of difference a reader assumes away.
+    """
+
+    LABELS: ClassVar[tuple[str, ...]] = ("always", "never", "early")
+
+    @staticmethod
+    def _pair(seed: int) -> tuple[Any, Any]:
+        frame, _ = make_longitudinal(n=1500, seed=seed)
+        labels = TestTheTwoCrossFittedConstructionsAreNotTheSameArithmetic.LABELS
+        spec = {label: SPEC[label] for label in labels}
+        return (
+            LTMLE(spec, reference="never", **FAST).fit(frame, **COLUMNS),
+            LTMLE(spec, msm=saturated(labels), **FAST).fit(frame, **COLUMNS),
+        )
+
+    @pytest.mark.parametrize("seed", [1, 2, 3, 4, 5])
+    def test_they_agree_inside_sampling_noise(self, seed: int) -> None:
+        """Measured at ``n=1500`` over these five seeds: the largest ``|gap| / se`` was
+        0.6854 (seed 1, ``early``) and the smallest 0.2064 (seed 2).  The bound is set
+        above the measured worst case rather than at it, because this is a consistency
+        check across two constructions and not a calibration assertion.
+        """
+        plain, model = self._pair(seed)
+        for label in self.LABELS:
+            expected = plain[f"ey_regimen[{label}]"]
+            got = model[f"msm_regimen[{label}]"]
+            assert abs(got.psi - expected.psi) < 1.5 * expected.std_error
+
+    def test_and_they_are_not_the_same_number(self) -> None:
+        """The nonzero witness.  Without it the bound above would also pass on the
+        identity, and this class would be evidence of nothing."""
+        plain, model = self._pair(1)
+        gaps = [
+            abs(model[f"msm_regimen[{label}]"].psi - plain[f"ey_regimen[{label}]"].psi)
+            for label in self.LABELS
+        ]
+        assert max(gaps) > 1e-6
 
 
 class TestALink:
@@ -311,10 +369,6 @@ class TestTheSurroundingMachineryStillWorks:
 
 
 class TestItRefusesByName:
-    def test_cross_fitting_a_working_model_is_refused(self) -> None:
-        with pytest.raises(ValueError, match="complete pooled-regimen recursion"):
-            LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), n_folds=3)
-
     def test_a_reference_regimen_and_a_working_model_cannot_be_combined(self) -> None:
         with pytest.raises(ValueError, match="reference= names the regimen"):
             LTMLE(SPEC, reference="never", msm=MSM(design=dose, terms=TERMS))

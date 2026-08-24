@@ -259,10 +259,9 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
     model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
-    settings = {**LONG_SETTINGS, "n_folds": 1}
-    old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
+    old = LTMLE(regimens, msm=model, **LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    new = study.estimate(MSMProjection(model, regimens=regimens), **settings)
+    new = study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
     assert_identical(old, new)
     assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.joblib")))
 
@@ -297,10 +296,9 @@ def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
     model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
-    settings = {**BAND_LONG_SETTINGS, "n_folds": 1}
-    old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
+    old = LTMLE(regimens, msm=model, **BAND_LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    new = study.estimate(MSMProjection(model, regimens=regimens), **settings)
+    new = study.estimate(MSMProjection(model, regimens=regimens), **BAND_LONG_SETTINGS)
     assert new.simultaneous is not None
     assert new.simultaneous.n_replicates == 2000
     assert_identical(old, new, check_bands=True)

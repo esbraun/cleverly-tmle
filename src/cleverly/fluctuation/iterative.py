@@ -24,7 +24,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
 
@@ -41,6 +41,7 @@ __all__ = [
     "InitialFit",
     "apply_logistic",
     "check_matching_arms",
+    "dominant_failure",
     "solve_fluctuation",
 ]
 
@@ -187,6 +188,25 @@ class InitialFit:
     @property
     def n(self) -> int:
         return int(self.observed.shape[0])
+
+
+def dominant_failure(reasons: Sequence[str], failed: Sequence[int]) -> TargetingFailure | None:
+    """The most common failure mode across folds, for the summary line.
+
+    A single label cannot describe ten folds, so the per-fold detail stays on
+    :attr:`Fluctuation.folds`; this is only what to print when there is room for one word.
+
+    Shared by both fold-targeting paths -- :meth:`cleverly.TMLE._solve_by_fold` and the
+    longitudinal outer recursion -- because a fit that reports the *first* fold's reason
+    rather than the prevailing one is reporting whichever fold the scheduler returned
+    first, which is not a property of the fit.
+    """
+    if not failed:
+        return None
+    modes = [reasons[index] for index in failed if reasons[index] != "unknown"]
+    if not modes:
+        return "max_iter_reached"
+    return cast("TargetingFailure", max(set(modes), key=modes.count))
 
 
 @dataclass(frozen=True)

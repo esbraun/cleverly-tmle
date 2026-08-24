@@ -11,6 +11,7 @@ share still looks like a share.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 import pytest
@@ -19,6 +20,10 @@ import sklearn.linear_model
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.utils.phases import phase, profile_phases
+
+#: Two is enough and four is not better: what is checked is that the parallel branch
+#: is taken at all, which the same constant in ``test_parallel_invariance`` says too.
+PARALLEL_JOBS = 2
 
 
 def test_disabled_by_default_and_records_nothing() -> None:
@@ -127,12 +132,66 @@ def test_an_ltmle_fit_reports_every_phase_it_declares() -> None:
     }
     assert expected <= set(profile.counts)
     # Two folds x two regimens x two nodes for each fold-specific recursion.  Masks are
-    # scanned once per regimen, plus once for the shared mechanism.
+    # scanned once per regimen, plus once for the shared mechanism -- the whole point of
+    # the prefix scan, and a per-node count here would mean it had stopped happening.
     assert profile.counts["outcome_learner_fit"] == 8
     assert profile.counts["fluctuation"] == 8
     assert profile.counts["mask_construction"] == 3
+    # One fan-out per regimen, which is the phase the workers' own phases hang under.
+    assert profile.counts["outer_fold_recursion"] == 2
     assert profile.total_seconds > 0.0
     assert sum(profile.exclusive.values()) <= profile.total_seconds
+
+
+def test_the_recursion_is_profiled_whether_or_not_it_ran_in_workers() -> None:
+    """``n_jobs`` decides where the recursion runs, not whether it is measured.
+
+    The four phases inside a fold recursion used to vanish entirely above one job: joblib's
+    default backend is loky, the collector is thread-local, and a worker process starts
+    with none.  A profile that silently drops the phases the fit spends its time in is
+    worse than no profile, because the remaining shares still sum to something plausible.
+
+    ``total_counts`` is the comparison rather than ``counts`` because *where* the work ran
+    is a real difference the profile should keep: inline at ``n_jobs=1``, in ``workers``
+    above it.  What must not differ is that it was measured at all.
+    """
+    frame, _ = make_longitudinal(n=300, seed=31)
+    columns = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    def counts(n_jobs: int) -> tuple[dict[str, int], Any]:
+        estimator = LTMLE(
+            {"always": 1, "never": 0},
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=0,
+            n_jobs=n_jobs,
+        )
+        with LTMLE.profile_phases() as profile:
+            estimator.fit(frame, **columns)
+        return profile.total_counts, profile
+
+    serial, serial_profile = counts(1)
+    parallel, parallel_profile = counts(PARALLEL_JOBS)
+    assert serial == parallel
+    assert serial["fluctuation"] == 8
+
+    # Where they ran, which is the difference the profile keeps rather than hides.
+    assert serial_profile.workers is None
+    assert parallel_profile.workers is not None
+    assert parallel_profile.counts.get("fluctuation", 0) == 0
+    assert parallel_profile.workers.counts["fluctuation"] == 8
+    # Worker time is processor time across the folds and the parent's is wall time, so the
+    # merge must never have put one into the other.
+    assert sum(parallel_profile.exclusive.values()) <= parallel_profile.total_seconds
 
 
 def test_profiling_does_not_change_the_fit() -> None:

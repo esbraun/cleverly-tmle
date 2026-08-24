@@ -147,7 +147,14 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
     expected = sum(len(fit.steps) for fit in longitudinal_result.fits.values())
     scores = longitudinal_result.diagnostics.score_equations()
     nuisances = longitudinal_result.diagnostics.nuisance_models()
-    assert len(scores.rows) == len(nuisances.rows) == expected
+    assert len(nuisances.rows) == expected
+    # One row per node per question the node poses.  A cross-fitted node poses two -- did
+    # every fold's solve reach its root, and is the stitched residual where sampling would
+    # leave it -- and a single-fold node poses only the first.
+    kinds = [row.kind for row in scores.rows]
+    assert kinds.count("solver") == expected
+    assert kinds.count("stitching") in {0, expected}
+    assert len(scores.rows) == len(kinds)
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)
     assert all(row.n > 0 and row.mse >= 0 for row in nuisances.rows)
 

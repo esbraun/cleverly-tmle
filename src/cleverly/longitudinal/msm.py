@@ -522,7 +522,7 @@ def fit_regimens_msm(
                 # rows reach the estimating equation.  The loss weight above is nonzero
                 # on every at-risk row, so the same mask is material: only followers enter
                 # the score, exactly as in the per-regimen update and ltmle::UpdateQ.
-                np.concatenate([prepared[k].trained_on for k in live]),
+                np.concatenate([prepared[k].fitted_on for k in live]),
                 alpha=alpha,
                 max_iter=max_iter,
                 tol=tol,

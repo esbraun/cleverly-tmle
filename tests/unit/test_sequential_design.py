@@ -22,6 +22,7 @@ Verified by mutation: changing ``design = data.covariate_history(time)`` to
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -89,26 +90,30 @@ def panel(n: int = 200, *, seed: int = 5) -> pd.DataFrame:
 def designs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, np.ndarray]]:
     """Every design matrix ``sequential`` hands a nuisance fit, in the order it hands it.
 
-    The mechanism uses ``cross_fit_companion`` to retain each fold model's predictions on
-    all rows.  The outcome recursion uses ``fit_on_rows`` once per outer fold and node.
-    Spying on both call sites pins the designs that this module hands to the fit helpers.
+    Recorded at the two helpers the module calls, rather than through a learner: a learner
+    is cloned per fold and reached only after the call, so spying there would pin what
+    scikit-learn received instead of what this module passed.  The mechanism goes through
+    ``cross_fit_companion``, because it retains each fold model's predictions on every row.
+    The outcome recursion goes through ``cross_fit_predictions`` at every node, on one fold
+    or on many -- an outer fold's model is a one-fold split with that fold's training rows
+    as the fit mask, which is why the cross-fitted recursion needs no second call site.
     """
     from cleverly.longitudinal import sequential
 
     original_companion = sequential.cross_fit_companion
-    original_fit = sequential.fit_on_rows
+    original_predictions = sequential.cross_fit_predictions
     recorded: list[tuple[str, np.ndarray]] = []
 
     def companion_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
         recorded.append(("mechanism", np.array(design)))
         return original_companion(learner, design, *args, **kwargs)
 
-    def fit_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
+    def predictions_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
         recorded.append(("outcome", np.array(design)))
-        return original_fit(learner, design, *args, **kwargs)
+        return original_predictions(learner, design, *args, **kwargs)
 
     monkeypatch.setattr(sequential, "cross_fit_companion", companion_spy)
-    monkeypatch.setattr(sequential, "fit_on_rows", fit_spy)
+    monkeypatch.setattr(sequential, "cross_fit_predictions", predictions_spy)
     return recorded
 
 
@@ -202,6 +207,44 @@ def test_each_row_uses_one_complete_outer_training_recursion() -> None:
     ):
         assert left.initial[row] == right.initial[row]
         assert left.targeted[row] == right.targeted[row]
+
+
+def test_a_fold_that_does_not_converge_is_reported_once_per_regimen() -> None:
+    """The per-fold solves are silenced, so something has to speak for them.
+
+    Each outer solve runs with ``warn=False``: ten folds at ten nodes would otherwise emit
+    a hundred warnings for one problem. The cost of silencing them is that a fit could
+    fail in three folds of ten and say nothing, and the stitched score cannot betray it --
+    that score is a nonzero residual on a perfectly healthy fit, so there is no threshold
+    it crosses. The aggregated warning is the only channel left, which is why it is tested
+    rather than assumed.
+
+    One warning per regimen and not one per fold, because that is the count a reader can
+    act on. The message has to name the nodes, since which node failed is what decides
+    whether the fit is salvageable.
+    """
+    from cleverly.exceptions import ConvergenceWarning
+    from cleverly.longitudinal import sequential
+
+    original = sequential.solve_fluctuation
+
+    def never_converges(*args: Any, **kwargs: Any) -> Any:
+        return dataclasses.replace(
+            original(*args, **kwargs), converged=False, failure="max_iter_reached"
+        )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sequential, "solve_fluctuation", never_converges)
+        with pytest.warns(ConvergenceWarning, match="outer-fold targeting solve") as caught:
+            _crossfit_result(panel())
+
+    # One regimen, two nodes, two folds: four failed solves, named once.
+    assert len(caught) == 1
+    message = str(caught[0].message)
+    assert "4 outer-fold targeting solve(s) did not converge" in message
+    assert "'never'" in message
+    assert "[1, 2]" in message
+    assert "max_iter_reached" in message
 
 
 def test_fold_artifacts_cover_each_row_and_match_the_stitched_mechanism() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import warnings
+from dataclasses import replace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -12,6 +13,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, CapabilityError, load
+from cleverly.assessment import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -115,16 +117,74 @@ def test_every_score_equation_is_solved(
 ) -> None:
     """Targeting is what makes the reported variance the variance of anything.
 
-    Each outer-training recursion solves one score per node and regimen.  The held-out
-    influence curve has sampling variation and need not average to zero in one sample.
+    Two claims, because a cross-fitted fit makes two.  Each outer-training recursion
+    solves one score per node and regimen, exactly, and every fold's record says so.  The
+    *stitched* score is not that equation and is not zero: every fold fits its ``epsilon``
+    on rows it does not report, so what is left on the held-out rows is a mean-zero draw.
+
+    So the second claim is about scale rather than about zero.  Asserting only that the
+    curve is finite -- which is what this checked while the two claims were conflated --
+    cannot fail for any stitching, indexing or fold-mapping defect, because all of those
+    produce perfectly finite numbers.  Dividing by the residual's own standard error is
+    what makes the bound mean something: a defect that misplaces a fold multiplies the
+    residual rather than perturbing it, and lands orders of magnitude outside.
     """
     result, _ = fitted
     for fit in result.fits.values():
         for step in fit.steps:
-            assert step.fluctuation.relative_score_norm < 1e-8
             assert all(record.converged for record in step.fluctuation.folds)
+            for record in step.fluctuation.folds:
+                assert float(np.max(np.abs(record.score))) < 1e-8
     for curve in result.influence_curves.values():
         assert np.isfinite(curve).all()
+        assert abs(_standardized_mean(curve)) < STITCHED_SCORE_Z_TOLERANCE
+
+
+def _standardized_mean(curve: np.ndarray) -> float:
+    """A curve's mean over the standard error of that mean."""
+    return float(np.mean(curve) / (np.std(curve, ddof=1) / np.sqrt(curve.size)))
+
+
+def test_the_reported_score_is_the_score_of_the_reported_fit(
+    fitted: tuple[LongitudinalResult, dict[str, float]],
+) -> None:
+    """``Fluctuation.score`` has one documented meaning and this is it.
+
+    Computed here from the step's own arrays rather than read off the fluctuation, because
+    the defect this replaces was precisely a ``score`` field that agreed with nothing: it
+    averaged the ``K`` per-fold training scores, each at solver tolerance, and so reported
+    ``1e-14`` for a node whose stitched score was ``2e-2``.  Every downstream reader of
+    that field -- ``relative_score_norm``, ``diagnostics.score_equations`` -- inherited the
+    number without any way to notice.
+    """
+    result, _ = fitted
+    for fit in result.fits.values():
+        for step in fit.steps:
+            hand = float(
+                np.mean(fit.obs_weights * step.clever * (step.pseudo_outcome - step.targeted))
+            )
+            assert float(np.ravel(step.fluctuation.score)[0]) == pytest.approx(hand, abs=1e-15)
+
+
+def test_a_misplaced_fold_fails_the_stitching_gate(
+    fitted: tuple[LongitudinalResult, dict[str, float]],
+) -> None:
+    """The mutation control the gate above is worthless without.
+
+    Rotating one node's held-out predictions by a fold leaves every per-fold solve exactly
+    where it was -- each still reached its own root on its own training rows -- so the
+    solver verdict cannot see it.  The stitching verdict is the one that has to, and this
+    is the mistake it exists for.
+    """
+    result, _ = fitted
+    fit = next(iter(result.fits.values()))
+    step = fit.steps[-1]
+    order = np.argsort(np.concatenate([record.index for record in step.fluctuation.folds]))
+    rotated = np.roll(step.targeted[order], len(step.targeted) // len(step.fluctuation.folds))
+    damaged = replace(step, targeted=rotated)
+    weights = np.asarray(fit.obs_weights, dtype=float)
+    assert abs(_stitched_score_z(damaged, weights)) > STITCHED_SCORE_Z_TOLERANCE
+    assert abs(_stitched_score_z(step, weights)) <= STITCHED_SCORE_Z_TOLERANCE
 
 
 def test_recovers_the_truth_on_average() -> None:
@@ -214,9 +274,12 @@ def test_a_three_node_recursion_recovers_the_truth() -> None:
     assert result.converged
     fit = result.fits["always"]
     assert [step.time for step in fit.steps] == [1, 2, 3]
-    # Every one of the three score equations, not just the two a T=2 fit has.
+    # Every one of the three score equations, not just the two a T=2 fit has -- and on a
+    # cross-fitted fit that is every fold's, since the equation a fold solved is its own.
     for step in fit.steps:
-        assert step.fluctuation.relative_score_norm < 1e-8
+        assert all(record.converged for record in step.fluctuation.folds)
+        for record in step.fluctuation.folds:
+            assert float(np.max(np.abs(record.score))) < 1e-8
     assert len(result.diagnostics.stagewise().to_frame()) == 6  # two regimens by three nodes
     estimate = result["ey_regimen[always]"]
     assert abs(estimate.psi - truth) < 3.0 * estimate.std_error
@@ -979,9 +1042,14 @@ class TestTheSharedAssessmentContract:
         result, _ = fitted
         validation = result.validate()
         assert validation["score_equations"].status is AssessmentStatus.PASSED
-        assert len(result.diagnostics.score_equations().rows) == sum(
-            len(fit.steps) for fit in result.fits.values()
-        )
+        rows = result.diagnostics.score_equations().rows
+        nodes = sum(len(fit.steps) for fit in result.fits.values())
+        # A cross-fitted node poses two questions and gets a row for each: whether every
+        # fold's solve reached its root, and whether the stitched fit's residual is where
+        # sampling would leave it.  A single-fold node poses only the first.
+        assert [row.kind for row in rows].count("solver") == nodes
+        assert [row.kind for row in rows].count("stitching") == nodes
+        assert len(rows) == 2 * nodes
 
     def test_save_round_trips_the_longitudinal_graph(
         self, fitted: tuple[LongitudinalResult, dict[str, float]], tmp_path: Any
@@ -1092,9 +1160,13 @@ class TestASurvivalOutcome:
         result, _ = fitted
         for fit in result.fits.values():
             for step in fit.steps:
-                assert step.fluctuation.relative_score_norm < 1e-8
+                assert all(record.converged for record in step.fluctuation.folds)
+                for record in step.fluctuation.folds:
+                    assert float(np.max(np.abs(record.score))) < 1e-8
         for name in result:
-            assert np.isfinite(result.influence_curves[name]).all()
+            curve = result.influence_curves[name]
+            assert np.isfinite(curve).all()
+            assert abs(_standardized_mean(curve)) < STITCHED_SCORE_Z_TOLERANCE
 
     def test_the_survival_view_is_the_complement_of_the_risk(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]
