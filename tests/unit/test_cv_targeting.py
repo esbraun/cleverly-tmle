@@ -77,8 +77,12 @@ class TestFoldWiseTargeting:
         # pooled score is then zero as a sum of zeros rather than by cancellation.
         for fluctuation in cv_fit.fluctuations.values():
             assert fluctuation.folds, "fold-wise targeting must record its folds"
+            assert fluctuation.trace == ()
+            assert fluctuation.n_iter == sum(record.n_iter for record in fluctuation.folds)
             for record in fluctuation.folds:
                 assert np.max(np.abs(record.score)) < 1e-9
+                assert record.trace
+                assert record.score_scale is not None
 
     def test_the_folds_partition_the_sample(self, cv_fit) -> None:
         for fluctuation in cv_fit.fluctuations.values():

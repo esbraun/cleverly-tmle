@@ -434,6 +434,9 @@ class MSMRegimenFit:
     fits: tuple[RegimenFit, ...]
     #: One per node, deepest first, each shared by every cell live at that node.
     nodes: tuple[Fluctuation, ...]
+    #: The ``(n, C, p)`` covariate used to fluctuate the reported rows. Under a linked
+    #: cross-fitted model this is stitched from the folds and cannot be rebuilt from beta.
+    fluctuation_design: FloatArray
 
     @property
     def converged(self) -> bool:
@@ -719,8 +722,9 @@ def fit_regimens_msm(
         )
         steps, node_fits = run.steps, run.nodes
         projection, beta, alternation = run.projection, run.beta, run.record
+        fluctuation_design = run.design
     else:
-        steps, node_fits, projection, beta, alternation = _crossfit_msm(
+        steps, node_fits, projection, beta, alternation, fluctuation_design = _crossfit_msm(
             data,
             plans,
             mechanism,
@@ -757,6 +761,7 @@ def fit_regimens_msm(
             for k in range(model.n_cells)
         ),
         nodes=tuple(node_fits),
+        fluctuation_design=fluctuation_design,
     )
 
 
@@ -775,7 +780,12 @@ def _crossfit_msm(
     scaler: OutcomeScaler,
     n_jobs: int,
 ) -> tuple[
-    list[list[SequentialStep]], list[Fluctuation], ProjectionFit, FloatArray, ProjectionFluctuation
+    list[list[SequentialStep]],
+    list[Fluctuation],
+    ProjectionFit,
+    FloatArray,
+    ProjectionFluctuation,
+    FloatArray,
 ]:
     """Run one complete alternation per outer fold and stitch held-out rows.
 
@@ -839,9 +849,10 @@ def _crossfit_msm(
                         score=fluctuation.score,
                         converged=fluctuation.converged,
                         n_iter=fluctuation.n_iter,
+                        trace=fluctuation.trace,
+                        score_scale=fluctuation.score_scale,
                     ),
                     mass=mass,
-                    trace=fluctuation.trace[-1] if fluctuation.trace else float("nan"),
                     failure=fluctuation.failure,
                     hessian_condition=fluctuation.hessian_condition,
                     loglik=fluctuation.loglik,
@@ -941,7 +952,7 @@ def _crossfit_msm(
         failure=next((record.failure for record in records if record.failure is not None), None),
         folds=tuple(records),
     )
-    return steps, nodes, projection, beta, alternation
+    return steps, nodes, projection, beta, alternation, design
 
 
 def _raw_first(steps: Sequence[Sequence[SequentialStep]], scaler: OutcomeScaler) -> FloatArray:

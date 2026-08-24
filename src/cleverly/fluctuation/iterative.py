@@ -223,6 +223,11 @@ class FoldFluctuation:
     score: FloatArray
     converged: bool
     n_iter: int
+    #: Complete relative-score trajectory for this fold. ``trace[0]`` is the score before
+    #: its first update, under the same contract as :attr:`Fluctuation.trace`.
+    trace: tuple[float, ...] = ()
+    #: Component-wise scale used to decide whether this fold reached its score root.
+    score_scale: FloatArray | None = None
 
     @property
     def n(self) -> int:
@@ -257,10 +262,9 @@ class Fluctuation:
         already solved the equation and targeting had nothing to do, which is a
         different situation from one that started large and was driven down.
     trace:
-        Relative score norm through the solve.  ``trace[0]`` is always the score at
-        ``epsilon = 0``, whichever solver ran -- it previously meant the score *after*
-        the first Newton step in one solver and before the first step in the other,
-        so the two were not comparable.
+        Relative score norm through one solve.  ``trace[0]`` is always the score at
+        ``epsilon = 0``, whichever solver ran.  Empty when this object aggregates several
+        independent fold solves; their complete trajectories are in ``folds``.
     n_iter:
         Outer iterations of the solver: Newton steps for ``"iterative"``, walk steps
         for ``"one_step"``, ``1`` for ``"linear"``.

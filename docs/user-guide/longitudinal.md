@@ -41,7 +41,12 @@ the realized assignment in `result.folds`. Each sequential step stores its targe
 
 Each fold targets on its own training rows, so the fit does not drive the pooled score equation to
 zero. `res.diagnostics.score_equations()` reports one row for the per-fold solves and one for the
-stitched residual. The reported standard error is conservative under this construction.
+stitched residual.
+
+One repeated-sampling study observed standard-error ratios from 1.0170 to 1.1007 at `n=2000`.
+Those results apply only to the named `make_longitudinal` law and estimator settings. They do not
+establish conservative variance for other laws, weights, clusters, survival outcomes, or sample
+sizes.
 
 ## Survival outcomes
 
@@ -84,11 +89,10 @@ keeping all prior competing events out of later risk sets.
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
 
-This projection accepts `n_folds > 1` and runs the same construction the regimen means do: one
-complete alternation per outer fold, stitched on held-out rows. A saturated working model therefore
-reproduces the per-regimen report at any fold count. Under a link each fold reaches its own
-coefficient vector, in `result.msm_fits[k].alternation.folds`, and the reported one is the
-projection of the stitched fit.
+Use `n_folds=1` for a longitudinal MSM projection. Cross-fitted coefficient inference is refused
+until an unsaturated projection property and a repeated-sampling study validate that construction.
+A saturated reduction alone does not validate an unsaturated projection or its coefficient
+influence curve.
 
 ## Diagnostics
 

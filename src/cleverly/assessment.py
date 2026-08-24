@@ -19,9 +19,10 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ._typing import FloatArray
+from ._typing import FloatArray, IntArray
 from .data.weighting import effective_sample_size
 from .exceptions import CapabilityError
+from .inference.cluster import cluster_sums
 from .utils.frames import emit_frame
 from .utils.text import format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
@@ -795,6 +796,9 @@ class LongitudinalScoreRow:
     ``kind`` says which question the row answers, because a cross-fitted fit poses two and
     they have different right answers.
 
+    ``component`` names an MSM score component. Such a row pools all live regimen cells,
+    so ``regimen`` and ``horizon`` are ``None``. Ordinary regimen rows have no component.
+
     ``"solver"``
         Did the fluctuation reach the root of the equation it was *given*?  On an ordinary
         fit that equation is the node's own score and ``relative_score`` is it.  On a
@@ -812,10 +816,11 @@ class LongitudinalScoreRow:
         defect moves ``z`` by orders of magnitude, which is what this row is for.
     """
 
-    regimen: str
+    regimen: str | None
     cause: str | None
     horizon: int | None
     time: int
+    component: str | None
     kind: str
     score: float
     relative_score: float
@@ -861,6 +866,7 @@ class LongitudinalScoreDiagnostics:
                 "cause": [row.cause for row in self.rows],
                 "horizon": [row.horizon for row in self.rows],
                 "time": [row.time for row in self.rows],
+                "component": [row.component for row in self.rows],
                 "kind": [row.kind for row in self.rows],
                 "score": [row.score for row in self.rows],
                 "relative_score": [row.relative_score for row in self.rows],
@@ -985,24 +991,142 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     )
 
 
-def _stitched_score_z(step: Any, weights: FloatArray) -> float:
+def _standardized_score(contribution: FloatArray, cluster: IntArray | None = None) -> FloatArray:
+    """Standardize mean score components by their independent-unit standard errors."""
+    values = np.asarray(contribution, dtype=float)
+    if values.ndim == 1:
+        values = values[:, None]
+    n = values.shape[0]
+    if n < 2:
+        return np.full(values.shape[1], np.nan)
+    if cluster is None:
+        standard_error = np.std(values, axis=0, ddof=1) / np.sqrt(n)
+    else:
+        sums = cluster_sums(values, np.asarray(cluster))
+        n_clusters = sums.shape[0]
+        if n_clusters < 2:
+            return np.full(values.shape[1], np.nan)
+        standard_error = np.sqrt(n_clusters * np.var(sums, axis=0, ddof=1) / n**2)
+    mean = np.mean(values, axis=0)
+    return np.divide(
+        mean,
+        standard_error,
+        out=np.full(values.shape[1], np.nan),
+        where=standard_error > 0.0,
+    )
+
+
+def _stitched_score_z(step: Any, weights: FloatArray, cluster: IntArray | None = None) -> float:
     r"""The stitched score over its own standard error.
 
-    The score is :math:`P_n[w H (Z - \bar Q^*)]` and its rows are independent, so the scale
-    to read it against is :math:`\operatorname{sd}(w H (Z - \bar Q^*)) / \sqrt n` -- the
-    same quantity, drawn again.  Dividing by the *relative* scale instead would answer a
-    different question: how large the score is against the largest it could be, which is the
-    right question for an equation somebody solved and the wrong one for a residual nobody
-    did.
+    The score is :math:`P_n[w H (Z - \bar Q^*)]`. Independent rows use the row-level
+    standard error. Clustered rows first sum their contributions within cluster and use
+    the same finite-sample scaling as the inference layer.
 
     Returns ``nan`` when the residual has no spread, which is a degenerate node rather than
     a perfect one and is not something to report a ``z`` of zero for.
     """
     contribution = weights * step.clever * (step.pseudo_outcome - step.targeted)
-    spread = float(np.std(contribution, ddof=1)) if contribution.size > 1 else 0.0
-    if not spread:
-        return float("nan")
-    return float(np.mean(contribution) / (spread / np.sqrt(contribution.size)))
+    return float(_standardized_score(contribution, cluster)[0])
+
+
+def _msm_node_contributions(
+    result: Any, msm_fit: Any, time: int
+) -> tuple[FloatArray, FloatArray, Any]:
+    """Per-unit pooled score and scale contributions for one longitudinal MSM node."""
+    model = msm_fit.model
+    weights = np.asarray(result.data.weights, dtype=float)
+    contribution = np.zeros((result.data.n, model.n_terms), dtype=float)
+    maximum = np.zeros_like(contribution)
+    fluctuation = None
+    for cell_index, (cell, cell_fit) in enumerate(zip(model.cells, msm_fit.fits, strict=True)):
+        if cell.horizon < time:
+            continue
+        step = next(item for item in cell_fit.steps if item.time == time)
+        fluctuation = step.fluctuation
+        multiplier = weights * model.weights[:, cell_index] * step.clever
+        design = msm_fit.fluctuation_design[:, cell_index, :]
+        residual = step.pseudo_outcome - step.targeted
+        contribution += multiplier[:, None] * design * residual[:, None]
+        maximum += np.abs(multiplier[:, None] * design)
+    if fluctuation is None:  # pragma: no cover - a model cell always reaches its own nodes
+        raise RuntimeError(f"the longitudinal MSM has no live cell at time {time}")
+    return contribution, maximum, fluctuation
+
+
+def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
+    """Pooled component-wise node diagnostics for a longitudinal working model."""
+    rows = []
+    for msm_fit in result.msm_fits:
+        times = sorted({step.time for fit in msm_fit.fits for step in fit.steps})
+        for time in times:
+            contribution, maximum, fluctuation = _msm_node_contributions(result, msm_fit, time)
+            pooled_score = np.mean(contribution, axis=0)
+            pooled_scale = np.mean(maximum, axis=0)
+            z = _standardized_score(contribution, result.data.cluster)
+            for component, term in enumerate(msm_fit.model.terms):
+                converged = bool(fluctuation.converged)
+                if fluctuation.folds:
+                    relatives = []
+                    scores = []
+                    for record in fluctuation.folds:
+                        scale = (
+                            np.asarray(record.score_scale, dtype=float)
+                            if record.score_scale is not None
+                            else np.asarray(fluctuation.score_scale, dtype=float)
+                        )
+                        score = float(np.asarray(record.score, dtype=float)[component])
+                        scores.append(abs(score))
+                        relatives.append(abs(score) / max(float(scale[component]), 1e-300))
+                    solver_score = max(scores)
+                    solver_relative = max(relatives)
+                else:
+                    solver_score = abs(float(pooled_score[component]))
+                    solver_relative = solver_score / max(float(pooled_scale[component]), 1e-300)
+                rows.append(
+                    LongitudinalScoreRow(
+                        None,
+                        msm_fit.cause,
+                        None,
+                        time,
+                        term,
+                        "solver",
+                        float(result.scaler.range * solver_score),
+                        solver_relative,
+                        float("nan"),
+                        converged,
+                        converged and solver_relative <= tolerance,
+                        int(fluctuation.n_iter),
+                        fluctuation.failure,
+                    )
+                )
+                if not fluctuation.folds:
+                    continue
+                component_z = float(z[component])
+                relative = abs(float(pooled_score[component])) / max(
+                    float(pooled_scale[component]), 1e-300
+                )
+                rows.append(
+                    LongitudinalScoreRow(
+                        None,
+                        msm_fit.cause,
+                        None,
+                        time,
+                        term,
+                        "stitching",
+                        float(result.scaler.range * pooled_score[component]),
+                        relative,
+                        component_z,
+                        converged,
+                        bool(
+                            np.isfinite(component_z)
+                            and abs(component_z) <= STITCHED_SCORE_Z_TOLERANCE
+                        ),
+                        int(fluctuation.n_iter),
+                        fluctuation.failure,
+                    )
+                )
+    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
 
 
 def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
@@ -1022,6 +1146,9 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
     looks like -- including when the folds were stitched back in the wrong order, or a slab
     was read for the wrong fold.  The stitching row is where that shows.
     """
+    if result.msm is not None:
+        return _longitudinal_msm_scores(result, tolerance=tolerance)
+
     rows = []
     for fit in result.fits.values():
         weights = np.asarray(fit.obs_weights, dtype=float)
@@ -1035,9 +1162,18 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
             # average would let nine good folds hide one that did not move.
             solver_relative = (
                 max(
-                    float(np.max(np.abs(record.score)) / max(scale, 1e-300))
+                    float(
+                        np.max(
+                            np.abs(record.score)
+                            / np.maximum(
+                                record.score_scale
+                                if record.score_scale is not None
+                                else fluctuation.score_scale,
+                                1e-300,
+                            )
+                        )
+                    )
                     for record in fluctuation.folds
-                    for scale in [float(np.max(np.abs(fluctuation.score_scale)))]
                 )
                 if fluctuation.folds
                 else float(fluctuation.relative_score_norm)
@@ -1053,6 +1189,7 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
                     fit.cause,
                     horizon,
                     step.time,
+                    None,
                     "solver",
                     float(result.scaler.range * solver_score),
                     solver_relative,
@@ -1065,13 +1202,14 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
             )
             if not fluctuation.folds:
                 continue
-            z = _stitched_score_z(step, weights)
+            z = _stitched_score_z(step, weights, result.data.cluster)
             rows.append(
                 LongitudinalScoreRow(
                     fit.regimen.label,
                     fit.cause,
                     horizon,
                     step.time,
+                    None,
                     "stitching",
                     float(result.scaler.range * fluctuation.score_norm),
                     float(fluctuation.relative_score_norm),

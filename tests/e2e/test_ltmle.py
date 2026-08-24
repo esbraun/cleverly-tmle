@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import warnings
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -133,8 +134,14 @@ def test_every_score_equation_is_solved(
     for fit in result.fits.values():
         for step in fit.steps:
             assert all(record.converged for record in step.fluctuation.folds)
+            assert step.fluctuation.trace == ()
+            assert step.fluctuation.n_iter == sum(
+                record.n_iter for record in step.fluctuation.folds
+            )
             for record in step.fluctuation.folds:
                 assert float(np.max(np.abs(record.score))) < 1e-8
+                assert record.trace
+                assert record.score_scale is not None
     for curve in result.influence_curves.values():
         assert np.isfinite(curve).all()
         assert abs(_standardized_mean(curve)) < STITCHED_SCORE_Z_TOLERANCE
@@ -185,6 +192,28 @@ def test_a_misplaced_fold_fails_the_stitching_gate(
     weights = np.asarray(fit.obs_weights, dtype=float)
     assert abs(_stitched_score_z(damaged, weights)) > STITCHED_SCORE_Z_TOLERANCE
     assert abs(_stitched_score_z(step, weights)) <= STITCHED_SCORE_Z_TOLERANCE
+
+
+def test_clustered_stitching_uses_clusters_as_the_independent_units() -> None:
+    """Two correlated blocks are two draws, not 200 independent observations."""
+    contribution = np.concatenate([np.ones(100), np.full(100, -7.0 / 13.0)])
+    step = SimpleNamespace(
+        clever=np.ones(200),
+        pseudo_outcome=contribution,
+        targeted=np.zeros(200),
+    )
+    iid = _stitched_score_z(step, np.ones(200))
+    clustered = _stitched_score_z(step, np.ones(200), np.repeat([0, 1], 100))
+    assert iid == pytest.approx(4.232020793899766)
+    assert clustered == pytest.approx(0.3)
+    assert iid > STITCHED_SCORE_Z_TOLERANCE
+    assert clustered < STITCHED_SCORE_Z_TOLERANCE
+    assert np.isnan(_stitched_score_z(step, np.ones(200), np.zeros(200, dtype=int)))
+
+    constant = SimpleNamespace(
+        clever=np.ones(200), pseudo_outcome=np.ones(200), targeted=np.zeros(200)
+    )
+    assert np.isnan(_stitched_score_z(constant, np.ones(200)))
 
 
 def test_recovers_the_truth_on_average() -> None:
@@ -631,6 +660,7 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
     for name in clustered:
         assert clustered.psi(name) == pytest.approx(independent.psi(name), abs=0.02)
         assert clustered[name].std_error > independent[name].std_error
+    assert clustered.validate()["score_equations"].status is AssessmentStatus.PASSED
     assert "cluster-robust variance" in clustered.summary()
 
 

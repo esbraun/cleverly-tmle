@@ -148,7 +148,7 @@ der Laan (2012) is the survival implementation reference.
 | `regimens=` | static plans, dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
-| `msm=` | a working model over the regimen and horizon cells. See [MSM projections](msm-projections.md) |
+| `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
 | `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. Each fold fits a complete mechanism, backward recursion, and targeting sequence on its training rows. The result stitches predictions only on held-out rows. The fit keeps one mechanism slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink |
@@ -156,19 +156,13 @@ der Laan (2012) is the survival implementation reference.
 
 ### What cross-fitting splits
 
-The whole backward recursion is the unit of splitting, and one construction serves both the regimen
-means and `msm=`. Fold $k$ fits every mechanism, every regression and every fluctuation on its
-training complement, and only fold $k$'s held-out rows reach the report. Under a working model with
-a link, fold $k$ also alternates to its own coefficient vector, because the covariate reads it.
+The whole backward recursion is the unit of splitting for regimen means. Fold $k$ fits every
+mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
+report.
 
-A saturated working model therefore reproduces the per-regimen report at any fold count. That is an
-algebraic identity, and it is what says `msm=` is a projection of the same estimator rather than a
-second one. `TestASaturatedModelIsThePerRegimenReport` in
-[`tests/e2e/test_ltmle_msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/e2e/test_ltmle_msm.py)
-pins it at one fold and at three.
-
-The reported coefficient is the projection of the *stitched* fit, not any fold's and not an average
-of them. `result.msm_fits[k].alternation.folds` carries each fold's own.
+Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
+to the same regimen means. It does not validate an unsaturated coefficient projection under
+cross-fitting. That composition needs a separate property and repeated-sampling study.
 
 **A cross-fitted fit does not solve the pooled score equation, and is not meant to.** Fold $k$ fits
 its fluctuation coefficient on the rows it does not report, so the score of the stitched fit is a

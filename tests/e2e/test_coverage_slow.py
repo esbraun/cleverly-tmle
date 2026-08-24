@@ -1184,9 +1184,8 @@ class TestLongitudinalInference:
 
     The class fits at ``n_folds=5``, so what it measures is the fold-specific construction:
     one complete mechanism, backward regression and targeting sequence per outer fold,
-    stitched on held-out rows. That construction does not solve the pooled score equation
-    and its reported standard error is conservative; the standard-error test below carries
-    the measured numbers and the reason.
+    stitched on held-out rows. That construction does not solve the pooled score equation.
+    The standard-error test below records calibration for this law and configuration.
 
     The harness took no adapting beyond one line in ``CoverageStudy._select``:
     ``make_longitudinal`` already follows the ``(n, seed) -> (frame, truth)`` convention
@@ -1278,8 +1277,7 @@ class TestLongitudinalInference:
 
         Measured at 400 replications and ``n=2000``, under the fold-specific construction:
         coverage ran from 0.9600 to 0.9650 across the five estimands, against a Monte Carlo
-        standard error of about 0.010. Every cell sits above nominal rather than at it,
-        which the standard-error test below explains.
+        standard error of about 0.010. Every measured cell sits above nominal.
         """
         for name in study.summaries:
             summary = study[name]
@@ -1299,13 +1297,9 @@ class TestLongitudinalInference:
         larger than 0.00053 anywhere. So the fit is unbiased and its intervals are wide,
         which leaves 0.05 of headroom under the ceiling and 0.17 under the floor.
 
-        That asymmetry is a property of fold-specific targeting rather than noise. Each
-        outer fold fits its fluctuation coefficient on the rows it does not report, so the
-        residual term of the reported influence curve is not orthogonalised against the
-        rows it is reported on, and it contributes variance the estimator itself does not
-        have. The same measurement at ``n=500`` gives 1.09 to 1.14, so this does not shrink
-        with the sample -- the estimator is asymptotically efficient and the *reported*
-        variance is conservative at any size.
+        The same measurement at ``n=500`` gives 1.09 to 1.14. These finite Monte Carlo
+        results describe this law and configuration only. They do not establish a variance
+        direction for other laws, MSMs, weights, clusters, survival outcomes, or limits.
 
         The ceiling therefore stays at 1.15 rather than tightening to what was measured.
         Tightening it would gate a property nobody has bounded theoretically, on one law,

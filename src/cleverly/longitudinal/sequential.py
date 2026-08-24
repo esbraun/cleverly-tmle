@@ -909,7 +909,6 @@ class _FoldSolve:
     #: the average across folds weighted by this, so a weighted fit averages by the
     #: weights it was fitted with rather than by row counts.
     mass: float
-    trace: float
     failure: TargetingFailure | None
     hessian_condition: float
     loglik: float
@@ -974,7 +973,9 @@ def aggregate_fold_fluctuations(
         score=score_columns(outcome, targeted, covariate, loss_weights, mask),
         converged=all(solve.record.converged for solve in solves),
         n_iter=sum(solve.record.n_iter for solve in solves),
-        trace=tuple(solve.trace for solve in solves),
+        # Several fold solves have no single iteration trajectory. Their complete traces
+        # live on the fold records instead of masquerading as one aggregate trace.
+        trace=(),
         method=solves[0].method,
         names=solves[0].names,
         score_scale=score_scale(covariate, loss_weights, mask),
@@ -1096,9 +1097,10 @@ def _fit_regimen_crossfit(
                             score=fluctuation.score,
                             converged=fluctuation.converged,
                             n_iter=fluctuation.n_iter,
+                            trace=fluctuation.trace,
+                            score_scale=fluctuation.score_scale,
                         ),
                         mass=float(weights[test].sum()),
-                        trace=fluctuation.trace[-1] if fluctuation.trace else float("nan"),
                         failure=fluctuation.failure,
                         hessian_condition=fluctuation.hessian_condition,
                         loglik=fluctuation.loglik,

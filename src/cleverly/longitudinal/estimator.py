@@ -969,15 +969,16 @@ class LTMLE:
         Each fold's fluctuation coefficient is fitted on rows the fold does not report, so
         the *pooled* score equation is not solved -- :meth:`.DiagnosticsFacade.
         score_equations` reports that residual as its own row rather than folding it into
-        the solver verdict -- and the influence-curve standard error runs above the actual
-        sampling spread.  Measured over 300 replications of
+        the solver verdict.  Measured over 300 replications of
         :func:`~cleverly.datasets.make_longitudinal` at ``n=500``, the ratio of reported
         standard error to the spread of the estimates was 1.01 at one fold and 1.09 at
-        ten.  The intervals are conservative rather than invalid.
+        ten.  This finite result applies to that law and configuration.  It does not
+        establish the direction for other laws, weights, clusters, survival outcomes, or
+        sample sizes.
 
-        ``msm=`` uses the same construction, one complete alternation per outer fold, so a
-        saturated working model reproduces the regimen means at any fold count and both
-        properties above apply to it too.
+        A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
+        inference remains refused until a dedicated unsaturated projection property and
+        repeated-sampling study establish it.
     g_bounds:
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair
@@ -1106,6 +1107,13 @@ class LTMLE:
                 "decided by the design you gave msm=, and an intercept is whatever that "
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
+            )
+        if self.msm is not None and self.n_folds > 1:
+            raise ValueError(
+                "msm= with n_folds > 1 is not supported. Cross-fitted longitudinal MSM "
+                "coefficient inference needs a dedicated unsaturated projection property "
+                "and repeated-sampling study before it can be reported. Pass n_folds=1 "
+                "for the evidenced in-sample longitudinal MSM construction."
             )
 
     @staticmethod
