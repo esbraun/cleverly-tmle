@@ -74,24 +74,28 @@ JOINT_MECHANISM = "P(A=a,Delta=1|W)"
 class PositivityReport:
     """Overlap diagnostics for a fitted TMLE.
 
-    Attributes
+    Parameters
     ----------
-    propensity_quantiles:
+    propensity_quantiles : dict of str to dict of float to float
         Quantiles of ``g(W)``, overall and within each treatment arm.
-    tail_mass:
+    tail_mass : dict of float to dict of str to float
         Fraction of units with ``g(W)`` below each threshold, and above its mirror.
-    effective_sample_size:
+    effective_sample_size : dict of str to dict of str to float
         Kish ESS of the inverse-probability weights per arm, with the nominal arm
         size alongside for comparison.
-    weight_share:
+    weight_share : dict of str to dict of str to float
         Share of the total weight held by the largest 1% and 5% of weights.
-    truncated:
+    truncated : dict of str to float
         Count and fraction of propensity scores clipped by the truncation bounds, and
         the most extreme untruncated value.
-    clever_covariate_max:
+    clever_covariate_max : dict of str to float
         Largest absolute clever-covariate value per targeted estimand family -- the
         single most direct summary of how much one observation can move the estimate.
-    mechanisms:
+    bounds : tuple of float
+        Truncation bounds the fit applied to the treatment mechanism.
+    n : int
+        Number of observations the diagnostics were computed over.
+    mechanisms : dict of str to dict of str to float
         Overlap for the *other* denominators in the clever covariate:
         ``P(Delta = 1 | A, W)`` when outcomes are missing, and ``P(Z = z | A, W)`` for a
         controlled direct effect.  Each carries the smallest and lowest-quantile value,
@@ -115,10 +119,10 @@ class PositivityReport:
         where either factor's truncation bit -- and its ``ess_ratio`` weights by
         ``clip(g) * clip(pi)``, the denominator actually formed. Its ``min`` and quantiles
         stay on the untruncated product, as the fitted rows' do.
-    nuisance_bound:
+    nuisance_bound : float
         The lower bound applied to the *fitted* mechanisms above.  The derived joint row
         has no single such bound -- see :meth:`_bound_label`.
-    simplex_deviation:
+    simplex_deviation : float
         Largest ``|sum_a g(a | W) - 1|`` across rows *after* truncation, and ``0`` for a
         two-armed fit, where the complement form preserves the sum exactly.
 
@@ -130,6 +134,13 @@ class PositivityReport:
         which is a positivity finding, not a bookkeeping one.  It does not bias the
         plug-in: the plug-in averages targeted predictions and contains no mechanism at
         all.
+
+    n_repeats : int
+        Cross-fitting draws the fit averaged over. Everything else here describes
+        the **first** of them, because overlap is a property of one fitted
+        mechanism and averaging draws would describe one no estimate came from.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     """
 
     propensity_quantiles: dict[str, dict[float, float]]
@@ -158,7 +169,19 @@ class PositivityReport:
     backend: str | None = None
 
     def to_frame(self, data: Any = None) -> Any:
-        """Propensity quantiles as a tidy frame."""
+        """Propensity quantiles as a tidy frame.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses
+            :attr:`backend`.
+
+        Returns
+        -------
+        dataframe
+            One row per ``(arm, quantile)`` of the treatment mechanism.
+        """
         rows: list[tuple[str, float, float]] = [
             (group, quantile, value)
             for group, quantiles in self.propensity_quantiles.items()
@@ -187,7 +210,13 @@ class PositivityReport:
         return f"[{self.nuisance_bound:.4g}, 1]"
 
     def summary(self) -> str:
-        """A printable overlap report."""
+        """A printable overlap report.
+
+        Returns
+        -------
+        str
+            A printable report, one line per reported quantity.
+        """
         lines = [
             "Positivity / overlap diagnostics",
             "-" * 32,
@@ -272,7 +301,13 @@ class PositivityReport:
         return "\n".join(lines)
 
     def verdict(self) -> str:
-        """A one-line reading of the diagnostics."""
+        """A one-line reading of the diagnostics.
+
+        Returns
+        -------
+        str
+            One line saying whether the overlap supports the reported estimate.
+        """
         worst_ratio = min(ess["ratio"] for ess in self.effective_sample_size.values())
         fraction = self.truncated["fraction"]
         for name, stats in self.mechanisms.items():
@@ -334,6 +369,16 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     mechanism: the largest value the field can take, reported as a finding.  The question
     a shift fit actually has to answer is about the *density ratio* at the shifted dose,
     which :func:`~cleverly.interventions.check_shift_support` answers.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+
+    Returns
+    -------
+    PositivityReport
+        Overlap read off the stored nuisance fits, without refitting.
     """
     if result.data.is_continuous_treatment:
         raise DataError(
@@ -677,6 +722,8 @@ def truncation_curve(
 
     Parameters
     ----------
+    result : TMLEResult
+        A fitted result.
     bounds : sequence of float or None
         Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 that
         includes the bound the fit actually used.
@@ -693,6 +740,11 @@ def truncation_curve(
         the *estimand*: the plug-in is an average of targeted predictions and contains
         no mechanism at all.  What moves is the second-order remainder, so a curve that
         drifts is saying the estimate is leaning on rows the bound is holding up.
+
+    Returns
+    -------
+    dataframe
+        One row per ``(bound, estimand)``, with the point estimate and interval.
     """
     estimator = result.estimator
     if estimator is None:

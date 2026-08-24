@@ -169,7 +169,13 @@ def set_thread_limit(limit: int | None) -> None:
 
 
 def get_thread_limit() -> int | None:
-    """The thread limit currently applied around each fit."""
+    """The thread limit currently applied around each fit.
+
+    Returns
+    -------
+    int or None
+        Threads allowed per fit, or ``None`` when limiting is disabled.
+    """
     return _LIMIT
 
 

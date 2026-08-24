@@ -85,6 +85,12 @@ class ModelSpec:
     min_retain : int or None
         Minimum number of covariates retained by screening.
 
+    See Also
+    --------
+    TMLEMethod : Method configuration this object is the model half of.
+    cleverly.SuperLearner : Ensemble to pass when one learner is not enough.
+    CrossFitting : How the learners set here are fitted out of fold.
+
     Examples
     --------
     >>> from cleverly import ModelSpec
@@ -92,12 +98,6 @@ class ModelSpec:
     >>> models = ModelSpec(outcome_learner=LinearRegression())
     >>> type(models.outcome_learner).__name__
     'LinearRegression'
-
-    See Also
-    --------
-    TMLEMethod : Method configuration this object is the model half of.
-    cleverly.SuperLearner : Ensemble to pass when one learner is not enough.
-    CrossFitting : How the learners set here are fitted out of fold.
     """
 
     outcome_learner: Any = None
@@ -144,6 +144,12 @@ class CrossFitting:
     fold_evaluation : bool
         Whether to retain fold-evaluated CV-TMLE estimates.
 
+    See Also
+    --------
+    TMLEMethod : Method configuration this object is the splitting half of.
+    Targeting : Whether the fluctuation is pooled or fitted per fold.
+    cleverly.learners.make_folds : The partition this configuration asks for.
+
     Examples
     --------
     Fewer folds, and averaged over three independent splits:
@@ -157,12 +163,6 @@ class CrossFitting:
 
     >>> CrossFitting(enabled=False).enabled
     False
-
-    See Also
-    --------
-    TMLEMethod : Method configuration this object is the splitting half of.
-    Targeting : Whether the fluctuation is pooled or fitted per fold.
-    cleverly.learners.make_folds : The partition this configuration asks for.
     """
 
     enabled: bool = True
@@ -201,6 +201,12 @@ class Targeting:
     tol : float
         Score-equation convergence tolerance.
 
+    See Also
+    --------
+    TMLEMethod : Method configuration this object is the targeting half of.
+    Inference : Interval settings, which own ``alpha`` rather than ``submodel_alpha``.
+    cleverly.sensitivity.truncation_curve : What the estimate does across ``g_bounds``.
+
     Examples
     --------
     Truncate the treatment mechanism at a fixed bound rather than the data-driven one:
@@ -211,12 +217,6 @@ class Targeting:
 
     >>> Targeting().g_bounds
     'auto'
-
-    See Also
-    --------
-    TMLEMethod : Method configuration this object is the targeting half of.
-    Inference : Interval settings, which own ``alpha`` rather than ``submodel_alpha``.
-    cleverly.sensitivity.truncation_curve : What the estimate does across ``g_bounds``.
     """
 
     fluctuation: FluctuationKind = "logistic"
@@ -250,6 +250,12 @@ class Inference:
     multiplier_kind : str
         Distribution of multiplier weights.
 
+    See Also
+    --------
+    TMLEMethod : Method configuration this object is the inference half of.
+    Targeting : Owns ``submodel_alpha``, which is not an interval level.
+    cleverly.inference.run_bootstrap : The refit bootstrap ``n_bootstrap`` requests.
+
     Examples
     --------
     Report 99 percent intervals and add a cluster bootstrap:
@@ -264,12 +270,6 @@ class Inference:
     >>> from cleverly import Targeting
     >>> Targeting().submodel_alpha
     0.9995
-
-    See Also
-    --------
-    TMLEMethod : Method configuration this object is the inference half of.
-    Targeting : Owns ``submodel_alpha``, which is not an interval level.
-    cleverly.inference.run_bootstrap : The refit bootstrap ``n_bootstrap`` requests.
     """
 
     #: Significance level of the reported intervals, and what the ``alpha=`` shortcut sets.
@@ -302,18 +302,18 @@ class Runtime:
     n_jobs : int
         Maximum parallel jobs requested by the fit.
 
+    See Also
+    --------
+    TMLEMethod : Method configuration this object is the runtime half of.
+    cleverly.Provenance : Where ``run_id`` and the fit fingerprints are recorded.
+    cleverly.learners.set_thread_limit : Native threads per fit, which ``n_jobs`` does not set.
+
     Examples
     --------
     >>> from cleverly import Runtime
     >>> runtime = Runtime(random_state=0, run_id="pilot-2026-03", n_jobs=4)
     >>> runtime.random_state, runtime.run_id
     (0, 'pilot-2026-03')
-
-    See Also
-    --------
-    TMLEMethod : Method configuration this object is the runtime half of.
-    cleverly.Provenance : Where ``run_id`` and the fit fingerprints are recorded.
-    cleverly.learners.set_thread_limit : Native threads per fit, which ``n_jobs`` does not set.
     """
 
     random_state: int | None = None
@@ -325,9 +325,22 @@ class Runtime:
 class EstimationMethod(Protocol):
     """Define the contract for an evidenced estimation method.
 
+    Parameters
+    ----------
+    *args, **kwargs
+        Present because :func:`typing.runtime_checkable` gives a protocol a synthetic
+        constructor. A protocol is implemented, not instantiated.
+
     Attributes
     ----------
     name : str
+
+    See Also
+    --------
+    TMLEMethod : The analytic point-treatment implementation.
+    CollaborativeTMLEMethod : Adds collaborative treatment-mechanism selection.
+    DRTMLEMethod : Adds the reduced-dimension doubly robust correction.
+    cleverly.IdentifiedEffect : What a method is handed to in order to fit.
 
     Examples
     --------
@@ -340,13 +353,6 @@ class EstimationMethod(Protocol):
     ['tmle', 'drtmle']
     >>> all(isinstance(method, EstimationMethod) for method in methods)
     True
-
-    See Also
-    --------
-    TMLEMethod : The analytic point-treatment implementation.
-    CollaborativeTMLEMethod : Adds collaborative treatment-mechanism selection.
-    DRTMLEMethod : Adds the reduced-dimension doubly robust correction.
-    cleverly.IdentifiedEffect : What a method is handed to in order to fit.
     """
 
     @property
@@ -493,6 +499,13 @@ class TMLEMethod:
     name : str
         Stable method name.
 
+    See Also
+    --------
+    CollaborativeTMLEMethod : Selects the treatment mechanism against the targeted loss.
+    DRTMLEMethod : Corrects both nuisances with reduced-dimension regressions.
+    ModelSpec : The learners this configuration fits with.
+    cleverly.IdentifiedEffect : What this configuration is passed to.
+
     Examples
     --------
     >>> from cleverly import CrossFitting, TMLEMethod
@@ -504,13 +517,6 @@ class TMLEMethod:
 
     >>> TMLEMethod().with_overrides(n_folds=5) == method
     True
-
-    See Also
-    --------
-    CollaborativeTMLEMethod : Selects the treatment mechanism against the targeted loss.
-    DRTMLEMethod : Corrects both nuisances with reduced-dimension regressions.
-    ModelSpec : The learners this configuration fits with.
-    cleverly.IdentifiedEffect : What this configuration is passed to.
     """
 
     models: ModelSpec = ModelSpec()
@@ -691,6 +697,12 @@ class CollaborativeTMLEMethod(TMLEMethod):
     selection_estimand : str
         Estimand used by the selector.
 
+    See Also
+    --------
+    TMLEMethod : The base configuration, without covariate selection.
+    DRTMLEMethod : The other correction for a mechanism that is hard to fit.
+    cleverly.estimators.ctmle : Why selection is made against the targeted loss.
+
     Examples
     --------
     >>> from cleverly import CollaborativeTMLEMethod
@@ -704,12 +716,6 @@ class CollaborativeTMLEMethod(TMLEMethod):
     >>> from cleverly import CrossFitting
     >>> CollaborativeTMLEMethod(cross_fitting=CrossFitting(n_folds=5)).cross_fitting.n_folds
     5
-
-    See Also
-    --------
-    TMLEMethod : The base configuration, without covariate selection.
-    DRTMLEMethod : The other correction for a mechanism that is hard to fit.
-    cleverly.estimators.ctmle : Why selection is made against the targeted loss.
     """
 
     strategy: str = "greedy"
@@ -789,6 +795,12 @@ class DRTMLEMethod(TMLEMethod):
     treatment_probabilities : Any or None
         Known treatment probabilities for randomized treatment.
 
+    See Also
+    --------
+    TMLEMethod : The base configuration, without the reduced-dimension correction.
+    CollaborativeTMLEMethod : The other correction for a mechanism that is hard to fit.
+    ModelSpec : Owns the first-stage learners the reduced regressions correct.
+
     Examples
     --------
     >>> from cleverly import DRTMLEMethod
@@ -801,12 +813,6 @@ class DRTMLEMethod(TMLEMethod):
 
     >>> DRTMLEMethod(guard=("Q",), randomized=True).guard
     ('Q',)
-
-    See Also
-    --------
-    TMLEMethod : The base configuration, without the reduced-dimension correction.
-    CollaborativeTMLEMethod : The other correction for a mechanism that is hard to fit.
-    ModelSpec : Owns the first-stage learners the reduced regressions correct.
     """
 
     guard: tuple[str, ...] = ("Q", "g")

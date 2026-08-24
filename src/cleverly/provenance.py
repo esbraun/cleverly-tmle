@@ -72,13 +72,27 @@ def _version(name: str) -> str:
 class Provenance:
     """Enough to tell whether two results came from the same place.
 
-    Attributes
+    Parameters
     ----------
-    data_fingerprint:
+    cleverly_version : str
+        Version of this package that produced the fit.
+    python_version : str
+        Interpreter version.
+    platform : str
+        Operating system and machine the fit ran on.
+    created_utc : str
+        ISO timestamp of the fit.
+    n : int
+        Number of observations.
+    n_covariates : int
+        Number of adjustment covariates.
+    n_clusters : int or None
+        Independent clusters, or ``None`` for independent rows.
+    data_fingerprint : str
         Digest of the outcome, treatment and covariates.  Equal fingerprints mean
         equal inputs; different ones mean the data moved, which is usually the
         answer when two runs disagree.
-    fold_fingerprint:
+    fold_fingerprint : str
         Digest of the realised fold assignment.  Recorded separately from
         ``random_state`` because folds are *not* recoverable from a seed alone --
         they also depend on row order, on the stratification variable, and on the
@@ -87,6 +101,13 @@ class Provenance:
         Under ``repeats=R`` this covers *every* draw, in fit order.  A repeated fit is
         reproducible only if all ``R`` splits are, so a digest of one of them would be
         stating a guarantee the fit does not make.
+
+    random_state : int or None
+        Seed the fit was given.
+    run_id : str or None
+        Identifier the caller supplied.
+    package_versions : dict of str to str
+        Versions of the learner libraries used.
     """
 
     cleverly_version: str
@@ -103,16 +124,39 @@ class Provenance:
     package_versions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-compatible representation."""
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict
+            A JSON-compatible mapping of every reported field.
+        """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> Provenance:
-        """Construct an instance from a serialized mapping."""
+        """Construct an instance from a serialized mapping.
+
+        Parameters
+        ----------
+        payload : dict
+            A mapping as :meth:`to_dict` produced.
+
+        Returns
+        -------
+        Provenance
+            The record that mapping describes.
+        """
         return cls(**payload)
 
     def describe(self) -> list[str]:
-        """Lines for :meth:`~cleverly.TMLEResult.summary`."""
+        """Lines for :meth:`~cleverly.TMLEResult.summary`.
+
+        Returns
+        -------
+        list of str
+            One line per recorded fact, for a result summary to append.
+        """
         lines = [
             f"data {self.data_fingerprint} | folds {self.fold_fingerprint} | "
             f"cleverly {self.cleverly_version} | {self.created_utc}"

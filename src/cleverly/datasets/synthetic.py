@@ -476,13 +476,13 @@ def make_linear_ate(
 
     Parameters
     ----------
-    n
+    n : int
         Number of observations.
-    seed
+    seed : int, random.Generator, or None
         Seed or NumPy random generator.
-    effect
+    effect : float
         Additive treatment effect used by the data-generating process.
-    backend
+    backend : Backend, str, or None
         Dataframe backend. The configured default is used when omitted.
 
     Returns
@@ -491,22 +491,6 @@ def make_linear_ate(
         Simulated observations with outcome, treatment, and adjustment columns.
     truth
         Exact causal parameters for the data-generating process.
-
-    Examples
-    --------
-    >>> from cleverly.datasets import make_linear_ate
-    >>> frame, truth = make_linear_ate(n=40, seed=1)
-    >>> list(frame.columns)
-    ['Y', 'A', 'W1', 'W2', 'W3', 'W4']
-    >>> truth["ate"]
-    1.5
-
-    ``truth`` also holds each replication's realised sample estimand under a
-    ``sample_`` prefix, which is what a coverage study compares against when it asks
-    about the sample rather than the population parameter:
-
-    >>> sorted(key for key in truth if key.startswith("sample_"))
-    ['sample_atc', 'sample_ate', 'sample_att', 'sample_ey0', 'sample_ey1']
 
     See Also
     --------
@@ -526,11 +510,26 @@ def make_linear_ate(
     Examples
     --------
     >>> from cleverly.datasets import make_linear_ate
+    >>> frame, truth = make_linear_ate(n=40, seed=1)
+    >>> list(frame.columns)
+    ['Y', 'A', 'W1', 'W2', 'W3', 'W4']
+    >>> truth["ate"]
+    1.5
+
+    ``effect`` sets the constant additive effect, so the truth follows it:
+
     >>> data, truth = make_linear_ate(n=20, seed=1, effect=2.0)
     >>> data.shape
     (20, 6)
     >>> truth["ate"]
     2.0
+
+    ``truth`` also holds each draw's realised sample estimand under a ``sample_``
+    prefix, which is what a coverage study compares against when it asks about the
+    sample rather than the population parameter:
+
+    >>> sorted(key for key in truth if key.startswith("sample_"))
+    ['sample_atc', 'sample_ate', 'sample_att', 'sample_ey0', 'sample_ey1']
     """
     return _make(linear_dgp(effect), n, seed, backend)
 
@@ -576,6 +575,22 @@ def make_nonlinear_ate(
     both ``g`` and ``Qbar``, the treatment effect varies with ``W``, and so ``ate``,
     ``att`` and ``atc`` all differ.  An estimator that quietly assumes a constant effect
     will fail here.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with outcome, treatment, and adjustment columns.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(nonlinear_dgp(), n, seed, backend)
 
@@ -646,6 +661,24 @@ def make_heterogeneous(
 
     Use this wherever a test needs ``att``, ``ate`` and ``atc`` to be distinguishable and
     ordered in a known direction -- ``att > ate > atc`` -- rather than merely unequal.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    slope : float
+        Strength of the effect's dependence on the covariate.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations whose treatment effect varies with the covariates.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(heterogeneous_dgp(slope=slope), n, seed, backend)
 
@@ -681,6 +714,25 @@ def make_weak_overlap(
     Propensity scores reach into the tails, so a handful of units carry enormous
     inverse-probability weight.  Used to check that truncation diagnostics fire and
     that the estimate degrades gracefully rather than catastrophically.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    strength : float
+        Coefficient scale of the treatment mechanism. Larger values push more
+        propensity scores towards zero and one.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations whose propensity scores approach their bounds.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(weak_overlap_dgp(strength), n, seed, backend)
 
@@ -726,6 +778,25 @@ def make_instrument(
     collaboratively -- against the loss of the targeted outcome model -- should take
     ``W1`` and leave ``W2``, which is the result :class:`~cleverly.CTMLE` is built to
     deliver.  The effect is constant, so ``ate == att == atc == 1``.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    instrument_strength : float
+        Coefficient of ``W2`` in the treatment mechanism, and so how hard the
+        instrument pushes the propensity towards its bounds.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a confounder, an instrument, and a predictor.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(instrument_dgp(instrument_strength), n, seed, backend)
 
@@ -799,6 +870,24 @@ def make_missing_outcome(
     outcome regression identifies the estimand without any missingness model at all.  The
     mechanism is what supplies the other half of double robustness, for when the outcome
     model is wrong.  Raise ``strength`` above 1 for a process where it is.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    strength : float
+        How hard the process is for a complete-case analysis. See the Notes.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with an outcome column that holds missing values.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(missing_outcome_dgp(strength), n, seed, backend)
 
@@ -839,7 +928,24 @@ def make_missing_outcome_binary(
     seed: int | np.random.Generator | None = None,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
-    """A binary outcome with outcomes missing at random given ``(A, W)``."""
+    """A binary outcome with outcomes missing at random given ``(A, W)``.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a binary outcome that holds missing values.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
+    """
     return _make(missing_outcome_binary_dgp(), n, seed, backend)
 
 
@@ -879,6 +985,24 @@ def make_cde(
     The truth reported is the CDE at ``intermediate_value``.  With the interaction in
     this process the CDE differs between ``z = 0`` (0.9) and ``z = 1`` (1.5), so a fit
     that ignores ``Z`` cannot match either.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    intermediate_value : float
+        Level the intermediate variable is held at when the truth is computed.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a binary intermediate column ``Z``.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(cde_dgp(), n, seed, backend, intermediate_value=intermediate_value)
 
@@ -936,6 +1060,24 @@ def make_clustered(
     It moves ``Y`` and, being independent of ``A``, leaves the ATE identified from the
     covariates that are emitted; see :func:`clustered_dgp` for why both of those are
     necessary and why an additive shared effect would give neither.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    cluster_size : int
+        Number of rows per cluster.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with an ``id`` column naming each row's cluster.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(clustered_dgp(cluster_size), n, seed, backend)
 
@@ -972,6 +1114,22 @@ def make_binary_outcome(
     a ratio of standardised risks -- not the conditional odds ratio in the structural
     logistic model.  They differ, and conflating them is a common source of apparent
     "bias" that is really a different estimand.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a binary outcome, treatment, and covariates.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return _make(binary_outcome_dgp(), n, seed, backend)
 
@@ -1033,11 +1191,25 @@ def make_biased_sample(
     here -- reported as ``truth["ate_selected"]`` -- and that gap is what a test asserts
     the weighting closes.
 
+    Parameters
+    ----------
+    n_population : int
+        Size of the population the sample is drawn from, not of the sample.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    heterogeneity : float
+        Strength of the effect modification that makes the sampled population's
+        estimand differ from the population one.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
     Returns
     -------
-    ``(frame, truth)``, where ``truth`` holds the population estimands plus
-    ``ate_selected`` (the estimand an unweighted analysis targets), ``n_population`` and
-    ``n_selected``.
+    dataframe
+        The selected sample, with the design weights that undo the selection.
+    truth : dict of str to float
+        The population estimands, plus ``ate_selected`` (the estimand an unweighted
+        analysis targets), ``n_population`` and ``n_selected``.
     """
     rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
     dgp = biased_sampling_dgp(heterogeneity)
@@ -1297,6 +1469,24 @@ def make_multi_arm(
 
     ``family="binomial"`` gives the binary-outcome version, which is what ``rr`` and
     ``or`` -- and the E-value built on them -- need on a multi-valued treatment.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+    family : {"gaussian", "binomial"}
+        Outcome family of the generated outcome.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a three-level treatment column.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return multi_arm_dgp(family=family).sample(n, seed=seed, backend=backend)
 
@@ -1460,6 +1650,24 @@ def make_shift_dose(
     which is what :class:`~cleverly.interventions.Shift` would be given for the same
     analysis -- and the names match, so the truth is keyed exactly as the estimator
     reports.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    shifts : sequence of tuple
+        One ``(delta, cap, name)`` per policy the truth is computed for.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a continuous dose column.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
     """
     return shift_dgp().sample(n, shifts=shifts, seed=seed, backend=backend)
 
@@ -1490,5 +1698,11 @@ GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
 
 
 def available() -> Sequence[str]:
-    """Names of the bundled data-generating processes."""
+    """Names of the bundled data-generating processes.
+
+    Returns
+    -------
+    sequence of str
+        Names of the bundled processes, in the order :func:`get` accepts them.
+    """
     return tuple(GENERATORS)

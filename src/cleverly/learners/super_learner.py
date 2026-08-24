@@ -47,22 +47,24 @@ _LOGLIK_EPS = 1e-9
 class SuperLearnerDiagnostics:
     """What the ensemble learned, for reporting and validation.
 
-    Attributes
+    Parameters
     ----------
-    names:
+    names : tuple of str
         Candidate names, in the order the weights refer to.
-    cv_risk:
+    cv_risk : ndarray
         Cross-validated risk per candidate (mean squared error for a regression
         task, negative log-likelihood for a classification task).
-    weights:
+    weights : ndarray
         Convex ensemble weights.
-    best:
+    best : str
         Name of the lowest-risk candidate -- what the discrete Super Learner
         would have selected.
-    ensemble_cv_risk:
+    ensemble_cv_risk : float
         Cross-validated risk of the weighted ensemble itself.  Comparing it with
         ``min(cv_risk)`` shows whether stacking bought anything.
-    failed:
+    loss : str
+        Name of the loss the risks above were scored under.
+    failed : tuple of str
         Candidates dropped because fitting raised.
     """
 
@@ -75,7 +77,13 @@ class SuperLearnerDiagnostics:
     failed: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-compatible representation."""
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict of str to Any
+            Candidate names, cross-validated risks, and weights, as JSON-compatible lists.
+        """
         return {
             "learner": list(self.names),
             "cv_risk": self.cv_risk.tolist(),
@@ -120,6 +128,12 @@ class SuperLearner(BaseEstimator):
         ``(n, n_candidates)`` matrix of out-of-fold predictions.  The validation
         module reuses it to assess calibration without refitting.
 
+    See Also
+    --------
+    cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
+    cleverly.learners.default_library : The candidates used when none are given.
+    cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
+
     Examples
     --------
     >>> import numpy as np
@@ -141,12 +155,6 @@ class SuperLearner(BaseEstimator):
     1.0
     >>> ensemble.predict(X).shape
     (200,)
-
-    See Also
-    --------
-    cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
-    cleverly.learners.default_library : The candidates used when none are given.
-    cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
     """
 
     def __init__(
@@ -184,6 +192,23 @@ class SuperLearner(BaseEstimator):
 
         ``groups`` keeps clustered observations inside the same inner fold, so a
         candidate cannot be scored on a row correlated with its training set.
+
+        Parameters
+        ----------
+        X : ndarray
+            ``(n, p)`` covariates.
+        y : ndarray
+            ``(n,)`` target.
+        sample_weight : ndarray or None
+            ``(n,)`` weights, or ``None`` for equal weights.
+        groups : ndarray or None
+            ``(n,)`` cluster codes. Rows of a cluster stay in the same inner fold, so a
+            candidate cannot be scored on a row correlated with its training set.
+
+        Returns
+        -------
+        SuperLearner
+            This object, fitted, as scikit-learn expects.
         """
         x = np.asarray(X, dtype=float)
         if x.ndim == 1:
@@ -401,7 +426,18 @@ class SuperLearner(BaseEstimator):
         return hasattr(self, "one_vs_rest_")
 
     def predict(self, X: FloatArray) -> FloatArray:
-        """Ensemble prediction of the conditional mean."""
+        """Ensemble prediction of the conditional mean.
+
+        Parameters
+        ----------
+        X : ndarray
+            ``(n, p)`` covariates.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` ensemble prediction of the conditional mean.
+        """
         self._check_fitted()
         if self.is_multiclass:
             raise AttributeError(
@@ -422,6 +458,16 @@ class SuperLearner(BaseEstimator):
 
         ``(n, 2)`` for a binary target, ``(n, K)`` for a one-vs-rest multi-class fit,
         where the per-class ensembles are normalised to sum to one across the row.
+
+        Parameters
+        ----------
+        X : ndarray
+            ``(n, p)`` covariates.
+
+        Returns
+        -------
+        ndarray
+            ``(n, n_classes)`` probabilities, columns following :attr:`classes_`.
         """
         if self.task_ != "classification":
             raise AttributeError("predict_proba is only available for a classification task")

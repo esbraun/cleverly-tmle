@@ -63,9 +63,21 @@ numpydoc_show_inherited_class_members = False
 numpydoc_class_members_toctree = False
 numpydoc_attributes_as_param_list = True
 numpydoc_xref_param_type = True
+# The build fails on a docstring that is structurally incomplete, because `pages.yml`
+# builds with `-W`.  What is deliberately *off*: GL01, because a summary on the opening-quote
+# line is house style here; ES01, because an extended summary is not owed by every one-line
+# accessor; and EX01 and SA01, because Examples and See Also are required on the task spine
+# only.  `tests/unit/test_documentation_api.py` enforces those two, since numpydoc's Sphinx
+# configuration can require a check of every object or of none, and 140 pro-forma
+# constructor examples are noise.
 numpydoc_validation_checks = {
     "GL06",  # known section names
     "GL07",  # standard section order
+    "PR01",  # every parameter is documented
+    "PR02",  # no documented parameter that the signature does not have
+    "PR04",  # every parameter carries a type
+    "PR10",  # the "name : type" form, which numpydoc needs to split the two
+    "RT01",  # a function that returns something says what
 }
 
 intersphinx_mapping = {

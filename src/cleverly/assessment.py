@@ -54,6 +54,12 @@ class AssessmentStatus(StrEnum):
     ``NOT_APPLICABLE`` means that the operation does not apply to the fitted
     estimand. ``UNAVAILABLE`` means that the operation applies, but the result
     does not contain the artifacts needed to run it.
+
+    Parameters
+    ----------
+    *values
+        Present because :class:`enum.StrEnum` gives every member a synthetic
+        constructor. Reach a status by name, as ``AssessmentStatus.PASSED``.
     """
 
     PASSED = "passed"
@@ -69,29 +75,29 @@ class AssessmentCapability:
 
     Parameters
     ----------
-    operation
+    operation : str
         Public operation name on a diagnostics or sensitivity facade.
-    result_family
+    result_family : str
         Result family for which the declaration applies.
-    methods
+    methods : tuple of str
         Estimation methods covered by the declaration.
-    available
+    available : bool
         Whether the operation can run on the result family.
-    status
+    status : AssessmentStatus
         Status to report when the operation cannot run.
-    required_artifacts
+    required_artifacts : tuple of str
         Fitted artifacts that the operation reads.
-    execution
+    execution : {"summarize", "retarget", "refit"}
         Most expensive work the operation performs.
-    deterministic_from_saved
+    deterministic_from_saved : bool
         Whether saved artifacts determine the result without a refit.
-    interpretation
+    interpretation : str
         Statistical question that the operation answers.
-    cost
+    cost : {"cheap", "moderate", "expensive"}
         Relative cost category used by combined reports.
-    reason
+    reason : str or None
         Explanation when the operation is not available.
-    requires_arguments
+    requires_arguments : tuple of str
         Caller-supplied arguments that have no default.
     """
 
@@ -330,24 +336,14 @@ class DiagnosticReport:
 
     Parameters
     ----------
-    items
+    items : tuple of AssessmentItem
         Results for the requested operations.
-    include_refits
+    include_refits : bool
         Whether the run allowed operations that refit nuisance models.
-    include_retargets
+    include_retargets : bool
         Whether the run allowed operations that retarget cached nuisances.
-    backend
+    backend : str or None
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
-
-    Examples
-    --------
-    >>> from cleverly import DiagnosticReport
-    >>> report = DiagnosticReport(items=())
-    >>> report.items
-    ()
-
-    In practice a fitted result builds one.  See
-    :meth:`cleverly.assessment.DiagnosticsFacade.run_all` for the example that fits.
 
     See Also
     --------
@@ -359,6 +355,16 @@ class DiagnosticReport:
     -----
     An unavailable item remains in the report. This makes a skipped or refused
     operation visible to the caller.
+
+    Examples
+    --------
+    >>> from cleverly import DiagnosticReport
+    >>> report = DiagnosticReport(items=())
+    >>> report.items
+    ()
+
+    In practice a fitted result builds one.  See
+    :meth:`cleverly.assessment.DiagnosticsFacade.run_all` for the example that fits.
     """
 
     items: tuple[AssessmentItem, ...]
@@ -399,7 +405,7 @@ class DiagnosticReport:
 
         Parameters
         ----------
-        data
+        data : Any
             Optional dataframe whose backend selects the output type.
 
         Returns
@@ -419,7 +425,13 @@ class DiagnosticReport:
         )
 
     def summary(self) -> str:
-        """Return a printable table of operation statuses."""
+        """Return a printable table of operation statuses.
+
+        Returns
+        -------
+        str
+            A printable table, one line per requested operation.
+        """
         return format_table(
             ["diagnostic", "status", "detail"],
             [[item.name, item.status.value, item.detail] for item in self.items],
@@ -432,10 +444,21 @@ class ValidationReport:
 
     Parameters
     ----------
-    items
+    items : tuple of AssessmentItem
         Validation checks and their statuses.
-    backend
+    backend : str or None
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
+
+    See Also
+    --------
+    DiagnosticReport : The combined run, which may retarget or refit.
+    cleverly.estimators.TMLEResult : Carries the artifacts this battery reads.
+    cleverly.validation.score_check : One of the checks the battery runs.
+
+    Notes
+    -----
+    The default battery reads stored artifacts. It does not refit nuisance
+    models.
 
     Examples
     --------
@@ -464,17 +487,6 @@ class ValidationReport:
     >>> report = result.validate()
     >>> report.passed
     True
-
-    See Also
-    --------
-    DiagnosticReport : The combined run, which may retarget or refit.
-    cleverly.estimators.TMLEResult : Carries the artifacts this battery reads.
-    cleverly.validation.score_check : One of the checks the battery runs.
-
-    Notes
-    -----
-    The default battery reads stored artifacts. It does not refit nuisance
-    models.
     """
 
     items: tuple[AssessmentItem, ...]
@@ -519,7 +531,7 @@ class ValidationReport:
 
         Parameters
         ----------
-        data
+        data : Any
             Optional dataframe whose backend selects the output type.
 
         Returns
@@ -539,7 +551,13 @@ class ValidationReport:
         )
 
     def summary(self) -> str:
-        """Return a printable summary."""
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per validation check.
+        """
         heading = "Validation: PASS" if self.passed else "Validation: ATTENTION REQUIRED"
         return "\n".join(
             [
@@ -559,17 +577,17 @@ class Replayability:
 
     Parameters
     ----------
-    summarize_existing_artifacts
+    summarize_existing_artifacts : bool
         Whether stored diagnostics can be summarized.
-    retarget_cached_nuisances
+    retarget_cached_nuisances : bool
         Whether targeting can run again without fitting nuisance models.
-    evaluate_stored_representer
+    evaluate_stored_representer : bool
         Whether the stored representer can evaluate another parameter.
-    refit_nuisances
+    refit_nuisances : bool
         Whether the result retains enough configuration for nuisance refits.
-    evaluate_new_data
+    evaluate_new_data : bool
         Whether the fitted result can score new observations.
-    unreconstructible
+    unreconstructible : tuple of str
         Missing components that prevent reconstruction.
     """
 
@@ -1117,8 +1135,19 @@ class DiagnosticsFacade(_CapabilityFacade):
 
     Parameters
     ----------
-    result
+    result : TMLEResult or LongitudinalResult
         Fitted point-treatment or longitudinal result.
+
+    See Also
+    --------
+    SensitivityFacade : The analyses that ask what would overturn the estimate.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.DiagnosticReport : What :meth:`run_all` returns.
+
+    Notes
+    -----
+    Access this facade through ``result.diagnostics``. Inspect
+    :attr:`capabilities` before optional or potentially expensive operations.
 
     Examples
     --------
@@ -1153,17 +1182,6 @@ class DiagnosticsFacade(_CapabilityFacade):
     >>> support = result.diagnostics.capability("support")
     >>> support.available, support.execution
     (True, 'summarize')
-
-    See Also
-    --------
-    SensitivityFacade : The analyses that ask what would overturn the estimate.
-    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
-    cleverly.DiagnosticReport : What :meth:`run_all` returns.
-
-    Notes
-    -----
-    Access this facade through ``result.diagnostics``. Inspect
-    :attr:`capabilities` before optional or potentially expensive operations.
     """
 
     _kind = "diagnostic"
@@ -1276,7 +1294,7 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Parameters
         ----------
-        tolerance
+        tolerance : float
             Relative tolerance used to evaluate the fitted score equations.
 
         Returns
@@ -1322,9 +1340,9 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Parameters
         ----------
-        tolerance
+        tolerance : float
             Tolerance for the reduced correction score.
-        identity_tolerance
+        identity_tolerance : float
             Tolerance for the correction identity.
 
         Returns
@@ -1363,11 +1381,11 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Parameters
         ----------
-        bounds
+        bounds : sequence of float or None
             Mechanism bounds to evaluate. Default bounds are used when omitted.
-        estimands
+        estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
-        mechanism
+        mechanism : bool
             For an incremental intervention, vary a separate observation mechanism.
 
         Returns
@@ -1442,9 +1460,9 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Parameters
         ----------
-        include_refits
+        include_refits : bool
             Include operations that refit nuisance models.
-        include_retargets
+        include_retargets : bool
             Include operations that retarget cached nuisance predictions.
 
         Returns
@@ -1610,8 +1628,22 @@ class SensitivityFacade(_CapabilityFacade):
 
     Parameters
     ----------
-    result
+    result : TMLEResult or LongitudinalResult
         Fitted point-treatment or longitudinal result.
+
+    See Also
+    --------
+    DiagnosticsFacade : The checks that ask whether the fit itself is sound.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.sensitivity.evalue.evalue : The same analysis as a free function.
+
+    Notes
+    -----
+    Access this facade through ``result.sensitivity``. Methods use the fitted
+    estimate and nuisance artifacts as their first input. Their remaining
+    arguments match the corresponding functions in :mod:`cleverly.sensitivity`.
+    Inspect :attr:`capabilities` to distinguish an unsupported analysis from one
+    that needs additional arguments or expensive work.
 
     Examples
     --------
@@ -1646,20 +1678,6 @@ class SensitivityFacade(_CapabilityFacade):
     >>> missingness = result.sensitivity.capability("missingness")
     >>> missingness.available
     False
-
-    See Also
-    --------
-    DiagnosticsFacade : The checks that ask whether the fit itself is sound.
-    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
-    cleverly.sensitivity.evalue.evalue : The same analysis as a free function.
-
-    Notes
-    -----
-    Access this facade through ``result.sensitivity``. Methods use the fitted
-    estimate and nuisance artifacts as their first input. Their remaining
-    arguments match the corresponding functions in :mod:`cleverly.sensitivity`.
-    Inspect :attr:`capabilities` to distinguish an unsupported analysis from one
-    that needs additional arguments or expensive work.
     """
 
     _kind = "sensitivity"
@@ -1794,72 +1812,160 @@ class SensitivityFacade(_CapabilityFacade):
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
         """Bound omitted-confounder bias for a reported estimand.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.omitted_variable_bounds`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            Bias bounds for each requested estimand.
+
         See Also
         --------
-        cleverly.sensitivity.omitted_variable_bounds
+        cleverly.sensitivity.omitted_variable_bounds : The same bound as a free function.
         """
         return self._dispatch("omitted_confounding", args, kwargs)
 
     def robustness_value(self, *args: Any, **kwargs: Any) -> Any:
         """Return the confounding strength needed to cross the null.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.robustness_value`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            The confounding strength that would move the estimate to its null.
+
         See Also
         --------
-        cleverly.sensitivity.robustness_value
+        cleverly.sensitivity.robustness_value : The same value as a free function.
         """
         return self._dispatch("robustness_value", args, kwargs)
 
     def elements(self, *args: Any, **kwargs: Any) -> Any:
         """Return the variance elements used by omitted-variable bounds.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.sensitivity_elements`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            The variance elements the omitted-variable bounds are built from.
+
         See Also
         --------
-        cleverly.sensitivity.sensitivity_elements
+        cleverly.sensitivity.sensitivity_elements : The same elements as a free function.
         """
         return self._dispatch("elements", args, kwargs)
 
     def benchmark(self, *args: Any, **kwargs: Any) -> Any:
         """Benchmark confounding strength against observed covariates.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.benchmark`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            Confounding strength expressed in units of the named observed covariates.
+
         See Also
         --------
-        cleverly.sensitivity.benchmark
+        cleverly.sensitivity.benchmark : The same benchmark as a free function.
         """
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:
         """Evaluate bias bounds over a confounding-strength grid.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.contour_data`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            Bias bounds over the requested grid of confounding strengths.
+
         See Also
         --------
-        cleverly.sensitivity.contour_data
+        cleverly.sensitivity.contour_data : The same grid as a free function.
         """
         return self._dispatch("contour", args, kwargs)
 
     def evalue(self, *args: Any, **kwargs: Any) -> Any:
         """Return an E-value on the risk-ratio scale.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.evalue`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            The minimum risk-ratio association that would explain the effect away.
+
         See Also
         --------
-        cleverly.sensitivity.evalue
+        cleverly.sensitivity.evalue : The same E-value as a free function.
         """
         return self._dispatch("evalue", args, kwargs)
 
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
         """Vary unobserved-outcome odds under a missingness tilt.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.missingness_tilt`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            One row per tilt value and estimand.
+
         See Also
         --------
-        cleverly.sensitivity.missingness_tilt
+        cleverly.sensitivity.missingness_tilt : The same tilt as a free function.
         """
         return self._dispatch("missingness", args, kwargs)
 
     def tipping_gamma(self, *args: Any, **kwargs: Any) -> Any:
         """Find the missingness tilt at which the estimate crosses its null.
 
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.tipping_gamma`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        Any
+            The tilt at which each estimand reaches its null.
+
         See Also
         --------
-        cleverly.sensitivity.tipping_gamma
+        cleverly.sensitivity.tipping_gamma : The same search as a free function.
         """
         return self._dispatch("tipping_gamma", args, kwargs)
 
@@ -1913,9 +2019,9 @@ class SensitivityFacade(_CapabilityFacade):
 
         Parameters
         ----------
-        include_refits
+        include_refits : bool
             Include operations that refit nuisance models.
-        include_retargets
+        include_retargets : bool
             Include operations that retarget cached nuisance predictions.
 
         Returns

@@ -64,6 +64,12 @@ __all__ = [
 class Estimand(Protocol):
     """Define the public contract for a typed causal question.
 
+    Parameters
+    ----------
+    *args, **kwargs
+        Present because :func:`typing.runtime_checkable` gives a protocol a synthetic
+        constructor. A protocol is implemented, not instantiated.
+
     Attributes
     ----------
     name : str
@@ -85,6 +91,12 @@ class CausalResult(Protocol):
 
     Concrete point-treatment and longitudinal results provide this interface. Use the
     protocol when application code accepts either result family.
+
+    Parameters
+    ----------
+    *args, **kwargs
+        Present because :func:`typing.runtime_checkable` gives a protocol a synthetic
+        constructor. A protocol is implemented, not instantiated.
 
     Attributes
     ----------
@@ -218,6 +230,12 @@ class IdentificationProvider(Protocol):
     Implement this protocol to add an identification strategy. The provider must return an
     :class:`IdentifiedEffect` with explicit assumptions and nuisance requirements.
 
+    Parameters
+    ----------
+    *args, **kwargs
+        Present because :func:`typing.runtime_checkable` gives a protocol a synthetic
+        constructor. A protocol is implemented, not instantiated.
+
     Attributes
     ----------
     name : str
@@ -279,6 +297,12 @@ class PointTreatment:
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family. ``"auto"`` infers it from observed values.
 
+    See Also
+    --------
+    LongitudinalTreatment : The same declaration for time-varying treatment.
+    CausalStudy : What a design is handed to along with the data.
+    cleverly.datasets.make_linear_ate : A frame with the columns this example names.
+
     Examples
     --------
     >>> from cleverly import PointTreatment
@@ -292,12 +316,6 @@ class PointTreatment:
 
     >>> PointTreatment(outcome="Y", treatment="A", randomized=True).adjustment
     ()
-
-    See Also
-    --------
-    LongitudinalTreatment : The same declaration for time-varying treatment.
-    CausalStudy : What a design is handed to along with the data.
-    cleverly.datasets.make_linear_ate : A frame with the columns this example names.
     """
 
     outcome: str
@@ -450,6 +468,12 @@ class LongitudinalTreatment:
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family used by the sequential regressions.
 
+    See Also
+    --------
+    PointTreatment : The same declaration for treatment given once.
+    CausalStudy : What a design is handed to along with the data.
+    cleverly.datasets.make_longitudinal : A frame with the nodes this example names.
+
     Examples
     --------
     Two treatment nodes, with the covariates measured before each one and an observation
@@ -471,12 +495,6 @@ class LongitudinalTreatment:
 
     >>> design.time_varying
     ((), ('L2',))
-
-    See Also
-    --------
-    PointTreatment : The same declaration for treatment given once.
-    CausalStudy : What a design is handed to along with the data.
-    cleverly.datasets.make_longitudinal : A frame with the nodes this example names.
     """
 
     outcome: str | Sequence[str] | Mapping[str, Sequence[str]]
@@ -601,6 +619,13 @@ class ATE:
     reference : Any or None
         Treatment level used as the reference. ``None`` uses the design default.
 
+    See Also
+    --------
+    ATT : The same contrast restricted to the units in each comparison arm.
+    ATC : The same contrast restricted to the units in the reference arm.
+    RiskRatio : The same comparison on the ratio scale.
+    CounterfactualMean : The arm means the contrast is taken between.
+
     Examples
     --------
     >>> from cleverly import ATE
@@ -608,13 +633,6 @@ class ATE:
     'ate'
     >>> ATE().definition
     'average treatment effect, E[Y^a] - E[Y^reference]'
-
-    See Also
-    --------
-    ATT : The same contrast restricted to the units in each comparison arm.
-    ATC : The same contrast restricted to the units in the reference arm.
-    RiskRatio : The same comparison on the ratio scale.
-    CounterfactualMean : The arm means the contrast is taken between.
     """
 
     reference: Any = None
@@ -635,6 +653,12 @@ class ATT:
     reference : Any or None
         Treatment level used as the reference. ``None`` uses the design default.
 
+    See Also
+    --------
+    ATE : The same contrast over the whole population.
+    ATC : The same contrast restricted to the units in the reference arm.
+    cleverly.ControlledDirectEffect : An arm contrast holding an intermediate fixed.
+
     Examples
     --------
     >>> from cleverly import ATT
@@ -642,12 +666,6 @@ class ATT:
     'att'
     >>> ATT().definition
     'average treatment effect among units receiving each comparison arm'
-
-    See Also
-    --------
-    ATE : The same contrast over the whole population.
-    ATC : The same contrast restricted to the units in the reference arm.
-    cleverly.ControlledDirectEffect : An arm contrast holding an intermediate fixed.
     """
 
     reference: Any = None
@@ -668,6 +686,12 @@ class ATC:
     reference : Any or None
         Treatment level that defines the target population and comparison reference.
 
+    See Also
+    --------
+    ATE : The same contrast over the whole population.
+    ATT : The same contrast restricted to the units in each comparison arm.
+    CounterfactualMean : The arm means the contrast is taken between.
+
     Examples
     --------
     >>> from cleverly import ATC
@@ -675,12 +699,6 @@ class ATC:
     'atc'
     >>> ATC().definition
     'average treatment effect among units receiving the reference arm'
-
-    See Also
-    --------
-    ATE : The same contrast over the whole population.
-    ATT : The same contrast restricted to the units in each comparison arm.
-    CounterfactualMean : The arm means the contrast is taken between.
     """
 
     reference: Any = None
@@ -701,6 +719,12 @@ class CounterfactualMean:
     treatment : Any or None
         One treatment level to retain. ``None`` reports every supported level.
 
+    See Also
+    --------
+    ATE : The contrast between these means.
+    RegimeMean : Means under declared regimens rather than fixed levels.
+    ModifiedTreatmentPolicy : Means under shifts of a continuous dose.
+
     Examples
     --------
     >>> from cleverly import CounterfactualMean
@@ -711,12 +735,6 @@ class CounterfactualMean:
 
     >>> CounterfactualMean(treatment=1).definition
     'counterfactual mean under treatment 1, E[Y^a]'
-
-    See Also
-    --------
-    ATE : The contrast between these means.
-    RegimeMean : Means under declared regimens rather than fixed levels.
-    ModifiedTreatmentPolicy : Means under shifts of a continuous dose.
     """
 
     treatment: Any = None
@@ -779,6 +797,12 @@ class RiskRatio:
     reference : Any or None
         Denominator treatment level. ``None`` uses the design default.
 
+    See Also
+    --------
+    OddsRatio : The same comparison on the odds scale.
+    ATE : The same comparison on the difference scale.
+    cleverly.sensitivity.evalue.evalue : How much confounding would explain a ratio away.
+
     Examples
     --------
     >>> from cleverly import RiskRatio
@@ -786,12 +810,6 @@ class RiskRatio:
     'rr'
     >>> RiskRatio().definition
     'counterfactual risk ratio'
-
-    See Also
-    --------
-    OddsRatio : The same comparison on the odds scale.
-    ATE : The same comparison on the difference scale.
-    cleverly.sensitivity.evalue.evalue : How much confounding would explain a ratio away.
     """
 
     reference: Any = None
@@ -848,6 +866,12 @@ class RegimeContrast:
     horizons : sequence of int or None
         Follow-up times to report for a longitudinal outcome.
 
+    See Also
+    --------
+    RegimeMean : The regimen means this contrast is taken between.
+    ATE : The same comparison when treatment is given once.
+    cleverly.LongitudinalTreatment : The design a regimen is declared against.
+
     Examples
     --------
     Two static longitudinal regimens, compared against never treating:
@@ -860,12 +884,6 @@ class RegimeContrast:
     'ate_regime'
     >>> estimand.definition
     'contrast of each regime against the reference'
-
-    See Also
-    --------
-    RegimeMean : The regimen means this contrast is taken between.
-    ATE : The same comparison when treatment is given once.
-    cleverly.LongitudinalTreatment : The design a regimen is declared against.
     """
 
     regimens: Any
@@ -886,6 +904,12 @@ class ModifiedTreatmentPolicy:
     reference : str or None
         Shift label retained as the comparison reference.
 
+    See Also
+    --------
+    ModifiedTreatmentPolicyEffect : The contrast between these means.
+    cleverly.interventions.Shift : The dose shift a policy is built from.
+    cleverly.interventions.check_shift_support : Whether the shifted dose is supported.
+
     Examples
     --------
     Raise every dose by one unit, capped at the observed maximum:
@@ -897,12 +921,6 @@ class ModifiedTreatmentPolicy:
     'ey_shift'
     >>> estimand.definition
     'mean outcome under each modified treatment policy'
-
-    See Also
-    --------
-    ModifiedTreatmentPolicyEffect : The contrast between these means.
-    cleverly.interventions.Shift : The dose shift a policy is built from.
-    cleverly.interventions.check_shift_support : Whether the shifted dose is supported.
     """
 
     shifts: Sequence[Shift]
@@ -960,6 +978,12 @@ class IncrementalEffect:
     reference : str or None
         Reference intervention label. ``None`` uses the first intervention.
 
+    See Also
+    --------
+    IncrementalMean : The intervention means this contrast is taken between.
+    cleverly.interventions.Incremental : The odds multiplier an intervention applies.
+    ATE : The same comparison for a treatment set to a fixed level.
+
     Examples
     --------
     Double the odds of treatment, and compare that against halving them:
@@ -977,12 +1001,6 @@ class IncrementalEffect:
     'ate_ipsi'
     >>> estimand.definition
     'contrast of incremental propensity interventions'
-
-    See Also
-    --------
-    IncrementalMean : The intervention means this contrast is taken between.
-    cleverly.interventions.Incremental : The odds multiplier an intervention applies.
-    ATE : The same comparison for a treatment set to a fixed level.
     """
 
     interventions: Sequence[Incremental]
@@ -1025,6 +1043,12 @@ class ControlledDirectEffect:
     contrast : ATE, ATT, ATC, RiskRatio, or OddsRatio
         Arm contrast evaluated at the fixed intermediate level.
 
+    See Also
+    --------
+    ATE : The same contrast with nothing held fixed.
+    cleverly.PointTreatment : Where the ``intermediate`` column is declared.
+    cleverly.datasets.make_cde : A process with a known controlled direct effect.
+
     Examples
     --------
     >>> from cleverly import ATE, ControlledDirectEffect
@@ -1037,12 +1061,6 @@ class ControlledDirectEffect:
 
     >>> ControlledDirectEffect(intermediate=1.0).definition
     'controlled direct effect with the intermediate fixed at 1.0'
-
-    See Also
-    --------
-    ATE : The same contrast with nothing held fixed.
-    cleverly.PointTreatment : Where the ``intermediate`` column is declared.
-    cleverly.datasets.make_cde : A process with a known controlled direct effect.
     """
 
     intermediate: float
@@ -1452,6 +1470,12 @@ class CausalStudy:
     data : CausalData or LongitudinalData
     design : PointTreatment or LongitudinalTreatment
 
+    See Also
+    --------
+    PointTreatment : The design declaration for treatment given once.
+    LongitudinalTreatment : The design declaration for time-varying treatment.
+    IdentifiedEffect : What :meth:`identify` returns.
+
     Examples
     --------
     >>> from cleverly import ATE, CausalStudy, PointTreatment
@@ -1465,12 +1489,6 @@ class CausalStudy:
     ... )
     >>> study.identify(ATE()).estimand.name
     'ate'
-
-    See Also
-    --------
-    PointTreatment : The design declaration for treatment given once.
-    LongitudinalTreatment : The design declaration for time-varying treatment.
-    IdentifiedEffect : What :meth:`identify` returns.
     """
 
     def __init__(self, data: Any, *, design: PointTreatment | LongitudinalTreatment) -> None:
@@ -1550,7 +1568,7 @@ class CausalStudy:
 
 
 @dataclass(frozen=True)
-class IdentifiedEffect:
+class IdentifiedEffect:  # numpydoc ignore=PR01
     """Bind an estimand to a functional and its identification assumptions.
 
     Parameters
@@ -1563,6 +1581,18 @@ class IdentifiedEffect:
         Assumptions, nuisance requirements, and remainder condition.
     provider : IdentificationProvider
         Provider that performed identification.
+
+    See Also
+    --------
+    CausalStudy.identify : What returns this object.
+    MethodAvailability : One row of :meth:`available_methods`.
+    cleverly.EstimationMethod : The configuration :meth:`estimate` accepts.
+
+    Notes
+    -----
+    ``_study`` is the bound study, kept private because it is not part of the reported
+    causal question.  Metadata restored from disk may omit it, and such an effect cannot
+    be refitted.
 
     Examples
     --------
@@ -1583,18 +1613,6 @@ class IdentifiedEffect:
     'ate'
     >>> sorted(method.name for method in effect.available_methods())[:2]
     ['collaborative_tmle', 'drtmle']
-
-    See Also
-    --------
-    CausalStudy.identify : What returns this object.
-    MethodAvailability : One row of :meth:`available_methods`.
-    cleverly.EstimationMethod : The configuration :meth:`estimate` accepts.
-
-    Notes
-    -----
-    ``_study`` is the bound study, kept private because it is not part of the reported
-    causal question.  Metadata restored from disk may omit it, and such an effect cannot
-    be refitted.
     """
 
     estimand: PointEstimand
@@ -1659,7 +1677,13 @@ class IdentifiedEffect:
         )
 
     def summary(self) -> str:
-        """Return a readable identification summary."""
+        """Return a readable identification summary.
+
+        Returns
+        -------
+        str
+            A printable block naming the estimand, the functional, and the assumptions.
+        """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
         return (
             f"{self.estimand.definition}\n"
@@ -1669,7 +1693,13 @@ class IdentifiedEffect:
         )
 
     def summary_lines(self) -> tuple[str, ...]:
-        """Return identification facts for inclusion in result summaries."""
+        """Return identification facts for inclusion in result summaries.
+
+        Returns
+        -------
+        tuple of str
+            The same facts as lines, for a result summary to append.
+        """
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",

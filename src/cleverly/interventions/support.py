@@ -46,25 +46,29 @@ _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
 class RegimeSupport:
     """Overlap for one regime.
 
-    Attributes
+    Parameters
     ----------
-    min_support_propensity:
+    name : str
+        Report label of the regime.
+    min_support_propensity : float
         The smallest :math:`g_a(W_i)` over the rows and arms the regime puts mass on.
         For a deterministic rule that is :math:`\\min_i g_{d(W_i)}(W_i)`, the number a
         reader of a dynamic regime wants first.
-    ratio_quantiles:
+    ratio_quantiles : dict of float to float
         Quantiles of the density ratio :math:`g^\\star(A \\mid W)/g(A \\mid W)` at the
         *observed* treatment -- the clever covariate's magnitude, before the missingness
         and intermediate mechanisms enter it.
-    max_ratio:
+    max_ratio : float
         The largest such ratio: how much one row can move the estimate.
-    effective_sample_size:
+    effective_sample_size : float
         Kish ESS of those ratios, and ``ess_ratio`` its share of ``n``.  A regime far
         from the observed mechanism throws away information even when nothing is
         formally violated, and this is the size of that loss.
-    tail_mass:
+    ess_ratio : float
+        The effective sample size as a share of ``n``.
+    tail_mass : dict of float to float
         Fraction of rows whose assigned-arm propensity falls below each threshold.
-    unsupported:
+    unsupported : int
         Rows where the regime assigns positive probability to an arm with an estimated
         propensity of exactly zero -- a structural violation rather than a practical one.
         The parameter is not identified for those rows at all.
@@ -82,7 +86,17 @@ class RegimeSupport:
 
 @dataclass(frozen=True)
 class SupportReport:
-    """:class:`RegimeSupport` for every regime in a fit, plus the worst case."""
+    """:class:`RegimeSupport` for every regime in a fit, plus the worst case.
+
+    Parameters
+    ----------
+    regimes : dict of str to RegimeSupport
+        One record per regime, keyed by its report label.
+    n : int
+        Number of observations the records were computed over.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    """
 
     regimes: dict[str, RegimeSupport] = field(default_factory=dict)
     n: int = 0
@@ -99,7 +113,19 @@ class SupportReport:
         return min(self.regimes.values(), key=lambda item: item.min_support_propensity)
 
     def to_frame(self, data: Any = None) -> Any:
-        """One row per regime, in the backend the data came from."""
+        """One row per regime, in the backend the data came from.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses
+            :attr:`backend`.
+
+        Returns
+        -------
+        dataframe
+            One row per regime.
+        """
         payload = {
             "regime": list(self.regimes),
             "min_propensity": [item.min_support_propensity for item in self.regimes.values()],
@@ -110,7 +136,13 @@ class SupportReport:
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
-        """A short human-readable table."""
+        """A short human-readable table.
+
+        Returns
+        -------
+        str
+            A printable table, one line per row of the report.
+        """
         if not self.regimes:
             return "no regimes"
         rows = [
@@ -150,6 +182,24 @@ def check_support(
     :meth:`SupportReport.to_frame` returns it -- which is what this function's caller
     already promised in prose and did not deliver.  This takes arrays rather than a
     container, so it has to be told.
+
+    Parameters
+    ----------
+    regimes : RegimeSet
+        The evaluated regimes to report on.
+    treatment : ndarray
+        ``(n,)`` observed treatment, in arm codes.
+    propensity : ndarray
+        ``(n, K)`` mechanism as estimated, before truncation.
+    thresholds : tuple of float
+        Propensity levels the tail mass is reported at.
+    backend : str or None
+        Dataframe backend the fit's data arrived in, for :meth:`SupportReport.to_frame`.
+
+    Returns
+    -------
+    SupportReport
+        One record per regime, plus the worst case across them.
     """
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g = np.asarray(propensity, dtype=float)

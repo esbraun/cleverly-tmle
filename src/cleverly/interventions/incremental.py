@@ -126,9 +126,9 @@ def refuse_multi_arm_tilt(data: CausalData) -> None:
 class Incremental:
     """Multiply everyone's odds of treatment by ``delta``.
 
-    Attributes
+    Parameters
     ----------
-    delta:
+    delta : float
         The odds multiplier, strictly positive.  ``1.0`` is the *natural course* -- the
         intervention that changes nothing, since :math:`q_1 = g` exactly -- whose mean is
         :math:`E[Y]` and which is the usual reference.  Above one shifts the population
@@ -137,7 +137,7 @@ class Incremental:
         Unlike a :class:`~cleverly.interventions.Shift`'s ``cap``, nothing here has to be
         declared to keep the parameter well defined: :math:`q_\\delta` is a probability for
         any :math:`\\delta > 0` and any :math:`g`, which is the whole appeal.
-    name:
+    name : str
         What this intervention is called in reported parameter names.  Defaults to
         ``"odds x2.5"`` style, with ``"natural course"`` for ``delta=1``.
     """
@@ -171,31 +171,34 @@ class IPSISet:
     :meth:`~cleverly.estimators.TMLE.retarget` -- the bootstrap, a result loaded from disk
     -- targets the same declared tilts without the mechanism being refit.
 
-    Attributes
+    Parameters
     ----------
-    names:
+    names : tuple of str
         One per tilt, in declaration order.  Report labels.
-    deltas:
+    deltas : tuple of float
         The odds multipliers, in declaration order.  Not the keys of the per-parameter
         arrays: those are the **codes** ``0.0 .. R-1.0``, exactly as
         :class:`~cleverly.interventions.ShiftSet` keys by ordinal rather than by delta.
-    values:
+    values : ndarray
         ``(n, K, R)``, :math:`q_{\\delta_r}(a \\mid W_i)` -- the tilted density, columns in
         arm-code order.  Rows sum to one by construction.
-    weights:
+    weights : ndarray
         ``(n, K, R)``, :math:`h_{\\delta_r}(a, W_i) = q_{\\delta_r}(a \\mid W_i) /
         g(a \\mid W_i)` -- the clever covariate arm by arm.  Computed in the cancelled
         form :math:`\\delta / D` and :math:`1 / D` rather than as a ratio, so it never
         divides by a small mechanism; see the module docstring.
-    derivative:
+    derivative : ndarray
         ``(n, R)``, :math:`\\delta_r / D_{\\delta_r}^2` -- the factor multiplying
         :math:`\\{\\bar Q(1, W) - \\bar Q(0, W)\\}(A - g)` in the influence curve, and the
         clever covariate of the *mechanism* fluctuation once the blip is folded in.
-    propensity:
+    propensity : ndarray
         ``(n,)``, the :math:`g(1 \\mid W)` these arrays were built from, **untruncated**.
         Carried because both the influence curve's :math:`(A - g)` and the mechanism
         fluctuation's offset need it, and because an :class:`IPSISet` recomputed at a
         fluctuated mechanism must be able to say which one it describes.
+
+    reference : float
+        Code of the tilt contrasts are taken against.
     """
 
     names: tuple[str, ...]
@@ -252,6 +255,22 @@ class IPSISet:
         :math:`g`.  :func:`~cleverly.estimators.targeting.build_submodel` therefore hands
         the ``ipsi`` builder a bounded mechanism which that builder discards, reading these
         arrays instead.
+
+        Parameters
+        ----------
+        incrementals : sequence of Incremental
+            The tilts to evaluate, in the order their codes will follow.
+        data : CausalData
+            Validated study data, which supplies the arm order.
+        propensity : ndarray
+            ``(n, K)`` estimated mechanism, columns in arm-code order, untruncated.
+        reference : str or None
+            Label of the tilt contrasts are taken against. ``None`` uses the first.
+
+        Returns
+        -------
+        IPSISet
+            Every tilt evaluated against that mechanism.
         """
         if not incrementals:
             raise DataError("at least one incremental intervention is required")
@@ -291,6 +310,16 @@ class IPSISet:
         What the mechanism fluctuation calls after each update.  The declared tilts are
         unchanged -- a tilt is a statement about odds, not about a particular :math:`g` --
         so only the evaluated arrays move.
+
+        Parameters
+        ----------
+        propensity : ndarray
+            ``(n,)`` mechanism :math:`g(1 \\mid W)` to recompute the tilts at.
+
+        Returns
+        -------
+        IPSISet
+            The same declared tilts, evaluated at the new mechanism.
         """
         one = np.asarray(propensity, dtype=float).reshape(-1)
         if one.shape[0] != self.n:
@@ -325,17 +354,50 @@ class IPSISet:
         return {float(index): name for index, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
-        """Return the label for one indexed policy."""
+        """Return the label for one indexed policy.
+
+        Parameters
+        ----------
+        code : float
+            Tilt code.
+
+        Returns
+        -------
+        str
+            The label the tilt was declared under.
+        """
         return self.labels[float(code)]
 
     def observed(self, treatment: FloatArray) -> FloatArray:
-        """``(n, R)`` -- the clever covariate at the arm each unit actually received."""
+        """``(n, R)`` -- the clever covariate at the arm each unit actually received.
+
+        Parameters
+        ----------
+        treatment : ndarray
+            ``(n,)`` observed treatment, in arm codes.
+
+        Returns
+        -------
+        ndarray
+            ``(n, R)`` clever covariate at the arm each unit actually received.
+        """
         a = np.asarray(treatment, dtype=float).reshape(-1)
         indicator = np.column_stack([(a == arm) for arm in range(self.n_arms)]).astype(float)
         return np.asarray(np.einsum("ij,ijr->ir", indicator, self.weights), dtype=float)
 
     def blip_weight(self, code: float) -> FloatArray:
-        """``(n,)`` -- :math:`\\delta / D_\\delta^2` for one tilt, by code."""
+        """``(n,)`` -- :math:`\\delta / D_\\delta^2` for one tilt, by code.
+
+        Parameters
+        ----------
+        code : float
+            Tilt code.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` factor :math:`\\delta / D_\\delta^2` for that tilt.
+        """
         return np.asarray(self.derivative, dtype=float)[:, int(code)]
 
     def subset(self, index: Any) -> IPSISet:
@@ -344,6 +406,16 @@ class IPSISet:
         Sliced rather than re-evaluated, for the reason
         :meth:`~cleverly.interventions.RegimeSet.subset` gives: re-deriving the tilt on a
         resample would let the resample redefine the estimand.
+
+        Parameters
+        ----------
+        index : array_like
+            Row positions or a boolean mask.
+
+        Returns
+        -------
+        IPSISet
+            The same tilts over the selected rows.
         """
         idx = np.asarray(index)
         if idx.dtype == bool:
@@ -401,6 +473,25 @@ class IncrementalSupport:
     and ``max_ratio`` is what it delivered.  The two agreeing is the normal case; the
     report exists so that a reader can see the effective sample size stay near :math:`n`
     where an arm-indexed fit's would have collapsed.
+
+    Parameters
+    ----------
+    name : str
+        Report label of the tilt.
+    delta : float
+        The odds multiplier this row describes.
+    guaranteed : tuple of float
+        ``(1 / delta, delta)``: the bounds the clever covariate cannot leave,
+        whatever the mechanism does.
+    min_propensity : float
+        Smallest estimated :math:`g(1 \\mid W)`, for comparison with an
+        arm-indexed fit rather than because this estimand divides by it.
+    max_ratio : float
+        Largest clever covariate the data produced.
+    effective_sample_size : float
+        Kish effective sample size of those weights.
+    ess_ratio : float
+        That size as a share of ``n``.
     """
 
     name: str
@@ -416,7 +507,13 @@ class IncrementalSupport:
     ess_ratio: float
 
     def summary(self) -> str:
-        """Return a printable summary."""
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per row of the report.
+        """
         low, high = self.guaranteed
         return (
             f"{self.name}: min g(1|W)={self.min_propensity:.3g}, "
@@ -435,6 +532,18 @@ def check_incremental_support(
     is the interesting number: it holds whatever the mechanism does, which is what
     distinguishes the tilt from every other intervention here.  An arm-indexed fit on the
     same data would divide by ``min_propensity``; this one never does.
+
+    Parameters
+    ----------
+    tilts : IPSISet
+        The evaluated tilts to report on.
+    treatment : ndarray
+        ``(n,)`` observed treatment, in arm codes.
+
+    Returns
+    -------
+    dict of str to IncrementalSupport
+        One record per tilt, keyed by its report label.
     """
     observed = tilts.observed(treatment)
     n = observed.shape[0]

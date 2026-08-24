@@ -101,6 +101,36 @@ class ScoreCheckRow:
     them, which is a sentinel and not an unknown -- see
     :func:`~cleverly.utils.records.sentinel_equality` for why comparing two of these rows
     needs saying so rather than inheriting the generated ``__eq__``.
+
+    Parameters
+    ----------
+    name : str
+        Estimand alias or targeted family.
+    kind : str
+        Which score equation this row checks.
+    score : float
+        The solved score, on the scale ``threshold`` is given in.
+    threshold : float
+        Magnitude the score may reach and still pass.
+    std_error : float
+        Standard error the threshold is expressed in.
+    passed : bool
+        Whether the score stayed inside it.
+    converged : bool
+        Whether targeting reached its own tolerance.
+    n_iter : int
+        Targeting iterations taken.
+    method : str
+        Targeting algorithm used.
+    score_initial : float
+        The score before targeting, for comparison.
+    failure : str
+        What went wrong, when something did.
+    hessian_condition : float
+        Condition number of the targeting Hessian. A large value says the solve was
+        ill-conditioned even where the score came out small.
+    folds_converged : tuple of bool
+        Whether each fold's own targeting converged, under fold-specific targeting.
     """
 
     name: str
@@ -145,6 +175,21 @@ class ScoreCheck:
 
     "The efficient score equation" for a plain fit, and deliberately not that phrase for a
     doubly-robust one -- see :attr:`corrected`.
+
+    Parameters
+    ----------
+    rows : tuple of ScoreCheckRow
+        One row per estimand or targeted family.
+    tolerance : float
+        Score magnitude, in standard errors, a row may reach and pass.
+    n : int
+        Number of observations.
+    corrected : bool
+        Whether the fit carried DR-TMLE correction equations.
+    corrections : CorrectionCheck or None
+        Those equations' own check, when it did.
+    backend : str or None
+        Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -195,7 +240,19 @@ class ScoreCheck:
         return tuple(row for row in self.rows if not row.passed)
 
     def to_frame(self, data: Any = None) -> Any:
-        """Return tabular output in the input dataframe backend."""
+        """Return tabular output in the input dataframe backend.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            One row per checked score equation.
+        """
         payload = {
             "name": [row.name for row in self.rows],
             "kind": [row.kind for row in self.rows],
@@ -215,6 +272,11 @@ class ScoreCheck:
         -- this module's own report, and :meth:`cleverly.TMLEResult.summary` -- says the
         same thing.  It names the failing rows, because "the check failed" without them
         sends the reader back to the method call this line exists to spare them.
+
+        Returns
+        -------
+        str
+            The verdict alone, for a report to append without the table.
         """
         failures = self.failures
         if not failures:
@@ -279,7 +341,13 @@ class ScoreCheck:
         return "D = D*" + "".join(f" - {term}" for term in ("D*_Q", "D*_g") if term in subtracted)
 
     def summary(self) -> str:
-        """Return a printable summary."""
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable table, one line per checked score equation.
+        """
         if not self.passed:
             verdict = (
                 "FAIL: the score equation was not solved -- the influence-curve standard "
@@ -403,6 +471,18 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     * per estimand, the mean of its influence curve -- this is the equation the
       *estimate* relies on, which for a derived estimand such as the risk ratio is a
       transformation of the first.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    tolerance : float
+        Score magnitude, in standard errors, a row may reach and pass.
+
+    Returns
+    -------
+    ScoreCheck
+        One row per score equation the fit's method relies on.
     """
     n = result.data.n
     rows: list[ScoreCheckRow] = []

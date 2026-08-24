@@ -162,7 +162,21 @@ def _block_size(n_rows: int, n_replicates: int) -> int:
 
 @dataclass(frozen=True)
 class SimultaneousBands:
-    """Joint confidence bands across several estimands."""
+    """Joint confidence bands across several estimands.
+
+    Parameters
+    ----------
+    critical_value : float
+        Multiplier the pointwise standard errors are scaled by.
+    bands : dict of str to tuple of float
+        One joint interval per estimand alias.
+    alpha : float
+        Joint significance level the bands hold at.
+    n_replicates : int
+        Multiplier draws behind the critical value.
+    kind : str
+        Distribution the multiplier weights were drawn from.
+    """
 
     critical_value: float
     bands: dict[str, tuple[float, float]]
@@ -246,7 +260,32 @@ def multiplier_critical_value(
     kind: MultiplierKind = "rademacher",
     random_state: int | None = None,
 ) -> float:
-    """The ``1 - alpha`` quantile of the max-t statistic."""
+    """The ``1 - alpha`` quantile of the max-t statistic.
+
+    Parameters
+    ----------
+    influence_curves : ndarray
+        ``(n, k)`` influence curves, one column per estimand.
+    std_errors : ndarray
+        ``(k,)`` pointwise standard errors.
+    n : int
+        Number of observations.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes. Weights are drawn per cluster when given.
+    alpha : float
+        Joint significance level.
+    n_replicates : int
+        Multiplier draws.
+    kind : {"rademacher", "gaussian"}
+        Distribution of the multiplier weights.
+    random_state : int or None
+        Seed for those draws.
+
+    Returns
+    -------
+    float
+        The ``1 - alpha`` quantile of the max-t statistic across estimands.
+    """
     ic = np.asarray(influence_curves, dtype=float)
     if ic.ndim != 2:
         raise ValueError(f"expected an (n, m) influence-curve matrix; got shape {ic.shape}")
@@ -366,6 +405,26 @@ def simultaneous_bands(
 
     Bands are reported on each estimand's own scale, so a ratio's band is
     exponentiated from the log scale exactly as its pointwise interval is.
+
+    Parameters
+    ----------
+    estimates : mapping or sequence of ParameterEstimate
+        The estimates to band jointly.
+    alpha : float
+        Joint significance level.
+    n_replicates : int
+        Multiplier draws.
+    kind : {"rademacher", "gaussian"}
+        Distribution of the multiplier weights.
+    random_state : int or None
+        Seed for those draws.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes. Weights are drawn per cluster when given.
+
+    Returns
+    -------
+    SimultaneousBands
+        One interval per estimand, holding jointly at ``1 - alpha``.
     """
     items = (
         list(estimates.items())

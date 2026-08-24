@@ -100,6 +100,8 @@ def missingness_tilt(
 
     Parameters
     ----------
+    result : TMLEResult
+        A fitted result whose outcomes are missing for some rows.
     gamma : sequence of float or None
         Tilt values on the logit scale.  ``None`` uses :data:`DEFAULT_GAMMA_GRID`.
     estimands : sequence of str or None
@@ -114,6 +116,12 @@ def missingness_tilt(
         is not made silently.  The ``gamma`` column of the returned frame is then the
         magnitude the direction is scaled by rather than the tilt any one arm received,
         which is what the ``gamma[<level>]`` columns beside it report.
+
+    Returns
+    -------
+    dataframe
+        One row per ``(gamma, estimand)``, with one ``gamma[<level>]`` column per
+        arm giving the tilt that arm received.
     """
     data = result.data
     if not data.has_missing_outcome:
@@ -330,6 +338,28 @@ def tipping_gamma(
     With ``arm_gamma=`` the number is the magnitude at which that *direction* tips the
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
     by different amounts.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result with missing outcomes.
+    estimand : str
+        Alias to search over.
+    null_hypothesis : float
+        The value the conclusion is said to tip at.
+    search : tuple of float
+        Lower and upper tilt the search brackets.
+    use_ci : bool
+        Whether to tip when the confidence limit reaches the null rather than the
+        point estimate.
+    arm_gamma : mapping of level to float, or None
+        One multiplier per arm, as :func:`missingness_tilt` accepts.
+
+    Returns
+    -------
+    float
+        The tilt at which the conclusion reaches its null, or ``nan`` when no tilt
+        inside ``search`` does.
     """
     from scipy import optimize
 

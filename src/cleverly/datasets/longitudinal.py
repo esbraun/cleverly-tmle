@@ -331,6 +331,32 @@ def make_longitudinal(
     :func:`_shared_within_clusters`, which also says why the hidden-variable construction
     this replaced did not.
 
+    Parameters
+    ----------
+    n : int
+        Number of units.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    censoring : bool
+        Whether to generate monotone censoring. False leaves every unit observed.
+    cluster_size : int or None
+        Rows per cluster. ``None`` leaves the rows independent.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Wide-format observations, one row per unit and one column per node.
+    truth : dict of str to float
+        Regimen means and contrasts, under the labels a fit reports them by.
+
+    See Also
+    --------
+    cleverly.LongitudinalTreatment : The design declaration for the nodes above.
+    cleverly.longitudinal.LongitudinalResult : What a fit on this frame returns.
+    cleverly.datasets.make_longitudinal_survival : The same shape with an event outcome.
+
     Examples
     --------
     >>> from cleverly.datasets import make_longitudinal
@@ -339,12 +365,6 @@ def make_longitudinal(
     ['W1', 'W2', 'A1', 'C1', 'L2', 'A2', 'C2', 'Y']
     >>> round(truth["ate_regimen[always vs never]"], 3)
     0.362
-
-    See Also
-    --------
-    cleverly.LongitudinalTreatment : The design declaration for the nodes above.
-    cleverly.longitudinal.LongitudinalResult : What a fit on this frame returns.
-    cleverly.datasets.make_longitudinal_survival : The same shape with an event outcome.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
@@ -430,6 +450,22 @@ def make_longitudinal_weighted(
     ``(pi_low + pi_high) / 2 * n`` rows.  Returned rather than resampled to a fixed size
     because the retained count is part of the experiment: forcing it would condition on
     something the design did not.
+
+    Parameters
+    ----------
+    n : int
+        Number of units in the population the sample is drawn from.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        A biased sample of :func:`make_longitudinal`, with its design weights.
+    truth : dict of str to float
+        The population regimen means, which the weights recover.
     """
     rng = np.random.default_rng(seed)
     frame, truth = make_longitudinal(n=n, seed=rng, backend=backend)
@@ -557,6 +593,26 @@ def make_longitudinal_survival(
     the result.  **Static plans only**: a rule's truth needs the two-panel treatment
     :func:`longitudinal_rule_truth` gives it, twice over, and a rule under a survival
     outcome is already checked exactly in ``tests/discrete_law_survival.py``.
+
+    Parameters
+    ----------
+    n : int
+        Number of units.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    censoring : bool
+        Whether to generate monotone censoring. False leaves every unit observed.
+    cluster_size : int or None
+        Rows per cluster. ``None`` leaves the rows independent.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Wide-format observations with one absorbing event node per time point.
+    truth : dict of str to float
+        Cumulative incidence by regimen and horizon, under a fit's own labels.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
@@ -737,6 +793,24 @@ def make_longitudinal_competing(
     causes and both horizons, and the contrast of ``always`` against ``never`` at each,
     under the names a fit reports them by -- so a coverage study looks each up by the name
     it read off the result.
+
+    Parameters
+    ----------
+    n : int
+        Number of units.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    censoring : bool
+        Whether to generate monotone censoring. False leaves every unit observed.
+    backend : str or None
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Wide-format observations with two competing event nodes per time point.
+    truth : dict of str to float
+        Cause-specific cumulative incidence by regimen, cause, and horizon.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)

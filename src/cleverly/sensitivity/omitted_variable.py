@@ -87,18 +87,29 @@ LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", 
 class SensitivityElements:
     r"""The ingredients of the bias bound for one estimand.
 
-    Attributes
+    Parameters
     ----------
-    sigma2:
+    estimand : str
+        Alias of the estimand these elements describe.
+    sigma2 : float
         :math:`E[(Y - \bar Q^*(A, W))^2]`, the residual outcome variance.
-    nu2:
+    nu2 : float
         :math:`E[\alpha(A, W)^2]`, the second moment of the Riesz representer.
-    max_bias:
+    max_bias : float
         :math:`\sqrt{\sigma^2 \nu^2}` -- the largest bias any confounder could produce
         if it explained *all* the residual variation on both sides.
-    psi_max_bias:
+    psi_sigma2 : ndarray
+        Influence curve of ``sigma2``.
+    psi_nu2 : ndarray
+        Influence curve of ``nu2``.
+    psi_max_bias : ndarray
         Influence curve of ``max_bias``, so the bias-adjusted bounds get confidence
         intervals rather than being treated as known constants.
+
+    riesz_representer : ndarray
+        ``(n,)`` values of :math:`\\alpha(A, W)` for the targeted functional.
+    nu2_estimator : str
+        Which estimator of ``nu2`` produced these values.
     """
 
     estimand: str
@@ -369,7 +380,41 @@ def _m_alpha(
 
 @dataclass(frozen=True)
 class SensitivityBounds:
-    """Bias-adjusted bounds under an assumed confounder strength."""
+    """Bias-adjusted bounds under an assumed confounder strength.
+
+    Parameters
+    ----------
+    estimand : str
+        Alias of the estimand these bounds describe.
+    psi : float
+        The unadjusted point estimate.
+    cf_y : float
+        Share of the residual outcome variation the assumed confounder explains.
+    cf_d : float
+        Share of the residual treatment variation the assumed confounder explains.
+    rho : float
+        How adversarially the two are aligned. ``1.0`` is the worst case.
+    confounding_strength : float
+        The product those three imply.
+    max_bias : float
+        Largest bias a confounder of that strength could produce.
+    lower : float
+        Bias-adjusted lower bound on the estimate.
+    upper : float
+        Bias-adjusted upper bound on the estimate.
+    ci_lower : float
+        Lower confidence limit of the adjusted bound.
+    ci_upper : float
+        Upper confidence limit of the adjusted bound.
+    level : float
+        Coverage level of those limits.
+    robustness_value : float
+        Confounding strength that would move the point estimate to the null.
+    robustness_value_ci : float
+        The same strength for the confidence limit rather than the point estimate.
+    null_hypothesis : float
+        The value the robustness values are measured against.
+    """
 
     estimand: str
     psi: float
@@ -393,7 +438,13 @@ class SensitivityBounds:
         return self.confounding_strength * self.max_bias
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-compatible representation."""
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict
+            A JSON-compatible mapping of every reported field.
+        """
         return {
             "estimand": self.estimand,
             "psi": self.psi,
@@ -411,7 +462,13 @@ class SensitivityBounds:
         }
 
     def summary(self) -> str:
-        """Return a printable summary."""
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable report, one line per reported quantity.
+        """
         conclusion = (
             "the sign of the effect survives"
             if (self.lower - self.null_hypothesis) * (self.upper - self.null_hypothesis) > 0
@@ -468,6 +525,30 @@ def omitted_variable_bounds(
     residual variation on each side, with worst-case alignment (``rho = 1``).  Prefer
     reading :attr:`SensitivityBounds.robustness_value`, which needs no assumption at
     all.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    estimand : str
+        Alias to bound.
+    cf_y : float
+        Assumed share of residual outcome variation the confounder explains.
+    cf_d : float
+        Assumed share of residual treatment variation it explains.
+    rho : float
+        How adversarially the two are aligned. ``1.0`` is the worst case.
+    level : float
+        Coverage level of the reported limits.
+    null_hypothesis : float
+        Value the robustness values are measured against.
+    nu2_estimator : {"auto", "analytic", "riesz"}
+        Which estimator of the Riesz second moment to use.
+
+    Returns
+    -------
+    SensitivityBounds
+        Adjusted bounds, their confidence limits, and the robustness values.
     """
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
@@ -557,6 +638,33 @@ class BenchmarkResult:
     the Riesz representer.  ``delta_psi`` is how much the estimate actually moved when
     they were dropped, and ``rho`` is the implied degree of adversity -- a value well
     below 1 says the worst-case ``rho = 1`` is pessimistic for confounders like these.
+
+    Parameters
+    ----------
+    estimand : str
+        Alias of the estimand benchmarked.
+    covariates : tuple of str
+        The observed covariates the strength is calibrated against.
+    cf_y : float
+        Share of residual outcome variation those covariates explain.
+    cf_d : float
+        Share of residual treatment variation those covariates explain.
+    rho : float
+        The implied alignment of the two.
+    delta_psi : float
+        How far the estimate moved when they were dropped.
+    psi_long : float
+        Estimate with the benchmark covariates adjusted for.
+    psi_short : float
+        Estimate with them dropped.
+    sigma2_long : float
+        Residual outcome variance with them adjusted for.
+    sigma2_short : float
+        Residual outcome variance with them dropped.
+    nu2_long : float
+        Riesz second moment with them adjusted for.
+    nu2_short : float
+        Riesz second moment with them dropped.
     """
 
     estimand: str
@@ -573,7 +681,13 @@ class BenchmarkResult:
     nu2_short: float
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-compatible representation."""
+        """Return a JSON-compatible representation.
+
+        Returns
+        -------
+        dict
+            A JSON-compatible mapping of every reported field.
+        """
         return {
             "estimand": self.estimand,
             "covariates": ", ".join(self.covariates),
@@ -586,7 +700,13 @@ class BenchmarkResult:
         }
 
     def summary(self) -> str:
-        """Return a printable summary."""
+        """Return a printable summary.
+
+        Returns
+        -------
+        str
+            A printable report, one line per reported quantity.
+        """
         return "\n".join(
             [
                 f"Benchmark for {self.estimand!r} against {list(self.covariates)}",
@@ -624,6 +744,23 @@ def benchmark(
     turns an abstract sensitivity parameter into a concrete comparison.
 
     Note this is a genuine refit, so it costs about as much as the original fit.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    covariates : sequence of str
+        Observed covariates to calibrate against.
+    estimand : str
+        Alias to benchmark.
+    nu2_estimator : {"auto", "analytic", "riesz"}
+        Which estimator of the Riesz second moment to use.
+
+    Returns
+    -------
+    BenchmarkResult
+        The sensitivity parameters a confounder as important as those covariates
+        would need, and how far the estimate moved without them.
     """
     estimator = result.estimator
     if estimator is None:
@@ -685,6 +822,27 @@ def robustness_value(
     does.  This is the single most useful number in this module, because it requires no
     guess about how strong an unmeasured confounder might be -- it reports the
     threshold and lets the reader judge whether it is plausible.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    estimand : str
+        Alias to report on.
+    rho : float
+        How adversarially the two sensitivity parameters are aligned.
+    level : float
+        Coverage level used for the confidence-limit value.
+    null_hypothesis : float
+        Value the strength is measured against.
+    nu2_estimator : {"auto", "analytic", "riesz"}
+        Which estimator of the Riesz second moment to use.
+
+    Returns
+    -------
+    dict of str to float
+        The strength that moves the point estimate to the null, and the one that
+        moves the confidence limit there.
     """
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     rv, rva = _robustness_values(

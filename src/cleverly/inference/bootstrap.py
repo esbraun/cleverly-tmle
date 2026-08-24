@@ -45,7 +45,20 @@ Resampling = Literal["auto", "iid", "cluster"]
 
 @dataclass(frozen=True)
 class BootstrapResult:
-    """Bootstrap draws for every estimand, plus how many replicates failed."""
+    """Bootstrap draws for every estimand, plus how many replicates failed.
+
+    Parameters
+    ----------
+    draws : dict of str to ndarray
+        One array of replicate estimates per estimand alias.
+    n_requested : int
+        Replicates asked for.
+    n_failed : int
+        Replicates that raised and were dropped. Weak overlap can leave a resample
+        with an empty treatment arm in some stratum.
+    resampling : str
+        Whether rows or clusters were resampled.
+    """
 
     draws: dict[str, FloatArray]
     n_requested: int
@@ -58,6 +71,18 @@ class BootstrapResult:
         Percentile rather than normal-approximation intervals: the point of running
         a bootstrap here is usually that the sampling distribution is skewed, and a
         symmetric interval would throw that information away.
+
+        Parameters
+        ----------
+        name : str
+            Estimand alias to summarise.
+        alpha : float
+            Significance level of the percentile interval.
+
+        Returns
+        -------
+        BootstrapSummary
+            Percentile interval and bootstrap standard error for that estimand.
         """
         draws = self.draws[name]
         finite = draws[np.isfinite(draws)]
@@ -137,13 +162,27 @@ def run_bootstrap(
 
     Parameters
     ----------
+    data : CausalData
+        Validated study data to resample.
     refit : callable
         Maps a resampled :class:`~cleverly.data.CausalData` to a mapping of estimand
         name to point estimate.  Replicates that raise are dropped and counted
         rather than aborting the run: with weak overlap a resample can easily end
         up with an empty treatment arm in some stratum.
+    n_replicates : int
+        How many replicates to draw.
     resampling : {"auto", "cluster", "row"}
         ``"auto"`` resamples clusters when the data has them, rows otherwise.
+
+    random_state : int or None
+        Seed for the replicate draws.
+    n_jobs : int
+        Number of joblib workers.
+
+    Returns
+    -------
+    BootstrapResult
+        The replicate estimates, and how many replicates failed.
     """
     if n_replicates < 2:
         raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")

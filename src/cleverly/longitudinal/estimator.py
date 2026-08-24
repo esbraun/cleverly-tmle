@@ -392,6 +392,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
 
+    See Also
+    --------
+    cleverly.estimators.TMLEResult : The same contract for a point-treatment fit.
+    cleverly.RegimeContrast : The estimand a study declares to get this contrast.
+    cleverly.LongitudinalTreatment : The design that names these nodes.
+
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -422,12 +428,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     >>> low, high = result["ey_regimen[always]"].ci
     >>> low < truth["ey_regimen[always]"] < high
     True
-
-    See Also
-    --------
-    cleverly.estimators.TMLEResult : The same contract for a point-treatment fit.
-    cleverly.RegimeContrast : The estimand a study declares to get this contrast.
-    cleverly.LongitudinalTreatment : The design that names these nodes.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -483,7 +483,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return self.data.n
 
     def psi(self, name: str | None = None) -> float:
-        """Return a point estimate by parameter alias."""
+        """Return a point estimate by parameter alias.
+
+        Parameters
+        ----------
+        name : str or None
+            Parameter alias. ``None`` is allowed only when the fit reported one.
+
+        Returns
+        -------
+        float
+            The point estimate for that parameter.
+        """
         return self.estimate.psi if name is None else self[name].psi
 
     @property
@@ -565,7 +576,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return DiagnosticsFacade(self)
 
     def validate(self) -> Any:
-        """Run the inexpensive stagewise default battery without refitting."""
+        """Run the inexpensive stagewise default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per stagewise check, read off stored artifacts.
+        """
         from ..assessment import validate_result
 
         return validate_result(self)
@@ -598,6 +615,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The ``total`` column carries a standard error because the sum is itself a
         parameter with an influence curve -- the sum of the causes' curves -- so
         ``excess`` can be read against it rather than eyeballed.
+
+        Returns
+        -------
+        dataframe
+            One row per regimen and horizon, with the incidences summed over causes.
         """
         if not self.data.is_competing:
             raise ValueError(
@@ -812,13 +834,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         are the ones a point-treatment fit reports under the same names.  Two result
         objects in one library disagreeing on the name of every column is a worse cost
         than the one this saved.
+
+        Returns
+        -------
+        dataframe
+            One row per reported parameter, in the backend the data arrived in.
         """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
         payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
         return self.data.frame_like(payload)
 
     def summary(self) -> str:
-        """A printable report: the estimates, then the settings, then the leverage."""
+        """A printable report: the estimates, then the settings, then the leverage.
+
+        Returns
+        -------
+        str
+            A printable report: the estimates, the settings, then the leverage.
+        """
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
         rows = []
         for name, estimate in self.estimates.items():

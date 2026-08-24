@@ -436,6 +436,13 @@ class TMLEResult:
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
 
+    See Also
+    --------
+    cleverly.ParameterEstimate : One entry of :attr:`estimates`.
+    cleverly.assessment.DiagnosticsFacade : Reached as ``result.diagnostics``.
+    cleverly.assessment.SensitivityFacade : Reached as ``result.sensitivity``.
+    cleverly.longitudinal.LongitudinalResult : The same contract for a sequential fit.
+
     Examples
     --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -475,13 +482,6 @@ class TMLEResult:
 
     >>> result.validate().passed
     True
-
-    See Also
-    --------
-    cleverly.ParameterEstimate : One entry of :attr:`estimates`.
-    cleverly.assessment.DiagnosticsFacade : Reached as ``result.diagnostics``.
-    cleverly.assessment.SensitivityFacade : Reached as ``result.sensitivity``.
-    cleverly.longitudinal.LongitudinalResult : The same contract for a sequential fit.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -558,6 +558,12 @@ class TMLEResult:
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
+
+        Returns
+        -------
+        dict of str to float
+            Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
+            Zero for an ordinary one-draw fit.
         """
         if self.n_repeats < 2:
             raise ValueError(
@@ -730,7 +736,13 @@ class TMLEResult:
         return DiagnosticsFacade(self)
 
     def validate(self) -> ValidationReport:
-        """Run the inexpensive method-appropriate checks without refitting."""
+        """Run the inexpensive method-appropriate checks without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per check the fitted method declares, read off stored artifacts.
+        """
         from ..assessment import validate_result
 
         return validate_result(self)
@@ -783,7 +795,13 @@ class TMLEResult:
         return _save(self, path)
 
     def to_frame(self) -> Any:
-        """Tidy results, one row per estimand, in the caller's dataframe backend."""
+        """Tidy results, one row per estimand, in the caller's dataframe backend.
+
+        Returns
+        -------
+        dataframe
+            One row per estimand, in the backend the data arrived in.
+        """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
         payload: dict[str, Any] = {}
         keys: list[str] = []
@@ -887,13 +905,25 @@ class TMLEResult:
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
     def influence_frame(self) -> Any:
-        """One column per estimand of per-observation influence-curve values."""
+        """One column per estimand of per-observation influence-curve values.
+
+        Returns
+        -------
+        dataframe
+            One column per estimand of per-observation influence-curve values.
+        """
         return self.data.frame_like(
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
     def summary(self) -> str:
-        """A printable report of the fit."""
+        """A printable report of the fit.
+
+        Returns
+        -------
+        str
+            A printable report: the estimates, the settings, then the diagnostics.
+        """
         data = self.data
         header = ["Targeted maximum likelihood estimation", "=" * 38]
         facts = [
