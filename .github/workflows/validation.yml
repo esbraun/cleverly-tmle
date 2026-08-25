@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       selection:
-        description: Optional pytest node id; the whole slow tier when empty
+        description: Optional pytest node id; the whole evidence re-execution tier when empty
         type: string
         default: ""
 

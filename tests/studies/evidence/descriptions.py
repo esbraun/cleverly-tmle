@@ -38,11 +38,14 @@ _ARM = re.compile(
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
+    "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
+    "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "ltmle": "R `ltmle`",
+    "lmtp": "R `lmtp`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "tmle3": "R `tmle3`",
@@ -140,6 +143,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("crossfit_overfitting", "in_sample_control"): (
         "the same flexible learner fitted in sample, with no cross-fitting",
         "SE ratio must fall below the overfitting ceiling",
+    ),
+    ("crossfit_overfitting", "cross_fitted_ltmle"): (
+        "five-fold end-of-study LTMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "cross_fitted_survival_ltmle"): (
+        "five-fold horizon-two survival LTMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("double_robustness", "both_correct"): (
         "both the outcome regression and the treatment mechanism are correctly specified",

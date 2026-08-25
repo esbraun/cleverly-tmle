@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.datasets import rule_arm_at_node_two
 from tests import discrete_law_survival as law
 from tests.studies import canonical_ltmle_survival as study
 from tests.studies import ltmle_survival_properties as properties
@@ -15,6 +16,27 @@ def test_dynamic_quadrature_is_stable_under_refinement() -> None:
     coarse = study.dynamic_survival_truth(nodes=48, panel=160)
     refined = study.dynamic_survival_truth(nodes=56, panel=192)
     assert coarse == pytest.approx(refined, abs=1e-12)
+
+
+def test_the_dynamic_quadrature_integrates_the_rule_the_fits_are_given() -> None:
+    r"""The witness :func:`longitudinal_rule_truth` gets from ``_check_step_rule``.
+
+    ``dynamic_survival_truth`` splits its :math:`L_2` axis into two Gauss-Legendre panels
+    meeting at ``0.0`` and reads the arm as ``0`` below and ``1`` above.  It never calls
+    :func:`~cleverly.datasets.rule_arm_at_node_two`, which is the function both fits are
+    handed -- so the threshold is written twice, once as a number and once as a comparison,
+    and a change to either leaves a plausible number behind rather than an error.
+
+    Both registered survival rows publish coverage for
+    ``risk_regimen[treat then continue if l2 positive @ t=2]`` against that quadrature, so a
+    silent disagreement here is a coverage claim for a regimen nobody estimated.  Checked on
+    the panel interiors and on both sides of the jump rather than at ``0.0`` itself, which is
+    a measure-zero point the integral cannot see.
+    """
+    below = np.array([-20.0, -3.0, -1e-9])
+    above = np.array([1e-9, 3.0, 20.0])
+    np.testing.assert_array_equal(rule_arm_at_node_two(below), np.zeros(3))
+    np.testing.assert_array_equal(rule_arm_at_node_two(above), np.ones(3))
 
 
 def test_the_primary_study_reports_every_unique_parameter_once() -> None:

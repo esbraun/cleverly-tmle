@@ -87,7 +87,12 @@ def tests(session: nox.Session) -> None:
 
 @nox.session
 def slow(session: nox.Session) -> None:
-    """Manual tier: coverage, consistency and type I error studies."""
+    """Re-execute the committed evidence artefacts: property cells, refits, resampling bounds.
+
+    Not the old statistical tier.  Those studies are deprecated and skipped; see
+    ``docs/development/testing-strategy.md``.  Add ``-- --run-legacy-studies`` to run one while
+    building the registered row that replaces it.
+    """
     session.install("-e", ".[dev]")
     session.run(
         "pytest",

@@ -134,7 +134,7 @@ class TestDoubleRobustnessGrid:
     # 60 CoverageStudy fits, 30 of them at n=2000, to resolve a ratio to +/- 0.1.
     # Root-n consistency requires many fits and belongs in the slow tier; the
     # double-robustness grid above it is the deliberate spending in this module.
-    @pytest.mark.slow
+    @pytest.mark.legacy_study
     def test_the_standard_error_shrinks_at_the_root_n_rate(self) -> None:
         small = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=500, reps=30)["ate"]
         large = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=2000, reps=30)[
@@ -145,7 +145,7 @@ class TestDoubleRobustnessGrid:
         assert ratio == pytest.approx(0.5, abs=0.1)
 
 
-@pytest.mark.slow
+@pytest.mark.legacy_study
 class TestFlexibleLearners:
     """The practical case for the Super Learner, at sizes the fast tier cannot afford."""
 

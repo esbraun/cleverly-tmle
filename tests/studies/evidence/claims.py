@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from importlib import import_module
 
 import pandas as pd
 
@@ -194,12 +193,11 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "margin:excluded_slope": property_verdicts.EXCLUDED_SLOPE,
     }
     if "crossfit_overfitting" in record.property_cells:
-        overfit = import_module("tests.studies.cvtmle_properties")
         declared.update(
             {
-                "margin:overfit_se_floor": overfit.OVERFIT_SE_FLOOR,
-                "margin:overfit_control_ceiling": overfit.OVERFIT_SE_CONTROL_CEILING,
-                "margin:overfit_coverage_gain": overfit.OVERFIT_COVERAGE_GAIN,
+                "margin:overfit_se_floor": property_verdicts.OVERFIT_SE_FLOOR,
+                "margin:overfit_control_ceiling": property_verdicts.OVERFIT_SE_CONTROL_CEILING,
+                "margin:overfit_coverage_gain": property_verdicts.OVERFIT_COVERAGE_GAIN,
             }
         )
     if "generated_design" in record.property_cells:

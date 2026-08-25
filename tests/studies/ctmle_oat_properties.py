@@ -16,12 +16,15 @@ from tests.studies import canonical_properties, cvtmle_properties
 from tests.studies.canonical_ctmle_oat import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import (
     PropertyCell,
-    coverage_gain_interval,
     run_cells,
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    crossfit_overfitting_verdicts,
+    finish,
+)
 from tests.studies.evidence.seeds import stream_seed
 
 OAT_NULL_REPLICATES = 800
@@ -187,47 +190,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
 
-    overfit_rows = rows.loc[rows["property"] == "crossfit_overfitting"]
-    positive_rows = overfit_rows.loc[overfit_rows["cell"] == "cross_fitted_oat"]
-    control_rows = overfit_rows.loc[overfit_rows["cell"] == "in_sample_control"]
-    positive_se = se_ratio_interval(
-        positive_rows,
-        replicates=STUDY.margins.bootstrap_replicates,
-        confidence_level=STUDY.margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "cross_fitted_oat"),
-    )
-    control_se = se_ratio_interval(
-        control_rows,
-        replicates=STUDY.margins.bootstrap_replicates,
-        confidence_level=STUDY.margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "in_sample_control"),
-    )
-    gain = coverage_gain_interval(
-        positive_rows,
-        control_rows,
-        replicates=STUDY.margins.bootstrap_replicates,
-        confidence_level=STUDY.margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "coverage_gain"),
-    )
-    verdicts = {
-        "cross_fitted_oat": bool(
-            positive_se.low >= cvtmle_properties.OVERFIT_SE_FLOOR
-            and positive_se.high <= STUDY.margins.se_ratio_sanity[1]
-        ),
-        "in_sample_control": bool(control_se.high <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= cvtmle_properties.OVERFIT_COVERAGE_GAIN)
-    for cell, interval in (
-        ("cross_fitted_oat", positive_se),
-        ("in_sample_control", control_se),
-    ):
-        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
+    crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_oat")
 
     generated = rows.loc[rows["property"] == "generated_design"]
     estimated_rows = generated.loc[generated["cell"] == "estimated"].sort_values("replicate")

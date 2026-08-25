@@ -12,7 +12,7 @@ Everything else is routed:
 | setup, development commands, the public overview | `README.md` |
 | where technical documentation lives | `docs/README.md` |
 | cross-module constraints not derivable from one implementation | `docs/architecture-invariants.md` |
-| test tiers, and when a slow study is justified | `docs/development/testing-strategy.md` |
+| test tiers, and which deprecated studies no longer run | `docs/development/testing-strategy.md` |
 | designing and registering a validation study | `docs/development/method-benchmarking.md` |
 | which instrument covers which estimand | `docs/technical-reference/evidence.md` |
 | what each shipped method was validated against | `docs/technical-reference/index.md` |
@@ -30,7 +30,9 @@ Current behavior is determined by code and tests, not by historical plans or inv
 ## Tests and tooling
 
 - Read `docs/development/testing-strategy.md` before choosing a tier. The fast tier is the default
-  handoff gate. A slow run is an evidence decision, not a time-budget waiver.
+  handoff gate. The repeated-sampling studies that predate the registered rows are deprecated
+  and skipped; do not re-enable one to justify a change. Re-execute the committed evidence
+  artefacts when a study is regenerated.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
   `cleverly[all]` plus tooling. An optional extra kept out of `dev` *and* out of a dedicated CI job
   is installed by no session, so its tests can only skip, and a skipped correctness check reads

@@ -535,17 +535,15 @@ print(result.validate().summary())
 | --- | --- | --- |
 | the stagewise report | how many members followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | every node's fluctuation converged | that the node regressions are correctly specified |
-| the registered study | the implementation recovers known two-node truths, matches R `ltmle`, and witnesses the targeting step itself | survival, competing risks, MSM, weights, clustering, or flexible learning. Those are outside its declared scope |
+| the registered studies | end-of-study and survival fits recover known two-node truths and witness targeting, recursion, and held-out prediction | competing risks, MSM, weights, clustering, simultaneous bands, or broad learner-library selection |
 
-Read that last cell carefully against this page. The registered study covers the **end-of-study**
-analysis only. The retention curve and the two-cause section on this page run machinery the study
-does not reach, and their evidence is the exact-law and Gateaux work in the
-[evidence manifest](../technical-reference/evidence.md#longitudinal-estimands-outside-the-target-registry)
-rather than a repeated-sampling row.
+Read that last cell carefully against this page. The registered cross-fitted rows cover the
+[end-of-study](../technical-reference/method-evidence.md#cross-fitted-end-of-study-longitudinal-tmle)
+and [survival](../technical-reference/method-evidence.md#cross-fitted-survival-curve-longitudinal-tmle)
+sections. The two-cause section still rests on exact-law and Gateaux evidence in the
+[evidence manifest](../technical-reference/evidence.md#longitudinal-estimands-outside-the-target-registry).
 
-The evidence row for the first part is
-[ordinary end-of-study longitudinal TMLE](../technical-reference/method-evidence.md#ordinary-end-of-study-longitudinal-tmle).
-Positivity is comfortable throughout that study, so it does not speak to a fit whose stagewise
+Positivity is comfortable in both primary studies. Neither row speaks to a fit whose stagewise
 report shows a small effective sample size.
 
 Two variants of this method have no longitudinal derivation.

@@ -71,18 +71,18 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_ctmle_oat.py": "e64364d5c472c87aadb586f7350aae27dca5ae7ef7869c286085a4358941de6b",
-    "tests/studies/ctmle_oat_properties.py": "040ddc2654df7941df6e75e0043ac6af1c3b84123c2f5bd69ec805cb125cf899",
+    "tests/studies/ctmle_oat_properties.py": "9acf63e0f9c6ce5c54cff6ebcdffedbffa401a4d6bfa87f69bc8224c37231ee1",
     "tests/studies/canonical_properties.py": "6ccf61032a3e466803df59e2531ccf80a8882045aad8376d3708de2c97b04caa",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
-    "tests/studies/evidence/property_verdicts.py": "5b2c63f514a89650de667528d50933b98c79b7fa3addc5fe43d15b738ab8c23a",
+    "tests/studies/evidence/property_verdicts.py": "fb469ec435b470a4f99f938b81a68bcd77fefe01e03cae7828b512aefc71392d",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
   "reference_sha256": {
-    "Dockerfile": "5813c33dcbb06f1f34d448eb059ddb68e092ab95e1fffc522476526ebd9604e6",
-    "run_ctmle3_oat.R": "13621c4382f45c6b3fc6585fc3650164e07a779df220befe035f91c97cd2603a"
+    "tests/canonical/ctmle3_oat/Dockerfile": "5813c33dcbb06f1f34d448eb059ddb68e092ab95e1fffc522476526ebd9604e6",
+    "tests/canonical/ctmle3_oat/run_ctmle3_oat.R": "13621c4382f45c6b3fc6585fc3650164e07a779df220befe035f91c97cd2603a"
   },
   "sha256": {
     "replicates.csv.gz": "ddb05a2bc4b6bf7b21f197959100bba76146e4ec8cf05d77e78915893db07c7d",

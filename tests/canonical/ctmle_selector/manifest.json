@@ -78,13 +78,13 @@
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
-    "tests/studies/evidence/property_verdicts.py": "5b2c63f514a89650de667528d50933b98c79b7fa3addc5fe43d15b738ab8c23a",
+    "tests/studies/evidence/property_verdicts.py": "fb469ec435b470a4f99f938b81a68bcd77fefe01e03cae7828b512aefc71392d",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
   "reference_sha256": {
-    "Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
-    "run_ctmle.R": "d8567c5d8a3bdc5765f023729fa222d0b9452d2c6df4dc83b60f9b892e7ab486"
+    "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
+    "tests/canonical/ctmle_selector/run_ctmle.R": "d8567c5d8a3bdc5765f023729fa222d0b9452d2c6df4dc83b60f9b892e7ab486"
   },
   "sha256": {
     "replicates.csv.gz": "6bc7875edd5818e95582166ca18d472d21532fd39fe8aefcd599fdee27013d39",
