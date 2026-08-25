@@ -1433,8 +1433,8 @@ def benkeser(fit):
 class TestBothUpdateOrdersReachTheTheoremsExit:
     r"""Item 22's numerical half, at one draw: two routes, one stated fixed point.
 
-    The 2016 working paper states a six-step recursion (pp. 10-11; ``docs/drtmle.md``'s
-    *The update order*) and R ``drtmle`` takes a different route to the same fixed point. Reading the paper
+    The 2016 working paper states a six-step recursion (pp. 10-11;
+    ``docs/technical-reference/dr-tmle/targeting.md``) and R ``drtmle`` takes a different route to the same fixed point. Reading the paper
     settled the *theoretical* half -- its step 7 states termination as the three empirical
     means being approximately zero, so the order is one way of reaching a fixed point rather
     than something Theorem 1 assumes about the collection returned -- and left the numerical

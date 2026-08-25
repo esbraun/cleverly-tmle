@@ -91,7 +91,7 @@ Two inference rules belong to one method each, and each method entry states its 
 | the plug-in influence-curve variance for `LTMLE`, and what it does not absorb | [Longitudinal TMLE](longitudinal-tmle.md#validation-issues-special-to-this-method) |
 
 The corrected curve `DRTMLE` reports is the estimator's own influence function rather than the
-efficient one. [DR-TMLE](dr-tmle.md#what-this-solves) says what follows from that.
+efficient one. [DR-TMLE](dr-tmle/index.md#what-this-solves) says what follows from that.
 
 Evidence for everything above:
 [`tests/unit/test_inference.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_inference.py)

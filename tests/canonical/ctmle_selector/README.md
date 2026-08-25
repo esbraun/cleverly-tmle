@@ -38,4 +38,4 @@ weights, clusters, strata, multi-valued treatment, simultaneous or bootstrap int
 flexible learner libraries, and severe practical-positivity behavior are outside scope.
 
 The reader-facing measurements and limitations are in
-[`docs/technical-reference/method-evidence.md`](../../../docs/technical-reference/method-evidence.md).
+[`docs/technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md`](../../../docs/technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md).

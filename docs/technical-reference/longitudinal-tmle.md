@@ -27,6 +27,8 @@ before any model is fitted.
 A worked applied analysis is in the
 [longitudinal tutorial](../examples/longitudinal-tmle.md). It runs a point-treatment analysis
 of the same data as a control, and that analysis fails in both available directions.
+[Retention and competing risks](../examples/longitudinal-survival.md) is the companion tutorial for
+the event-process extensions below.
 
 ## The algorithm as implemented
 
@@ -102,6 +104,8 @@ clever covariate constant. `res.diagnostics.stagewise().to_frame()["share_trunca
 effect per regimen and node.
 
 ### Survival and competing risks
+
+[Retention and competing risks](../examples/longitudinal-survival.md) works this section applied.
 
 An outcome sequence represents an absorbing event process. **Which population each node's
 regression is fitted on is the whole of what changes**, and it is the one thing here that is easy
@@ -245,12 +249,12 @@ under refinement.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [ordinary end-of-study longitudinal TMLE](method-evidence.md#ordinary-end-of-study-longitudinal-tmle) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
-| [cross-fitted end-of-study longitudinal TMLE](method-evidence.md#cross-fitted-end-of-study-longitudinal-tmle) | against R `lmtp` 1.5.4 on one exact five-fold assignment, with the mechanism supplied to both, plus held-out recursion checks and independent theory properties |
-| [ordinary survival-curve longitudinal TMLE](method-evidence.md#ordinary-survival-curve-longitudinal-tmle) | against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
-| [cross-fitted survival-curve longitudinal TMLE](method-evidence.md#cross-fitted-survival-curve-longitudinal-tmle) | against R `lmtp` 1.5.4 across both horizons on one exact five-fold assignment, with held-out and survivor-only controls |
+| [ordinary end-of-study longitudinal TMLE](method-evidence/ordinary-end-of-study-longitudinal-tmle.md) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
+| [cross-fitted end-of-study longitudinal TMLE](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on one exact five-fold assignment, with the mechanism supplied to both, plus held-out recursion checks and independent theory properties |
+| [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
+| [cross-fitted survival-curve longitudinal TMLE](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) | against R `lmtp` 1.5.4 across both horizons on one exact five-fold assignment, with held-out and survivor-only controls |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [the implementation validation grid](index.md#implementation-validation-grid) | the four registered core rows and each row's declared limits |
+| [the implementation validation grid](method-evidence/validation-grid.md) | the four registered core rows and each row's declared limits |
 
 Competing-risk correctness rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. No R comparison is claimed

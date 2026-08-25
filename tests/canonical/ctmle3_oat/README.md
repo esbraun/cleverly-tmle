@@ -43,4 +43,4 @@ treatment parity, simultaneous or bootstrap intervals, broad learner-library sel
 and severe practical-positivity behavior are outside scope.
 
 The reader-facing measurements and limitations are in
-[`docs/technical-reference/method-evidence.md`](../../../docs/technical-reference/method-evidence.md).
+[`docs/technical-reference/method-evidence/outcome-adaptive-point-treatment-c-tmle.md`](../../../docs/technical-reference/method-evidence/outcome-adaptive-point-treatment-c-tmle.md).

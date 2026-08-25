@@ -1,10 +1,37 @@
 # DR-TMLE
 
-The authoritative account of what has been established about this variant is the
-[DR-TMLE production contract](../drtmle.md). It carries the supported estimands, the refusals by
-name, the theorem, the sign adjudication, the rate conditions, and the diagnostics. This entry says
-what applied problem the variant solves, how the algorithm is built, and what is special about
-validating it.
+This entry says what applied problem the variant solves, how the algorithm is built, and what is
+special about validating it. The pages beneath it carry the production contract: the
+[supported estimands and refusals](supported-estimands.md), the
+[theorem](theorem.md), the [targeting and cross-fitting choices](targeting.md), the
+[nuisance conditions](nuisance-conditions.md) the interval is conditional on, the
+[diagnostics](diagnostics.md) to inspect, and
+[what the validation programme established](validation-programme.md).
+
+## The release claim, in one paragraph
+
+**Conditional validity.** The default univariate algorithm computes what Benkeser, Carone, van der
+Laan & Gilbert's Theorem 1 derives. `reduction="bivariate"` computes van der Laan (2014), Theorem
+3's earlier binary construction. Checks compare both constructions with their remainder derivations
+and with the parameter's Gateaux derivative. The exact finite-support laws and the remainder
+identities run at three arms as well as two, in the union-model cells where exactly one correction
+survives.
+
+The reported interval is valid **conditional on** the practitioner obtaining adequate primary and
+reduced-regression fits. Those are rate conditions on estimated functions. They are not verifiable
+from a fit's own output, and **numerical score convergence does not verify them**. Read
+[solved scores do not establish nuisance consistency](diagnostics.md#solved-scores-do-not-establish-nuisance-consistency),
+which is the single most important page in this section.
+
+What this is *not*: a better point estimate. The three empirical means are all driven to zero, so
+the extra terms cannot move `Ψ̂` and only move its variance. Read a `DRTMLE` fit as the same
+estimate with an interval entitled to be believed under weaker conditions.
+
+And it is *not* the efficient estimator. Under misspecification the canonical gradient at `P_0` is
+still `D*`. What the three equations leave is `D = D* − D*_Q − D*_g`, the estimator's asymptotic
+influence function at the nuisance limits, and it is generally not efficient there. When both
+nuisances are consistent, the corrections converge to zero and the curve approaches the ordinary
+efficient curve. At the true nuisance functions, the corrections vanish row by row.
 
 ## What this solves
 
@@ -48,9 +75,9 @@ inference can survive one inconsistent primary nuisance.
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
 
 `DRTMLE` ships under **conditional validity**. Read
-[the release claim](../drtmle.md#the-release-claim-in-one-paragraph) before you rely on it.
+[the release claim](#the-release-claim-in-one-paragraph) before you rely on it.
 
-A worked applied analysis is in the [DR-TMLE tutorial](../examples/dr-tmle.md). It shows why
+A worked applied analysis is in the [DR-TMLE tutorial](../../examples/dr-tmle.md). It shows why
 one fit cannot display what this variant buys.
 
 An inconsistent nuisance model is not unmeasured confounding. This variant still requires the
@@ -109,7 +136,7 @@ Implementation:
 [`estimators/reduced.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/reduced.py),
 and
 [`validation/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/drtmle.py).
-The source-to-equation map is in [the contract](../drtmle.md#the-objects).
+The source-to-equation map is in [the contract](theorem.md#the-objects).
 
 ## Variations
 
@@ -122,7 +149,7 @@ The source-to-equation map is in [the contract](../drtmle.md#the-objects).
 | `update_order="benkeser"` | the published six-step recursion | no |
 | `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword. Refused below three folds, under `cross_fit=False`, and with `algorithm="one_step"` |
 | `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no |
-| `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome | **yes**. It requires `cross_fit=False` and both guards. See [the contract](../drtmle.md#randomized-trials-with-missing-outcomes) |
+| `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome | **yes**. It requires `cross_fit=False` and both guards. See [the contract](theorem.md#randomized-trials-with-missing-outcomes) |
 | `evaluation=` | an independent-draw evaluation set carried through targeting | no. A remainder diagnostic |
 | multiple treatment levels | each reduction and correction is indexed by a free level, and equation (9) is solved by independent one-versus-rest fluctuations | this follows the published R workflow. The cited theorem is binary, so this is an implementation-backed armwise extension |
 
@@ -130,8 +157,8 @@ The targeted margins deliberately do not renormalise, because a simplex projecti
 armwise equations. They are not inert either. Equation (8) divides by them, so the estimate does
 read a mechanism that no longer sums to one.
 
-Refusals by name are listed in [the contract](../drtmle.md#refused-by-name) and summarised in
-[scope and refusals](scope-and-refusals.md#not-written-yet).
+Refusals by name are listed in [the contract](supported-estimands.md#refused-by-name) and summarised in
+[scope and refusals](../scope-and-refusals.md#not-written-yet).
 
 ## Validation issues special to this method
 
@@ -146,14 +173,14 @@ This is the reason the only **theorem** instrument in the tree belongs to this v
 `tests/unit/test_theorem_drtmle.py` checks against Benkeser et al.'s Theorem 1 *at values where the
 correction does not vanish*. The rest of the estimand catalogue does not need one, because its
 influence curves do not vanish at the truth. The argument for that empty column is written down in
-[the evidence manifest](evidence.md#what-this-table-says-is-missing).
+[the evidence manifest](../evidence.md#what-this-table-says-is-missing).
 
 **Four nonzero instruments carry the multi-arm extension**, because the exact multi-arm law makes
 every new term vanish and so cannot fail. They are an independent `brentq` solve of the canonical
 package's own mechanism score equation arm by arm, a misspecified fit where $Q_r$ is nonzero and
 the mechanism visibly leaves the simplex, a column-permutation witness on the exit state, and an
 armwise covariate formula check on a nonzero $Q_r$. They are tabulated in
-[estimator variants over registered targets](evidence.md#estimator-variants-over-registered-targets).
+[estimator variants over registered targets](../evidence.md#estimator-variants-over-registered-targets).
 
 **Bounding the two mechanisms separately is what the scope label had to learn.** The contract once
 measured its truncation witnesses on the treatment mechanism alone, which is blind in exactly the
@@ -169,13 +196,25 @@ that it has since been checked against Theorem 1's own appendices at a nonzero $
 perturbation of the law where in each half of the union model the corrected curve is the efficient
 influence function row for row. Agreement between two transcriptions of one source is evidence
 about the transcription. This is a
-[standing decision](../architecture-invariants.md#validation-and-evidence) rather than a gap.
+[standing decision](../../architecture-invariants.md#validation-and-evidence) rather than a gap.
 
 **Solved scores do not establish nuisance consistency.** `score_check` used to sign a doubly-robust
 fit off with one verdict over three rows, two of which are the corrections. It now branches on
 whether the fit is corrected, and says which equations it solved. See
-[the contract](../drtmle.md#6-solved-scores-do-not-establish-nuisance-consistency).
+[the contract](diagnostics.md#solved-scores-do-not-establish-nuisance-consistency).
 
-There is no registered repeated-sampling study for this variant.
-[What the validation programme established](../drtmle.md#what-the-validation-programme-established)
+The registered [canonical DR-TMLE study](../method-evidence/canonical-dr-tmle.md) reports rather than
+gates: it publishes failed cells instead of hiding them.
+[What the validation programme established](validation-programme.md)
 is the full list of what is and is not settled.
+
+```{toctree}
+:maxdepth: 2
+
+supported-estimands
+theorem
+targeting
+nuisance-conditions
+diagnostics
+validation-programme
+```

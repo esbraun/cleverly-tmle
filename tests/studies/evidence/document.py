@@ -287,12 +287,12 @@ GENERATED = {
 
 
 def _section(lines: list[str], anchor: str, document: object) -> tuple[int, int]:
-    """The half-open line range of the level-two section ``anchor`` names."""
+    """The half-open line range of the level-one section ``anchor`` names."""
 
     def matches(line: str) -> bool:
-        if not line.startswith("## "):
+        if not line.startswith("# "):
             return False
-        heading = line[3:].strip()
+        heading = line[2:].strip()
         kept = "".join(
             character
             for character in heading.casefold()
@@ -302,12 +302,12 @@ def _section(lines: list[str], anchor: str, document: object) -> tuple[int, int]
 
     start = next((index for index, line in enumerate(lines) if matches(line)), None)
     if start is None:
-        raise LookupError(f"{document} has no level-two section {anchor!r}")
+        raise LookupError(f"{document} has no level-one section {anchor!r}")
     stop = next(
         (
             index
             for index, line in enumerate(lines[start + 1 :], start=start + 1)
-            if line.startswith("## ")
+            if line.startswith("# ")
         ),
         len(lines),
     )

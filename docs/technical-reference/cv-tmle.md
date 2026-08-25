@@ -29,7 +29,7 @@ interval, and folds address one of them.
 | the second-order remainder is $o_P(n^{-1/2})$ by a **product rate** on both nuisances | your learners, and nothing the fluctuation can do |
 
 The last condition is the one a *variant* of the estimator can weaken. That variant is
-[DR-TMLE](dr-tmle.md).
+[DR-TMLE](dr-tmle/index.md).
 
 A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.md). It
 measures what an in-sample interval costs under a flexible learner.
@@ -113,9 +113,9 @@ its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [stacked point-treatment CV-TMLE](method-evidence.md#stacked-point-treatment-cv-tmle) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
-| [fold-evaluated point-treatment CV-TMLE](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | no canonical comparator exists, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
-| [the implementation validation grid](index.md#implementation-validation-grid) | both rows, with their declared limits |
+| [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
+| [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no canonical comparator exists, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
+| [the implementation validation grid](method-evidence/validation-grid.md) | both rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked
 R CV-TMLE. No maintained package ships this construction, and a study that had no comparator says

@@ -1329,7 +1329,8 @@ def solve_with_reduction(
     rate and keeps its shape: worst on ``linear``, 3 of 12 draws at each size against 0 of 12
     for ``nonlinear`` at ``n = 600``, which is what "vanishes where the mechanism is right"
     predicts, the easy process being the ill-conditioned one. That evidence did not cover
-    the shipped 10-fold default; ``docs/drtmle.md`` records the separate default-path matrix.
+    the shipped 10-fold default.  ``docs/technical-reference/dr-tmle/targeting.md``
+    records the separate default-path matrix.
 
     The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
     ``1e-3`` and so reading an absolutely negligible score as a large one;
@@ -1462,7 +1463,7 @@ def solve_with_reduction(
     for outer in range(1, max_outer + 1):
         if order == "benkeser":
             # Steps 2 to 6 of the working paper's recursion, in its order (pp. 10-11;
-            # `docs/drtmle.md`'s *The update order*). The two refits are the paper's own
+            # `docs/technical-reference/dr-tmle/targeting.md`). The two refits are the paper's own
             # steps 3 and 5 and they are what the order is *about*: the reductions are
             # taken at two different vintages of the outcome regression, the mechanism
             # half at the once-updated one and Qr at the twice-updated one, where this
@@ -2332,7 +2333,7 @@ def _close_at_frozen_reductions(
     its residual as well as in its denominator -- so the two coincided on every row the
     truncation left alone and differed on every row it clipped, and one clipped row of 600
     was enough to leave the reported curve uncentred by ``5.8e-4`` while this stage recorded
-    ``8e-11``. ``docs/drtmle.md``'s *The bound-inactive scope* states the resulting contract.
+    ``8e-11``. ``docs/technical-reference/dr-tmle/targeting.md`` states the resulting contract.
 
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is what closed it: it
     solves the score at the **truncated** tilt, which is the expression the reported curve

@@ -88,7 +88,7 @@ STUDY = StudyRecord(
     name="DR-TMLE for binary complete data",
     slug="canonical-drtmle",
     artifacts=ROOT / "tests" / "canonical" / "drtmle",
-    document="docs/technical-reference/method-evidence.md",
+    document="docs/technical-reference/method-evidence/canonical-dr-tmle.md",
     anchor="canonical-dr-tmle",
     scenarios=dict.fromkeys(SCENARIOS, ESTIMANDS),
     replicates=PRIMARY_REPLICATES,
@@ -294,7 +294,7 @@ def fit_cleverly(
     """The registered fit, at one nuisance regime.
 
     ``update_order`` is the only setting a caller may vary, and it is here so the
-    update-order comparison `docs/drtmle.md` publishes is a call to *this* function rather
+    update-order comparison `docs/technical-reference/dr-tmle/targeting.md` publishes is a call to *this* function rather
     than a second copy of the construction beside it.  A copy is how two routes come to be
     compared at settings that differ in more than the route, which is the one thing that
     comparison cannot afford.  Every published row uses the default.

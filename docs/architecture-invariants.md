@@ -72,11 +72,11 @@ a workflow that cannot be expressed through these contracts without losing infor
 alternative still converges to the same structured identification and result records.
 
 An estimation method is named, never selected from the data. `estimate(method=...)` carries a
-fixed default preset, which is a declaration rather than a choice; what is excluded is picking an
-estimator by scanning `available_methods()` or by comparing fits on the rows being estimated. The
+fixed default preset, which is a declaration rather than a choice. What is excluded is picking an
+estimator by scanning `available_methods()`, or by comparing fits on the rows being estimated. The
 temptation grows with the catalog. `riesz_tmle` and `ep` already appear there as
 unavailable-with-reason, so a "use the best available method" convenience is one short function
-away, and it would report an interval whose selection step nothing certified and whose influence
+away. It would report an interval whose selection step nothing certified and whose influence
 curve does not account for it. *Reconsider when* a published selector supplies its own influence
 contribution and selection-aware inference, and certifies on draws that did not do the selecting.
 
@@ -94,14 +94,11 @@ a container without reconciling it therefore reports an adjustment set no estima
 and saves it. *Reconsider when* a container carries its own identification record, so the design
 has nothing left to contradict.
 
-When the public layer reports a subset of the parameters an engine computed, the inference it
-reports is the inference for that subset. A joint band is a statement about a family, so
-narrowing the family and keeping the critical value asserts a coverage property over parameters
-the result does not contain. Recompute from the retained influence curves under the same
-significance level, draw count, multiplier distribution, seed, and cluster structure, so the
-result is what the engine would have produced had it been asked for that family alone.
-*Reconsider when* an engine can be asked for the narrowed family directly, and the public layer
-stops selecting after the fact.
+Reported inference always belongs to the reported subset.
+[Reporting a subset of a family](technical-reference/inference.md#reporting-a-subset-of-a-family)
+states the rule and what is recomputed. The decision recorded here is that the public layer
+recomputes rather than reusing the wider family's critical value. *Reconsider when* an engine can
+be asked for the narrowed family directly, and the public layer stops selecting after the fact.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
@@ -147,9 +144,9 @@ is persisted separately from estimates, and may not mutate the headline estimate
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
 
-Both assessment facades route through one base: lookup, refusal, and the combined report are
-written once, so a refusal always carries the reason its own capability row declares and a
-combined report reads the same declaration the same way on both. `run_all` names the two
+Both assessment facades route through one base. Lookup, refusal, and the combined report are
+written once. A refusal therefore always carries the reason its own capability row declares, and a
+combined report reads that declaration the same way on both facades. `run_all` names the two
 expensive classes separately: `include_refits` for operations that refit nuisances and
 `include_retargets` for those that retarget cached ones. They are disjoint, and one
 flag made whichever class it did not name run under the other's permission. Sensitivity
@@ -240,10 +237,10 @@ xdist balances it and inner `n_jobs` remains one.
 
 A standalone regeneration script is not a test tier and does not inherit that split. It owns the
 machine, so it sizes its inner pool from `tests.parallel.available_cores()` rather than from the
-measured `STUDY_JOBS` floor, but it must keep its phases *sequential*. `tests/canonical/tmle3/`
-generates every sample and fits the Python side to completion before handing the same samples to
-the R container, because the two are the same work on the same cores and overlapping them would
-leave both contending for a machine neither can have. A slow-tier test that is the critical path of
+measured `STUDY_JOBS` floor. It must still keep its phases *sequential*. `tests/canonical/tmle3/`
+generates every sample and fits the Python side to completion before it hands the same samples to
+the R container. The two are the same work on the same cores, so overlapping them would leave both
+contending for a machine neither can have. A slow-tier test that is the critical path of
 its tier may take half the budget; the fast tier still leaves inner parallelism alone.
 
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
@@ -255,10 +252,10 @@ test-enforced source registries.
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
 executes the registered documents' fences and asserts only that nothing raises; it asserts nothing
 about any number, which is what keeps the rule above intact. *Reconsider when* the check stops
-paying for its runtime. It exists because compiling a fence cannot see a name the package does
-not have, and five shipped examples were broken that way at once: two on an attribute that had been
-renamed, two calling `.summary()` on reports that expose `to_frame()`, and one passing a float
-where an assignment density is required. Every one of them rendered as ordinary, copyable code.
+paying for its runtime. It exists because compiling a fence cannot see a name the package does not
+have. Five shipped examples were broken that way at once: two on a renamed attribute, two calling
+`.summary()` on reports that expose `to_frame()`, and one passing a float where an assignment
+density is required. Every one of them rendered as ordinary, copyable code.
 
 What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
 rather than behind a dispatch. Links resolve, including links that name a repository path. Every
@@ -276,8 +273,8 @@ job and not the formatter's.
 `tests/unit/test_documentation_prose.py` fails on a finding carrying no recorded judgment, not on
 the writing. Recording `accepted: <reason>` in `tests/prose-report.md` is a passing outcome, so
 the decision stays with the writer. *Reconsider when* a rule is found that is exact enough to
-have no defensible exception. The reason this is a standing decision rather than a preference is
-measured: a Vale rule that failed the build on an em dash produced a sweep that stripped dashes
+have no defensible exception. This is a standing decision rather than a preference, and the reason
+is measured. A Vale rule that failed the build on an em dash produced a sweep that stripped dashes
 mechanically, leaving six sentences without a predicate, two enumerations broken mid-list, five
 altered technical claims and four deleted evidence clauses. The rule was correct and the
 enforcement mode did the damage.

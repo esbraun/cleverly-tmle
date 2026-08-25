@@ -544,7 +544,7 @@ def reduced_corrections(
     with two signs, which is the other reason not to settle it from a display.
     ``tests/unit/test_theorem_drtmle.py`` checks the appendix step that fixes the
     orientation, and pins these arrays against the theorem's terms;
-    ``docs/drtmle.md``'s *The sign of the mechanism correction* carries the argument.
+    ``docs/technical-reference/dr-tmle/theorem.md`` carries the argument.
 
     The published 2017 article confirms both corrected TMLE constructions; the sign adjudication
     still rests on the explicit appendix identity plus exact-law arithmetic rather than on a

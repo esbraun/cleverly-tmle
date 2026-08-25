@@ -259,9 +259,9 @@ entry records this among its declared limits, and no diagnostic on the fit can r
 | the registered studies | the selectors recover known truths and match R `ctmle` where a comparator exists | calibrated inference while selection is load-bearing. No cell asks for it |
 
 The evidence rows are
-[selector-based point-treatment C-TMLE](../technical-reference/method-evidence.md#selector-based-point-treatment-c-tmle)
+[selector-based point-treatment C-TMLE](../technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
 and
-[outcome-adaptive point-treatment C-TMLE](../technical-reference/method-evidence.md#outcome-adaptive-point-treatment-c-tmle).
+[outcome-adaptive point-treatment C-TMLE](../technical-reference/method-evidence/outcome-adaptive-point-treatment-c-tmle.md).
 Both declare their limits in their own rows, including that parity is binary, two-arm, and not
 cross-fitted.
 

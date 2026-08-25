@@ -388,8 +388,8 @@ class TestValidation:
         assert "do not describe this estimate" in summary
         # The interval is still printed -- the line says it is not licensed, it does not
         # withhold it. Predeclaring which regimes are refused outright needs the
-        # targeting-and-exit study's evidence; see docs/drtmle.md, *What the validation
-        # programme established*.
+        # targeting-and-exit study's evidence; see
+        # docs/technical-reference/dr-tmle/validation-programme.md.
         assert "95% CI" in summary
 
     def test_nuisance_diagnostics_cover_every_model(self, good_overlap) -> None:

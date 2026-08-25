@@ -14,7 +14,11 @@ print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for
-programmatic selection; display aliases are not a serialization format.
+programmatic selection. Display aliases are not a serialization format.
+
+`result.estimate` is the sole `ParameterEstimate` only when the result holds one parameter, and
+`result.psi()` is its numeric point value. With several parameters, index the alias or pass a name
+to `psi`.
 
 ## Contrasts and simultaneous inference
 

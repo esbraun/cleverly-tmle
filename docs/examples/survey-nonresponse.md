@@ -340,5 +340,5 @@ you make from what you know about the mailing, not from the fit.
 ## Where to go next
 
 Non-response is one mechanism removing patients from view. Disenrollment is another, and it acts
-over time rather than once. Read [longitudinal TMLE](longitudinal-tmle.md) for the version where
-members leave the plan between admissions.
+over time rather than once. Read [retention and competing risks](longitudinal-survival.md) for the
+version where leaving the plan is the outcome.

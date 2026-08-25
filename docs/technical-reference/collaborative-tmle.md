@@ -18,7 +18,7 @@ mechanism against the *target parameter* instead.
 | the outcome regression is already good | the *empty* propensity model is a legitimate choice, and the selector will make it | that is not evidence the search discriminates. See the validation section |
 
 Reach for a different entry when your worry is the *inference* rather than the *selection*
-([DR-TMLE](dr-tmle.md)), or when the adjustment set is small and you would include all of it
+([DR-TMLE](dr-tmle/index.md)), or when the adjustment set is small and you would include all of it
 ([point-treatment TMLE](point-treatment-tmle.md)).
 
 Collaborative TMLE is available for point-treatment, arm-axis fits whose target is `ate`, `ey`,
@@ -127,6 +127,6 @@ claim collaborative-double-robust coverage for these intervals.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [selector-based point-treatment C-TMLE](method-evidence.md#selector-based-point-treatment-c-tmle) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [outcome-adaptive point-treatment C-TMLE](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures what the reported interval omits |
+| [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
+| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures what the reported interval omits |
 | [estimator variants over registered targets](evidence.md#estimator-variants-over-registered-targets) | the candidate-path identities, the selection mutations, and the outcome-adaptive design witnesses |

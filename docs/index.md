@@ -4,9 +4,9 @@
 <div class="cleverly-hero">
   <span class="cleverly-eyebrow">Causal studies with TMLE · Alpha</span>
   <p class="cleverly-hero-title">Estimate. Validate. Stress-test.</p>
-  <p class="cleverly-hero-copy">Build rigorous causal studies on TMLE’s strong theoretical
-  foundations, then probe every result with accessible validation, diagnostics, and sensitivity
-  analyses.</p>
+  <p class="cleverly-hero-copy">Build a causal study on TMLE. Name the question, inspect the
+  identification argument, fit, and then probe the result with validation, diagnostics, and
+  sensitivity analyses.</p>
 </div>
 ```
 
@@ -38,9 +38,9 @@ Browse the Python API
 ::::
 
 :::{warning}
-`cleverly` is alpha software. Unsupported combinations fail before fitting, but the public API may
-still change. Pin a commit for reproducible work and read the identification statement returned by
-your analysis.
+`cleverly` is alpha software. Unsupported combinations fail before fitting. The public API may
+still change, so pin a commit for reproducible work. Read the identification statement your
+analysis returns.
 :::
 
 ## Install from GitHub
@@ -64,7 +64,7 @@ optional backends, development environments, and reproducible commit-pinned inst
 </ol>
 ```
 
-The separation is deliberate: changing an estimation method does not silently change the
+The separation is deliberate. Changing an estimation method does not silently change the
 scientific question. Follow the [analysis workflow](workflow.md) from formulation through
 diagnostics and reporting.
 
@@ -118,31 +118,15 @@ Look up supported objects, signatures, attributes, methods, and return types.
 
 ::::
 
-## What is implemented
+## What is implemented, and what is planned
 
-- Point-treatment TMLE for binary and multi-valued treatments, missing outcomes, observation
-  weights, clustering, and strata.
-- Static, dynamic, and stochastic regimes; continuous modified treatment policies; incremental
-  propensity-score interventions; and marginal structural model projections.
-- Longitudinal TMLE for end-of-study, survival, and competing-risk outcomes.
-- Cross-fitting, CV-TMLE, collaborative TMLE, DR-TMLE, influence-curve inference, simultaneous
-  intervals, and bootstrap procedures.
-- Post-fit validation, positivity and nuisance diagnostics, sensitivity analysis, variable
-  importance, and safe result persistence.
+The [implementation matrix](technical-reference/index.md#implementation-matrix) lists every
+implementation family the package ships. Each row names the theory, the source module, the
+external provenance, and the correctness evidence.
 
-## Roadmap
-
-- Build the general nested Riesz engine and its initial evidence-gated catalog, including analytic
-  and direct representers, nested composition, diagnostics, and persistence.
-- Add optional DoWhy integration for graph-based identification and backdoor translation while
-  keeping the core package standalone.
-- Add EP learning for heterogeneous effects, beginning with conditional average treatment effects
-  and conditional relative risks.
-- Expand the estimand catalog target by target, with a separate derivation, evidence record,
-  refusal contract, and statistical study for each family.
-
-These are accepted directions, not implemented release claims. Their ordering, governing sources,
-interfaces, refusals, and evidence requirements are in the single [roadmap](roadmap.md).
+The [roadmap](roadmap.md) lists every proposed direction in one table, with its readiness, its
+governing sources, and the evidence gate it has to clear. A roadmap entry is an accepted direction
+and not a release claim.
 
 ```{toctree}
 :hidden:
@@ -155,6 +139,4 @@ technical-reference/index
 examples/index
 api/index
 development/index
-README
-migration
 ```

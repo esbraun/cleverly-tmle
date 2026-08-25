@@ -746,7 +746,7 @@ class TestTheStudyStillMeasuresTheCode:
             )
 
 
-GRID = ROOT / "docs" / "technical-reference" / "index.md"
+GRID = ROOT / "docs" / "technical-reference" / "method-evidence" / "validation-grid.md"
 
 #: The grid's header, in order.  The first study's row split a single "paper-property study"
 #: column in two: 34 of the tests it was credited with are per-implementation performance
@@ -791,13 +791,11 @@ def _grid() -> dict[str, dict[str, str]]:
 
 
 class TestTheMethodEvidenceGrid:
-    """The technical-reference evidence grid against the register and committed results.
+    """The implementation validation grid against the register and committed results.
 
-    The target table above it in the same document says of itself that it is a gate and not a
-    note.  The grid arrived as a note: nothing read it, its counts were typed, and one of them
-    counted the wrong study.  These tests are what make the two halves of that document the
-    same kind of object, and they are written against the register rather than against this
-    row, so the second method to be added inherits them.
+    The grid arrived as a note: nothing read it, its counts were typed, and one of them counted
+    the wrong study.  These tests are what make it a gate instead, and they are written against
+    the register rather than against any one row, so the next method to be added inherits them.
     """
 
     def test_every_registered_study_has_a_row_and_every_row_a_study(self) -> None:
@@ -809,26 +807,26 @@ class TestTheMethodEvidenceGrid:
             f"no reader is routed to"
         )
 
-    def test_the_row_points_at_the_registered_studys_document_and_anchor(
-        self, study: StudyRecord
-    ) -> None:
+    def test_the_row_points_at_the_registered_studys_document(self, study: StudyRecord) -> None:
+        """Every link in a row reaches that study's own page, and the row links somewhere.
+
+        This replaced an anchor check.  Each study used to be one ``##`` section of a shared
+        document, so "the row cites its own section" needed the fragment to be read.  A study
+        is now its own page, which makes the path alone the stronger statement: a row that
+        reached the wrong study would fail here whether or not it carried a fragment.
+        """
         row = _grid()[study.name]
         targets = [target for cell in row.values() for target in LINK.findall(cell)]
         assert targets, (
             "the row links to nothing, so it stands in for the run rather than citing it"
         )
-        anchors = set()
         for target in targets:
-            path, _, anchor = target.partition("#")
+            path, _, _ = target.partition("#")
             resolved = (GRID.parent / path).resolve()
             assert resolved == study.document_path.resolve(), (
                 f"{study.slug}'s row links to {path}, not to its registered document "
                 f"{study.document}"
             )
-            anchors.add(anchor)
-        assert study.anchor in anchors, (
-            f"no cell links to {study.slug}'s registered section #{study.anchor}"
-        )
 
     @pytest.mark.parametrize("column", sorted(COUNTED))
     def test_every_count_is_derived_from_the_committed_results(

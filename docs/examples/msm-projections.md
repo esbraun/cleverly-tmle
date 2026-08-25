@@ -268,5 +268,6 @@ of them under one heading.
 The same projection works over regimens and horizons in a longitudinal fit, where the design callable
 receives the horizon as well as the label. `MSM.linear` is refused there too, and for a stronger
 reason: a regimen is a sequence of decisions, and no arithmetic on its name summarizes it. Read
-[longitudinal TMLE](longitudinal-tmle.md) first, because the projection summarizes the parameters
-that page estimates one at a time.
+[longitudinal TMLE](longitudinal-tmle.md) and
+[retention and competing risks](longitudinal-survival.md) first. The projection summarizes the
+parameters those pages estimate one at a time.
