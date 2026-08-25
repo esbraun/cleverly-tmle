@@ -148,6 +148,12 @@ def write_manifest(
             "replicates": record.replicates,
             "n": record.n,
             "seed": record.seed,
+            **(
+                {"resampling_seed": record.resampling_seed}
+                if record.resampling_seed is not None
+                else {}
+            ),
+            "publication_policy": record.publication_policy,
             "scenarios": {name: list(names) for name, names in record.scenarios.items()},
             **dict(configuration or {}),
             "margins": record.margins.as_json(),

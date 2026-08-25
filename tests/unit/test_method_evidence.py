@@ -83,7 +83,7 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        }
+        } | set(study.extra_artifacts)
         for name, digest in manifest["sha256"].items():
             assert hashlib.sha256(study.artifact(name).read_bytes()).hexdigest() == digest
         # Reference sources are keyed from the repository root rather than from the study
@@ -96,6 +96,7 @@ class TestArtifacts:
         assert configuration["replicates"] == study.replicates
         assert configuration["n"] == study.n
         assert configuration["seed"] == study.seed
+        assert configuration["publication_policy"] == study.publication_policy
         assert configuration["margins"] == study.margins.as_json()
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
@@ -193,7 +194,8 @@ class TestPublishedVerdicts:
         published = pd.read_csv(study.artifact("performance-tests.csv"))
         assert set(published["implementation"]) == set(study.implementations)
         assert (published["confidence_level"] == study.margins.confidence_level).all()
-        assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+        if study.publication_policy == "gated":
+            assert published["passed"].all(), published.loc[~published["passed"]].to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
         self, study: StudyRecord
@@ -202,13 +204,21 @@ class TestPublishedVerdicts:
             pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
         assert published["dropped_replications"].eq(0).all()
-        assert published["paired_similarity"].all(), published.loc[~published["paired_similarity"]]
-        assert published["subject_not_inferior"].all(), published.loc[
-            ~published["subject_not_inferior"]
-        ]
         assert published["passed"].equals(
-            published["paired_similarity"] & published["subject_not_inferior"]
-        ), "the published verdict is not the two claims the document makes"
+            (published["paired_similarity"] & published["subject_not_inferior"])
+            | published["coverage_superior"]
+        ), "the published verdict is not an equivalence or superiority conclusion"
+        expected = np.select(
+            [
+                published["coverage_superior"],
+                published["paired_similarity"] & published["subject_not_inferior"],
+            ],
+            ["superior", "equivalent"],
+            default="inconclusive",
+        )
+        assert published["comparison_conclusion"].tolist() == expected.tolist()
+        if study.publication_policy == "gated":
+            assert published["passed"].all(), published.loc[~published["passed"]]
 
     def test_the_reference_is_reported_on_its_own_terms(self, study: StudyRecord) -> None:
         """A reference that degrades is a reference finding, not a subject failure.
@@ -223,6 +233,8 @@ class TestPublishedVerdicts:
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
+        if study.publication_policy == "reporting":
+            return
         assert published["subject_valid"].all(), published.loc[~published["subject_valid"]]
         if not study.accepted_reference_failure:
             assert published["reference_valid"].all(), published.loc[~published["reference_valid"]]
@@ -248,10 +260,11 @@ class TestPublishedVerdicts:
             rtol=1e-9,
             atol=1e-9,
         )
-        assert published["passed"].all(), published.loc[~published["passed"]].to_string()
-        assert published["property_passed"].all(), published.loc[
-            ~published["property_passed"]
-        ].to_string()
+        if study.publication_policy == "gated":
+            assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+            assert published["property_passed"].all(), published.loc[
+                ~published["property_passed"]
+            ].to_string()
 
     def test_no_property_row_publishes_another_row_s_verdict(self, study: StudyRecord) -> None:
         """The gate the performance table had and this one did not.
@@ -1076,9 +1089,19 @@ class TestThePublishedTestTables:
             f"committed tests"
         )
         published = [row["result"] for row in rows]
-        assert sorted(published) == sorted(
-            "pass" if bool(passed) else "**fail**" for passed in frame["passed"]
-        ), f"{study.slug}'s {name} results are not the committed ones"
+        expected = (
+            [
+                str(row.comparison_conclusion)
+                if bool(row.passed)
+                else f"**{row.comparison_conclusion}**"
+                for row in frame.itertuples()
+            ]
+            if name == "agreement"
+            else ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
+        )
+        assert sorted(published) == sorted(expected), (
+            f"{study.slug}'s {name} results are not the committed ones"
+        )
 
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""

@@ -50,7 +50,6 @@ def stream_seed(record: StudyRecord, *labels: str | int) -> int:
     """
     joined = "\x1f".join(str(label) for label in labels)
     digest = hashlib.blake2b(joined.encode("utf-8"), digest_size=8).digest()
-    sequence = np.random.SeedSequence(
-        entropy=record.seed, spawn_key=(int.from_bytes(digest, "big"),)
-    )
+    entropy = record.seed if record.resampling_seed is None else record.resampling_seed
+    sequence = np.random.SeedSequence(entropy=entropy, spawn_key=(int.from_bytes(digest, "big"),))
     return int(sequence.generate_state(1)[0])

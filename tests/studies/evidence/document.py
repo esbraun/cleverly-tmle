@@ -96,6 +96,12 @@ def _verdict(passed: object) -> str:
     return "pass" if bool(passed) else "**fail**"
 
 
+def _comparison_result(row: Any) -> str:
+    """Render the paired conclusion instead of hiding it behind a Boolean."""
+    conclusion = str(getattr(row, "comparison_conclusion", "equivalent"))
+    return conclusion if bool(row.passed) else f"**{conclusion}**"
+
+
 def _interval(lower: float, upper: float) -> str:
     return f"{render(float(lower))} to {render(float(upper))}"
 
@@ -137,7 +143,7 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
             render(float(row.coverage_difference)),
-            _verdict(row.passed),
+            _comparison_result(row),
         )
         for row in frame.itertuples()
     ]

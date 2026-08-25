@@ -240,8 +240,10 @@ class DRTMLE(TMLE):
     ``docs/drtmle.md`` for the contract in full.  The curve it reports was transcribed from
     the R package rather than derived -- that is its *provenance*, and its *evidence* is that
     it has since been checked against Theorem 1's appendices and against the Gateaux
-    derivative of the parameter, and agrees with both; nothing has been compared against that
-    package's *numbers*, which is a decision rather than a gap.  A study here **does**
+    derivative of the parameter, and agrees with both.  The registered canonical DR-TMLE study
+    separately compares its binary complete-data numbers with the pinned R package under the
+    paper's nuisance-correctness regimes; that bounded comparison is not the derivation.  A
+    controlled study here **does**
     demonstrate the interval is better than a plain TMLE's, by a wide and reproduced margin,
     and also that it does not attain nominal coverage anywhere in that study.  What the
     module docstring says about what this does and does not buy is not hedging: it is what

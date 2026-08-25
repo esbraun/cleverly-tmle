@@ -44,6 +44,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
+    "drtmle-r": "R `drtmle`",
     "ltmle": "R `ltmle`",
     "lmtp": "R `lmtp`",
     "r-ctmle": "R `ctmle`",
@@ -61,6 +62,9 @@ SCENARIOS: dict[str, str] = {
     "censored_end_of_study": "two-time-point law with monotone censoring",
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "continuous": "bounded continuous-outcome law with effect modification",
+    "both_correct": "paper binary law, both nuisances correct",
+    "outcome_correct": "paper binary law, outcome regression correct",
+    "treatment_correct": "paper binary law, treatment mechanism correct",
 }
 
 
@@ -212,12 +216,20 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias, coverage and SE calibration at n = 1,000",
         "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
     ),
+    ("root_n_and_efficiency", "n_1500"): (
+        "bias, coverage and SE calibration at n = 1,500",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
     ("root_n_and_efficiency", "n_2000"): (
         "bias, coverage and SE calibration at n = 2,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_8000"): (
         "bias, coverage and SE calibration at n = 8,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("root_n_and_efficiency", "n_4500"): (
+        "bias, coverage and SE calibration at n = 4,500",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_rate", "empirical_sd"): (

@@ -87,7 +87,8 @@
       "rmse_ratio_noninferiority_margin": 1.1,
       "coverage_difference_noninferiority_margin": -0.025,
       "calibration_excess_noninferiority_margin": 0.05
-    }
+    },
+    "publication_policy": "gated"
   },
   "study_module_sha256": {
     "tests/studies/canonical_ltmle_survival.py": "be0141ef1dc895244ab605071fd06a21f40bfeb6579429cc921413e391676aed",
@@ -110,7 +111,7 @@
   "sha256": {
     "replicates.csv.gz": "107c9916639095bde4eeccc3c1f45e0286ae110b7d0c70c5aeebdcf284016fd5",
     "summary.csv": "0143dc0fd55e304c1ec8ed86f9307e0aeca505b33d7b97699edf1f98ee6ca3aa",
-    "equivalence.csv": "93b6a3bf88af6fe99fd83c68f9e9febe190492b39e2da3465565d92df1757b3b",
+    "equivalence.csv": "a4f36351ffe61c7704460a254619c9aaef8b44c87152911ef454bd03f8f13d48",
     "performance-tests.csv": "3f00d6eeb06ab236aca8639339d30b0e6e3860e15523f0bc4a9dc0f9f849326d",
     "property-replicates.csv.gz": "2a02dc302da235b40892afb324afeb15ac618cf8dbacf0fca06991539a6f96d6",
     "properties.csv": "8662e31982f7da59c90085cf21461491e46c549b911857334189a27d61749641"

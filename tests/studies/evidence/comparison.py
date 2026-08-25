@@ -70,7 +70,9 @@ EQUIVALENCE_COLUMNS = (
     "coverage_shortfall_screen",
     "subject_valid",
     "reference_valid",
+    "coverage_superior",
     "subject_not_inferior",
+    "comparison_conclusion",
     "passed",
 )
 
@@ -78,6 +80,17 @@ EQUIVALENCE_COLUMNS = (
 def empty_equivalence() -> pd.DataFrame:
     """A schema-valid zero-row comparison for a study with no reference."""
     return pd.DataFrame(columns=list(EQUIVALENCE_COLUMNS))
+
+
+def comparison_conclusion(
+    *, similar: bool, not_inferior: bool, coverage_superior: bool
+) -> tuple[str, bool]:
+    """Classify a paired result without treating failed NI as proven inferiority."""
+    if coverage_superior:
+        return "superior", True
+    if similar and not_inferior:
+        return "equivalent", True
+    return "inconclusive", False
 
 
 def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[str, Any]:
@@ -204,6 +217,21 @@ def equivalence(
             )
         )
         similar = interval.within(-mean_margin, mean_margin)
+        subject_valid = bool(verdicts.loc[(subject, scenario, estimand)])
+        coverage_superior = bool(
+            bound["coverage_difference_lower"] > 0.0
+            and subject_valid
+            and bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
+            and (
+                not se_comparable
+                or bound["calibration_excess_upper"] <= margins.calibration_noninferiority
+            )
+        )
+        conclusion, comparison_passed = comparison_conclusion(
+            similar=similar,
+            not_inferior=not_inferior,
+            coverage_superior=coverage_superior,
+        )
         records.append(
             {
                 "scenario": scenario,
@@ -242,10 +270,12 @@ def equivalence(
                 "coverage_shortfall_screen": bool(
                     max(0.0, -coverage_difference) <= COVERAGE_SHORTFALL_SCREEN
                 ),
-                "subject_valid": bool(verdicts.loc[(subject, scenario, estimand)]),
+                "subject_valid": subject_valid,
                 "reference_valid": bool(verdicts.loc[(reference, scenario, estimand)]),
+                "coverage_superior": coverage_superior,
                 "subject_not_inferior": not_inferior,
-                "passed": bool(similar and not_inferior),
+                "comparison_conclusion": conclusion,
+                "passed": comparison_passed,
             }
         )
     return pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))

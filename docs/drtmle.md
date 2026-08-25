@@ -763,6 +763,17 @@ second.
 
 ## What the validation programme established
 
+The active registered [canonical DR-TMLE study](technical-reference/method-evidence.md#canonical-dr-tmle)
+now adds a theory-first comparison with pinned R `drtmle` on the paper's binary complete-data law.
+Most paired cells establish bounded equivalence, but none establishes the prespecified
+coverage-superiority route; one paired cell is inconclusive. The both-correct calibration and
+root-n cells pass, while both one-correct robustness cells fail their finite-sample bias rule.
+Those red results are committed evidence, not exceptions to the theorem: the theorem remains
+conditional on rate and remainder premises that a fitted dataset cannot certify.
+
+The older drift-law programme below asks a different, harder question. It is retained as
+historical evidence rather than silently generalized to the registered paper law.
+
 This page's claims rest on a closed programme of six pieces: a theoretical audit against the
 sources, a targeting-and-exit study, a controlled coverage demonstration, a reference study for
 the reduced regressions, a construction ablation, and a terminal experiment. The
@@ -776,7 +787,8 @@ derivative of the parameter, the sign of the mechanism correction is the appendi
 the reported variance is Theorem 1's, the three score equations are solved at the state returned,
 and the interval is materially better than a plain TMLE's where one nuisance is badly estimated.
 
-**Not established, and recorded as such.** Three things. Nominal coverage anywhere in the study,
+**Not established in that archived drift-law programme, and recorded as such.** Three things.
+Nominal coverage anywhere in that study,
 the best reading being `0.880`. A localized cause for that shortfall: a six-contrast construction
 ablation over 2,496 fits returned a **null** on its primary column, and a terminal experiment over
 both a selection and an independent audit cohort nominated **nothing**. And any `src/` change

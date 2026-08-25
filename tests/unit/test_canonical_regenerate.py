@@ -143,6 +143,46 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
         regenerate.main(study, SimpleNamespace(), here=tmp_path)
 
 
+def test_reporting_policy_publishes_failed_scientific_verdicts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY,
+        artifacts=tmp_path,
+        publication_policy="reporting",
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [False]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    monkeypatch.setattr(regenerate, "write_manifest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate,
+        "_property_artifacts",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [False], "property_passed": [False]}),
+    )
+
+    regenerate.main(study, SimpleNamespace(), here=tmp_path)
+
+
 def _stub_complete(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any, paired: pd.DataFrame
 ) -> Any:
