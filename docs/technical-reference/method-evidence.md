@@ -166,25 +166,25 @@ binary-outcome law covers those plus `paf`, `rr`, and `or`.
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `atc` | average effect on the untreated | 0.000023 | 0.0050 | 1.0066 | -0.0037 | equivalent |
-| binary-outcome law | `ate` | average treatment effect | -6.992e-07 | 0.000157 | 1.0000 | 0.000625 | equivalent |
-| binary-outcome law | `att` | average effect on the treated | -0.000022 | 0.0049 | 1.0067 | 0.000625 | equivalent |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | 9.290e-08 | 0.000029 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | -4.085e-10 | 1.216e-07 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -8.722e-12 | 3.654e-09 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | -5.723e-07 | 0.000014 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `paf` | population attributable fraction | -6.674e-07 | 0.000132 | 1.0002 | 0.000625 | equivalent |
-| binary-outcome law | `par` | population attributable risk | -2.965e-07 | 0.000126 | 1.0002 | 0 | equivalent |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.861e-07 | 0.000019 | 1.0000 | 0 | equivalent |
-| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000783 | 0.7445 | 1.0088 | -0.0012 | equivalent |
-| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | -0.000016 | 0.0161 | 1.0062 | -0.0019 | equivalent |
-| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000744 | 0.6995 | 1.0019 | -0.000625 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -6.584e-08 | 0.000064 | 1.0030 | -0.000625 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000015 | 0.0122 | 1.0032 | 0 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -5.672e-13 | 4.814e-10 | 1.0000 | 0 | equivalent |
-| bounded continuous-outcome law with effect modification | `par` | population attributable risk | -0.000001 | 0.0020 | 1.0045 | -0.0031 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | 0.000023 | 0.0050 | 1.0066 | -0.0037 | 0.0107 vs 0.0500 | equivalent |
+| binary-outcome law | `ate` | average treatment effect | -6.992e-07 | 0.000157 | 1.0000 | 0.000625 | 0.000096 vs 0.0500 | equivalent |
+| binary-outcome law | `att` | average effect on the treated | -0.000022 | 0.0049 | 1.0067 | 0.000625 | 0.0115 vs 0.0500 | equivalent |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 9.290e-08 | 0.000029 | 1.0000 | 0 | 0.000010 vs 0.0500 | equivalent |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | -4.085e-10 | 1.216e-07 | 1.0000 | 0 | 0.000071 vs 0.0500 | equivalent |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -8.722e-12 | 3.654e-09 | 1.0000 | 0 | 5.378e-10 vs 0.0500 | equivalent |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | -5.723e-07 | 0.000014 | 1.0000 | 0 | 0.000006 vs 0.0500 | equivalent |
+| binary-outcome law | `paf` | population attributable fraction | -6.674e-07 | 0.000132 | 1.0002 | 0.000625 | n/a | equivalent |
+| binary-outcome law | `par` | population attributable risk | -2.965e-07 | 0.000126 | 1.0002 | 0 | 0.000105 vs 0.0500 | equivalent |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.861e-07 | 0.000019 | 1.0000 | 0 | 0.000007 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000783 | 0.7445 | 1.0088 | -0.0012 | 0.0033 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | -0.000016 | 0.0161 | 1.0062 | -0.0019 | 0.0239 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000744 | 0.6995 | 1.0019 | -0.000625 | 0.0033 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -6.584e-08 | 0.000064 | 1.0030 | -0.000625 | 0.0019 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000015 | 0.0122 | 1.0032 | 0 | 0.0040 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -5.673e-13 | 4.814e-10 | 1.0000 | 0 | 1.179e-10 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | -0.000001 | 0.0020 | 1.0045 | -0.0031 | 0.0020 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -387,25 +387,25 @@ the whole study on any failed fit, changed fold, missing estimand, or dropped re
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `atc` | average effect on the untreated | -0.000037 | 0.0081 | 1.0070 | -0.0012 | equivalent |
-| binary-outcome law | `ate` | average treatment effect | 0.000002 | 0.000412 | 1.0001 | -0.0013 | equivalent |
-| binary-outcome law | `att` | average effect on the treated | 0.000010 | 0.0021 | 1.0054 | -0.000625 | equivalent |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | 7.188e-08 | 0.000022 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | 8.047e-08 | 0.000024 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -7.174e-12 | 2.974e-09 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 6.970e-09 | 1.750e-07 | 1.0000 | 0 | equivalent |
-| binary-outcome law | `paf` | population attributable fraction | -3.430e-07 | 0.000068 | 1.0007 | -0.0025 | equivalent |
-| binary-outcome law | `par` | population attributable risk | -1.467e-07 | 0.000062 | 1.0007 | -0.000625 | equivalent |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.158e-08 | 0.000001 | 1.0000 | 0 | equivalent |
-| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000715 | 0.6790 | 1.0128 | -0.000625 | equivalent |
-| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | 2.801e-07 | 0.000288 | 1.0082 | -0.0013 | equivalent |
-| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000733 | 0.6941 | 1.0041 | 0.0037 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000007 | 0.0069 | 1.0032 | 0.000625 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -6.210e-07 | 0.000509 | 1.0039 | -0.0012 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -1.684e-13 | 1.421e-10 | 1.0000 | 0 | equivalent |
-| bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000029 | 0.0422 | 1.0072 | -0.000625 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | -0.000037 | 0.0081 | 1.0070 | -0.0012 | 0.0118 vs 0.0500 | equivalent |
+| binary-outcome law | `ate` | average treatment effect | 0.000002 | 0.000412 | 1.0001 | -0.0013 | 0.000252 vs 0.0500 | equivalent |
+| binary-outcome law | `att` | average effect on the treated | 0.000010 | 0.0021 | 1.0054 | -0.000625 | 0.0086 vs 0.0500 | equivalent |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 7.188e-08 | 0.000022 | 1.0000 | 0 | 0.000012 vs 0.0500 | equivalent |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 8.047e-08 | 0.000024 | 1.0000 | 0 | 0.000088 vs 0.0500 | equivalent |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -7.174e-12 | 2.974e-09 | 1.0000 | 0 | 2.163e-10 vs 0.0500 | equivalent |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 6.970e-09 | 1.750e-07 | 1.0000 | 0 | 0.000013 vs 0.0500 | equivalent |
+| binary-outcome law | `paf` | population attributable fraction | -3.430e-07 | 0.000068 | 1.0007 | -0.0025 | n/a | equivalent |
+| binary-outcome law | `par` | population attributable risk | -1.467e-07 | 0.000062 | 1.0007 | -0.000625 | 0.000664 vs 0.0500 | equivalent |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | -2.158e-08 | 0.000001 | 1.0000 | 0 | 0.000013 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000715 | 0.6790 | 1.0128 | -0.000625 | 0.0153 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | 2.801e-07 | 0.000288 | 1.0082 | -0.0013 | 0.0247 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000733 | 0.6941 | 1.0041 | 0.0037 | 0.0039 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000007 | 0.0069 | 1.0032 | 0.000625 | 0.0015 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -6.210e-07 | 0.000509 | 1.0039 | -0.0012 | 0.0047 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -1.684e-13 | 1.421e-10 | 1.0000 | 0 | 3.919e-11 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000029 | 0.0422 | 1.0072 | -0.000625 | 0.0024 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -710,11 +710,11 @@ inner folds, with the penalty on.
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law, discrete selector | `ate` | average treatment effect | -0.000062 | 0.0189 | 1.0030 | 0.0013 | equivalent |
-| binary-outcome law, greedy selector | `ate` | average treatment effect | 0.000053 | 0.0168 | 1.0051 | 0.0025 | equivalent |
-| binary-outcome law, ordered selector | `ate` | average treatment effect | 0.000004 | 0.0011 | 1.0048 | 0.0025 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, discrete selector | `ate` | average treatment effect | -0.000062 | 0.0189 | 1.0030 | 0.0013 | 0.0057 vs 0.0500 | equivalent |
+| binary-outcome law, greedy selector | `ate` | average treatment effect | 0.000053 | 0.0168 | 1.0051 | 0.0025 | 0.0261 vs 0.0500 | equivalent |
+| binary-outcome law, ordered selector | `ate` | average treatment effect | 0.000004 | 0.0011 | 1.0048 | 0.0025 | 0.0067 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -874,13 +874,13 @@ entry therefore describes the subject's setting and not a shared one.
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `ate` | average treatment effect | 0.000005 | 0.0011 | 1.0003 | 0 | equivalent |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | 3.839e-08 | 0.000012 | 1.0005 | 0 | equivalent |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | 0.000005 | 0.0016 | 1.0002 | 0 | equivalent |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000043 | 0.0011 | 1.0004 | 0 | equivalent |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 0.000014 | 0.000940 | 1.0004 | 0.0012 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `ate` | average treatment effect | 0.000005 | 0.0011 | 1.0003 | 0 | 0.000826 vs 0.0500 | equivalent |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 3.839e-08 | 0.000012 | 1.0005 | 0 | 0.000388 vs 0.0500 | equivalent |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 0.000005 | 0.0016 | 1.0002 | 0 | 0.000605 vs 0.0500 | equivalent |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000043 | 0.0011 | 1.0004 | 0 | 0.000804 vs 0.0500 | equivalent |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 0.000014 | 0.000940 | 1.0004 | 0.0012 | 0.000755 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -1034,33 +1034,82 @@ equivalence, coverage superiority, or an inconclusive result without selecting o
 | construction | pooled cross-fitted, univariate reductions, guards `Q` and `g`, R-package update order | native `drtmle()` with the corresponding univariate guards and two Q steps |
 | estimands | `ey0`, `ey1`, and `ate` | the same three quantities, with ATE covariance formed from the native joint covariance |
 | intervals | pointwise 95% Wald | pointwise 95% Wald |
-| fit audit | finite output, inactive 0.01/0.99 propensity bound, and empirical score audit | the same recorded diagnostics |
+| alternation rounds | `max_outer = 100` | `maxIter = 100` |
+| fit audit | `score_check`'s own bar, `1e-3 x se / sqrt(n)` | the same bar, from the reference's own reported standard errors |
 
 The primary paired route is deliberately difficult. “Superior” requires a positive 99% lower
 confidence bound for Cleverly minus R coverage, plus truth validity and non-inferiority in RMSE
 and SE calibration. If that route fails, ordinary bounded similarity and non-inferiority can
 still establish “equivalent.”
 
+Two rows of that table used to say something else, and both mattered.
+
+The audit bar was `1e-4` on the Cleverly side and `1 / n` on the R side. Each was defended
+against R `drtmle`'s default, which is the wrong reference for a claim about Cleverly: the
+library ships `1e-3 x se / sqrt(n)`, about `3.4e-7` here. The rule is now imported from
+`score_check` rather than restated, so the study cannot drift from the library.
+
+The alternation row said `max_iter: 100`, matching the R runner. That was the cap on the Newton
+steps inside one fluctuation. The alternation itself ran at a hard-coded 50 that no caller could
+reach. `max_outer` is now a keyword and the value that applied is recorded on the fit.
+
+### What the solver diagnostics do and do not compare
+
+R `drtmle` exposes no convergence flag. The runner had no honest value to write for one, and
+wrote `TRUE`. The published study then read “24 Cleverly solver failures against 0” off a column
+the reference could not fail.
+
+`solver_reported` now marks which side reports a flag at all, and the reference's `solver_passed`
+is left empty. What **is** comparable is the score audit, and at the shared bar it runs the other
+way: Cleverly fails 13 of 2,400 fits and R `drtmle` fails 33. Cleverly's median score is `2e-11`
+to `5e-11` against the reference's `7e-9` to `9e-9`. Every Cleverly failure sits in one regime,
+the one where the treatment mechanism is misspecified. The reference fails in all three.
+
+### The two implementations reach different roots when the outcome regression is wrong
+
+The two sides receive identical rows and identical initial nuisance predictions, agreeing to
+`6e-16`. Every difference below is targeting.
+
+| regime | per-replication disagreement in `ate`, as a share of one sampling standard deviation |
+| --- | ---: |
+| both nuisances correct | 3.4% |
+| outcome regression correct | 10.8% |
+| treatment mechanism correct | 47.6% |
+
+The last figure is not a convergence failure on either side. It correlates with neither
+implementation's score quality, at Spearman `0.045` and `-0.020`. **Cleverly's own two documented
+update orders disagree by about the same amount in the same cell**, with both routes solving all
+three equations to about `1e-11`. The three equations do not pin down one answer on this law once
+the outcome regression is misspecified, and the route decides which answer is reached.
+`docs/drtmle.md`, *The update order*, carries that measurement.
+
+This is also why the paired calibration test cannot conclude in that regime. The published
+resolution of the calibration statistic tracks the disagreement exactly: `0.0024` to `0.0031`
+where both nuisances are correct, `0.0072` to `0.0179` where the outcome regression is, and
+`0.0306` to `0.0521` where only the mechanism is. The last exceeds the declared `0.05` margin, so
+the cell reports `underpowered` rather than `inconclusive`. The measured calibration excess there
+is zero: Cleverly is the better-calibrated side.
+
 ### Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| paper binary law, both nuisances correct | `ate` | average treatment effect | `cleverly` | -0.000577 to 0.0029 | 0.9437 | 0.9796 | pass |
+| paper binary law, both nuisances correct | `ate` | average treatment effect | `cleverly` | -0.000572 to 0.0029 | 0.9437 | 0.9798 | pass |
 | paper binary law, both nuisances correct | `ate` | average treatment effect | R `drtmle` | -0.000636 to 0.0028 | 0.9437 | 0.9801 | pass |
-| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0025 to -0.000011 | 0.9600 | 1.0273 | pass |
+| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0025 to -0.000011 | 0.9600 | 1.0278 | pass |
 | paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | R `drtmle` | -0.0024 to 0.000018 | 0.9613 | 1.0266 | pass |
-| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | `cleverly` | -0.0014 to 0.0012 | 0.9387 | 0.9778 | pass |
+| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | `cleverly` | -0.0014 to 0.0012 | 0.9387 | 0.9779 | pass |
 | paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | R `drtmle` | -0.0014 to 0.0012 | 0.9375 | 0.9774 | pass |
-| paper binary law, outcome regression correct | `ate` | average treatment effect | `cleverly` | 0.000170 to 0.0036 | 0.9437 | 1.0017 | pass |
+| paper binary law, outcome regression correct | `ate` | average treatment effect | `cleverly` | 0.000168 to 0.0036 | 0.9437 | 1.0017 | pass |
 | paper binary law, outcome regression correct | `ate` | average treatment effect | R `drtmle` | 0.000212 to 0.0036 | 0.9475 | 1.0070 | pass |
-| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0015 to 0.000897 | 0.9550 | 1.0288 | pass |
+| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0015 to 0.000894 | 0.9550 | 1.0287 | pass |
 | paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | R `drtmle` | -0.0016 to 0.000871 | 0.9550 | 1.0296 | pass |
-| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | `cleverly` | 0.000242 to 0.0029 | 0.9300 | 0.9830 | pass |
+| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | `cleverly` | 0.000238 to 0.0028 | 0.9300 | 0.9829 | pass |
 | paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | R `drtmle` | 0.000255 to 0.0029 | 0.9387 | 0.9861 | pass |
-| paper binary law, treatment mechanism correct | `ate` | average treatment effect | `cleverly` | 0.0014 to 0.0050 | 0.9375 | 1.0081 | **fail** |
+| paper binary law, treatment mechanism correct | `ate` | average treatment effect | `cleverly` | 0.0014 to 0.0050 | 0.9375 | 1.0085 | **fail** |
 | paper binary law, treatment mechanism correct | `ate` | average treatment effect | R `drtmle` | 0.000729 to 0.0043 | 0.9463 | 1.0153 | pass |
-| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0036 to -0.000917 | 0.9513 | 0.9879 | pass |
+| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0036 to -0.000913 | 0.9513 | 0.9880 | pass |
 | paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | R `drtmle` | -0.0034 to -0.000765 | 0.9525 | 1.0141 | pass |
 | paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | `cleverly` | -0.000429 to 0.0023 | 0.9475 | 0.9851 | pass |
 | paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | R `drtmle` | -0.000937 to 0.0018 | 0.9375 | 0.9854 | pass |
@@ -1069,17 +1118,17 @@ still establish “equivalent.”
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| paper binary law, both nuisances correct | `ate` | average treatment effect | 0.000061 | 0.0213 | 1.0038 | 0 | equivalent |
-| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | -0.000029 | 0.0143 | 1.0029 | -0.0013 | equivalent |
-| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | 0.000032 | 0.0149 | 1.0027 | 0.0012 | equivalent |
-| paper binary law, outcome regression correct | `ate` | average treatment effect | -0.000035 | 0.0127 | 1.0126 | -0.0037 | equivalent |
-| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | 0.000027 | 0.0136 | 1.0075 | 0 | equivalent |
-| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | -0.000008 | 0.0038 | 1.0112 | -0.0087 | equivalent |
-| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.000698 | 0.2392 | 1.0543 | -0.0088 | equivalent |
-| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000187 | 0.0861 | 1.0702 | -0.0012 | **inconclusive** |
-| paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | 0.000511 | 0.2280 | 1.0397 | 0.0100 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| paper binary law, both nuisances correct | `ate` | average treatment effect | 0.000066 | 0.0232 | 1.0037 | 0 | 0.0024 vs 0.0500 | equivalent |
+| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | -0.000028 | 0.0140 | 1.0025 | -0.0013 | 0.0031 vs 0.0500 | equivalent |
+| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | 0.000038 | 0.0176 | 1.0026 | 0.0012 | 0.0029 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ate` | average treatment effect | -0.000037 | 0.0133 | 1.0127 | -0.0037 | 0.0179 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | 0.000025 | 0.0124 | 1.0077 | 0 | 0.0122 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | -0.000012 | 0.0057 | 1.0113 | -0.0087 | 0.0072 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.000694 | 0.2379 | 1.0537 | -0.0088 | 0.0402 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000183 | 0.0843 | 1.0702 | -0.0012 | 0.0521 vs 0.0500 **>** | *underpowered* |
+| paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | 0.000511 | 0.2280 | 1.0397 | 0.0100 | 0.0306 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Repeated-sampling properties
@@ -1087,16 +1136,28 @@ still establish “equivalent.”
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0040 to 0.000900, margin 0.0067 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.2263 to 0.2311, margin 0.0066 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias 0.0020 to 0.0070, margin 0.0068 | **fail** |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0062 to 0.0114, margin 0.0071 | **fail** |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9462 to 0.9678, SE ratio 0.9667 to 1.0383 | pass |
-| `root_n_and_efficiency` | `n_1500` | positive | bias, coverage and SE calibration at n = 1,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000075, coverage 0.9165 to 0.9606, SE ratio 0.9914 | pass |
-| `root_n_and_efficiency` | `n_4500` | positive | bias, coverage and SE calibration at n = 4,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000063, coverage 0.9267 to 0.9677, SE ratio 1.0218 | pass |
-| `root_n_and_efficiency` | `n_500` | control | bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0021, coverage 0.9150 to 0.9596, SE ratio 0.9966 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5632 to -0.4779 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5125 to -0.5056 | pass |
+| `double_robust_contraction` | `both_wrong_n1500` | control | both nuisances are misspecified, at n = 1,500 | the exact coverage interval must fall below the floor | coverage 0.0233 to 0.0599, bias 0.2295 | pass |
+| `double_robust_contraction` | `both_wrong_n3000` | control | both nuisances are misspecified, at n = 3,000 | the exact coverage interval must fall below the floor | coverage 0.0185 to 0.0523, bias 0.2303 | pass |
+| `double_robust_contraction` | `both_wrong_n6000` | control | both nuisances are misspecified, at n = 6,000 | the exact coverage interval must fall below the floor | coverage 0.0233 to 0.0599, bias 0.2306 | pass |
+| `double_robust_contraction` | `outcome_correct_n1500` | positive | only the outcome regression is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor | coverage 0.9165 to 0.9606, bias 0.0039 | pass |
+| `double_robust_contraction` | `outcome_correct_n3000` | positive | only the outcome regression is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor | coverage 0.9238 to 0.9657, bias 0.0020 | pass |
+| `double_robust_contraction` | `outcome_correct_n6000` | positive | only the outcome regression is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor | coverage 0.9179 to 0.9616, bias 0.0011 | pass |
+| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0054 to 0.0125 | pass |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct | slope interval entirely below zero, so the bias contracts | slope -3.5206 to -0.0604 | pass |
+| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -1.9723 to -0.7546 | pass |
+| `double_robust_contraction` | `treatment_correct_n1500` | positive | only the treatment mechanism is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor | coverage 0.8921 to 0.9428, bias 0.0102 | **fail** |
+| `double_robust_contraction` | `treatment_correct_n3000` | positive | only the treatment mechanism is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor | coverage 0.9238 to 0.9657, bias 0.0034 | pass |
+| `double_robust_contraction` | `treatment_correct_n6000` | positive | only the treatment mechanism is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor | coverage 0.9150 to 0.9596, bias 0.0020 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.000280 to 0.0045, margin 0.0065 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.2263 to 0.2313, margin 0.0069 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias 0.0025 to 0.0075, margin 0.0068 | **fail** |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0050 to 0.0104, margin 0.0073 | **fail** |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9439 to 0.9659, SE ratio 0.9832 to 1.0557 | pass |
+| `root_n_and_efficiency` | `n_1500` | positive | bias, coverage and SE calibration at n = 1,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0016, coverage 0.9165 to 0.9606, SE ratio 0.9523 | pass |
+| `root_n_and_efficiency` | `n_4500` | positive | bias, coverage and SE calibration at n = 4,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000463, coverage 0.9208 to 0.9637, SE ratio 0.9811 | pass |
+| `root_n_and_efficiency` | `n_500` | control | bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias -0.0016, coverage 0.9252 to 0.9667, SE ratio 1.0330 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5253 to -0.4440 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5112 to -0.5047 | pass |
 <!-- /generated -->
 
 ### Measured values and declared margins
@@ -1109,14 +1170,14 @@ still establish “equivalent.”
 | `subject_tests_total` | 9 | Cleverly truth tests reported |
 | `paired_tests_passed` | 8 | paired cells concluding equivalent or superior |
 | `paired_tests_total` | 9 | paired comparison cells reported |
-| `property_cells_passed` | 8 | repeated-sampling property cells passing their own and family verdicts |
-| `property_cells_total` | 10 | repeated-sampling property cells reported |
+| `property_cells_passed` | 19 | repeated-sampling property cells passing their own and family verdicts |
+| `property_cells_total` | 22 | repeated-sampling property cells reported |
 | `min_coverage` | 0.9300 | lowest implementation-estimand coverage |
 | `min_coverage_ci_lower` | 0.9035 | lowest exact 99% coverage lower endpoint |
-| `max_standardized_bias` | 0.1634 | largest absolute standardized bias |
+| `max_standardized_bias` | 0.1633 | largest absolute standardized bias |
 | `max_rmse_ratio_upper` | 1.0702 | largest paired 99% RMSE-ratio upper endpoint |
 | `min_coverage_difference_lower` | -0.0250 | smallest paired 99% coverage-difference lower endpoint |
-| `max_calibration_excess_upper` | 0.0501 | largest paired 99% excess-calibration upper endpoint |
+| `max_calibration_excess_upper` | 0.0500 | largest paired 99% excess-calibration upper endpoint |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -1141,6 +1202,37 @@ still establish “equivalent.”
 | `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 
+### What a red double-robustness cell means here
+
+The two one-correct `double_robustness` cells exceed the equivalence margin at `n = 1,500`. That
+margin is a quarter of an empirical standard deviation, and the test is resolvable at that size:
+its 99% half-width is about `0.0025` against margins of `0.0068` and `0.0073`. The bias really is
+larger than the margin.
+
+One size cannot say what kind of failure that is. A second-order remainder that has not yet
+decayed and an inconsistent estimator look identical at one `n` and mean opposite things. The
+`double_robust_contraction` family fits log absolute bias on log `n` over three sizes to separate
+them. A slope near `-1` is a second-order remainder, near `-1/2` a first-order one, and near `0`
+an estimator that is not consistent. The `both_wrong` arm is the control that must fail to
+contract.
+
+The measured slopes are `-0.94` with the outcome regression correct and `-1.19` with the mechanism
+correct, both with intervals entirely below zero. The control sits at `+0.003` with an interval
+that straddles zero, and its standardized bias *grows* with `n`, from `8.5` to `12.2` to `16.1`.
+So both red level cells are a second-order remainder that has not yet decayed, and the control is
+what an estimator that never decays looks like beside them.
+
+Raising the level margin was considered and rejected. The standardized bias under a correct
+mechanism runs `0.357`, `0.171` and `0.135` across the ladder, so no affordable size brings the
+99% interval inside `0.25`. The level cell stays red and the contraction family says which red it
+is.
+
+The ladder also surfaced a result the single-size study could not reach. At `n = 1,500` with the
+outcome regression misspecified, the interval does not clear the declared coverage floor: exact
+coverage is `0.9200` with a 99% lower endpoint of `0.8921` against a floor of `0.90`. It clears at
+`n = 3,000` and at `n = 6,000`. That cell is red, and it is a statement about small samples in one
+regime rather than about the construction.
+
 ### Limitations
 
 The comparison is binary, two-arm, complete-outcome, pointwise, and confined to the paper law and
@@ -1149,6 +1241,9 @@ simultaneous-inference, broad machine-learning, or practical-positivity parity. 
 same initial nuisance predictions isolates the corrected construction; it does not compare the
 two projects' learner wrappers. The study measures finite-sample behavior at its declared sizes
 and cannot verify the theorem's unobservable second-order remainder condition for a future fit.
+
+The contraction family fits three points, so its slope interval is wide and it establishes a
+direction rather than an exponent. It does not identify the remainder's order.
 
 ### Reproduction
 
@@ -1207,13 +1302,13 @@ beside the paired one. A regeneration fails if either is false.
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.101e-10 | 4.449e-08 | 1.0000 | 0 | equivalent |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 6.175e-12 | 1.283e-09 | 1.0000 | 0 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 8.850e-11 | 3.180e-08 | 1.0000 | 0 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -1.216e-10 | 3.133e-08 | 1.0000 | 0 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -1.155e-10 | 3.766e-08 | 1.0000 | 0 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.101e-10 | 4.449e-08 | 1.0000 | 0 | 5.021e-10 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 6.175e-12 | 1.283e-09 | 1.0000 | 0 | 8.709e-09 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 8.850e-11 | 3.180e-08 | 1.0000 | 0 | 9.006e-09 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -1.216e-10 | 3.133e-08 | 1.0000 | 0 | 4.273e-10 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -1.155e-10 | 3.766e-08 | 1.0000 | 0 | 1.753e-08 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -1425,13 +1520,13 @@ The leakage tests also require held-out outcome predictions at both recursion no
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000063 | 0.0132 | 1.0064 | 0.0025 | equivalent |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000120 | 0.0248 | 1.0131 | 0.0019 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000034 | 0.0122 | 1.0092 | 0.0012 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000097 | 0.0256 | 1.0091 | 0.0037 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000217 | 0.0718 | 1.0199 | 0.0025 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000063 | 0.0132 | 1.0064 | 0.0025 | 0.0044 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000120 | 0.0248 | 1.0131 | 0.0019 | 0.0049 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000034 | 0.0122 | 1.0092 | 0.0012 | 0.0059 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000097 | 0.0256 | 1.0091 | 0.0037 | 0.0059 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000217 | 0.0718 | 1.0199 | 0.0025 | 0.0100 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -1627,16 +1722,16 @@ same horizon-specific parameters without treating a terminal outcome as a surviv
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 3.324e-11 | 1.160e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -3.360e-10 | 7.845e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -3.903e-10 | 8.898e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -8.728e-11 | 4.910e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | -2.473e-10 | 9.571e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -1.205e-10 | 5.271e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 8.867e-11 | 2.594e-08 | 1.0000 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.016e-10 | 1.104e-07 | 1.0000 | 0 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 3.324e-11 | 1.160e-08 | 1.0000 | 0 | 1.353e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -3.360e-10 | 7.845e-08 | 1.0000 | 0 | 4.322e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -3.903e-10 | 8.898e-08 | 1.0000 | 0 | 4.072e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -8.728e-11 | 4.910e-08 | 1.0000 | 0 | 2.193e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | -2.473e-10 | 9.571e-08 | 1.0000 | 0 | 1.359e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -1.205e-10 | 5.271e-08 | 1.0000 | 0 | 1.342e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 8.867e-11 | 2.594e-08 | 1.0000 | 0 | 5.747e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.016e-10 | 1.104e-07 | 1.0000 | 0 | 1.204e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties
@@ -1899,16 +1994,16 @@ outcome predictions and the first-horizon risk-set boundary.
 ### Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 0.000013 | 0.0044 | 1.0014 | 0 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -0.000083 | 0.0193 | 1.0060 | 0.0037 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -0.000094 | 0.0211 | 1.0055 | -0.0013 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -0.000022 | 0.0121 | 1.0014 | -0.0025 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | 0.000010 | 0.0038 | 1.0040 | -0.000625 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -0.000035 | 0.0152 | 1.0026 | -0.0012 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 0.000093 | 0.0273 | 1.0089 | -0.0062 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.147e-07 | 0.000112 | 1.0051 | 0.0031 | equivalent |
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 0.000013 | 0.0044 | 1.0014 | 0 | 0.0017 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -0.000083 | 0.0193 | 1.0060 | 0.0037 | 0.0061 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -0.000094 | 0.0211 | 1.0055 | -0.0013 | 0.0073 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -0.000022 | 0.0121 | 1.0014 | -0.0025 | 0.0034 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | 0.000010 | 0.0038 | 1.0040 | -0.000625 | 0.0029 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -0.000035 | 0.0152 | 1.0026 | -0.0012 | 0.0019 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 0.000093 | 0.0273 | 1.0089 | -0.0062 | 0.0052 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.147e-07 | 0.000112 | 1.0051 | 0.0031 | 0.0045 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ### Theory properties

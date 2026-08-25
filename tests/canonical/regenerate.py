@@ -297,9 +297,7 @@ def main(
                 ignore_index=True,
             )
 
-    extra_frames = (
-        study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
-    )
+    extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
     if set(extra_frames) != set(record.extra_artifacts):
         raise RuntimeError(
             f"{record.slug} produced extra artifacts {sorted(extra_frames)}, "
@@ -391,8 +389,7 @@ def main(
         print(
             "reporting policy: published scientific failures:\n"
             + "\n\n".join(
-                f"{name}:\n{frame.to_string(index=False)}"
-                for name, frame in reported.items()
+                f"{name}:\n{frame.to_string(index=False)}" for name, frame in reported.items()
             ),
             flush=True,
         )

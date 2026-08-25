@@ -119,7 +119,7 @@
   "sha256": {
     "replicates.csv.gz": "293912fc0fad90a9b61a779eb18cd2a522691ec509c4f84a9af9b45a946d6aac",
     "summary.csv": "91d05dcd4c1a7280d31571f87a0428deb0029ac941a150484ab69ee973dea6c3",
-    "equivalence.csv": "e0962e4b9ddc20d625fc232c4849266e7631d23174e739be0a18dd592cd6a454",
+    "equivalence.csv": "a3d1db81b9cc3bc8c7130e54846ca3430509df82462405c1995cf9139256c738",
     "performance-tests.csv": "24a1ddff2e6d783fe588739b3831cbb133fe4742993d406677686773c5efe781",
     "property-replicates.csv.gz": "967b620557c1ae98a3c10b8784da096d9fc8d8505697cc1ddadd08999845dfca",
     "properties.csv": "2f731bb8cd803a6a99210ab55be6595f69f99053f64cd854aeff44a27ee71e21"

@@ -53,9 +53,9 @@ fit_one <- function(frame) {
     use_future = FALSE
   )
   score <- unlist(fit$nuisance_drtmle$meanIC)
-  # Tiny smoke samples exercise transport and extraction, not the registered score claim.
-  # The full protocol always uses n = 3000 and clears a bar stricter than R's 1 / n default.
-  score_bar <- if (nrow(frame) < 500) 1e-3 else 1e-4
+  # The raw score only. Whether it passes is decided once, in Python, at score_check's own
+  # bar and from this fit's own reported standard errors -- so both implementations answer to
+  # one rule instead of each applying its own constant.
   score_max <- max(abs(score))
   if (any(!is.finite(score))) stop(sprintf("non-finite score for %s/%s", scenario, replicate))
   if (any(frame$gn1 <= 0.01 | frame$gn1 >= 0.99)) {
@@ -95,10 +95,14 @@ fit_one <- function(frame) {
     covered = as.integer(low <= truth[names(psi)] & truth[names(psi)] <= high),
     initial_estimate = unname(initial),
     score_max = score_max,
-    score_passed = score_max <= score_bar,
-    # drtmle returns no convergence flag.  A completed finite native fit is the available
-    # solver-success signal; the stricter empirical score audit is recorded separately.
-    solver_passed = TRUE,
+    # drtmle returns no convergence flag, so this runner has no honest value to write and
+    # writes none.  It used to write TRUE, and the study then published "24 Cleverly solver
+    # failures against 0" off a column the reference could not fail.  NA travels through to
+    # an empty cell beside solver_reported = FALSE.
+    solver_reported = FALSE,
+    solver_passed = NA,
+    # This one the runner does check: the fit above stops when the propensity bound is
+    # active, so a row that exists is a row the bound did not bind on.
     bound_active = FALSE,
     stringsAsFactors = FALSE
   )

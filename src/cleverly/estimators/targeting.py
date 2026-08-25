@@ -65,6 +65,7 @@ from .direct_effect import clever_covariate_inputs
 from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
 
 __all__ = [
+    "DEFAULT_MAX_OUTER",
     "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
     "ReductionExit",
@@ -127,6 +128,15 @@ _UNSOLVED = 1e-6
 #: still does the stopping, so a well-conditioned fit exits exactly where it used to.
 _NEGLIGIBLE = 1e-3
 
+#: Rounds the three-equation alternation may run before it reports a ``"cap"`` exit.  Fifty is
+#: the value :func:`solve_with_reduction` always used; it is named here, and carried through
+#: :class:`~cleverly.DRTMLE`'s ``max_outer=``, because it used to be reachable only by editing
+#: this file.  A study that published its alternation settings therefore had no way to state
+#: the cap that applied, and the registered DR-TMLE manifest published ``max_iter: 100`` --
+#: the *inner* Newton cap -- as though it were this one.  R ``drtmle`` ships three rounds and
+#: never claims to converge, so this is not a transcription of that package's default.
+DEFAULT_MAX_OUTER = 50
+
 
 def _negligible_bar(n: int) -> float:
     r"""The loop's absolute bar at ``n``: :math:`c_n/\sqrt n` with :math:`c_n \to 0` slowly.
@@ -171,6 +181,18 @@ def _solved(relative: float, absolute: float, tol: float, negligible: float) -> 
     solver that needs more rounds.
     """
     return relative <= tol or absolute <= negligible
+
+
+def _largest(score: FloatArray) -> float:
+    """The largest absolute component of one equation's score, or zero when it has none.
+
+    The companion of :func:`~cleverly.fluctuation._score.relative_score` for :func:`_solved`'s
+    second argument.  Written once because every verdict in this module now needs the pair,
+    and an empty score array -- a guard that solved no equation -- has to read as solved
+    rather than raise on an empty reduction.
+    """
+    values = np.asarray(score, dtype=float)
+    return float(np.max(np.abs(values))) if values.size else 0.0
 
 
 #: Which of :func:`solve_with_reduction`'s three exits fired.  ``"tolerance"`` is the loop
@@ -492,7 +514,7 @@ def solve_with_projection(
     weights: FloatArray,
     observed: BoolArray,
     rows: IntArray | None = None,
-    max_outer: int = 50,
+    max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target ``Qbar`` and solve the working model's projection, alternating until both settle.
@@ -637,7 +659,7 @@ def solve_with_mechanism(
     scaled: FloatArray,
     weights: FloatArray,
     observed: BoolArray,
-    max_outer: int = 50,
+    max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
 ) -> tuple[Submodel, Fluctuation, NuisanceEstimates]:
     r"""Target ``Qbar`` and the treatment mechanism together, alternating until both settle.
@@ -866,6 +888,13 @@ class ReductionFluctuation:
     #: carries one further row for the closing pass, which refits nothing, so this is what
     #: "did the loop terminate on its own" means and what the outer cap is compared against.
     rounds: int = 0
+    #: The cap :attr:`rounds` was compared against.  On the record because the sentence
+    #: "this fit ran to the outer cap" is not checkable without it, and because a study that
+    #: publishes its alternation settings has no other way to read the value that actually
+    #: applied.  The registered DR-TMLE manifest published ``max_iter: 100`` while the
+    #: alternation ran at a hard-coded 50, which is the failure this field closes:
+    #: ``max_iter`` is the *inner* Newton cap and was never the loop's.
+    max_outer: int = 0
     converged: bool = True
     failure: str | None = None
     #: Which of the loop's three exits fired.  **Not** a restatement of :attr:`failure`, and
@@ -1167,7 +1196,7 @@ def solve_with_reduction(
     scaled: FloatArray,
     weights: FloatArray,
     observed: BoolArray,
-    max_outer: int = 50,
+    max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Solve the outcome equation and the two extra ones together, alternating until all settle.
@@ -1756,8 +1785,29 @@ def solve_with_reduction(
         )
     )
 
-    worst = max(fluctuation.relative_score_norm, closing.reduced_score, closing.mechanism_score)
-    unsolved: TargetingFailure | None = None if worst <= _UNSOLVED else "max_iter_reached"
+    # **On both rulers, the pair the loop's own exit test uses.**  Each equation is judged by
+    # :func:`_solved`, so a score that is absolutely negligible counts as solved whatever its
+    # relative value says.  Reaching for ``worst`` -- the relative maximum alone -- is what
+    # this used to do, and :data:`_NEGLIGIBLE` had already written down why that is the wrong
+    # instrument for equations (9) and (10): their covariates are small or move under their
+    # own solve, so neither can reach a *relative* bar.  The consequence was measured on the
+    # registered DR-TMLE study, where 9 of 24 recorded solver failures had an absolute worst
+    # score below both this bar and the one
+    # :func:`~cleverly.validation.score_check` applies to the reported fit.  The loop stopped
+    # correctly and the record then called it a failure.
+    negligible = _negligible_bar(data.n)
+    equations = (
+        (fluctuation.relative_score_norm, fluctuation.score_norm),
+        (closing.reduced_score, closing.reduced_absolute),
+        (closing.mechanism_score, closing.mechanism_absolute),
+    )
+    unsolved: TargetingFailure | None = (
+        None
+        if all(
+            _solved(relative, absolute, _UNSOLVED, negligible) for relative, absolute in equations
+        )
+        else "max_iter_reached"
+    )
     failure = unsolved
     if mechanism is not None:
         mechanism = replace(
@@ -1776,7 +1826,19 @@ def solve_with_reduction(
         names=() if extra_submodel is None else extra_submodel.names,
         trace=tuple(trace),
         rounds=rounds,
-        converged=bool(worst <= spec.tol),
+        max_outer=max_outer,
+        # The loop's own exit test, applied to the state the closing pass returns. It used to
+        # be ``worst <= spec.tol`` on the relative maximum, which asks equations (9) and (10)
+        # for a bar :data:`_NEGLIGIBLE` says they cannot reach: measured before this changed, a
+        # fit that exited at ``"tolerance"`` with ``failure=None`` still reported
+        # ``converged=False``, so the field was false on essentially every fit and separated
+        # nothing.
+        converged=bool(
+            all(
+                _solved(relative, absolute, spec.tol, negligible)
+                for relative, absolute in equations
+            )
+        ),
         failure=failure,
         exit_reason=exit_reason,
         ill_conditioned=ill_conditioned,
@@ -1919,12 +1981,12 @@ def _solve_missing_outcome_reduction(
                 float(np.max(np.abs(observation_score))),
             ),
         )
-        worst = max(value[0] for value in scores)
         outcome_loglik = quasi_loglik(
             np.asarray(scaled, dtype=float)[mask],
             np.asarray(targeted_q.observed, dtype=float)[mask],
             np.asarray(weights, dtype=float)[mask],
         )
+        worst = max(value[0] for value in scores)
         joint_loglik = outcome_loglik + float(treatment_fit.loglik or 0.0)
         joint_loglik += float(observation_fit.loglik)
         trace.append(
@@ -1941,6 +2003,14 @@ def _solve_missing_outcome_reduction(
         observation_fit = replace(
             observation_fit, score=observation_score, score_scale=observation_scale
         )
+        # **The relative bar alone, unlike the verdicts below.**  The complete-data loop's exit
+        # is a dual test, and copying it here was tried and reverted: the drift blocks'
+        # absolute bar is ``1e-3 / n``, which at the sizes this construction is exercised on
+        # is looser than the threshold :func:`~cleverly.validation.score_check` applies to the
+        # reported fit, so the loop stopped early and the fit failed its own score check.
+        # ``tests/unit/test_drtmle_missing.py`` is what caught it.  A dual exit here needs the
+        # measurement that :data:`_NEGLIGIBLE` has for equations (9) and (10) and nobody has
+        # taken for these three.
         if worst <= spec.tol:
             exit_reason = "tolerance"
             break
@@ -1960,13 +2030,23 @@ def _solve_missing_outcome_reduction(
     standard_scale = score_scale(standard.observed, weights, mask)
     extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
     extra_scale = score_scale(extra.observed, weights, mask)
-    worst = max(
-        relative_score(standard_score, standard_scale),
-        relative_score(extra_score, extra_scale),
-        treatment_fit.relative_score,
-        observation_fit.relative_score,
+    # Both rulers here too, and for the same reason as the complete-data branch: the three
+    # drift blocks carry covariates that vanish where their own nuisance is right, so a
+    # relative-only verdict reports an absolutely negligible score as an unsolved equation.
+    negligible = _negligible_bar(data.n)
+    equations = (
+        (relative_score(standard_score, standard_scale), _largest(standard_score)),
+        (relative_score(extra_score, extra_scale), _largest(extra_score)),
+        (treatment_fit.relative_score, _largest(treatment_fit.score)),
+        (observation_fit.relative_score, _largest(observation_fit.score)),
     )
-    unsolved: TargetingFailure | None = None if worst <= _UNSOLVED else "max_iter_reached"
+    unsolved: TargetingFailure | None = (
+        None
+        if all(
+            _solved(relative, absolute, _UNSOLVED, negligible) for relative, absolute in equations
+        )
+        else "max_iter_reached"
+    )
     width = len(arms)
     record = ReductionFluctuation(
         reduced=reduced,
@@ -1979,7 +2059,13 @@ def _solve_missing_outcome_reduction(
         names=extra.names,
         trace=tuple(trace),
         rounds=len(trace),
-        converged=bool(worst <= spec.tol),
+        max_outer=max_outer,
+        converged=bool(
+            all(
+                _solved(relative, absolute, spec.tol, negligible)
+                for relative, absolute in equations
+            )
+        ),
         failure=unsolved,
         exit_reason=exit_reason,
         observation=replace(observation_fit, failure=observation_fit.failure or unsolved),
@@ -2153,6 +2239,12 @@ class _Closing:
     extra_submodel: Submodel | None
     reduced_score: float
     mechanism_score: float
+    #: The same two scores on the **absolute** scale.  Carried beside the relative pair rather
+    #: than recomputed by the caller because :func:`_solved` needs both, and a verdict that
+    #: reached for only one of them is the defect this pair exists to prevent -- see
+    #: :func:`solve_with_reduction`'s closing paragraphs.
+    reduced_absolute: float
+    mechanism_absolute: float
     joint: float
     steps: int
     capped: bool
@@ -2225,6 +2317,13 @@ def _close_at_frozen_reductions(
     that a reader is not left to infer convergence from a step count that has no other way
     of saying which it was.
 
+    **``capped`` is that and nothing more, and it routinely fires on a fit that solved
+    everything.**  Redefining it as "the score this stage left is one that matters" was tried
+    and reverted: the field is named for how the stage *ended*, that is the fact it records,
+    and ``tests/unit/test_reduction_alternation.py`` pins a pair of fits it separates.
+    Whether the score matters is :attr:`ReductionFluctuation.failure`'s question, and that
+    one is answered on both of :func:`_solved`'s rulers.
+
     **All three equations are solved at the arrays the curve is built from.** The arrays were
     always the
     same arrays; the *expressions* were not.  This stage used to solve
@@ -2251,6 +2350,7 @@ def _close_at_frozen_reductions(
     changed is that the difference is now zero to roundoff rather than reported as itself.
     """
     steps = 0
+    mechanism_absolute = 0.0
     if "Q" in guard:
         for _ in range(max_steps):
             steps += 1
@@ -2276,12 +2376,31 @@ def _close_at_frozen_reductions(
                 bounds=bounds,
             )
             mechanism = replace(solved, score=settled, score_scale=scale)
+            mechanism_absolute = _largest(settled)
+            # **Deliberately the relative bar alone, and deliberately unreachable.**  This is
+            # the one place in the module where ``_solved``'s absolute branch must *not* be
+            # used, and the reason is what this stage is for.  The alternation's exit test
+            # asks "have we iterated enough", and an absolutely negligible score answers it.
+            # This stage asks something stricter: it exists so that the mean of the curve the
+            # fit *reports* is zero, and it costs arithmetic rather than refits, so running
+            # every step is the cheap outcome and stopping early is the expensive one.
+            # Measured when the absolute branch was tried here: at ``n = 600`` the reported
+            # curve's mean went from ``5.8e-7`` to ``1.5e-6``, which is
+            # ``_negligible_bar(600)`` doing exactly what it says and centring the curve an
+            # order of magnitude worse than this stage was built to.
             if mechanism.relative_score <= spec.tol:
                 break
 
     # The stage ran out of steps exactly when it left the score above tolerance, so this is
     # read off the score rather than off which way the loop above ended -- one statement of
     # what happened rather than two that could drift apart.
+    #
+    # **Deliberately the relative bar, and deliberately not** :func:`_solved`.  Redefining this
+    # as "the score it left matters" was tried and reverted: the field is named for how the
+    # stage *ended*, that is what it records, and
+    # ``tests/unit/test_reduction_alternation.py`` pins a pair of fits it separates.  Whether
+    # the score matters is :attr:`ReductionFluctuation.failure`'s question and is answered on
+    # both rulers there.
     capped = "Q" in guard and mechanism is not None and mechanism.relative_score > spec.tol
 
     current = _retargeted_mechanism(nuisance, targeted_g, arms) if "Q" in guard else nuisance
@@ -2313,6 +2432,8 @@ def _close_at_frozen_reductions(
             extra_submodel=None,
             reduced_score=0.0,
             mechanism_score=0.0 if mechanism is None else mechanism.relative_score,
+            reduced_absolute=0.0,
+            mechanism_absolute=0.0 if mechanism is None else mechanism_absolute,
             joint=float(fluctuation.loglik)
             + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
             steps=steps,
@@ -2375,6 +2496,8 @@ def _close_at_frozen_reductions(
         extra_submodel=extra_submodel,
         reduced_score=reduced_score,
         mechanism_score=0.0 if mechanism is None else mechanism.relative_score,
+        reduced_absolute=float(np.max(np.abs(settled_q))) if settled_q.size else 0.0,
+        mechanism_absolute=0.0 if mechanism is None else mechanism_absolute,
         joint=float(fluctuation.loglik)
         + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
         steps=steps,

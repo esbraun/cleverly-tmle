@@ -88,7 +88,7 @@
   "sha256": {
     "replicates.csv.gz": "ddb05a2bc4b6bf7b21f197959100bba76146e4ec8cf05d77e78915893db07c7d",
     "summary.csv": "57d1b361de91d3a974e2d16afe04e8bef45b344395159ac16f0d7b4960c1918f",
-    "equivalence.csv": "50528956c14b05877bc643123fb640a1528f80fa3b576fe5f2d4c58cf97713ae",
+    "equivalence.csv": "dc28ca6f864ea5251db94dcde4864ca349d691fef0f2a6e0b91cb2caa991d2bc",
     "performance-tests.csv": "f89795c3c27b944e69465f6b3d65ea5e0b421bd04a82abd7bb54f0c309ca4533",
     "property-replicates.csv.gz": "df090c210987a82541591840a73f07faa4e6f517e4e39758c8a14324dedf4e2c",
     "properties.csv": "a0411be76ed52c2399d347a13efce9dec10033effc85d243a8035784c715a75e"

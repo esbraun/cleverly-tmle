@@ -146,6 +146,7 @@ from .base import (
     resolve_estimands,
 )
 from .targeting import (
+    DEFAULT_MAX_OUTER,
     ProjectionFluctuation,
     ReductionSpec,
     TargetingSpec,
@@ -2075,6 +2076,11 @@ class TMLE:
             scaled=nuisance.scaler.scale(data.outcome),
             weights=data.weights,
             observed=data.observed,
+            # Read off the estimator rather than left to the function's default. Only a
+            # `DRTMLE` reaches here -- the branch above refuses any other estimator carrying
+            # reduced regressions -- but the method is defined on `TMLE`, so the attribute is
+            # fetched defensively rather than assumed onto a class that does not declare it.
+            max_outer=getattr(self, "max_outer", DEFAULT_MAX_OUTER),
         )
 
     def _solve_projection(

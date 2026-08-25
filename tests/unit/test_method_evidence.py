@@ -18,6 +18,7 @@ import dataclasses
 import hashlib
 import json
 import re
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -212,11 +213,22 @@ class TestPublishedVerdicts:
             [
                 published["coverage_superior"],
                 published["paired_similarity"] & published["subject_not_inferior"],
+                # A cell whose calibration bound is wider than the calibration margin could
+                # not have concluded non-inferiority at any true excess, so its failure is a
+                # statement about the design and is named apart from an unsettled one.
+                ~published["calibration_resolved"],
             ],
-            ["superior", "equivalent"],
+            ["superior", "equivalent", "underpowered"],
             default="inconclusive",
         )
         assert published["comparison_conclusion"].tolist() == expected.tolist()
+        assert published["calibration_resolved"].equals(
+            ~published["se_comparable"]
+            | (
+                published["calibration_excess_resolution"]
+                <= published["calibration_noninferiority_margin"]
+            )
+        ), "the resolution flag is not the published width against the published margin"
         if study.publication_policy == "gated":
             assert published["passed"].all(), published.loc[~published["passed"]]
 
@@ -325,6 +337,24 @@ class TestPublishedVerdicts:
             )
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own root-n endpoint"
+            )
+
+        # A ladder rung answers to coverage and a rate row to its fitted slope, and the two
+        # roles answer in opposite directions.  Checked here rather than left to the family's
+        # classification above: listing a family as endpoint-gated says only that its rule is
+        # not bias equivalence, and a family with no check of its own is the state the
+        # ``unclassified`` assertion exists to prevent one step earlier.
+        contraction = published.loc[published["property"] == "double_robust_contraction"]
+        for row in contraction.itertuples():
+            if str(row.cell).startswith("rate_"):
+                contracts = row.slope_ci_upper < 0.0
+                expected = (not contracts) if row.role == "control" else contracts
+            elif row.role == "control":
+                expected = row.coverage_ci_upper < study.margins.coverage_floor
+            else:
+                expected = row.coverage_ci_lower >= study.margins.coverage_floor
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
         calibration = published.loc[published["property"] == "interval_calibration"]
@@ -464,6 +494,11 @@ BIAS_GATED_PROPERTIES = frozenset(
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
         "crossfit_overfitting",
+        # Deliberately *not* bias-gated, though its cells carry a bias.  Its ladder rungs
+        # answer to coverage and its rate rows to a fitted slope, because the level claim
+        # about the bias is ``double_robustness``'s and repeating it at three more sizes
+        # would publish one red cell four times without adding a statement.
+        "double_robust_contraction",
         "generated_design",
         "interval_calibration",
         "power",
@@ -999,6 +1034,21 @@ def _published_block(study: StudyRecord, name: str) -> list[str]:
     return lines[head + 1 : tail]
 
 
+def _agreement_result(row: Any) -> str:
+    """How one committed paired verdict must read in the published table.
+
+    Three renderings for three states.  Bold means "a claim came out false" everywhere in
+    these documents, so an ``"underpowered"`` cell -- which made no claim -- is italic
+    instead.  Written here rather than imported from the renderer on purpose: this check
+    exists to disagree with the renderer, and sharing its function would make the two agree
+    by construction.
+    """
+    conclusion = str(row.comparison_conclusion)
+    if bool(row.passed):
+        return conclusion
+    return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
+
+
 class TestThePublishedTestTables:
     """One documentation row per committed test, against the results it was rendered from.
 
@@ -1090,12 +1140,7 @@ class TestThePublishedTestTables:
         )
         published = [row["result"] for row in rows]
         expected = (
-            [
-                str(row.comparison_conclusion)
-                if bool(row.passed)
-                else f"**{row.comparison_conclusion}**"
-                for row in frame.itertuples()
-            ]
+            [_agreement_result(row) for row in frame.itertuples()]
             if name == "agreement"
             else ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
         )

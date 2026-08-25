@@ -35,6 +35,11 @@ _ARM = re.compile(
     r"^(?P<arm>static|dynamic|static_t1|static_t2|dynamic_t2|always_t2)__(?P<cell>.+)$"
 )
 
+#: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
+#: that builds ladders this way, so a cell whose name happens to end in ``_n1500`` elsewhere
+#: is still looked up whole.
+_SIZE = re.compile(r"^(?P<cell>.+)_n(?P<size>\d+)$")
+
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
@@ -100,6 +105,10 @@ PROPERTIES: dict[str, str] = {
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
+    "double_robust_contraction": (
+        "a bias the equivalence margin rejects at one size contracts as the sample grows, "
+        "which is what separates a second-order remainder from an inconsistent estimator"
+    ),
     "double_robustness": (
         "the estimator stays consistent when either the outcome regression or the treatment "
         "mechanism is correct"
@@ -155,6 +164,30 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("crossfit_overfitting", "cross_fitted_survival_ltmle"): (
         "five-fold horizon-two survival LTMLE with a fully grown outcome tree",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("double_robust_contraction", "outcome_correct"): (
+        "only the outcome regression is correctly specified",
+        "the exact coverage interval clears the declared floor",
+    ),
+    ("double_robust_contraction", "treatment_correct"): (
+        "only the treatment mechanism is correctly specified",
+        "the exact coverage interval clears the declared floor",
+    ),
+    ("double_robust_contraction", "both_wrong"): (
+        "both nuisances are misspecified",
+        "the exact coverage interval must fall below the floor",
+    ),
+    ("double_robust_contraction", "rate_outcome_correct"): (
+        "log absolute bias regressed on log n across three sizes, outcome regression correct",
+        "slope interval entirely below zero, so the bias contracts",
+    ),
+    ("double_robust_contraction", "rate_treatment_correct"): (
+        "the same regression with only the treatment mechanism correct",
+        "slope interval entirely below zero, so the bias contracts",
+    ),
+    ("double_robust_contraction", "rate_both_wrong"): (
+        "the same regression with both nuisances misspecified",
+        "slope interval must not establish contraction",
     ),
     ("double_robustness", "both_correct"): (
         "both the outcome regression and the treatment mechanism are correctly specified",
@@ -365,10 +398,18 @@ def cell(
     """
     arm = _ARM.match(key)
     base = arm.group("cell") if arm else key
+    # A contraction ladder names one configuration at three sizes, so the size is a suffix on
+    # a shared description rather than three near-identical entries.  Stripped the same way
+    # the arm prefix is, and reattached below, so a rung says which size it is.
+    size = _SIZE.match(base) if family == "double_robust_contraction" else None
+    if size is not None:
+        base = size.group("cell")
     try:
         tested, required = CELLS[family, base]
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
+    if size is not None:
+        tested = f"{tested}, at n = {int(size.group('size')):,}"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"

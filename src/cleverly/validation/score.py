@@ -71,6 +71,7 @@ The usual reasons for a failure:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -84,12 +85,55 @@ from .drtmle import CorrectionCheck, correction_check
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
 
-__all__ = ["ScoreCheck", "ScoreCheckRow", "score_check"]
+__all__ = ["ScoreCheck", "ScoreCheckRow", "score_check", "score_threshold"]
 
 #: The score must be below ``tolerance * se / sqrt(n)`` to pass.  A converged
 #: fluctuation is normally near machine precision, so this is a loose gate that only
 #: catches genuine failures.
 DEFAULT_TOLERANCE = 1e-3
+
+
+def score_threshold(
+    std_errors: Iterable[float], n: int, *, tolerance: float = DEFAULT_TOLERANCE
+) -> float:
+    r"""The magnitude a score may reach and still pass, at one fit's reported precision.
+
+    :math:`\text{tolerance} \times \widehat{se} / \sqrt n`.  The natural scale is the
+    estimate's own sampling variability rather than an absolute number, because the units of
+    the outcome are arbitrary; :math:`\widehat{se}` is the **largest** finite standard error
+    the fit reports, so one bar covers every estimand a fit publishes rather than a different
+    one per row.
+
+    Exported because a study auditing this package against another implementation has to
+    apply *this* rule to both sides, and the registered DR-TMLE study did not: it declared a
+    constant ``1e-4`` while the R runner declared ``1 / n``, so one published column held two
+    quantities and neither was the bar a user's fit answers to.  A copy of the arithmetic in
+    the study would have re-created the same drift one release later.
+
+    Parameters
+    ----------
+    std_errors : Iterable[float]
+        The fit's reported standard errors.  Non-finite entries are skipped, and a collection
+        with no finite entry falls back to one, which is the unscaled bar.
+    n : int
+        Rows the fit was computed on.
+    tolerance : float
+        Score magnitude in standard errors.  :data:`DEFAULT_TOLERANCE` unless a caller has a
+        reason.
+
+    Returns
+    -------
+    float
+        The threshold, on the scale the scores are reported in.
+
+    Examples
+    --------
+    >>> from cleverly.validation.score import score_threshold
+    >>> f"{score_threshold([0.02, 0.01], 3000):.3e}"
+    '3.651e-07'
+    """
+    reference = max((value for value in std_errors if np.isfinite(value)), default=1.0)
+    return float(tolerance * reference / np.sqrt(float(n)))
 
 
 @sentinel_equality
@@ -495,6 +539,14 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         ),
         default=1.0,
     )
+    # One call rather than the same product written at each row below, and the same call a
+    # study auditing this package against another implementation makes -- see
+    # :func:`score_threshold`.
+    threshold = score_threshold(
+        (estimate.std_error for estimate in result.estimates.values()),
+        n,
+        tolerance=tolerance,
+    )
 
     # Every draw's fluctuation, not just the first. Each solved its own score equation,
     # and a draw whose Newton step failed contributes to the reported estimate exactly as
@@ -503,7 +555,6 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # report is unchanged.
     for index, repeat in enumerate(result.repeats):
         for group, fluctuation in repeat.fluctuations.items():
-            threshold = tolerance * reference_se / np.sqrt(n)
             score = fluctuation.score_norm
             rows.append(
                 ScoreCheckRow(
