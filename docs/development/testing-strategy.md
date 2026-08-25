@@ -9,22 +9,32 @@ satisfy. `README.md` gives the commands. This page gives the design behind them.
 | --- | --- | --- |
 | fast | `pytest -m "not slow" -q` | every unit, integration and end-to-end test, plus the documentation gates. This is the default handoff gate |
 | registered validation studies | part of the fast tier | the committed results of each [implementation validation study](../technical-reference/index.md#implementation-validation-grid). The fast tests recompute every verdict from the artifacts, so the statistical evidence is checked in minutes rather than hours |
-| slow | `pytest -m slow -q` | repeated-sampling studies that no registered study covers yet. About one hour |
+| evidence re-execution | `pytest -m slow -q` | re-runs each registered study's property cells from scratch, refits committed replications, and recomputes every resampling bound at the full bootstrap budget. Run it when artifacts are rebuilt |
 
 **The registered studies are becoming the primary statistical evidence.** A registered study runs
 its expensive sampling once, commits the per-replication results, and the fast tier then checks
 every verdict, every published number, and every negative control against those artifacts. That
 gives repeated-sampling evidence at fast-tier cost.
 
-The slow tier is not retired. It still holds 128 tests across six modules, and they still have to
-be run correctly when a change reaches them. Folding the remaining studies into registered studies
-is separate work. Until it lands, both sets of rules below apply.
+## The deprecated studies
 
-A claim leaves the slow tier when a registered cell establishes it more strongly, and not before.
-Eleven design families still have no registered row: fold repeats, DR-TMLE, multi-arm means,
-multi-arm selectors, clustering, weights, missing outcomes, controlled direct effects, incremental
-interventions, weighted longitudinal fits, and competing risks. Each needs its own law, exact
-oracle, margins, and paired control before its slow tests can go.
+The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
+There are 94 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+skipped rather than deleted, because deleting them would drop a claim without recording that it
+had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
+one.
+
+**Read the consequence plainly.** Eleven design families now have no active repeated-sampling
+evidence: fold repeats, DR-TMLE, multi-arm means, multi-arm selectors, clustering, weights,
+missing outcomes, controlled direct effects, incremental interventions, weighted longitudinal
+fits, and competing risks. Their exact-law, Gateaux, remainder and mutation tests still run in the
+fast tier, so the parameter and the influence curve are still checked. What is no longer checked is
+whether the interval built from that curve covers under repeated sampling. Each family needs its
+own law, exact oracle, margins, and paired control before that claim exists again. Deleting the
+deprecated module is the last step of registering its replacement, not the first.
+
+A test nobody runs is not evidence. Skipping these says so out loud rather than leaving a green
+tier that nothing executes.
 
 ## Choosing a fast test
 
@@ -63,23 +73,26 @@ The last row is worth an example. Changing a configuration declaration from sile
 pre-construction refusal cannot affect a slow study's fitted sampling distribution. It does not
 justify running one.
 
-## Which slow tests to run
+## When to run the evidence re-execution tier
 
-Run one named slow study when only one statistical family is reachable. Do not run unrelated
-studies beside it.
+Run `pytest -m slow -q` when a registered study's artifacts are rebuilt, and when shared estimation
+or inference code changes in a way that could alter what a committed replication produces.
 
-Run the complete `pytest -m slow -q` tier in two cases. The first is a shared estimation or
-inference path that can affect several families. The second is an acceptance gate that explicitly
-requires the whole tier.
+The fast tier recomputes every published verdict from the committed rows and refits two
+replications per study. What it cannot see is a `property-replicates.csv.gz` that has gone stale
+against the code, because it never re-executes the property fits. That is the gap this tier closes,
+and it is the reason it survived the deprecation above: no registered study can replace it, since
+it is the thing that checks the registered studies.
 
-If no slow test can execute the changed path or observe its result, do not run slow tests. State
-that path analysis in the handoff. This is an evidence decision and not a time-budget waiver.
+A regeneration that has just run is already covered. `regenerate.py` produces the property rows
+with the current code and refuses the run on any failed gate, so re-executing them immediately
+afterwards confirms determinism rather than freshness.
 
-## Never run the two tiers at the same time
+## Never run two tiers at the same time
 
 Both tiers size themselves from `tests.parallel.available_cores()`, and each one expects the whole
 machine. Running them together oversubscribes every core and takes longer than running them in
-sequence. Finish the fast tier before you start any slow study.
+sequence. Finish the fast tier before you start a re-execution run or a regeneration.
 
 ## Adding a study
 

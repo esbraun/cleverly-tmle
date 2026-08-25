@@ -247,9 +247,9 @@ leave both contending for a machine neither can have. A slow-tier test that is t
 its tier may take half the budget; the fast tier still leaves inner parallelism alone.
 
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
-a unit, integration, or end-to-end test in the fast tier, or by a named statistical study in the
-slow tier, and no assertion about an estimate, an interval or a diagnostic verdict may rest on a
-documented example. Evidence manifests such as `docs/technical-reference/evidence.md` remain
+a unit, integration, or end-to-end test in the fast tier, or by a registered validation study, and
+no assertion about an estimate, an interval or a diagnostic verdict may rest on a documented
+example. Evidence manifests such as `docs/technical-reference/evidence.md` remain
 test-enforced source registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`

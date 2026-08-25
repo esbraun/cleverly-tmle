@@ -272,7 +272,7 @@ class TestTheReferenceIsPartOfTheEstimand:
             )
 
 
-@pytest.mark.slow
+@pytest.mark.legacy_study
 class TestConsistency:
     """The claim a single fit cannot make: the estimator is unbiased for every arm.
 

@@ -72,7 +72,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.validation import CoverageStudy
 from tests.parallel import STUDY_JOBS
 
-pytestmark = pytest.mark.slow
+pytestmark = pytest.mark.legacy_study
 
 #: Replications per study.  At 400 the Monte Carlo standard error of a coverage estimate
 #: near 0.95 is about 1.1 percentage points, enough to resolve a real shortfall.

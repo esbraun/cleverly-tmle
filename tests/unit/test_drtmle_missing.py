@@ -559,7 +559,7 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
         )
 
 
-@pytest.mark.slow
+@pytest.mark.legacy_study
 def test_the_estimator_is_consistent_when_only_the_outcome_model_is_wrong() -> None:
     """Double robustness through the treatment and observation mechanisms.
 

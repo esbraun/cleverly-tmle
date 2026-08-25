@@ -84,7 +84,8 @@ packages = ["src/cleverly"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
-    "slow: statistical validation runs (coverage, consistency, type I error); excluded from the fast CI tier",
+    "slow: re-execution of the committed evidence artefacts; excluded from the fast CI tier",
+    "legacy_study: superseded repeated-sampling study, skipped unless --run-legacy-studies",
 ]
 filterwarnings = [
     "error::RuntimeWarning",

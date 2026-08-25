@@ -35,7 +35,7 @@ from tests.studies.canonical_ltmle import (
 )
 from tests.studies.evidence.inference import student_interval
 
-pytestmark = pytest.mark.slow
+pytestmark = pytest.mark.legacy_study
 
 #: Enough to resolve a paired mean difference against a margin of ``0.15`` pooled standard
 #: deviations, and far short of the study's own 1,600 -- this compares the untargeted plug-in
