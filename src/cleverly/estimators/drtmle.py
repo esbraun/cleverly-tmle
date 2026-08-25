@@ -153,7 +153,7 @@ from .reduced import (
     fit_reduced,
     refuse_unsupported,
 )
-from .targeting import ReductionOrder, ReductionSpec
+from .targeting import DEFAULT_MAX_OUTER, ReductionOrder, ReductionSpec
 from .tmle import TMLE
 
 __all__ = ["DRTMLE", "ReducedFit"]
@@ -240,8 +240,10 @@ class DRTMLE(TMLE):
     ``docs/drtmle.md`` for the contract in full.  The curve it reports was transcribed from
     the R package rather than derived -- that is its *provenance*, and its *evidence* is that
     it has since been checked against Theorem 1's appendices and against the Gateaux
-    derivative of the parameter, and agrees with both; nothing has been compared against that
-    package's *numbers*, which is a decision rather than a gap.  A study here **does**
+    derivative of the parameter, and agrees with both.  The registered canonical DR-TMLE study
+    separately compares its binary complete-data numbers with the pinned R package under the
+    paper's nuisance-correctness regimes; that bounded comparison is not the derivation.  A
+    controlled study here **does**
     demonstrate the interval is better than a plain TMLE's, by a wide and reproduced margin,
     and also that it does not attain nominal coverage anywhere in that study.  What the
     module docstring says about what this does and does not buy is not hedging: it is what
@@ -343,6 +345,22 @@ class DRTMLE(TMLE):
         learner is still fitted, following Díaz & van der Laan's finite-sample recommendation.
         To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
         to :meth:`fit`; doing so bypasses the treatment learner.
+    max_outer:
+        How many rounds the three-equation alternation may run.  **Not** ``max_iter``, which
+        is the cap on the Newton steps *inside* one fluctuation and which every estimator
+        here carries; the two were one keyword away from being confused and the confusion had
+        already happened.  The registered DR-TMLE study published ``max_iter: 100`` as its
+        alternation setting -- R ``drtmle``'s ``maxIter`` -- while the loop ran at a
+        hard-coded 50 that no caller could reach.  The value that applied is now on
+        :attr:`~cleverly.estimators.targeting.ReductionFluctuation.max_outer`, so a manifest
+        cannot claim one cap while another ran.
+
+        Raising it changes only the fits that reached it, and on those it can matter.  Measured
+        on the paper law at ``n = 3000`` over 120 draws, going from 50 to 100 left every fit
+        that exited on tolerance bit for bit and moved the 7 that had hit the cap by up to
+        ``1.3e-3``, which is 7% of one sampling standard deviation.  So a ``"cap"`` exit is
+        worth acting on rather than noting: it says this draw had not settled, and the
+        estimate it reports is the one the loop happened to stop at.
 
     Notes
     -----
@@ -422,11 +440,13 @@ class DRTMLE(TMLE):
         update_order: ReductionOrder = "drtmle",
         evaluation: Any = None,
         randomized: bool = False,
+        max_outer: int = DEFAULT_MAX_OUTER,
         **kwargs: Any,
     ) -> None:
         _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
         super().__init__(**kwargs)
+        self.max_outer = int(max_outer)
         self.guard = tuple(guard)
         self.reduction = reduction
         self.reduced_outcome_learner = reduced_outcome_learner
@@ -477,6 +497,12 @@ class DRTMLE(TMLE):
             )
         if len(set(self.guard)) != len(self.guard):
             raise ValueError(f"guard names a guard twice: {list(self.guard)}")
+        if self.max_outer < 1:
+            raise ValueError(
+                f"max_outer must be at least one round; got {self.max_outer}. It caps the "
+                "three-equation alternation, not the Newton steps inside one fluctuation -- "
+                "that is max_iter."
+            )
         if self.update_order not in UPDATE_ORDERS:
             raise ValueError(
                 f"update_order must be one of {list(UPDATE_ORDERS)}; got "

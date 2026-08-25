@@ -142,13 +142,25 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     parser.add_argument(
         "--cache", type=Path, help="reuse a previous Python phase from this directory"
     )
+    parser.add_argument(
+        "--refresh-python",
+        action="store_true",
+        help="refit the Python phase while retaining a compatible cached reference result",
+    )
     if reference is not None:
         parser.add_argument(
             "--skip-r", action="store_true", help="reuse the committed reference rows"
         )
+        parser.add_argument(
+            "--r-jobs",
+            type=int,
+            help="reference-process concurrency (defaults to --jobs)",
+        )
     arguments = parser.parse_args()
     if arguments.replicates < 2 or arguments.n < 50:
         parser.error("replicates must be >= 2 and n must be >= 50")
+    if getattr(arguments, "r_jobs", None) is not None and arguments.r_jobs < 1:
+        parser.error("--r-jobs must be >= 1")
     return arguments
 
 
@@ -160,7 +172,7 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     }
     cache = getattr(arguments, "cache", None)
     reusable = ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
-    if cache and all(paths[name].exists() for name in reusable):
+    if cache and not arguments.refresh_python and all(paths[name].exists() for name in reusable):
         rows = pd.read_csv(paths["python-rows.csv.gz"])
         if rows["replicate"].nunique() != arguments.replicates:
             raise RuntimeError("the cached Python phase has the wrong replication count")
@@ -199,7 +211,7 @@ def _reference_rows(
             raise RuntimeError("no compatible committed reference rows for --skip-r")
         return rows
     cached_reference = phase.paths["r-results.csv"]
-    if phase.cached and cached_reference.exists():
+    if (phase.cached or getattr(arguments, "cache", None)) and cached_reference.exists():
         rows = pd.read_csv(cached_reference)
         expected = set(range(arguments.replicates))
         observed = set(rows["replicate"].unique())
@@ -212,7 +224,7 @@ def _reference_rows(
         phase.paths["samples.csv.gz"],
         phase.paths["truth.csv"],
         phase.paths["r-results.csv"],
-        cores=arguments.jobs,
+        cores=arguments.r_jobs or arguments.jobs,
     )
     return pd.read_csv(cached_reference)
 
@@ -285,6 +297,12 @@ def main(
                 ignore_index=True,
             )
 
+    extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
+    if set(extra_frames) != set(record.extra_artifacts):
+        raise RuntimeError(
+            f"{record.slug} produced extra artifacts {sorted(extra_frames)}, "
+            f"expected {sorted(record.extra_artifacts)}"
+        )
     for column in REPLICATE_COLUMNS:
         if column not in _TEXT_COLUMNS:
             rows[column] = pd.to_numeric(rows[column], errors="raise")
@@ -293,7 +311,8 @@ def main(
     )
     validate_replicates(rows, record=record)
 
-    paths = {name: out / name for name in ARTIFACT_NAMES}
+    artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts)
+    paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows)
     write_csv(summaries, paths["summary.csv"])
@@ -305,6 +324,8 @@ def main(
         else equivalence(rows, summaries, performance, record=record, n_jobs=arguments.jobs)
     )
     write_csv(paired, paths["equivalence.csv"])
+    for name, frame in extra_frames.items():
+        write_csv(frame, paths[name])
 
     if arguments.primary_only:
         print(performance.to_string(index=False))
@@ -320,7 +341,7 @@ def main(
     write_manifest(
         out / "manifest.json",
         record,
-        [paths[name] for name in ARTIFACT_NAMES],
+        [paths[name] for name in artifact_names],
         reference_files=() if reference is None else reference.files(here),
         reference_metadata=getattr(study, "REFERENCE_METADATA", None),
         configuration=study.CONFIGURATION,
@@ -352,14 +373,24 @@ def main(
                 f"({record.accepted_reference_failure!r}) but every reference row is valid; "
                 f"remove the declaration rather than carrying a stale exception"
             )
+    if hasattr(study, "scientific_failures"):
+        failures.update(study.scientific_failures(extra_frames))
     reported = {
         name: frame for name, frame in failures.items() if frame is not None and not frame.empty
     }
-    if reported and not arguments.allow_failures:
+    if reported and record.publication_policy == "gated" and not arguments.allow_failures:
         raise RuntimeError(
             "\n\n".join(
                 f"{name} gates failed:\n{frame.to_string(index=False)}"
                 for name, frame in reported.items()
             )
         )
-    print(f"wrote {len(ARTIFACT_NAMES)} artefacts and a manifest to {out}", flush=True)
+    if reported and record.publication_policy == "reporting":
+        print(
+            "reporting policy: published scientific failures:\n"
+            + "\n\n".join(
+                f"{name}:\n{frame.to_string(index=False)}" for name, frame in reported.items()
+            ),
+            flush=True,
+        )
+    print(f"wrote {len(artifact_names)} artefacts and a manifest to {out}", flush=True)

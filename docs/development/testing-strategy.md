@@ -24,8 +24,8 @@ skipped rather than deleted, because deleting them would drop a claim without re
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Eleven design families now have no active repeated-sampling
-evidence: fold repeats, DR-TMLE, multi-arm means, multi-arm selectors, clustering, weights,
+**Read the consequence plainly.** Ten design families now have no active repeated-sampling
+evidence: fold repeats, multi-arm means, multi-arm selectors, clustering, weights,
 missing outcomes, controlled direct effects, incremental interventions, weighted longitudinal
 fits, and competing risks. Their exact-law, Gateaux, remainder and mutation tests still run in the
 fast tier, so the parameter and the influence curve are still checked. What is no longer checked is

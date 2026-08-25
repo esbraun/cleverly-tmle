@@ -7,7 +7,7 @@ family depends on another method family's study module to publish the same claim
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -15,6 +15,7 @@ import pandas as pd
 
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
+    Rate,
     coverage_gain_interval,
     rate,
     ratio_intervals,
@@ -214,6 +215,91 @@ def apply_shared_verdicts(
     return summary, rates
 
 
+def fitted_rate_row(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    columns: Any,
+    *,
+    ladder_property: str,
+    property_name: str,
+    cell: str,
+    role: str,
+    statistic: str,
+    seed_labels: Sequence[str],
+    verdict: Callable[[Rate], bool],
+) -> dict[str, Any]:
+    """One fitted slope over a size ladder, shaped as a published summary row.
+
+    The fit and the row shape are here; the *rule* the slope answers to is the caller's,
+    because a rate row means different things to different families.  Root-n contraction of a
+    sampling spread has a predicted exponent and a slower alternative to exclude, while a
+    bias-contraction claim only has to establish a direction.  Trying to state both as one
+    threshold would produce a rule neither family wanted.
+
+    Shared because the alternative is what this function replaced: a second family fitting a
+    slope copied the seed derivation, the bootstrap arguments, the ``rate_sizes`` formatting
+    and all nine row keys, so the published schema for a rate row existed twice and could be
+    changed in one of them.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The ladder's replication rows, already restricted to this cell's arm.
+    record : StudyRecord
+        Supplies the resampling budget, the confidence level and the seed stream.
+    columns : Any
+        The summary's columns, so the row carries every one the table publishes.
+    ladder_property : str
+        The property the ladder's replication rows are filed under.  Not always the label the
+        row publishes: the root-n ladder is filed under ``root_n_and_efficiency`` and its
+        fitted slope publishes as ``root_n_rate``, so a single name would have to be wrong in
+        one place or the other.
+    property_name, cell, role : str
+        How the row is named and which direction its verdict points.
+    statistic : str
+        Which quantity contracts -- see :func:`~tests.studies.evidence.properties.rate`.
+    seed_labels : Sequence[str]
+        Labels naming this row's resampling stream, after the property name.
+    verdict : Callable[[Rate], bool]
+        The family's rule, applied to the fitted rate.
+
+    Returns
+    -------
+    dict[str, Any]
+        The published row.
+    """
+    margins = record.margins
+    fitted = rate(
+        rows,
+        property_name=ladder_property,
+        statistic=statistic,
+        bootstrap_replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, *seed_labels),
+    )
+    sizes = sorted({int(value) for value in rows["n"]})
+    row: dict[str, Any] = dict.fromkeys(columns, np.nan)
+    row.update(
+        {
+            "property": property_name,
+            "cell": cell,
+            "role": role,
+            "n": max(sizes),
+            "replicates": len(rows),
+            # The slope is fitted across all the sizes.  ``n`` and ``replicates`` above
+            # are the largest and the sum, which read as one big cell; this is what the
+            # published table shows instead.
+            "rate_sizes": ";".join(f"{size:,}" for size in sizes),
+            "failed_replicates": 0,
+            "slope": fitted.slope,
+            "slope_ci_lower": fitted.interval.low,
+            "slope_ci_upper": fitted.interval.high,
+            "passed": bool(verdict(fitted)),
+        }
+    )
+    return row
+
+
 def _rate_row(
     rates: list[dict[str, Any]],
     rows: pd.DataFrame,
@@ -225,42 +311,26 @@ def _rate_row(
     statistic: str,
     suffix: str,
 ) -> None:
-    """One fitted contraction rate, appended as a published row."""
-    margins = record.margins
-    fitted = rate(
-        rows,
-        property_name="root_n_and_efficiency",
-        statistic=statistic,
-        bootstrap_replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        # The label joins the stream only when there is one, so a single-parameter study
-        # keeps the seed -- and therefore the published slope -- it already had.
-        seed=stream_seed(record, "root_n_rate", *([label] if label else []), suffix),
-    )
-    row: dict[str, Any] = dict.fromkeys(columns, np.nan)
-    sizes = sorted({int(value) for value in rows["n"]})
-    row.update(
-        {
-            "property": "root_n_rate",
-            "cell": cell,
-            "role": "positive",
-            "n": max(sizes),
-            "replicates": len(rows),
-            # The slope is fitted across all three sizes.  ``n`` and ``replicates`` above
-            # are the largest and the sum, which read as one big cell; this is what the
-            # published table shows instead.
-            "rate_sizes": ";".join(f"{size:,}" for size in sizes),
-            "failed_replicates": 0,
-            "slope": fitted.slope,
-            "slope_ci_lower": fitted.interval.low,
-            "slope_ci_upper": fitted.interval.high,
-            "passed": bool(
+    """One fitted root-n contraction rate, appended as a published row."""
+    rates.append(
+        fitted_rate_row(
+            rows,
+            record,
+            columns,
+            ladder_property="root_n_and_efficiency",
+            property_name="root_n_rate",
+            cell=cell,
+            role="positive",
+            statistic=statistic,
+            # The label joins the stream only when there is one, so a single-parameter study
+            # keeps the seed -- and therefore the published slope -- it already had.
+            seed_labels=("root_n_rate", *([label] if label else []), suffix),
+            verdict=lambda fitted: (
                 fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN)
                 and fitted.excludes(EXCLUDED_SLOPE)
             ),
-        }
+        )
     )
-    rates.append(row)
 
 
 def calibration_controls(

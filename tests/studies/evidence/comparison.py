@@ -65,12 +65,20 @@ EQUIVALENCE_COLUMNS = (
     "se_ratio_difference",
     "subject_calibration_excess",
     "calibration_excess_upper",
+    #: The smallest calibration margin this design could have cleared, and whether the
+    #: declared one is above it.  Published rather than inferred, because a failed cell is
+    #: only evidence about the subject when the test could have passed -- see
+    #: :func:`comparison_conclusion`.
+    "calibration_excess_resolution",
+    "calibration_resolved",
     "calibration_noninferiority_margin",
     "rmse_screen",
     "coverage_shortfall_screen",
     "subject_valid",
     "reference_valid",
+    "coverage_superior",
     "subject_not_inferior",
+    "comparison_conclusion",
     "passed",
 )
 
@@ -78,6 +86,40 @@ EQUIVALENCE_COLUMNS = (
 def empty_equivalence() -> pd.DataFrame:
     """A schema-valid zero-row comparison for a study with no reference."""
     return pd.DataFrame(columns=list(EQUIVALENCE_COLUMNS))
+
+
+def comparison_conclusion(
+    *,
+    similar: bool,
+    not_inferior: bool,
+    coverage_superior: bool,
+    resolved: bool = True,
+) -> tuple[str, bool]:
+    """Classify a paired result without treating failed NI as proven inferiority.
+
+    ``resolved`` is the design precondition: whether this cell's confidence bounds are narrow
+    enough that non-inferiority could have been concluded *at all*.  A one-sided bound is
+    ``point + width``, so a cell whose width already exceeds the margin fails the test for a
+    true excess of zero, or of anything else.  ``"underpowered"`` is that case, and it is a
+    separate word from ``"inconclusive"`` because the two say different things to a reader:
+    one is "the data did not settle it", the other is "this design could not have settled it".
+
+    The registered DR-TMLE study is where the distinction was earned.  Its
+    ``treatment_correct``/``ey0`` cell rendered ``"inconclusive"`` on a calibration excess
+    whose *point estimate was negative* -- the subject better calibrated than the reference --
+    beside a bootstrap width of ``0.0525`` against a margin of ``0.05``.  No result in that
+    cell could have passed, and the word published implied the subject might be inferior.
+
+    ``passed`` stays false either way.  An underpowered cell has established nothing, and a
+    study that counted it as a pass would be rewarded for running too few replications.
+    """
+    if coverage_superior:
+        return "superior", True
+    if similar and not_inferior:
+        return "equivalent", True
+    if not resolved:
+        return "underpowered", False
+    return "inconclusive", False
 
 
 def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[str, Any]:
@@ -116,6 +158,20 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         seed=seed,
     )
     comparable = estimand not in record.incomparable_se
+    calibration_upper = (
+        upper_bound(samples["calibration_excess"], confidence_level=margins.confidence_level)
+        if comparable
+        else math.nan
+    )
+    # The full-sample statistic, formed by running the same function over one "draw" holding
+    # every replication.  Its distance to the bound above is the smallest margin this design
+    # could have cleared, which is what decides whether a failed cell is inconclusive or
+    # underpowered -- see :func:`comparison_conclusion`.
+    point = (
+        float(calibration_excess({name: values[None, :] for name, values in arrays.items()})[0])
+        if comparable
+        else math.nan
+    )
     return {
         "rmse_ratio_upper": upper_bound(
             samples["rmse_ratio"], confidence_level=margins.confidence_level
@@ -123,11 +179,8 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         "coverage_difference_lower": lower_bound(
             samples["coverage_difference"], confidence_level=margins.confidence_level
         ),
-        "calibration_excess_upper": (
-            upper_bound(samples["calibration_excess"], confidence_level=margins.confidence_level)
-            if comparable
-            else math.nan
-        ),
+        "calibration_excess_upper": calibration_upper,
+        "calibration_excess_resolution": calibration_upper - point,
         "paired_replicates": len(paired),
         "dropped_replications": paired.dropped,
     }
@@ -204,6 +257,39 @@ def equivalence(
             )
         )
         similar = interval.within(-mean_margin, mean_margin)
+        subject_valid = bool(verdicts.loc[(subject, scenario, estimand)])
+        coverage_superior = bool(
+            bound["coverage_difference_lower"] > 0.0
+            and subject_valid
+            and bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
+            and (
+                not se_comparable
+                or bound["calibration_excess_upper"] <= margins.calibration_noninferiority
+            )
+        )
+        # Whether the *calibration* leg could have concluded anything.  The other two legs
+        # carry their own resolution in the same sense, but only this one has been observed
+        # to exceed its margin on a registered study, and stating a precondition per leg
+        # would publish three columns to describe one verdict.
+        #
+        # ``isfinite`` is written out rather than left to ``nan <= margin`` being false.  A
+        # bound this small cannot be computed on a handful of replications -- resampling two
+        # rows draws the same one twice, the empirical spread is zero and the ratio is
+        # infinite -- and a smoke run therefore reaches here with a ``nan``.  Both readings
+        # end at "not resolved", so the comparison is the same; what the explicit form buys
+        # is that a reader of this line knows the ``nan`` case was considered rather than
+        # inherited from the semantics of a comparison against it.
+        resolution = float(bound["calibration_excess_resolution"])
+        calibration_resolved = bool(
+            not se_comparable
+            or (math.isfinite(resolution) and resolution <= margins.calibration_noninferiority)
+        )
+        conclusion, comparison_passed = comparison_conclusion(
+            similar=similar,
+            not_inferior=not_inferior,
+            coverage_superior=coverage_superior,
+            resolved=calibration_resolved,
+        )
         records.append(
             {
                 "scenario": scenario,
@@ -235,6 +321,8 @@ def equivalence(
                 ),
                 "subject_calibration_excess": calibration_excess if se_comparable else math.nan,
                 "calibration_excess_upper": bound["calibration_excess_upper"],
+                "calibration_excess_resolution": bound["calibration_excess_resolution"],
+                "calibration_resolved": calibration_resolved,
                 "calibration_noninferiority_margin": (
                     margins.calibration_noninferiority if se_comparable else math.nan
                 ),
@@ -242,10 +330,12 @@ def equivalence(
                 "coverage_shortfall_screen": bool(
                     max(0.0, -coverage_difference) <= COVERAGE_SHORTFALL_SCREEN
                 ),
-                "subject_valid": bool(verdicts.loc[(subject, scenario, estimand)]),
+                "subject_valid": subject_valid,
                 "reference_valid": bool(verdicts.loc[(reference, scenario, estimand)]),
+                "coverage_superior": coverage_superior,
                 "subject_not_inferior": not_inferior,
-                "passed": bool(similar and not_inferior),
+                "comparison_conclusion": conclusion,
+                "passed": comparison_passed,
             }
         )
     return pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))

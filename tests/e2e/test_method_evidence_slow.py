@@ -99,7 +99,8 @@ def test_the_property_study_reproduces_its_verdicts_when_it_is_re_run(
     pd.testing.assert_frame_equal(
         published, regenerated, check_exact=False, check_dtype=False, rtol=1e-9, atol=1e-9
     )
-    assert regenerated["passed"].all(), regenerated.loc[~regenerated["passed"]].to_string()
+    if study.publication_policy == "gated":
+        assert regenerated["passed"].all(), regenerated.loc[~regenerated["passed"]].to_string()
 
 
 def test_every_declared_property_cell_is_present_and_passing(study: StudyRecord) -> None:
@@ -107,4 +108,5 @@ def test_every_declared_property_cell_is_present_and_passing(study: StudyRecord)
     by_property = published.groupby("property")["cell"].apply(set).to_dict()
     expected = {name: set(cells) for name, cells in study.property_cells.items()}
     assert by_property == expected
-    assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+    if study.publication_policy == "gated":
+        assert published["passed"].all(), published.loc[~published["passed"]].to_string()

@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from tests.studies.evidence.inference import se_ratio_for_coverage
 
@@ -138,6 +138,10 @@ class StudyRecord:
     replicates: int
     n: int
     seed: int
+    #: Optional independent entropy for bootstrap and Monte Carlo summary intervals.  The
+    #: realized samples still use ``seed``; this exists to avoid changing costly raw rows
+    #: when a newly registered study discovers a cross-study resampling-stream collision.
+    resampling_seed: int | None = None
     margins: Margins = field(default_factory=Margins)
     implementation: str = "cleverly"
     #: The comparison implementation, or ``None`` for a study with no canonical comparator.
@@ -168,6 +172,21 @@ class StudyRecord:
     properties_module: str = "tests.studies.canonical_properties"
     #: Property name -> the cells the committed property summary must contain.
     property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: ``"gated"`` refuses publication when a scientific verdict fails. ``"reporting"``
+    #: publishes the complete result, including red verdicts, but never relaxes schema,
+    #: provenance, convergence, or replication-accounting checks.
+    publication_policy: Literal["gated", "reporting"] = "gated"
+    #: Further committed result files supplied by a study-specific ``extra_artifacts`` hook.
+    extra_artifacts: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.publication_policy not in ("gated", "reporting"):
+            raise ValueError(
+                "publication_policy must be 'gated' or 'reporting'; "
+                f"got {self.publication_policy!r}"
+            )
+        if self.resampling_seed is not None and self.resampling_seed < 0:
+            raise ValueError("resampling_seed must be non-negative")
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -211,6 +230,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
+    from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_crossfit import STUDY as CANONICAL_LTMLE_CROSSFIT
     from tests.studies.canonical_ltmle_survival import STUDY as CANONICAL_LTMLE_SURVIVAL
@@ -226,6 +246,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FOLD_EVALUATED_CVTMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_CTMLE_OAT,
+        CANONICAL_DRTMLE,
         CANONICAL_LTMLE,
         CANONICAL_LTMLE_CROSSFIT,
         CANONICAL_LTMLE_SURVIVAL,

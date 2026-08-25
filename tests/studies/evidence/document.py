@@ -16,6 +16,7 @@ a reviewer should see requested, not a side effect of producing a CSV.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from collections.abc import Sequence
 from typing import Any
@@ -48,6 +49,9 @@ AGREEMENT_COLUMNS = (
     "share of margin used",
     "RMSE ratio bound",
     "coverage difference",
+    # The smallest calibration margin the design could have cleared, beside the declared one.
+    # A reader cannot tell an unmet claim from an unmeetable one without it.
+    "calibration resolution",
     "result",
 )
 PROPERTY_COLUMNS = (
@@ -96,6 +100,36 @@ def _verdict(passed: object) -> str:
     return "pass" if bool(passed) else "**fail**"
 
 
+def _comparison_result(row: Any) -> str:
+    """Render the paired conclusion instead of hiding it behind a Boolean.
+
+    Three renderings for three states, because bold means "a claim this study made came out
+    false" everywhere else in the document.  A passed cell is plain, a failed one is bold, and
+    an ``"underpowered"`` cell is italic: it made no claim, so bolding it would report a
+    design limit as a scientific result.
+    """
+    conclusion = str(getattr(row, "comparison_conclusion", "equivalent"))
+    if bool(row.passed):
+        return conclusion
+    if conclusion == "underpowered":
+        return f"*{conclusion}*"
+    return f"**{conclusion}**"
+
+
+def _resolution(row: Any) -> str:
+    """The calibration leg's smallest supportable margin, against the declared one.
+
+    ``n/a`` where the study declared the estimand's standard errors incomparable, because
+    there is no calibration leg to resolve there and a number would imply one.
+    """
+    resolution = float(getattr(row, "calibration_excess_resolution", float("nan")))
+    if not math.isfinite(resolution):
+        return "n/a"
+    margin = float(row.calibration_noninferiority_margin)
+    marker = "" if bool(getattr(row, "calibration_resolved", True)) else " **>**"
+    return f"{render(resolution)} vs {render(margin)}{marker}"
+
+
 def _interval(lower: float, upper: float) -> str:
     return f"{render(float(lower))} to {render(float(upper))}"
 
@@ -137,7 +171,8 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
             render(float(row.coverage_difference)),
-            _verdict(row.passed),
+            _resolution(row),
+            _comparison_result(row),
         )
         for row in frame.itertuples()
     ]
@@ -181,6 +216,17 @@ def _measured(row: Any) -> str:
         return f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, margin {render(float(row.bias_margin))}"
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family == "double_robust_contraction":
+        # Two shapes in one family, and the split is the verdict's rather than the table's: a
+        # fitted rate answers to its slope and a ladder rung to its coverage.  Printing the
+        # bias for a rung would show the number ``double_robustness`` is judged on beside a
+        # verdict that was not read from it.
+        if str(row.cell).startswith("rate_"):
+            return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"bias {render(float(row.bias))}"
+        )
     if family in {"type_i_error", "power"}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "

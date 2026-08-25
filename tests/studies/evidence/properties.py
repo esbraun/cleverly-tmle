@@ -482,6 +482,17 @@ class Rate:
         return not self.interval.contains(value)
 
 
+def _positive(values: Any) -> Any:
+    """Floor a magnitude away from zero so its logarithm stays finite.
+
+    A bootstrap draw of an absolute bias can land on exactly zero, and one ``-inf`` would take
+    the whole fitted slope with it.  The floor is far below any bias a study of this size can
+    resolve -- a bias of ``1e-300`` and a bias of ``0`` are the same statement -- so it changes
+    no verdict and removes a failure mode that has nothing to do with the estimator.
+    """
+    return np.maximum(values, np.finfo(float).tiny)
+
+
 def _slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Least-squares slope of ``values`` on ``log(sizes)``, vectorised over leading axes."""
     x = np.log(sizes)
@@ -510,6 +521,21 @@ def rate(
     produces :math:`-1/2` whether or not it is consistent.  It is kept because it does catch
     a standard error carrying the wrong power of ``n``, and labelled so it is not mistaken
     for evidence of root-n consistency.
+
+    ``statistic="bias"`` regresses the log *absolute bias* on log ``n``, and it is the one
+    that separates the two ways a level test can come out red.  A bias that is a second-order
+    remainder contracts at :math:`n^{-1}` and one that is first order at :math:`n^{-1/2}`;
+    both leave the standardized bias vanishing and the Wald interval eventually valid.  An
+    inconsistent estimator's bias does not contract at all, so its slope is zero.  A single
+    cell at a single ``n`` cannot tell those apart, which is why a red level cell used to be
+    unreadable: the number said the margin was exceeded and nothing said whether that was a
+    finite-sample remainder or a broken estimator.
+
+    The bias is taken against the ``truth`` column, which every replication row carries.  It
+    is a *signed* mean before the absolute value, so a cell whose bias is genuinely near zero
+    produces a log of something near zero and a slope dominated by noise -- correctly, since
+    there is no rate to estimate when there is no bias.  Read the slope beside the level cell
+    rather than instead of it.
     """
     subset = rows.loc[rows["property"] == property_name]
     grouped = [(int(group["n"].iloc[0]), group) for _, group in subset.groupby("cell", sort=True)]
@@ -520,15 +546,23 @@ def rate(
             f"slope is estimated rather than read off one ratio"
         )
     sizes = np.array([size for size, _ in grouped], dtype=float)
-    column = "estimate" if statistic == "spread" else "std_error"
+    column = "std_error" if statistic == "reported" else "estimate"
     samples = [group[column].to_numpy(dtype=float) for _, group in grouped]
+    # One truth per rung.  Read per rung rather than once, because a ladder is entitled to
+    # a size-dependent truth and reading the first rung's would silently bias the others.
+    truths = [float(group["truth"].iloc[0]) for _, group in grouped]
 
-    def observed(values: np.ndarray) -> float:
-        return float(
-            np.log(np.std(values, ddof=1)) if statistic == "spread" else np.log(values.mean())
-        )
+    def observed(values: np.ndarray, truth: float) -> float:
+        if statistic == "spread":
+            return float(np.log(np.std(values, ddof=1)))
+        if statistic == "bias":
+            return float(np.log(_positive(abs(values.mean() - truth))))
+        return float(np.log(values.mean()))
 
-    point = _slope(sizes, np.array([observed(values) for values in samples]))
+    point = _slope(
+        sizes,
+        np.array([observed(values, truth) for values, truth in zip(samples, truths, strict=True)]),
+    )
 
     draws = np.empty((bootstrap_replicates, len(sizes)), dtype=float)
     # A separate stream per size: the sizes are independent runs, and resampling them with
@@ -540,11 +574,12 @@ def rate(
         rng = np.random.default_rng(children[index])
         picks = rng.integers(0, len(values), size=(bootstrap_replicates, len(values)))
         resampled = values[picks]
-        draws[:, index] = (
-            np.log(resampled.std(axis=1, ddof=1))
-            if statistic == "spread"
-            else np.log(resampled.mean(axis=1))
-        )
+        if statistic == "spread":
+            draws[:, index] = np.log(resampled.std(axis=1, ddof=1))
+        elif statistic == "bias":
+            draws[:, index] = np.log(_positive(np.abs(resampled.mean(axis=1) - truths[index])))
+        else:
+            draws[:, index] = np.log(resampled.mean(axis=1))
     return Rate(
         slope=float(point),
         interval=percentile_interval(_slope(sizes, draws), confidence_level=confidence_level),

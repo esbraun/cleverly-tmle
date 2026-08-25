@@ -26,7 +26,12 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
-from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel
+from cleverly.estimators.targeting import (
+    DEFAULT_MAX_OUTER,
+    _negligible_bar,
+    _solved,
+    build_submodel,
+)
 from cleverly.estimators.tmle import (
     DEFAULT_NUISANCE_BOUND,
     correction_parts,
@@ -109,6 +114,63 @@ class TestWhatItReports:
         """``res.score_verdict`` is the same object, derived rather than stored."""
         assert fit.score_verdict.rows == fit.diagnostics.score_equations().rows
         assert fit.score_verdict.passed
+
+    def test_a_fit_that_solved_its_equations_reports_that_it_did(self, fit) -> None:
+        """``failure`` and ``converged`` read the same pair of rulers the loop's exit does.
+
+        Both used to be read on the *relative* score alone, and
+        :data:`~cleverly.estimators.targeting._NEGLIGIBLE` had already written down why that
+        is the wrong instrument for equations (9) and (10): their covariates are small or
+        move under their own solve, so neither can reach a bar stated as a fraction of its
+        own magnitude.  The consequences were a failure recorded on a fit whose scores pass,
+        and ``converged`` false on a clean tolerance exit.
+
+        ``closing_capped`` is **not** asserted here, and that is the point of saying so.  It
+        records how the closing stage *ended* rather than whether the score it left matters,
+        it is routinely true on a fit that solved everything, and
+        ``tests/unit/test_reduction_alternation.py`` pins the pair of fits it separates.
+        Redefining it to mean "the score matters" was tried and reverted: that question is
+        ``failure``'s, and the two are asserted apart because they are two facts.
+
+        Pinned against the *score check* rather than against constants, so the assertion is
+        "the record agrees with the fit" rather than a second copy of the rule.
+        """
+        reduction = fit.repeats[0].fluctuations["mean"].reduction
+
+        assert fit.score_verdict.passed
+        assert reduction.failure is None
+        assert reduction.converged
+
+    def test_the_record_carries_the_alternation_cap_that_applied(self, fit) -> None:
+        """``max_outer`` is on the record because ``rounds`` alone cannot say "ran to the cap".
+
+        This project published a manifest claiming ``max_iter: 100`` for an alternation that
+        ran at 50: ``max_iter`` caps the Newton steps inside one fluctuation and never was
+        the loop's.  Two keywords now, and the one that applied is recorded.
+        """
+        reduction = fit.repeats[0].fluctuations["mean"].reduction
+
+        assert reduction.max_outer == DEFAULT_MAX_OUTER
+        assert reduction.rounds <= reduction.max_outer
+        assert (reduction.exit_reason == "cap") == (reduction.rounds == reduction.max_outer)
+
+    def test_a_shorter_cap_is_reachable_and_is_recorded_as_the_one_that_ran(self) -> None:
+        """The keyword reaches the solver, which is what no caller could do before.
+
+        Two rounds rather than the default, so the loop is forced to the cap: a test that
+        only checked the attribute was stored would pass on an estimator that still ignored
+        it.
+        """
+        capped = DRTMLE(**SETTINGS, max_outer=2).fit(frame(), outcome="Y", treatment="A").single()
+        reduction = capped.repeats[0].fluctuations["mean"].reduction
+
+        assert reduction.max_outer == 2
+        assert reduction.rounds == 2
+        assert reduction.exit_reason == "cap"
+
+    def test_an_alternation_cap_below_one_round_is_refused_by_name(self) -> None:
+        with pytest.raises(ValueError, match="max_outer must be at least one round"):
+            DRTMLE(**SETTINGS, max_outer=0)
 
     def test_a_passing_fit_adds_no_line_to_the_summary(self, fit) -> None:
         """The verdict is silent on the common path; only a failure interrupts a reader."""

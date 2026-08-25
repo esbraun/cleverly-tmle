@@ -215,8 +215,9 @@ the implementation for the influence curve. What each supplies, and where in it,
 - Benkeser, Carone, van der Laan & Gilbert (2017),
   [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
   *Biometrika* 104(4):863–880. The **published** version of the above, and authoritative wherever
-  the two differ. Not read here. That matters in exactly one place, the sign of the mechanism
-  correction, and the working paper's own appendices settle that without it.
+  the two differ. Read first-hand. Theorem 1 states the score and remainder conditions for
+  asymptotic linearity. Section 4 supplies the binary simulation law and its three nuisance
+  scenarios.
 - Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies
   9(2):43–78. Read first-hand. Multi-level treatments are §4.6, pp. 66–67; cross-validated nuisance
   regression is §4.7, p. 69. The package vignette describes both reduced-regression choices for
@@ -232,10 +233,9 @@ the implementation for the influence curve. What each supplies, and where in it,
   compositions exposed by the canonical package, and it explicitly leaves cross-validation to
   future work.
 
-The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
-**provenance**: they say where a formula was transcribed from, and what it is named there. Running
-it is [not acceptance evidence](architecture-invariants.md#validation-and-evidence): two checks that
-cannot fail against the same class of error are one check. The inspected source is pinned at
+The `benkeser/drtmle` R package supplies implementation provenance and a bounded numerical
+comparison. Agreement with it does not establish the theorem or truth-based validity. The
+registered study asks those questions separately. The inspected source is pinned at
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.

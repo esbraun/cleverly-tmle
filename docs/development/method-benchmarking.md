@@ -65,6 +65,11 @@ modules, expected cells, artifact directory, document anchor, and every result-d
 A study without an external comparator records a valid empty equivalence artifact rather than a
 surrogate reference.
 
+Set `publication_policy="reporting"` when a red scientific result is part of the declared
+evidence. This policy writes failed statistical verdicts. It does not permit missing replications,
+invalid schemas, non-finite estimates, or incomplete provenance. Existing studies use
+`publication_policy="gated"` unless they declare otherwise.
+
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting

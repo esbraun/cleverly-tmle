@@ -506,6 +506,32 @@ The affected 10-fold `n=200` solves had full-rank two-column designs and absolut
 No argument here *proves* the iterates approach a common zero of the three equations, which is why
 [the diagnostics](#5-diagnostics-to-inspect) surface both convergence and numerical difficulty.
 
+**Every one of those verdicts is read on two rulers, and it has to be.** Equations (9) and (10)
+carry covariates that vanish where their own nuisance is right, so a score *relative to the
+covariate's own magnitude* is a ratio of two small numbers and cannot reach a tight bar however
+well the equation is solved. Each equation is therefore counted as solved when it clears either
+the relative tolerance or an absolute bar of `1e-3 / n`.
+
+The loop's exit test always used both. Two verdicts read off the *result* did not, and the
+registered study is what surfaced it: 9 of 24 recorded solver failures had an absolute worst score
+below both that bar and the one `score_check` applies to the reported fit, and `converged` was
+false on fits that exited cleanly at tolerance. `failure` and `converged` now use the same pair.
+Correcting them is bit for bit: over 360 estimates on the paper law at `n = 3000` the largest
+change was `9.7e-17`, because both were always statements about the diagnostics rather than about
+the fit.
+
+Two neighbouring things deliberately keep the relative bar alone.
+
+`closing_capped` records how the closing stage *ended*, not whether the score it left matters. It
+is routinely true on a fit that solved everything, because equation (9)'s covariate reads the
+mechanism it tilts. Read it beside `failure`, which answers the other question on both rulers.
+
+The closing stage itself exits on the relative bar because of what it is for. It exists so the
+mean of the curve the fit *reports* is zero, it costs arithmetic rather than refits, and running
+every step is therefore its cheap outcome. Letting it stop on the absolute bar moved the reported
+curve's mean from `5.8e-7` to `1.5e-6` at `n = 600`, which
+`tests/unit/test_drtmle_fit.py::TestTheCurveReadsWhatTheAlternationLeft` caught.
+
 ### The update order
 
 `update_order="drtmle"` (default) or `"benkeser"`. **A diagnostic keyword rather than a tuning
@@ -522,12 +548,49 @@ Two cautions apply. Compare the **scores and the estimates**, not the fluctuatio
 submodels a round passes through differ, so an `epsilon` from one is not an `epsilon` from the
 other. And compare at the **same nuisances**: same data, same `random_state`.
 
-On the compared draws, the routes agree on `ψ` but not on `σ²_n`. At `n = 600`, the `ate`
-estimates differ by `9e-03` of a standard error while the standard errors differ by 2.3%, with
-both fits solving all three equations. That is not a contradiction of step 7 and is what step 7
-does not say: the exit condition constrains the three empirical *means*, while the reported
-variance is the second moment of a curve built from the reductions, which the two routes leave at
-different vintages by construction.
+**How far the two routes agree depends on which nuisance is wrong.** An earlier reading of one
+draw at `n = 600` recorded that they agree on `ψ` and differ on `σ²_n`, and generalised from it.
+The registered study measures the same comparison on the paper law at `n = 3000` over 120 paired
+draws, and the generalisation does not hold.
+
+| regime | route difference in `ate`, as a share of one sampling standard deviation | worst draw |
+| --- | ---: | ---: |
+| both nuisances correct | 5.4% | 19% |
+| outcome regression correct | 5.4% | 27% |
+| treatment mechanism correct | 40.6% | 162% |
+
+Both routes solve all three equations to about `1e-11` on those draws, so this is not one route
+failing to converge. **The three equations do not pin down a single answer when the outcome
+regression is misspecified.** Step 7 states its termination as the three empirical means being
+approximately zero, and on this law more than one state satisfies that: the route decides which
+one is reached. For scale, the disagreement between this package and R `drtmle` in the same cell
+is 47.6% of a sampling standard deviation, so *cleverly against cleverly* and *cleverly against
+R* are the same size of difference and have the same cause.
+
+The reported `σ²_n` differs for the reason it always did, and that part stands: the exit condition
+constrains the three empirical *means*, while the reported variance is the second moment of a
+curve built from the reductions, which the two routes leave at different vintages by construction.
+The median `|Δσ|/σ` is 0.02% and 0.21% where the outcome regression is right, and 2.54% where it
+is not. Both routes ran at the registered `max_outer = 100`.
+
+Read `update_order` as a diagnostic, and read a large route difference as a statement about the
+law rather than about the code. `docs/technical-reference/method-evidence.md`, *Canonical
+DR-TMLE*, carries the measurement.
+
+### How many rounds
+
+`max_outer` (default 50) caps the alternation. It is **not** `max_iter`, which caps the Newton
+steps inside one fluctuation, and the two were confused in this project's own published record:
+the registered DR-TMLE manifest listed `max_iter: 100` as its alternation setting while the loop
+ran at a hard-coded 50 that no caller could reach. The value that applied is now on
+`result.repeats[0].fluctuations["mean"].reduction.max_outer`.
+
+Raising the cap changes only the fits that reached it. Measured on the paper law at `n = 3000`
+over 120 draws, going from 50 to 100 left every tolerance exit bit for bit and moved the 7 fits
+that had hit the cap by up to `1.3e-3`, which is 7% of one sampling standard deviation. Act on a
+`"cap"` exit rather than noting it: it says the draw had not settled, and the estimate reported
+is the one the loop stopped at. Read it beside `score_check`, which says whether the scores the
+fit left are small enough to matter.
 
 ### The canonical `cvFolds` mapping
 
@@ -763,6 +826,17 @@ second.
 
 ## What the validation programme established
 
+The active registered [canonical DR-TMLE study](technical-reference/method-evidence.md#canonical-dr-tmle)
+now adds a theory-first comparison with pinned R `drtmle` on the paper's binary complete-data law.
+Most paired cells establish bounded equivalence, but none establishes the prespecified
+coverage-superiority route; one paired cell is inconclusive. The both-correct calibration and
+root-n cells pass, while both one-correct robustness cells fail their finite-sample bias rule.
+Those red results are committed evidence, not exceptions to the theorem: the theorem remains
+conditional on rate and remainder premises that a fitted dataset cannot certify.
+
+The older drift-law programme below asks a different, harder question. It is retained as
+historical evidence rather than silently generalized to the registered paper law.
+
 This page's claims rest on a closed programme of six pieces: a theoretical audit against the
 sources, a targeting-and-exit study, a controlled coverage demonstration, a reference study for
 the reduced regressions, a construction ablation, and a terminal experiment. The
@@ -776,7 +850,8 @@ derivative of the parameter, the sign of the mechanism correction is the appendi
 the reported variance is Theorem 1's, the three score equations are solved at the state returned,
 and the interval is materially better than a plain TMLE's where one nuisance is badly estimated.
 
-**Not established, and recorded as such.** Three things. Nominal coverage anywhere in the study,
+**Not established in that archived drift-law programme, and recorded as such.** Three things.
+Nominal coverage anywhere in that study,
 the best reading being `0.880`. A localized cause for that shortfall: a six-contrast construction
 ablation over 2,496 fits returned a **null** on its primary column, and a terminal experiment over
 both a selection and an independent audit cohort nominated **nothing**. And any `src/` change

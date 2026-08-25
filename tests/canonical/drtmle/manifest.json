@@ -1,0 +1,120 @@
+{
+  "schema_version": 2,
+  "study": "DR-TMLE for binary complete data",
+  "slug": "canonical-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "e7e8a425da776a26fb2cc9bc6f0bb754c5efb16b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "drtmle-r",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 3000,
+    "seed": 20260824,
+    "resampling_seed": 20260826,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "outcome_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "treatment_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "both_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "source_law": "Benkeser et al. (2017), Section 4",
+    "cross_fit": true,
+    "n_folds": 10,
+    "targeting_scheme": "pooled",
+    "reduced_crossfit": "pooled",
+    "reduction": "univariate",
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "update_order": "drtmle",
+    "qsteps": 2,
+    "max_outer": 100,
+    "max_iter": 100,
+    "score_audit": "score_check's own bar, 1e-3 x se / sqrt(n), applied to both implementations",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "nuisance_models": {
+      "correct": "unpenalized logistic GLM with W1:W2",
+      "misspecified": "unpenalized main-effects logistic GLM",
+      "reduced_Q": "Gaussian GLM",
+      "reduced_g": "binomial GLM"
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_drtmle.py": "895df2697ecf1415827557604727bd55e1fb0a9ce33478060e5dc4e895eac593",
+    "tests/studies/drtmle_properties.py": "f019fadc4486fe7a705649ac72f70825aef4d2a6b2185f9994f3c7f6099ab60a",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/property_verdicts.py": "5bbb1bc96c2456ad95cf8732def6fb9daca62681529bb828700c857c8d8ce60b",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "ddeb48b470fb77e50165f04489f4317cfc28cc23532a765bffaad6085c243bad",
+    "tests/canonical/drtmle/run_drtmle.R": "d3e3814046e510e78a271ccb41a2492350a151ae3e1dccfe983b5343007ab885"
+  },
+  "sha256": {
+    "replicates.csv.gz": "1f28bd11a14747bc7d1b34882ea615ef7e2bf77742004ea41b4993db6aacb423",
+    "summary.csv": "57dc8ae296b7b50df5555491be4d680e7c12288203e6d33a4c03a3d421c743a4",
+    "equivalence.csv": "2ec974579eb7dbe382de7d54b102e729a9d4ffaf137f93e36403bee6730b7e21",
+    "performance-tests.csv": "19aeec3f7f03e139a2c267fd998e8fcdb3d428b3de145d58cf81a41ee8363f58",
+    "property-replicates.csv.gz": "e187a6d370ebd263d3e155230b98c37d255d206a3098d77af4ba4e96a4b90414",
+    "properties.csv": "b62e620d84a053c9ddc35491f05a70989befc5c7e3160cf9cbc79f7bddca0067",
+    "fit-diagnostics.csv": "4e05af14ebbcc80b6ab5857d0b151cde747a05c9a4383562ace1582a7856e57f"
+  }
+}
