@@ -36,7 +36,26 @@ NEWLINE = "\n"
 
 
 def hashes(paths: Iterable[Path]) -> dict[str, str]:
+    """Digest each published artefact, keyed by the name it has in the study's directory."""
     return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+
+
+def reference_hashes(paths: Iterable[Path]) -> dict[str, str]:
+    """Digest each reference source, keyed by its path from the repository root.
+
+    Not :func:`hashes`, and the difference is not cosmetic.  An artefact is *in* the study's
+    directory, so its bare name locates it.  A reference source need not be: two studies can
+    share one Docker context and one sourced adapter, which is what
+    :attr:`~tests.canonical.regenerate.Reference.build_context` and ``runner_root`` exist for.
+    Keyed by bare name, those shared files resolve to paths that do not exist under either
+    study, and the manifest check reads as a missing file rather than as a shared one.  A
+    repository-relative key locates both cases, which is what ``study_module_sha256`` already
+    does for the same reason.
+    """
+    return {
+        path.resolve().relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in paths
+    }
 
 
 def write_csv(frame: Any, path: Path, **options: Any) -> None:
@@ -134,7 +153,7 @@ def write_manifest(
             "margins": record.margins.as_json(),
         },
         "study_module_sha256": study_module_hashes(record),
-        "reference_sha256": hashes(reference_files),
+        "reference_sha256": reference_hashes(reference_files),
         "sha256": hashes(artifacts),
     }
     write_lines(path, json.dumps(payload, indent=2) + "\n")

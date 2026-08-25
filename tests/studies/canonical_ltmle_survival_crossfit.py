@@ -15,18 +15,19 @@ import numpy as np
 import pandas as pd
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal_survival, rule_arm_at_node_two
-from cleverly.datasets.longitudinal import _L2, _hazard_one, _hazard_two, survival_truth
+from cleverly.datasets.longitudinal import survival_truth
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, QuasiBinomialGLM
 from tests.studies.canonical_ltmle_crossfit import (
     G_BOUNDS,
     LMTP_SOURCE_COMMIT,
     LMTP_TARBALL_SHA256,
     LMTP_VERSION,
     R_BASE_IMAGE,
-    QuasiBinomialGLM,
 )
+from tests.studies.canonical_ltmle_survival import dynamic_survival_truth
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import replicate_seed
@@ -75,11 +76,13 @@ STUDY = StudyRecord(
     seed=SEED,
     margins=Margins(),
     implementation="cleverly-cross-fitted-ltmle-survival",
-    reference=None,
+    reference="lmtp",
     modules=(
         "tests/studies/canonical_ltmle_survival_crossfit.py",
         "tests/studies/ltmle_survival_crossfit_properties.py",
         "tests/studies/canonical_ltmle_crossfit.py",
+        "tests/studies/canonical_ltmle.py",
+        "tests/studies/canonical_ltmle_survival.py",
         "tests/discrete_law_survival.py",
         "src/cleverly/datasets/longitudinal.py",
         "tests/studies/evidence/comparison.py",
@@ -136,6 +139,8 @@ STUDY = StudyRecord(
     },
 )
 
+#: Inert while this study declares no comparator.  See
+#: :data:`tests.studies.canonical_ltmle_crossfit.REFERENCE_METADATA`.
 REFERENCE_METADATA = {
     "lmtp_version": LMTP_VERSION,
     "lmtp_source_commit": LMTP_SOURCE_COMMIT,
@@ -157,35 +162,10 @@ CONFIGURATION = {
     "g_bounds": list(G_BOUNDS),
     "horizons": list(HORIZONS),
     "regimens": list(REGIMENS),
-    "q_formulas": ["Q.kplus1 ~ W1 + W2", "Q.kplus1 ~ W1 + W2 + L2"],
-    "comparator_audit": "lmtp 1.5.4 rejected after the end-of-study IC coverage audit",
+    "outcome_designs": [["W1", "W2"], ["W1", "W2", "L2"]],
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
 }
-
-
-def dynamic_survival_truth(*, nodes: int = 48, panel: int = 160) -> float:
-    """Horizon-two risk for treat, then treat when ``L2 > 0``.
-
-    Gauss-Hermite integrates the smooth baseline axes.  Two Gauss-Legendre
-    panels meet at the rule's jump, so no quadrature panel crosses the treatment
-    discontinuity.
-    """
-    points, weights = np.polynomial.hermite_e.hermegauss(nodes)
-    weights = weights / np.sqrt(2.0 * np.pi)
-    w1 = points.reshape(-1, 1, 1)
-    w2 = points.reshape(1, -1, 1)
-    gauss = weights.reshape(-1, 1) * weights.reshape(1, -1)
-    mean = _L2["w1"] * w1 + _L2["a1"]
-    hazard1 = _hazard_one(w1, w2, 1.0)
-    abscissa, quadrature = np.polynomial.legendre.leggauss(panel)
-    total = np.zeros((nodes, nodes), dtype=float)
-    edge = 20.0
-    for lower, upper, arm in ((-edge, 0.0, 0.0), (0.0, edge, 1.0)):
-        half = 0.5 * (upper - lower)
-        grid = (half * abscissa + 0.5 * (upper + lower)).reshape(1, 1, -1)
-        density = np.exp(-0.5 * (grid - mean) ** 2) / np.sqrt(2.0 * np.pi)
-        cumulative = hazard1 + (1.0 - hazard1) * _hazard_two(w1, w2, grid, 1.0, arm)
-        total += half * np.sum(density * cumulative * quadrature.reshape(1, 1, -1), axis=2)
-    return float(np.sum(gauss * total))
 
 
 def truths() -> dict[str, float]:
@@ -224,8 +204,12 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         reference=REFERENCE,
         outcome_learner=QuasiBinomialGLM(),
         pseudo_learner=QuasiBinomialGLM(),
-        treatment_learner=QuasiBinomialGLM(),
-        censoring_learner=QuasiBinomialGLM(),
+        # The law's own mechanism, given to both implementations.  See
+        # :func:`tests.studies.canonical_ltmle_crossfit.fit_cleverly`, which carries the
+        # argument: a paired comparison that also estimates the mechanism two different ways
+        # measures two pipelines rather than the recursion.
+        treatment_learner=KnownLongitudinalMechanism("treatment"),
+        censoring_learner=KnownLongitudinalMechanism("censoring"),
         n_folds=5,
         learner_folds=2,
         g_bounds=G_BOUNDS,

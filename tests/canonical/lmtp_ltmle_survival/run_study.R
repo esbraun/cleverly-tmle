@@ -26,6 +26,35 @@ assigned <- function(frame, label, horizon) {
   cbind(rep(a1, nrow(frame)), a2)
 }
 
+exact_ratios <- function(frame, arms, horizon) {
+  # The law's own mechanism, node by node, given to lmtp because it has no `gform` argument
+  # to be handed one through.  Cleverly receives the same numbers via
+  # KnownLongitudinalMechanism, so the paired comparison measures the survival recursion, the
+  # targeting and the influence curve rather than two mechanism-fitting pipelines.
+  #
+  # Per node, not cumulative: column t is zero exactly where the unit left the path at that
+  # node, and lmtp multiplies the columns downstream.  The adapter re-checks both halves.
+  a1 <- arms[, 1]
+  p_a1 <- plogis(0.3 * frame$W1 - 0.4 * frame$W2)
+  g1 <- ifelse(a1 == 1, p_a1, 1 - p_a1)
+  c1 <- plogis(2.2 + 0.3 * frame$W1 - 0.3 * a1)
+  followed1 <- frame$A1 == a1 & frame$C1 == 1
+  first <- ifelse(followed1, 1 / (g1 * c1), 0)
+  if (horizon == 1) {
+    return(matrix(first, ncol = 1))
+  }
+
+  a2 <- arms[, 2]
+  l2 <- ifelse(is.na(frame$L2), 0, frame$L2)
+  p_a2 <- plogis(0.5 * l2 + 0.6 * a1 - 0.2 * frame$W2)
+  g2 <- ifelse(a2 == 1, p_a2, 1 - p_a2)
+  c2 <- plogis(2.4 + 0.2 * l2)
+  # A unit that had the event at the first node has no second-node arm.  ``A2`` is ``NA``
+  # there, which is what removes it from the second column rather than a separate mask.
+  followed2 <- !is.na(frame$A2) & frame$A2 == a2 & !is.na(frame$C2) & frame$C2 == 1
+  cbind(first, ifelse(followed2, 1 / (g2 * c2), 0))
+}
+
 fit_plan <- function(frame, label, horizon) {
   if (horizon == 1) {
     natural <- frame[c("W1", "W2", "A1", "C1", "Y1")]
@@ -59,6 +88,7 @@ fit_plan <- function(frame, label, horizon) {
     fold_assignment = frame$fold,
     learners_outcome = "SL.glm",
     learners_trt = "SL.glm",
+    density_ratios = exact_ratios(frame, arms, horizon),
     control = lmtp_control(
       .trim = 1,
       .learners_outcome_folds = 2,

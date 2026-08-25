@@ -12,24 +12,24 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import make_longitudinal
+from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
-from tests.studies import cvtmle_properties
-from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY, KnownLongitudinalMechanism
+from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    coverage_gain_interval,
     paired_displacement,
     replicate_row,
-    se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
+    crossfit_overfitting_verdicts,
     finish,
 )
 from tests.studies.evidence.seeds import stream_seed
@@ -185,6 +185,19 @@ def sample(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:
 
 
 def _learners(configuration: str) -> tuple[Any, Any, Any, Any]:
+    """The four nuisance learners one configuration hands the estimator.
+
+    The correctly specified *mechanism* is :class:`KnownDiscreteMechanism` -- the law's own
+    conditional probabilities -- where the ordinary study uses ``law.CellMeans``, a saturated
+    fit of the same quantity.  The two agree on the whole sample, which is why the ordinary
+    study can use either.  They do not agree under a five-fold split: a training complement is
+    four fifths of the support and a saturated cell fit can meet an empty cell there, which
+    makes a mechanism that is correct by construction into one that is correct except where it
+    is undefined.  So ``mechanism_correct`` here means the exact mechanism rather than an
+    estimated one, and the double-robustness cells that rely on it are a statement about a
+    correct ``g``, not about estimating ``g`` well.  The outcome side is unchanged and still
+    fitted per fold.
+    """
     if configuration in {"overfit_crossfit", "overfit_control"}:
         return (
             DecisionTreeClassifier(min_samples_leaf=1, random_state=0),
@@ -271,16 +284,24 @@ def _plan_arms(frame: pd.DataFrame, label: str) -> tuple[Any, Any]:
     return np.asarray(first, dtype=float), np.asarray(second, dtype=float)
 
 
-def untargeted(frame: pd.DataFrame, label: str, configuration: str) -> float:
+def untargeted(frame: pd.DataFrame, label: str, configuration: str, folds: Folds) -> float:
     r"""The sequential-regression plug-in for one regimen, with **no** fluctuation.
 
-    The same backward recursion the estimator runs -- regress the outcome among the units
-    that followed the plan and stayed under observation, carry that prediction back as the
-    earlier node's pseudo-outcome, regress again, average -- and the same two nuisance
-    learners the configuration hands the estimator.  What it leaves out is the one step in
-    between: :math:`\bar Q^*_t = \text{expit}(\text{logit}\,\bar Q_t + \epsilon_t)`, solved
+    The same backward recursion the estimator runs -- regress the outcome among the units that
+    followed the plan and stayed under observation, carry that prediction back as the earlier
+    node's pseudo-outcome, regress again, average -- and the same two nuisance learners the
+    configuration hands the estimator.  What it leaves out is the one step in between:
+    :math:`\bar Q^*_t = \text{expit}(\text{logit}\,\bar Q_t + \epsilon_t)`, solved
     against the cumulative inverse probability.  So the difference between this and
     :func:`fit` is the targeting step and nothing else.
+
+    "And nothing else" is why ``folds`` is an argument rather than an omission.  :func:`fit` is
+    a five-fold recursion, so a *pooled* plug-in would differ from it by the fluctuation plus
+    whatever cross-fitting moves, and the family's displacement would credit the fluctuation
+    with both.  This runs the same recursion the same way the estimator does: each outer
+    training complement fits its own pair of regressions, and each fold's held-out rows are
+    read off its own.  It is handed the estimator's realized ``Folds`` rather than rebuilding
+    them from a seed, for the reason the primary study serializes its assignment.
 
     Written longhand here rather than by calling the estimator with the fluctuation disabled.
     A flag on the estimator would make the control a statement about a branch in the code it
@@ -295,10 +316,21 @@ def untargeted(frame: pd.DataFrame, label: str, configuration: str) -> float:
     )
     baseline = frame[["W"]].to_numpy(dtype=float)
     history = np.column_stack([baseline[:, 0], np.nan_to_num(frame["L2"].to_numpy())])
-    later = clone(outcome).fit(history[followed_two], frame["Y"].to_numpy()[followed_two])
-    carried = np.asarray(later.predict_proba(history))[:, 1]
-    earlier = clone(pseudo).fit(baseline[followed_one], carried[followed_one])
-    return float(np.mean(earlier.predict(baseline)))
+    outcomes = frame["Y"].to_numpy()
+
+    stitched = np.empty(len(frame), dtype=float)
+    for held_out in range(folds.n_folds):
+        training = folds.assignment != held_out
+        later = clone(outcome).fit(
+            history[training & followed_two], outcomes[training & followed_two]
+        )
+        carried = np.asarray(later.predict_proba(history))[:, 1]
+        earlier = clone(pseudo).fit(
+            baseline[training & followed_one], carried[training & followed_one]
+        )
+        evaluated = folds.assignment == held_out
+        stitched[evaluated] = earlier.predict(baseline[evaluated])
+    return float(np.mean(stitched))
 
 
 def _fit_replication(
@@ -354,8 +386,8 @@ def _fit_replication(
             # The standard error is the *targeted* fit's, which is what ``control_row``
             # documents and why: the plug-in has no influence curve of its own to report.
             left, right = CONTRASTS[label][len("ate_regimen[") : -1].split(" vs ")
-            plug_in = untargeted(frame, left, configuration) - untargeted(
-                frame, right, configuration
+            plug_in = untargeted(frame, left, configuration, result.folds) - untargeted(
+                frame, right, configuration, result.folds
             )
             rows.append(
                 control_row(
@@ -483,52 +515,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
     _targeting_verdicts(summary, rows)
-    _crossfit_verdicts(summary, rows)
+    crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_ltmle")
     return finish(summary, rates)
-
-
-def _crossfit_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Require honest cross-fitted inference and a deliberately optimistic control."""
-    selected = rows.loc[rows["property"] == "crossfit_overfitting"]
-    positive_name = "cross_fitted_ltmle"
-    positive = selected.loc[selected["cell"] == positive_name]
-    control = selected.loc[selected["cell"] == "in_sample_control"]
-    margins = STUDY.margins
-    positive_se = se_ratio_interval(
-        positive,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", positive_name),
-    )
-    control_se = se_ratio_interval(
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "in_sample_control"),
-    )
-    gain = coverage_gain_interval(
-        positive,
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "coverage_gain"),
-    )
-    verdicts = {
-        positive_name: bool(
-            positive_se.low >= cvtmle_properties.OVERFIT_SE_FLOOR
-            and positive_se.high <= margins.se_ratio_sanity[1]
-        ),
-        "in_sample_control": bool(control_se.high <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= cvtmle_properties.OVERFIT_COVERAGE_GAIN)
-    for cell, interval in ((positive_name, positive_se), ("in_sample_control", control_se)):
-        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
 
 
 def _targeting_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:

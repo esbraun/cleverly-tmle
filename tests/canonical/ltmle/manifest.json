@@ -83,21 +83,21 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle.py": "8e6dd63f5e5c187e3acb3e4dabfa50c49765f9fb4a94da356d2cf49126f7a556",
+    "tests/studies/canonical_ltmle.py": "c37d72669d14b94c8d134ad79f5fb739e59c710100349bf4cfbf4e53576121ba",
     "tests/studies/ltmle_properties.py": "e0cfa3c469dd21a513233dfbef02d61fdca11107ea553059263abf61d3cece24",
     "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
-    "tests/studies/evidence/property_verdicts.py": "5b2c63f514a89650de667528d50933b98c79b7fa3addc5fe43d15b738ab8c23a",
+    "tests/studies/evidence/property_verdicts.py": "fb469ec435b470a4f99f938b81a68bcd77fefe01e03cae7828b512aefc71392d",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
   "reference_sha256": {
-    "Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "run_study.R": "9f75920e7a64493fa3daa7e23ea0c44eeed250d88409ac43ec5169963a0676da",
-    "generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743"
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/ltmle/run_study.R": "9f75920e7a64493fa3daa7e23ea0c44eeed250d88409ac43ec5169963a0676da",
+    "tests/canonical/ltmle/generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743"
   },
   "sha256": {
     "replicates.csv.gz": "09baf175614a92a3eee5527b087026b9a936fa1d98b73010b882c55d61f622e7",

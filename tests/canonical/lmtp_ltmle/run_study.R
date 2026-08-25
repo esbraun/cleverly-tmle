@@ -26,6 +26,41 @@ assigned <- function(frame, label) {
   cbind(rep(a1, nrow(frame)), a2)
 }
 
+exact_ratios <- function(frame, arms) {
+  # The clever covariate both implementations are given, node by node, from the law that
+  # generated the panel rather than from either implementation's own fit.  Cleverly receives
+  # the same numbers through KnownLongitudinalMechanism, so what the paired comparison
+  # measures is the recursion, the targeting and the influence curve -- not two mechanism
+  # pipelines.  See the adapter for the shape this has to take and the checks that enforce it.
+  #
+  # Every probability conditions on the *intervened* history, which is what the clever
+  # covariate needs.  On the followed path the intervened and observed arms coincide; off it
+  # the indicator is zero, so the choice cannot reach the estimate.
+  a1 <- arms[, 1]
+  a2 <- arms[, 2]
+  l2 <- ifelse(is.na(frame$L2), 0, frame$L2)
+
+  p_a1 <- plogis(0.3 * frame$W1 - 0.4 * frame$W2)
+  g1 <- ifelse(a1 == 1, p_a1, 1 - p_a1)
+  c1 <- plogis(2.2 + 0.3 * frame$W1 - 0.3 * a1)
+
+  p_a2 <- plogis(0.5 * l2 + 0.6 * a1 - 0.2 * frame$W2)
+  g2 <- ifelse(a2 == 1, p_a2, 1 - p_a2)
+  c2 <- plogis(2.4 + 0.2 * l2)
+
+  # Per node, not cumulative: column t is zero exactly when the unit left the path *at that
+  # node*, and lmtp multiplies the columns downstream.  Writing column two as
+  # ``followed1 & followed2`` is the natural mistake and the adapter's zero-pattern check
+  # caught it, on about five percent of cells -- the units that missed at the first node and
+  # happened to match the plan at the second.
+  followed1 <- frame$A1 == a1 & frame$C1 == 1
+  followed2 <- !is.na(frame$A2) & frame$A2 == a2 & !is.na(frame$C2) & frame$C2 == 1
+  cbind(
+    ifelse(followed1, 1 / (g1 * c1), 0),
+    ifelse(followed2, 1 / (g2 * c2), 0)
+  )
+}
+
 fit_plan <- function(frame, label) {
   natural <- frame[c("W1", "W2", "A1", "C1", "L2", "A2", "C2", "Y")]
   shifted <- natural
@@ -44,6 +79,7 @@ fit_plan <- function(frame, label) {
     fold_assignment = frame$fold,
     learners_outcome = "SL.glm",
     learners_trt = "SL.glm",
+    density_ratios = exact_ratios(frame, arms),
     control = lmtp_control(
       .trim = 1,
       .learners_outcome_folds = 2,

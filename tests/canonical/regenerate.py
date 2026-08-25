@@ -339,7 +339,19 @@ def main(
     }
     if reference is not None:
         failures["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
-        failures["reference validity"] = paired.loc[~paired["reference_valid"]]
+        # The subject's own verdict is gated unconditionally above.  This one is about the
+        # *comparator*, and a study may declare in advance that its comparator fails its own
+        # truth gates while remaining a usable similarity and non-inferiority reference --
+        # see ``StudyRecord.accepted_reference_failure``.  Without the declaration the run
+        # still refuses, so an unannounced reference regression cannot pass silently.
+        if not record.accepted_reference_failure:
+            failures["reference validity"] = paired.loc[~paired["reference_valid"]]
+        elif paired["reference_valid"].all():
+            raise RuntimeError(
+                f"{record.slug} declares an accepted reference failure "
+                f"({record.accepted_reference_failure!r}) but every reference row is valid; "
+                f"remove the declaration rather than carrying a stale exception"
+            )
     reported = {
         name: frame for name, frame in failures.items() if frame is not None and not frame.empty
     }

@@ -12,25 +12,25 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import make_longitudinal_survival
+from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
-from tests.studies import cvtmle_properties
-from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, KnownLongitudinalMechanism
+from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.canonical_ltmle_crossfit import G_BOUNDS
 from tests.studies.canonical_ltmle_survival_crossfit import PROPERTY_LABELS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    coverage_gain_interval,
     paired_displacement,
     replicate_row,
-    se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
+    crossfit_overfitting_verdicts,
     finish,
 )
 from tests.studies.evidence.seeds import stream_seed
@@ -192,6 +192,13 @@ def sample(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:
 
 
 def _learners(configuration: str) -> tuple[Any, Any, Any, Any]:
+    """The four nuisance learners one configuration hands the estimator.
+
+    The correctly specified mechanism is the law's own conditional probabilities rather than
+    the saturated ``law.CellMeans`` fit the ordinary study uses, because a training complement
+    under a five-fold split can meet an empty cell.  See
+    :func:`tests.studies.ltmle_crossfit_properties._learners`, which carries the argument.
+    """
     if configuration in {"overfit_crossfit", "overfit_control"}:
         return (
             DecisionTreeClassifier(min_samples_leaf=1, random_state=0),
@@ -270,16 +277,37 @@ def _plan_arms(frame: pd.DataFrame, label: str) -> tuple[np.ndarray, np.ndarray]
     return np.asarray(first), np.asarray(second)
 
 
-def untargeted(frame: pd.DataFrame, label: str, horizon: int, configuration: str) -> float:
-    """Survival recursion using the same nuisance learners and no fluctuation."""
+def untargeted(
+    frame: pd.DataFrame, label: str, horizon: int, configuration: str, folds: Folds
+) -> float:
+    """Survival recursion using the same nuisance learners and no fluctuation.
+
+    Fold-specific, like :func:`fit`: each outer training complement fits its own regressions
+    and each fold's held-out rows are read off its own, so the difference between this and the
+    estimator is the targeting step and nothing else.  See
+    :func:`tests.studies.ltmle_crossfit_properties.untargeted`, which carries the argument for
+    why the folds are passed in rather than rebuilt.
+
+    The first horizon is a one-node recursion and the second composes a pseudo-outcome from
+    the first node's event indicator, which is the structure the survivor-only control exists
+    to separate this from.
+    """
     outcome, pseudo, _, _ = _learners(configuration)
     first, second = _plan_arms(frame, label)
     y1 = np.nan_to_num(frame["Y1"].to_numpy())
     followed_one = (frame["C1"].to_numpy() == 1.0) & (frame["A1"].to_numpy() == first)
     baseline = frame[["W"]].to_numpy(dtype=float)
+    stitched = np.empty(len(frame), dtype=float)
+
     if horizon == 1:
-        model = clone(outcome).fit(baseline[followed_one], y1[followed_one])
-        return float(np.mean(model.predict_proba(baseline)[:, 1]))
+        for held_out in range(folds.n_folds):
+            training = folds.assignment != held_out
+            model = clone(outcome).fit(
+                baseline[training & followed_one], y1[training & followed_one]
+            )
+            evaluated = folds.assignment == held_out
+            stitched[evaluated] = model.predict_proba(baseline[evaluated])[:, 1]
+        return float(np.mean(stitched))
 
     history = np.column_stack([baseline[:, 0], np.nan_to_num(frame["L2"].to_numpy())])
     followed_two = (
@@ -288,11 +316,20 @@ def untargeted(frame: pd.DataFrame, label: str, horizon: int, configuration: str
         & (frame["C2"].to_numpy() == 1.0)
         & (frame["A2"].to_numpy() == second)
     )
-    later = clone(outcome).fit(history[followed_two], frame["Y2"].to_numpy()[followed_two])
-    carried = np.asarray(later.predict_proba(history))[:, 1]
-    pseudo_outcome = y1 + (1.0 - y1) * carried
-    earlier = clone(pseudo).fit(baseline[followed_one], pseudo_outcome[followed_one])
-    return float(np.mean(earlier.predict(baseline)))
+    events = frame["Y2"].to_numpy()
+    for held_out in range(folds.n_folds):
+        training = folds.assignment != held_out
+        later = clone(outcome).fit(
+            history[training & followed_two], events[training & followed_two]
+        )
+        carried = np.asarray(later.predict_proba(history))[:, 1]
+        pseudo_outcome = y1 + (1.0 - y1) * carried
+        earlier = clone(pseudo).fit(
+            baseline[training & followed_one], pseudo_outcome[training & followed_one]
+        )
+        evaluated = folds.assignment == held_out
+        stitched[evaluated] = earlier.predict(baseline[evaluated])
+    return float(np.mean(stitched))
 
 
 def survivor_only(frame: pd.DataFrame) -> float:
@@ -380,9 +417,9 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
         if property_name == "targeting_necessity":
             left, right = name[len("ate_regimen[") : -1].rsplit(" @ t=", 1)[0].split(" vs ")
             horizon = int(name.rsplit(" @ t=", 1)[1][:-1])
-            unfluctuated = untargeted(frame, left, horizon, configuration) - untargeted(
-                frame, right, horizon, configuration
-            )
+            unfluctuated = untargeted(
+                frame, left, horizon, configuration, result.folds
+            ) - untargeted(frame, right, horizon, configuration, result.folds)
             rows.append(
                 control_row(
                     property_name=property_name,
@@ -580,49 +617,5 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[recursion, "property_passed"] = bool(
         summary.loc[recursion, "passed"].all() and recursion_displacement >= RECURSION_DISPLACEMENT
     )
-    _crossfit_verdicts(summary, rows)
+    crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_survival_ltmle")
     return finish(summary, rates)
-
-
-def _crossfit_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Require horizon-two cross-fitting to defeat an in-sample tree control."""
-    selected = rows.loc[rows["property"] == "crossfit_overfitting"]
-    positive_name = "cross_fitted_survival_ltmle"
-    positive = selected.loc[selected["cell"] == positive_name]
-    control = selected.loc[selected["cell"] == "in_sample_control"]
-    margins = STUDY.margins
-    positive_se = se_ratio_interval(
-        positive,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", positive_name),
-    )
-    control_se = se_ratio_interval(
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "in_sample_control"),
-    )
-    gain = coverage_gain_interval(
-        positive,
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, "crossfit_overfitting", "coverage_gain"),
-    )
-    verdicts = {
-        positive_name: bool(
-            positive_se.low >= cvtmle_properties.OVERFIT_SE_FLOOR
-            and positive_se.high <= margins.se_ratio_sanity[1]
-        ),
-        "in_sample_control": bool(control_se.high <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= cvtmle_properties.OVERFIT_COVERAGE_GAIN)
-    for cell, interval in ((positive_name, positive_se), ("in_sample_control", control_se)):
-        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint

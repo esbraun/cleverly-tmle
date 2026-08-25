@@ -193,9 +193,9 @@ class QuasiBinomialGLM(BaseEstimator):
 class KnownLongitudinalMechanism(BaseEstimator):
     """The generating treatment or censoring probabilities, keyed by design shape.
 
-    Shared by the end-of-study study here and by the survival study in
-    ``tests.studies.canonical_ltmle_survival``, and reading a column by *position* is safe
-    across the two because of a contract rather than a coincidence.
+    Shared by the end-of-study study here, by the two survival studies, and by the
+    overfitting cells of both cross-fitted property studies.  Reading a column by *position*
+    is safe across all of them because of a contract rather than a coincidence.
     :meth:`~cleverly.longitudinal.LongitudinalData.history_design` builds a mechanism's
     conditioning set as ``[W, L_1, ..., L_t]`` followed by one block per earlier treatment,
     plus the current one for a censoring model.  **An outcome node never enters it**, so the
@@ -204,9 +204,17 @@ class KnownLongitudinalMechanism(BaseEstimator):
     ``[W1, W2, L2, A1, A2]`` at the second censoring node.
 
     A width this does not recognise raises rather than guessing.  A *reordering* within a
-    width would not, and the guard against that one is the paired comparison: the outcome
-    regression here is a ``glm`` against a law with a ``tanh`` term in it, so a mechanism read
-    off the wrong columns biases this side and the agreement with R breaks loudly.
+    width would not, and it needs its own guard, because a permutation of two equally wide
+    blocks changes every probability and leaves the shape alone.
+
+    In the paired studies the guard comes free: the outcome regression there is a ``glm``
+    against a law with a ``tanh`` term in it, so a mechanism read off the wrong columns biases
+    that side and the agreement with R breaks loudly.  **The cross-fitted overfitting cells
+    have no such guard.** They run against ``make_longitudinal`` rather than the discrete law,
+    and no registered comparison fits that pair, so nothing downstream would notice.  For
+    those, ``tests/unit/test_ltmle_crossfit_method_study.py`` checks this class against the
+    generating probabilities directly, on both panels and at both nodes; a swap of any two
+    design columns moves them by between 0.08 and 0.64, against a tolerance of ``1e-12``.
     """
 
     def __init__(self, kind: str) -> None:

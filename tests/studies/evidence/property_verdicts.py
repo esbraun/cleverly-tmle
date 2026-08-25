@@ -15,8 +15,10 @@ import pandas as pd
 
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
+    coverage_gain_interval,
     rate,
     ratio_intervals,
+    se_ratio_interval,
     summarize_cells,
     summary_interval,
 )
@@ -31,6 +33,19 @@ ROOT_N_SLOPE_MARGIN = 0.125
 
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
+
+#: The three margins the ``crossfit_overfitting`` family answers to.  Shared rather than owned
+#: by the study that first declared them: four families now make the same three statements
+#: about a paired cross-fit and in-sample arm, and a margin written four times is a margin
+#: that can be moved in one place and left stale in three.
+#:
+#: ``OVERFIT_SE_FLOOR`` is the cross-fit arm's floor, and the sanity band's *upper* limit is
+#: its ceiling, so the arm is held to the same screen as any other estimator rather than to a
+#: bound this family invented.  ``OVERFIT_SE_CONTROL_CEILING`` is what the in-sample arm must
+#: fall below for the control to be the failure it claims to be.
+OVERFIT_SE_FLOOR = 0.85
+OVERFIT_SE_CONTROL_CEILING = 0.75
+OVERFIT_COVERAGE_GAIN = 0.15
 
 
 #: Columns every study family's property summary carries, whatever else it adds.
@@ -339,6 +354,72 @@ def calibration_verdicts(
         else:
             raise ValueError(f"unknown calibration cell kind {kind!r}")
         summary.loc[index, "passed"] = bool(passed)
+
+
+def crossfit_overfitting_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    positive_cell: str,
+    control_cell: str = "in_sample_control",
+) -> None:
+    """Require honest cross-fitted inference and a deliberately optimistic control.
+
+    Three statements, and they do not all belong to the same row.  The cross-fit arm claims a
+    standard error that is neither understated nor outside the study's own sanity screen.  The
+    control claims the opposite -- that fitting the same flexible learner in sample understates
+    it by a wide margin.  The third is about the *pair*: cross-fitting has to buy coverage the
+    in-sample fit does not have, on the same draws, which is why the two arms share a seed.
+
+    Each row therefore publishes its own verdict in ``passed`` and the paired clause in
+    ``property_passed``.  One scalar broadcast across the property published the positive arm's
+    rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a reader
+    could not tell which statement the "Pass" belonged to.
+
+    Written once here rather than per study for the reason
+    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is: four families now
+    make this claim, and a statistic written four times is a statistic that can be changed
+    once.  The study supplies only the name of its positive arm.
+    """
+    margins = record.margins
+    selected = rows.loc[rows["property"] == "crossfit_overfitting"]
+    positive = selected.loc[selected["cell"] == positive_cell]
+    control = selected.loc[selected["cell"] == control_cell]
+    positive_se = se_ratio_interval(
+        positive,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, "crossfit_overfitting", positive_cell),
+    )
+    control_se = se_ratio_interval(
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, "crossfit_overfitting", control_cell),
+    )
+    gain = coverage_gain_interval(
+        positive,
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, "crossfit_overfitting", "coverage_gain"),
+    )
+    verdicts = {
+        positive_cell: bool(
+            positive_se.low >= OVERFIT_SE_FLOOR and positive_se.high <= margins.se_ratio_sanity[1]
+        ),
+        control_cell: bool(control_se.high <= OVERFIT_SE_CONTROL_CEILING),
+    }
+    joint = bool(all(verdicts.values()) and gain[0] >= OVERFIT_COVERAGE_GAIN)
+    for cell, interval in ((positive_cell, positive_se), (control_cell, control_se)):
+        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
+        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
+        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
+        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
+        summary.loc[mask, "passed"] = verdicts[cell]
+        summary.loc[mask, "property_passed"] = joint
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:

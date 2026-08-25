@@ -36,7 +36,28 @@ lmtp_tmle_with_folds <- function(
   fold_assignment,
   learners_outcome = "SL.glm",
   learners_trt = "SL.glm",
-  control = lmtp::lmtp_control(.trim = 1, .learners_outcome_folds = 5, .learners_trt_folds = 5)
+  # Optional exact per-node density ratios, supplied so the paired comparison isolates the
+  # recursion rather than two unrelated mechanism-fitting pipelines -- the principle the
+  # ordinary `ltmle` studies apply by passing a numeric `gform`.  `lmtp` has no `gform`
+  # equivalent, so the substitution happens here, the same way `task$folds` is replaced.
+  #
+  # Column t must be 1{A_t = d_t, C_t = 1} / (g_t * c_t), evaluated on the intervened
+  # history.  That formula is not documented; it was established by fitting each candidate
+  # against `cf_density_ratios` output on this study's own law, where the censoring-inclusive
+  # form matched its zero pattern exactly and the treatment-only form did not.  The checks
+  # below re-assert both halves of it on every run rather than trusting the derivation.
+  density_ratios = NULL,
+  # ``.return_full_fits`` is not optional here.  The block below reads
+  # ``regressions$fits`` to rebuild the unfluctuated plug-in, and the check after the call
+  # refuses a control without it -- so a default that omitted the flag was a default that
+  # could never run.  Every caller still passes its own control; this one exists so that a
+  # future caller which does not gets a working adapter rather than an error.
+  control = lmtp::lmtp_control(
+    .trim = 1,
+    .learners_outcome_folds = 5,
+    .learners_trt_folds = 5,
+    .return_full_fits = TRUE
+  )
 ) {
   if (nrow(data) != length(fold_assignment)) stop("fold assignment has the wrong length")
   variables <- c(unlist(trt), outcome, unlist(time_vary), baseline, cens)
@@ -66,6 +87,59 @@ lmtp_tmle_with_folds <- function(
   density <- lmtp_internal("cf_density_ratios")(
     task, learners_trt, FALSE, control, progress
   )
+  if (!is.null(density_ratios)) {
+    estimated <- density$density_ratios
+    if (!identical(dim(density_ratios), dim(estimated))) {
+      stop(sprintf(
+        "supplied density ratios are %s; lmtp's are %s",
+        paste(dim(density_ratios), collapse = " x "),
+        paste(dim(estimated), collapse = " x ")
+      ))
+    }
+    # A per-node ratio is zero exactly where the unit left the followed path at that node.
+    # lmtp's own matrix has that property, so requiring the supplied one to agree with it
+    # cell for cell is what catches a ratio built from the wrong arm, the wrong node, or a
+    # missing censoring factor -- none of which changes the shape.
+    # ``any(xor(...))`` rather than ``identical(...)``: the latter compares dimnames too, so
+    # a supplied matrix built with ``cbind(first, second)`` failed on its column labels while
+    # every value agreed.
+    disagreeing <- sum(xor(density_ratios == 0, estimated == 0))
+    if (disagreeing > 0) {
+      stop(sprintf(
+        "the supplied density ratios follow a different path from lmtp's: %d of %d cells
+         disagree on whether the unit is still on the regimen at that node",
+        disagreeing, length(estimated)
+      ))
+    }
+    if (!all(is.finite(density_ratios))) {
+      stop("the supplied density ratios contain non-finite values")
+    }
+    # Agreement in *shape* with lmtp's own estimate.  The zero-pattern check above is the
+    # sharp structural one; this catches a formula that is right about which units follow and
+    # wrong about the weight -- a dropped censoring factor, an inverted arm probability.
+    supplied <- apply(density_ratios, 1, prod)
+    fitted <- apply(estimated, 1, prod)
+    agreement <- suppressWarnings(cor(supplied, fitted))
+    if (!is.finite(agreement) || agreement < 0.8) {
+      stop(sprintf(
+        "the supplied cumulative density ratio correlates %.4f with lmtp's own estimate of
+         the same quantity; a correct formula tracks it closely even where the two differ
+         on the value", agreement
+      ))
+    }
+    # A gross-error screen only, deliberately loose.  The exact weights are heavy tailed --
+    # under the never-treat plan 1/(1 - g_2) grows without bound as L2 does -- so the sample
+    # mean of a correct cumulative ratio wanders well away from its expectation of one at
+    # these sample sizes.  Tightening this rejects correct ratios; the two checks above are
+    # the ones that carry the weight.
+    if (abs(mean(supplied) - 1) > 0.5) {
+      stop(sprintf(
+        "the supplied cumulative density ratio averages %.4f; a correct one averages one",
+        mean(supplied)
+      ))
+    }
+    density$density_ratios <- density_ratios
+  }
   regressions <- lmtp_internal("cf_tmle")(
     task, density$density_ratios, learners_outcome, control, progress
   )
@@ -80,11 +154,45 @@ lmtp_tmle_with_folds <- function(
     c0 <- task$observed(natural_fold$valid, 0)
     d0 <- task$is_competing_risk_free(natural_fold$valid, 0)
     valid <- c0 & y0 & d0
-    history <- task$vars$history("L", 2)
+    # The index is "one past the first treatment node", which is the conditioning set of the
+    # *earliest* sequential regression.  It is not the number of nodes, so it stays 2 for a
+    # one-node task as well as a two-node one -- which is the case the survival runner's
+    # horizon-one fit exercises, and which nothing had ever run when this was written.  If
+    # lmtp's convention is the other one, the columns are absent rather than wrong, so the
+    # guard below turns a cryptic subscript error into the diagnosis.
+    first_regression_history <- 2
+    history <- task$vars$history("L", first_regression_history)
     first_treatment <- lmtp_internal("current_trt")(task$vars$A, 1)
+    missing_columns <- setdiff(c(history, first_treatment), names(natural_fold$valid))
+    if (length(missing_columns)) {
+      stop(sprintf(
+        paste(
+          "the earliest sequential regression's history (%s) is not in the fold data for a",
+          "%d-node task; lmtp's history index is not the convention this adapter assumes"
+        ),
+        paste(missing_columns, collapse = ", "), length(task$vars$A)
+      ))
+    }
     under_shift <- natural_fold$valid[valid, c("..i..lmtp_id", history)]
     under_shift[, first_treatment] <- shifted_fold$valid[valid, first_treatment]
+    # ``fits[[fold]]`` is assumed to be indexed from the *earliest* node, so that ``[[1]]``
+    # is the regression whose conditioning set is the first node's history.  That is an
+    # assumption about lmtp's internals rather than a documented interface.  It is checked
+    # by what follows rather than trusted: the count must match the number of nodes, and
+    # ``under_shift`` carries only the first node's history, so a regression fitted at a
+    # later node would be asked to predict without the columns it was fitted on.  The
+    # bounds check is the one that catches a silent success -- a fitted value outside
+    # (0, 1) is not a plug-in for a binary node whatever produced it.
+    if (length(regressions$fits[[fold]]) != length(task$vars$A)) {
+      stop(sprintf(
+        "fold %d has %d sequential regressions for %d treatment nodes",
+        fold, length(regressions$fits[[fold]]), length(task$vars$A)
+      ))
+    }
     predicted <- predict(regressions$fits[[fold]][[1]], under_shift, 1e-05)
+    if (anyNA(predicted) || any(predicted < 0) || any(predicted > 1)) {
+      stop(sprintf("fold %d produced an initial plug-in outside [0, 1]", fold))
+    }
     held_out <- task$folds[[fold]]$validation_set[valid]
     initial[held_out] <- predicted
   }

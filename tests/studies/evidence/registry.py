@@ -142,6 +142,22 @@ class StudyRecord:
     implementation: str = "cleverly"
     #: The comparison implementation, or ``None`` for a study with no canonical comparator.
     reference: str | None = None
+    #: Why this study keeps a comparator that fails its *own* independent truth gates.
+    #:
+    #: :mod:`tests.studies.evidence.comparison` already separates the two questions: whether
+    #: the subject is similar to and no worse than the reference, and whether either is any
+    #: good on its own.  A reference that degrades is reported in ``reference_valid`` rather
+    #: than turning the subject's row red.  The regeneration driver nonetheless refused any
+    #: run whose reference failed, which made deleting the comparator the only way to publish
+    #: -- and deleting it throws away the paired similarity and non-inferiority evidence,
+    #: which is the strongest statement a study can make about an implementation it did not
+    #: write.
+    #:
+    #: Setting this string keeps the comparator and records the reason, in the spirit of the
+    #: ``accepted:`` lines in ``tests/prose-report.md``: the exception is allowed and the
+    #: recorded reason is the point.  It relaxes nothing about the subject.  ``passed`` still
+    #: gates on similarity and non-inferiority, and ``subject_valid`` is still required.
+    accepted_reference_failure: str = ""
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()

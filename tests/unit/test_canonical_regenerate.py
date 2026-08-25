@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
@@ -140,6 +141,106 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
 
     with pytest.raises(RuntimeError, match="statistical property gates failed"):
         regenerate.main(study, SimpleNamespace(), here=tmp_path)
+
+
+def _stub_complete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any, paired: pd.DataFrame
+) -> Any:
+    """A complete run of ``record`` whose every gate passes except what ``paired`` says."""
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(
+        regenerate, "_reference_rows", lambda *args, **kwargs: _rows(str(record.reference))
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "equivalence", lambda *args, **kwargs: paired)
+    monkeypatch.setattr(regenerate, "write_manifest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate,
+        "_property_artifacts",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
+    )
+    return study
+
+
+def test_an_undeclared_reference_regression_refuses_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The default, and the reason the declaration below has to be written down."""
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    paired = pd.DataFrame({"passed": [True], "reference_valid": [False]})
+    study = _stub_complete(monkeypatch, tmp_path, record, paired)
+
+    with pytest.raises(RuntimeError, match="reference validity"):
+        regenerate.main(
+            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        )
+
+
+def test_a_declared_reference_failure_publishes_and_still_gates_the_subject(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The exception is about the comparator only.
+
+    Two runs of the same declared study, differing only in the subject's own paired verdict.
+    The first publishes with an invalid reference, which is the whole point of the
+    declaration.  The second must still refuse, because a comparator that fails its own truth
+    gates is not a licence for the subject to fail its similarity and non-inferiority claim.
+    """
+    record = dataclasses.replace(
+        canonical_tmle.STUDY,
+        artifacts=tmp_path,
+        accepted_reference_failure="the comparator's intervals under-cover on this law",
+    )
+
+    published = pd.DataFrame({"passed": [True], "reference_valid": [False]})
+    study = _stub_complete(monkeypatch, tmp_path, record, published)
+    regenerate.main(
+        study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+    )
+
+    refused = pd.DataFrame({"passed": [False], "reference_valid": [False]})
+    study = _stub_complete(monkeypatch, tmp_path, record, refused)
+    with pytest.raises(RuntimeError, match="paired similarity and non-inferiority"):
+        regenerate.main(
+            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        )
+
+
+def test_a_stale_accepted_reference_failure_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """A recorded reason for a failure that no longer happens is a claim about nothing."""
+    record = dataclasses.replace(
+        canonical_tmle.STUDY,
+        artifacts=tmp_path,
+        accepted_reference_failure="the comparator's intervals under-cover on this law",
+    )
+    paired = pd.DataFrame({"passed": [True], "reference_valid": [True]})
+    study = _stub_complete(monkeypatch, tmp_path, record, paired)
+
+    with pytest.raises(RuntimeError, match="stale exception"):
+        regenerate.main(
+            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        )
 
 
 def test_cached_reference_phase_is_reused_only_when_compatible(tmp_path: Any) -> None:

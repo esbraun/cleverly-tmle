@@ -1,6 +1,0 @@
-estimand,replicates,n,coverage,coverage_ci_lower,coverage_ci_upper,se_ratio,se_ratio_ci_lower,se_ratio_ci_upper,rmse_ratio_upper
-ate_regimen[always vs never],1600,2000,0.89375,0.872405,0.912707,0.828432,0.793734,0.865794,1.016775
-ate_regimen[treat then continue if l2 positive vs never],1600,2000,0.869375,0.846255,0.890259,0.773919,0.740952,0.810095,1.054534
-ey_regimen[always],1600,2000,0.91,0.890014,0.927496,0.858378,0.823880,0.898713,1.042159
-ey_regimen[never],1600,2000,0.903125,0.882544,0.921259,0.846239,0.808444,0.886019,1.003847
-ey_regimen[treat then continue if l2 positive],1600,2000,0.75,0.721078,0.777414,0.604658,0.580339,0.631586,1.101653

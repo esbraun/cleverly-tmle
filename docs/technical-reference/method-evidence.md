@@ -1209,21 +1209,39 @@ This study validates the five-fold end-of-study recursion. Each outer fold fits 
 complete recursion on its training rows. The estimator stitches predictions and influence curves
 only on held-out rows.
 
-**No canonical implementation is compared.** A source audit used R
-[`lmtp`](https://github.com/nt-williams/lmtp) 1.5.4 at commit `f04a2b4`. Its point estimates passed
-the truth-bias gates, but its cross-fitted influence-curve intervals failed the truth-coverage
-gates. The registered study therefore uses a zero-row equivalence artifact.
+The canonical comparison uses R [`lmtp`](https://github.com/nt-williams/lmtp) 1.5.4 at commit
+`f04a2b4`, which is the maintained package that implements a cross-fitted sequential regression.
+R `ltmle`, the comparator the two ordinary longitudinal rows use, has no cross-fitting at all, so
+it cannot witness this construction.
+
+Agreement with R is secondary to the finite-support functional and Gateaux EIF in
+[`tests/discrete_law_longitudinal.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/discrete_law_longitudinal.py).
 
 ### What was compared
 
-| setting | `cleverly` |
-| --- | --- |
-| datasets and folds | 1,600 censored panels with one exact five-fold assignment per panel |
-| plans | never treat, always treat, and continue after initial treatment when L2 is positive |
-| contrasts | always-minus-never and dynamic-minus-never |
-| nuisance learners | quasibinomial GLMs fitted within each outer training set |
-| targeting | a complete fold-specific backward recursion |
-| intervals | pointwise 95% identity-scale Wald intervals |
+| setting | `cleverly` | R `lmtp` |
+| --- | --- | --- |
+| datasets and folds | 1,600 censored panels, each with one exact five-fold assignment | the identical rows and the identical assignment, read from the panel |
+| plans | never treat, always treat, and continue after initial treatment when L2 is positive | the same three, as shifted treatment columns |
+| contrasts | always-minus-never and dynamic-minus-never | the same, from the difference of the two rowwise influence curves so covariance is preserved |
+| treatment and censoring mechanisms | the generating probabilities from the law | the same probabilities, supplied as exact per-node density ratios |
+| sequential regressions | quasibinomial GLMs fitted within each outer training set | `SL.glm`, fitted within the same training sets |
+| targeting | a complete fold-specific backward recursion | the same, through `cf_tmle` and `theta_dr` |
+| cumulative-g bounds | nonbinding | nonbinding, `.trim = 1` |
+| intervals | pointwise 95% identity-scale Wald intervals | the same, from the returned influence curve |
+
+Both implementations receive the mechanism from the law rather than estimating it. `lmtp` has no
+`gform` argument, so the adapter substitutes exact per-node density ratios into it, the same way
+it substitutes the fold assignment. The substitution is checked on every run against `lmtp`'s own
+estimate: the zero pattern must agree cell for cell, and the cumulative ratio must track it.
+
+That choice is what makes the comparison a comparison. An earlier version let each side estimate
+the mechanism its own way, and the result measured two unrelated pipelines. `lmtp` fits its ratio
+with `SL.glm`, whose linear logit cannot represent the exact classifier log-odds `-log g` for a
+deterministic regime, so the ratio came out shrunken. A shrunken clever covariate under-targets
+and understates the influence curve: coverage ran from 0.75 to 0.91 and the SE ratio from 0.60 to
+0.86, against 0.949 to 0.957 and 1.00 to 1.02 for `cleverly` on the same panels. The sequential
+regressions stay misspecified on both sides, so targeting still has work to do.
 
 The exact-law structural test fixes the fold assignment and repeats every support point in each
 fold. It checks every regimen mean and correlated contrast against the functional and Gateaux EIF.
@@ -1234,11 +1252,28 @@ The leakage tests also require held-out outcome predictions at both recursion no
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0019 to 0.0022 | 0.9494 | 0.9967 | pass |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0015 to 0.0027 | 0.9556 | 1.0158 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` cross-fitted LTMLE | -0.000890 to 0.0015 | 0.9556 | 1.0242 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0018 | 0.9494 | 1.0154 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` cross-fitted LTMLE | -0.000534 to 0.0021 | 0.9569 | 1.0167 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0019 to 0.0022 | 0.9431 | 0.9839 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `lmtp` | -0.0018 to 0.0023 | 0.9406 | 0.9831 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0028 | 0.9525 | 0.9986 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `lmtp` | -0.0015 to 0.0026 | 0.9506 | 1.0001 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` cross-fitted LTMLE | -0.000844 to 0.0016 | 0.9531 | 1.0156 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `lmtp` | -0.000873 to 0.0015 | 0.9519 | 1.0171 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0018 | 0.9506 | 0.9998 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `lmtp` | -0.0015 to 0.0017 | 0.9469 | 1.0012 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` cross-fitted LTMLE | -0.000445 to 0.0022 | 0.9531 | 1.0028 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `lmtp` | -0.000648 to 0.0019 | 0.9506 | 1.0048 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000063 | 0.0132 | 1.0064 | 0.0025 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000120 | 0.0248 | 1.0131 | 0.0019 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000034 | 0.0122 | 1.0092 | 0.0012 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000097 | 0.0256 | 1.0091 | 0.0037 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000217 | 0.0718 | 1.0199 | 0.0025 | pass |
 <!-- /generated -->
 
 ### Theory properties
@@ -1284,8 +1319,22 @@ The property study preserves the ordinary row's double-robustness, rate, efficie
 null, power, and targeting instruments. It runs each positive estimator with five outer folds.
 
 The overfitting pair uses identical nonlinear panels and a fully grown outcome tree. The positive
-arm predicts held-out rows. The control predicts its training rows. The joint verdict requires
-restored SE scale and a predeclared coverage gain over the control.
+arm predicts held-out rows. The control predicts its training rows. The joint verdict requires an
+SE ratio inside the declared band and a predeclared coverage gain over the control.
+
+Read the direction of that ratio, not only the verdict. In-sample fitting understates the standard
+error by a factor near three, at 0.3532. Cross-fitting removes the understatement and overshoots
+it, at 1.1725. A noisy outcome model inflates the residual term of the influence curve, so a
+conservative ratio is the expected direction here rather than an anomaly. The cell establishes
+that cross-fitting restores honest inference. It does not establish calibration under a fully
+grown tree, and the `interval_calibration` family, which does make a calibration claim, uses
+correctly specified nuisances instead.
+
+The gate is close. The 99% interval reaches 1.1965 against a ceiling of 1.2000, so a change of
+learner, sample size, or fold count could move this cell across it. The replication budget is
+8,000 rather than the shared 400 because the shared budget leaves the interval wider than the
+remaining margin. That is legitimate for an equivalence-shaped gate, which more replications make
+easier rather than harder, and it is recorded here so the margin cannot be read as comfortable.
 
 ### Measured values
 
@@ -1296,17 +1345,17 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 1600 | paired replications |
 | `n` | 2000 | observations per paired replication |
-| `independent_tests_total` | 5 | implementation-estimand truth tests |
-| `independent_tests_passed` | 5 | truth tests passing |
-| `paired_tests_total` | 0 | paired estimand comparisons |
-| `paired_tests_passed` | 0 | paired comparisons passing |
+| `independent_tests_total` | 10 | implementation-estimand truth tests |
+| `independent_tests_passed` | 10 | truth tests passing |
+| `paired_tests_total` | 5 | paired estimand comparisons |
+| `paired_tests_passed` | 5 | paired comparisons passing |
 | `property_cells_total` | 32 | independent property cells |
 | `property_cells_passed` | 32 | property cells passing |
-| `max_standardized_bias` | 0.0381 | largest primary standardized bias |
-| `min_coverage` | 0.9494 | lowest primary coverage |
-| `min_coverage_ci_lower` | 0.9336 | lowest primary coverage lower endpoint |
-| `min_se_ratio_ci_lower` | 0.9562 | lowest primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0709 | highest primary SE-ratio endpoint |
+| `max_standardized_bias` | 0.0425 | largest primary standardized bias |
+| `min_coverage` | 0.9406 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9237 | lowest primary coverage lower endpoint |
+| `min_se_ratio_ci_lower` | 0.9421 | lowest primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0650 | highest primary SE-ratio endpoint |
 | `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage` | 0.9754 | cross-fitted tree coverage |
 | `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5081 | in-sample tree coverage |
 | `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage_gain_ci_lower` | 0.4526 | lower bound for the paired coverage gain |
@@ -1346,11 +1395,13 @@ the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
+| Agreement with `lmtp` is distributional, not numerical | The paired claim is that the mean difference sits inside the similarity margin and that `cleverly` is no worse. The two ordinary rows agree with R `ltmle` to solver precision because both run the identical regression; here the sequential regressions are still fitted differently, so per-replication estimates differ at statistical scale |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
-| Flexible learning is an independent property instrument | The rejected R audit uses one GLM learner. The tree pair validates held-out prediction behavior, not parity for learner-library selection |
+| The cross-fit overfitting cell passes near its ceiling | Its 99% SE-ratio interval reaches 1.1965 against a ceiling of 1.2000. The cell shows that cross-fitting restores honest inference under a fully grown tree. It does not show calibration under one |
+| Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair validates held-out prediction behavior, not parity for learner-library selection |
 | The row reports one terminal mean per plan | Survival curves, competing risks, and longitudinal MSM projections have different parameters |
 | Inference is pointwise | The row does not validate simultaneous bands, bootstrap intervals, weights, or clustering |
-| The primary mechanism bounds are nonbinding | The exact property law also keeps its known conditional mechanisms between 0.25 and 0.75. No cell validates a severe practical-positivity violation |
+| The mechanism is supplied rather than estimated | Both implementations receive the generating probabilities, so the paired row says nothing about mechanism estimation or about a severe practical-positivity violation. The property study's double-robustness cells cover misspecified mechanisms separately |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
 positivity, and conditionally independent censoring. Single-correct-nuisance cells establish
@@ -1361,7 +1412,8 @@ consistency only. Calibrated inference uses the cells where both nuisance sequen
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/lmtp_ltmle/README.md)
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/lmtp_ltmle/manifest.json)
-records the pinned package, adapter, folds, seeds, configuration, and artifact hashes.
+records the seeds, the configuration, the pinned `lmtp` version and source commit, the digest of
+every study module and reference source, and the artifact hashes.
 
 ## Ordinary survival-curve longitudinal TMLE
 
@@ -1622,25 +1674,42 @@ This study validates five-fold cumulative-risk estimation under absorbing failur
 horizons, monotone censoring, static plans, and a dynamic plan. Each fold fits and targets its
 complete backward recursion on training rows before it evaluates held-out rows.
 
-**No canonical implementation is compared.** The pinned R
-[`lmtp`](https://github.com/nt-williams/lmtp) 1.5.4 runner confirms the parameter transformation and
-exact-fold plumbing. The end-of-study audit rejected its cross-fitted influence-curve intervals,
-so this row also uses a zero-row equivalence artifact.
+The canonical comparison uses R [`lmtp`](https://github.com/nt-williams/lmtp) 1.5.4 at commit
+`f04a2b4`, on the same panels and the same stored fold assignment, with one fitted prefix per
+reported horizon. R `ltmle` has no cross-fitting, so it cannot witness this construction.
+
+Agreement with R is secondary to the finite-support functional and Gateaux EIF in
+[`tests/discrete_law_survival.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/discrete_law_survival.py).
 
 ### What was compared
 
-| setting | `cleverly` |
-| --- | --- |
-| datasets and folds | 1,600 censored survival panels with one exact five-fold assignment per panel |
-| horizons | cumulative risk at times one and two |
-| plans | never treat, always treat, and continue after initial treatment when L2 is positive |
-| contrasts | always-minus-never at both horizons and dynamic-minus-never at time two |
-| nuisance learners | quasibinomial GLMs within each outer training set |
-| intervals | pointwise 95% identity-scale Wald intervals |
+| setting | `cleverly` | R `lmtp` |
+| --- | --- | --- |
+| datasets and folds | 1,600 censored survival panels, each with one exact five-fold assignment | the identical rows and the identical assignment |
+| horizons | cumulative risk at times one and two | one fitted prefix per horizon |
+| plans | never treat, always treat, and continue after initial treatment when L2 is positive | the same three, as shifted treatment columns |
+| contrasts | always-minus-never at both horizons and dynamic-minus-never at time two | the same, from rowwise influence-curve differences |
+| treatment and censoring mechanisms | the generating probabilities from the law | the same probabilities, supplied as exact per-node density ratios |
+| sequential regressions | quasibinomial GLMs within each outer training set | `SL.glm`, within the same training sets |
+| intervals | pointwise 95% identity-scale Wald intervals | the same, after the horizon-two transformation below |
 
-The R runner uses the one-node binary mean at horizon one because `lmtp` requires two event nodes
-for its survival path. At horizon two, it converts event-free survival to cumulative risk and
-reverses the influence-curve sign.
+Both implementations receive the mechanism from the law rather than estimating it. `lmtp` has no
+`gform` argument, so the adapter substitutes exact per-node density ratios into it, the same way
+it substitutes the fold assignment. The substitution is checked on every run against `lmtp`'s own
+estimate: the zero pattern must agree cell for cell, and the cumulative ratio must track it.
+
+That choice is what makes the comparison a comparison. An earlier version let each side estimate
+the mechanism its own way, and the result measured two unrelated pipelines. `lmtp` fits its ratio
+with `SL.glm`, whose linear logit cannot represent the exact classifier log-odds `-log g` for a
+deterministic regime, so the ratio came out shrunken. A shrunken clever covariate under-targets
+and understates the influence curve: coverage ran from 0.75 to 0.91 and the SE ratio from 0.60 to
+0.86, against 0.949 to 0.957 and 1.00 to 1.02 for `cleverly` on the same panels. The sequential
+regressions stay misspecified on both sides, so targeting still has work to do.
+
+The retained R runner uses the one-node binary mean at horizon one because `lmtp` requires two
+event nodes for its survival path. At horizon two, it converts event-free survival to cumulative
+risk and reverses the influence-curve sign. The registered run invokes that runner, so the
+transformation is exercised on every regeneration rather than described.
 
 The exact-law structural test repeats every support point in each fold. It checks every unique risk
 and contrast against the finite functional and Gateaux EIF. Separate mutations check held-out
@@ -1651,14 +1720,37 @@ outcome predictions and the first-horizon risk-set boundary.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.000332 to 0.0022 | 0.9506 | 0.9883 | pass |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0013 to 0.0024 | 0.9469 | 1.0097 | pass |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0012 to 0.0026 | 0.9469 | 1.0051 | pass |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.000531 to 0.0010 | 0.9525 | 1.0027 | pass |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.000910 to 0.0014 | 0.9506 | 0.9979 | pass |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.0017 to 0.000295 | 0.9475 | 1.0034 | pass |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0018 to 0.0012 | 0.9450 | 1.0298 | pass |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.000797 to 0.0016 | 0.9525 | 0.9978 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.000326 to 0.0022 | 0.9513 | 0.9852 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | R `lmtp` | -0.000339 to 0.0022 | 0.9513 | 0.9849 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0013 to 0.0024 | 0.9469 | 0.9964 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | R `lmtp` | -0.0012 to 0.0025 | 0.9431 | 0.9953 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0012 to 0.0026 | 0.9444 | 0.9908 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | R `lmtp` | -0.0011 to 0.0027 | 0.9456 | 0.9890 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.000525 to 0.0010 | 0.9537 | 0.9993 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | R `lmtp` | -0.000503 to 0.0010 | 0.9563 | 0.9984 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.000904 to 0.0014 | 0.9506 | 0.9912 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | R `lmtp` | -0.000913 to 0.0014 | 0.9513 | 0.9918 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | `cleverly` cross-fitted survival LTMLE | -0.0017 to 0.000295 | 0.9469 | 1.0001 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | R `lmtp` | -0.0016 to 0.000329 | 0.9481 | 1.0003 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.0018 to 0.0012 | 0.9463 | 1.0129 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | R `lmtp` | -0.0019 to 0.0011 | 0.9525 | 1.0120 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | `cleverly` cross-fitted survival LTMLE | -0.000777 to 0.0016 | 0.9500 | 0.9877 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | R `lmtp` | -0.000776 to 0.0016 | 0.9469 | 0.9874 | pass |
+<!-- /generated -->
+
+### Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 0.000013 | 0.0044 | 1.0014 | 0 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -0.000083 | 0.0193 | 1.0060 | 0.0037 | pass |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -0.000094 | 0.0211 | 1.0055 | -0.0013 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -0.000022 | 0.0121 | 1.0014 | -0.0025 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | 0.000010 | 0.0038 | 1.0040 | -0.000625 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -0.000035 | 0.0152 | 1.0026 | -0.0012 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 0.000093 | 0.0273 | 1.0089 | -0.0062 | pass |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.147e-07 | 0.000112 | 1.0051 | 0.0031 | pass |
 <!-- /generated -->
 
 ### Theory properties
@@ -1710,11 +1802,11 @@ outcome predictions and the first-horizon risk-set boundary.
 | `survival_recursion_necessity` | `always_t2__survival` | positive | always-treat risk at horizon two: the survival estimator keeps failures in their event node and removes them afterward | bias interval inside the equivalence margin | bias -0.0027 to 0.0034, margin 0.0103 | pass |
 | `survival_recursion_necessity` | `always_t2__survivor_only` | control | always-treat risk at horizon two: the same horizon-two outcome analyzed only among first-node survivors | bias interval must fall entirely outside the margin | bias -0.1510 to -0.1413, margin 0.0163 | pass |
 | `targeting_necessity` | `dynamic_t2__targeted` | positive | dynamic plan at horizon two: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0045 to 0.0021, margin 0.0111 | pass |
-| `targeting_necessity` | `dynamic_t2__untargeted` | control | dynamic plan at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0455 to -0.0390, margin 0.0109 | pass |
+| `targeting_necessity` | `dynamic_t2__untargeted` | control | dynamic plan at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0456 to -0.0391, margin 0.0109 | pass |
 | `targeting_necessity` | `static_t1__targeted` | positive | static plan at horizon one: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0035 to 0.0010, margin 0.0075 | pass |
 | `targeting_necessity` | `static_t1__untargeted` | control | static plan at horizon one: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0461 to -0.0417, margin 0.0073 | pass |
 | `targeting_necessity` | `static_t2__targeted` | positive | static plan at horizon two: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0038 to 0.0030, margin 0.0115 | pass |
-| `targeting_necessity` | `static_t2__untargeted` | control | static plan at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0371 to -0.0303, margin 0.0115 | pass |
+| `targeting_necessity` | `static_t2__untargeted` | control | static plan at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0372 to -0.0303, margin 0.0115 | pass |
 | `type_i_error` | `dynamic_t2__sharp_null` | positive | dynamic plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0612, 0.0415 to 0.0864 | pass |
 | `type_i_error` | `static_t1__sharp_null` | positive | static plan at horizon one: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0612, 0.0415 to 0.0864 | pass |
 | `type_i_error` | `static_t2__sharp_null` | positive | static plan at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0587, 0.0394 to 0.0835 | pass |
@@ -1737,17 +1829,17 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 1600 | paired replications |
 | `n` | 2000 | observations per paired replication |
-| `independent_tests_total` | 8 | implementation-estimand truth tests |
-| `independent_tests_passed` | 8 | truth tests passing |
-| `paired_tests_total` | 0 | paired estimand comparisons |
-| `paired_tests_passed` | 0 | paired comparisons passing |
+| `independent_tests_total` | 16 | implementation-estimand truth tests |
+| `independent_tests_passed` | 16 | truth tests passing |
+| `paired_tests_total` | 8 | paired estimand comparisons |
+| `paired_tests_passed` | 8 | paired comparisons passing |
 | `property_cells_total` | 52 | independent property cells |
 | `property_cells_passed` | 52 | property cells passing |
-| `max_standardized_bias` | 0.0475 | largest primary standardized bias |
-| `min_coverage` | 0.9450 | lowest primary coverage |
-| `min_coverage_ci_lower` | 0.9286 | lowest primary coverage lower endpoint |
-| `min_se_ratio_ci_lower` | 0.9435 | lowest primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0786 | highest primary SE-ratio endpoint |
+| `max_standardized_bias` | 0.0478 | largest primary standardized bias |
+| `min_coverage` | 0.9431 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9265 | lowest primary coverage lower endpoint |
+| `min_se_ratio_ci_lower` | 0.9395 | lowest primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0609 | highest primary SE-ratio endpoint |
 | `properties[crossfit_overfitting/cross_fitted_survival_ltmle]:coverage` | 0.9646 | cross-fitted tree coverage |
 | `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5693 | in-sample tree coverage |
 | `properties[crossfit_overfitting/cross_fitted_survival_ltmle]:coverage_gain_ci_lower` | 0.3812 | lower bound for the paired coverage gain |
@@ -1789,11 +1881,12 @@ the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
+| Agreement with `lmtp` is distributional, not numerical | The paired claim is similarity of means and non-inferiority. Per-replication estimates differ at statistical scale, because only the mechanism is shared and the sequential regressions are still fitted differently |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
 | Horizon one uses the binary-mean path in R | `lmtp` requires two event nodes for its survival path. The one-node binary mean is the same first-horizon cumulative-risk parameter |
 | Inference is pointwise | The row does not validate a simultaneous curve band or enforce monotone reported estimates |
 | The event process has two horizons and one cause | Longer follow-up and competing-risk cumulative incidence need separate evidence |
-| Flexible learning is an independent property instrument | The rejected R audit uses one GLM learner. The tree pair does not establish parity for learner-library selection |
+| Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair does not establish parity for learner-library selection |
 | The primary mechanism bounds are nonbinding | No primary cell validates active bounds, weights, clustering, or severe practical-positivity violations |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
@@ -1804,4 +1897,5 @@ positivity, conditionally independent censoring, and correct absorbing-event cod
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/lmtp_ltmle_survival/README.md)
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/lmtp_ltmle_survival/manifest.json)
-records the pinned package, adapter, folds, horizon transformations, seeds, and artifact hashes.
+records the seeds, the configuration, the pinned `lmtp` version and source commit, the digest of
+every study module and reference source, and the artifact hashes.

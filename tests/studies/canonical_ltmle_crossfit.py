@@ -8,19 +8,17 @@ retained R runner receives the same panels and exact fold assignment for source 
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.special import expit
-from sklearn.base import BaseEstimator
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, QuasiBinomialGLM
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import replicate_seed
@@ -63,9 +61,10 @@ STUDY = StudyRecord(
     seed=SEED,
     margins=Margins(),
     implementation="cleverly-cross-fitted-ltmle",
-    reference=None,
+    reference="lmtp",
     modules=(
         "tests/studies/canonical_ltmle_crossfit.py",
+        "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_crossfit_properties.py",
         "tests/discrete_law_longitudinal.py",
         "tests/studies/evidence/comparison.py",
@@ -78,7 +77,6 @@ STUDY = StudyRecord(
         "tests/canonical/lmtp_crossfit/Dockerfile",
         "tests/canonical/lmtp_crossfit/audit.py",
         "tests/canonical/lmtp_crossfit_adapter.R",
-        "tests/canonical/lmtp_ltmle/lmtp-audit.csv",
         "tests/canonical/lmtp_ltmle/run_study.R",
     ),
     runner_module="tests.studies.canonical_ltmle_crossfit",
@@ -120,6 +118,13 @@ STUDY = StudyRecord(
     },
 )
 
+#: Provenance of the comparator, for the manifest's ``generated_with.reference`` block.
+#:
+#: Inert while :attr:`StudyRecord.reference` is ``None`` -- ``write_manifest`` writes that
+#: block only for a study that declares a comparator, so nothing reads this today.  It is kept
+#: rather than deleted because restoring the comparator is the open work this row is waiting
+#: on, and because :data:`CONFIGURATION` records the same pin under ``audited_comparator``
+#: meanwhile, so the manifest is not silent about which ``lmtp`` was audited.
 REFERENCE_METADATA = {
     "lmtp_version": LMTP_VERSION,
     "lmtp_source_commit": LMTP_SOURCE_COMMIT,
@@ -140,104 +145,17 @@ CONFIGURATION = {
     "stratify": True,
     "g_bounds": list(G_BOUNDS),
     "regimens": list(REGIMENS),
-    "q_formulas": ["Q.kplus1 ~ W1 + W2", "Q.kplus1 ~ W1 + W2 + L2"],
-    "comparator_audit": "lmtp 1.5.4 rejected: cross-fitted IC intervals failed truth coverage",
+    # The sequential regressions both sides run, written as designs rather than in any one
+    # package's formula language.  This carried R ``ltmle``'s ``Q.kplus1`` syntax while being
+    # copied from the ordinary study, which named a comparator this row does not use.
+    "outcome_designs": [["W1", "W2"], ["W1", "W2", "L2"]],
+    # The mechanism is supplied to both implementations rather than estimated by each, which
+    # is what makes the paired verdict a statement about the recursion.  Letting each side
+    # estimate it produced a comparison of two mechanism pipelines: lmtp's SL.glm ratio came
+    # out shrunken, its intervals covered 0.75 to 0.91, and one RMSE bound missed its margin.
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
 }
-
-
-class QuasiBinomialGLM(BaseEstimator):
-    """Small scikit-compatible unpenalized quasibinomial IRLS learner.
-
-    R ``ltmle`` uses ``glm(..., family=quasibinomial())`` for both the binary final
-    outcome and fractional earlier pseudo-outcomes.  Scikit-learn's logistic classifier
-    refuses fractional targets, so the canonical study carries the corresponding score
-    solver rather than silently comparing different regression families.
-    """
-
-    def __init__(self, *, max_iter: int = 100, tol: float = 1e-10) -> None:
-        self.max_iter = max_iter
-        self.tol = tol
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> QuasiBinomialGLM:
-        matrix = np.asarray(X, dtype=float)
-        target = np.asarray(y, dtype=float).reshape(-1)
-        weights = (
-            np.ones_like(target)
-            if sample_weight is None
-            else np.asarray(sample_weight, dtype=float).reshape(-1)
-        )
-        design = np.column_stack([np.ones(len(matrix)), matrix])
-        mean = float(np.average(target, weights=weights))
-        coefficient = np.zeros(design.shape[1], dtype=float)
-        coefficient[0] = math.log(np.clip(mean, 1e-8, 1.0 - 1e-8) / np.clip(1.0 - mean, 1e-8, 1.0))
-        for _ in range(self.max_iter):
-            fitted = expit(design @ coefficient)
-            variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
-            working = design @ coefficient + (target - fitted) / variance
-            root_weight = np.sqrt(weights * variance)
-            updated = np.linalg.lstsq(
-                design * root_weight[:, None], working * root_weight, rcond=None
-            )[0]
-            if np.max(np.abs(updated - coefficient)) <= self.tol:
-                coefficient = updated
-                break
-            coefficient = updated
-        else:
-            raise RuntimeError("quasibinomial IRLS did not converge")
-        self.coef_ = coefficient[1:][None, :]
-        self.intercept_ = coefficient[:1]
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict(self, X: Any) -> np.ndarray:
-        matrix = np.asarray(X, dtype=float)
-        return expit(self.intercept_[0] + matrix @ self.coef_[0])
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        probability = self.predict(X)
-        return np.column_stack([1.0 - probability, probability])
-
-
-class KnownLongitudinalMechanism(BaseEstimator):
-    """The generating treatment or censoring probabilities, keyed by design shape.
-
-    Shared by the end-of-study study here and by the survival study in
-    ``tests.studies.canonical_ltmle_survival``, and reading a column by *position* is safe
-    across the two because of a contract rather than a coincidence.
-    :meth:`~cleverly.longitudinal.LongitudinalData.history_design` builds a mechanism's
-    conditioning set as ``[W, L_1, ..., L_t]`` followed by one block per earlier treatment,
-    plus the current one for a censoring model.  **An outcome node never enters it**, so the
-    survival panel's ``Y1`` cannot shift ``L2`` or ``A1`` out of the position this reads them
-    from, and both panels present ``[W1, W2, L2, A1]`` at the second treatment node and
-    ``[W1, W2, L2, A1, A2]`` at the second censoring node.
-
-    A width this does not recognise raises rather than guessing.  A *reordering* within a
-    width would not, and the guard against that one is the paired comparison: the outcome
-    regression here is a ``glm`` against a law with a ``tanh`` term in it, so a mechanism read
-    off the wrong columns biases this side and the agreement with R breaks loudly.
-    """
-
-    def __init__(self, kind: str) -> None:
-        self.kind = kind
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> KnownLongitudinalMechanism:
-        del X, y, sample_weight
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        matrix = np.asarray(X, dtype=float)
-        if self.kind == "treatment" and matrix.shape[1] == 2:
-            probability = expit(0.3 * matrix[:, 0] - 0.4 * matrix[:, 1])
-        elif self.kind == "treatment" and matrix.shape[1] == 4:
-            probability = expit(0.5 * matrix[:, 2] + 0.6 * matrix[:, 3] - 0.2 * matrix[:, 1])
-        elif self.kind == "censoring" and matrix.shape[1] == 3:
-            probability = expit(2.2 + 0.3 * matrix[:, 0] - 0.3 * matrix[:, 2])
-        elif self.kind == "censoring" and matrix.shape[1] == 5:
-            probability = expit(2.4 + 0.2 * matrix[:, 2])
-        else:  # pragma: no cover - a changed longitudinal design is a study-contract failure
-            raise ValueError(f"unexpected {self.kind} mechanism design {matrix.shape}")
-        return np.column_stack([1.0 - probability, probability])
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -257,8 +175,15 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         reference=REFERENCE,
         outcome_learner=QuasiBinomialGLM(),
         pseudo_learner=QuasiBinomialGLM(),
-        treatment_learner=QuasiBinomialGLM(),
-        censoring_learner=QuasiBinomialGLM(),
+        # The law's own mechanism, given to both implementations.  R ``lmtp`` receives the
+        # same probabilities as exact per-node density ratios, because it has no ``gform``
+        # equivalent to be handed them through.  This is the ordinary rows' principle: a
+        # paired comparison that also estimates the mechanism two different ways measures
+        # two unrelated pipelines rather than the recursion it exists to compare.  The
+        # sequential regressions stay misspecified on both sides, so targeting still has
+        # work to do.
+        treatment_learner=KnownLongitudinalMechanism("treatment"),
+        censoring_learner=KnownLongitudinalMechanism("censoring"),
         n_folds=5,
         learner_folds=2,
         g_bounds=G_BOUNDS,
@@ -274,48 +199,6 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         time_varying=[[], ["L2"]],
         censoring=["C1", "C2"],
     )
-
-
-def untargeted(frame: pd.DataFrame, label: str) -> float:
-    r"""The sequential-regression plug-in for one plan on the comparison law, unfluctuated.
-
-    The same two follower-stratified quasibinomial regressions both implementations run --
-    ``Q.kplus1 ~ W1 + W2 + L2`` at the outcome node and ``Q.kplus1 ~ W1 + W2`` at the earlier
-    one -- carried back and averaged, with the update in between left out.
-
-    It exists because of what the paired comparison can and cannot see.  ``initial_estimate``
-    is the earlier node's regression of the *already targeted* later node, in R
-    (``fit$Q[[1]]`` regresses the updated ``Q.kplus1``) as much as here, so the published
-    displacement measures the final fluctuation and not the whole targeting step.  This is the
-    whole of it, which is what ``tests/e2e/test_ltmle_targeting_slow.py`` needs to state how
-    much of the agreement between the two implementations the fluctuation is responsible for.
-    """
-    plan = REGIMENS[label]
-    baseline = frame[["W1", "W2"]].to_numpy(dtype=float)
-    l2 = np.nan_to_num(frame["L2"].to_numpy(dtype=float))
-    history = np.column_stack([baseline, l2])
-    if np.ndim(plan) == 0:
-        first = second = np.full(len(frame), float(plan))
-    else:
-        first = np.full(len(frame), float(plan[0]))
-        second = np.asarray(plan[1]({"L2": l2}), dtype=float)
-    followed_one = (frame["C1"].to_numpy() == 1.0) & (frame["A1"].to_numpy() == first)
-    followed_two = (
-        followed_one & (frame["C2"].to_numpy() == 1.0) & (frame["A2"].to_numpy() == second)
-    )
-    later = QuasiBinomialGLM().fit(history[followed_two], frame["Y"].to_numpy()[followed_two])
-    carried = later.predict(history)
-    earlier = QuasiBinomialGLM().fit(baseline[followed_one], carried[followed_one])
-    return float(np.mean(earlier.predict(baseline)))
-
-
-def untargeted_estimands(frame: pd.DataFrame) -> dict[str, float]:
-    """:func:`untargeted` for every reported estimand, contrasts included."""
-    means = {f"ey_regimen[{label}]": untargeted(frame, label) for label in REGIMENS}
-    for name in CONTRAST_NAMES:
-        left, right = name[len("ate_regimen[") : -1].split(" vs ")
-        means[name] = means[f"ey_regimen[{left}]"] - means[f"ey_regimen[{right}]"]
-    return means
 
 
 def _initials(result: Any) -> dict[str, float]:

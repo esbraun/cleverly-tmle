@@ -24,7 +24,6 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies import cvtmle_properties
 from tests.studies.evidence import descriptions, property_verdicts
 from tests.studies.evidence.claims import (
     describe,
@@ -87,8 +86,12 @@ class TestArtifacts:
         }
         for name, digest in manifest["sha256"].items():
             assert hashlib.sha256(study.artifact(name).read_bytes()).hexdigest() == digest
+        # Reference sources are keyed from the repository root rather than from the study
+        # directory, because two studies may share one Docker context and one adapter.
         for name, digest in manifest["reference_sha256"].items():
-            assert hashlib.sha256(study.artifact(name).read_bytes()).hexdigest() == digest
+            source = ROOT / name
+            assert source.exists(), f"{name} is hashed by the manifest but is gone"
+            assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
         configuration = manifest["configuration"]
         assert configuration["replicates"] == study.replicates
         assert configuration["n"] == study.n
@@ -208,12 +211,29 @@ class TestPublishedVerdicts:
         ), "the published verdict is not the two claims the document makes"
 
     def test_the_reference_is_reported_on_its_own_terms(self, study: StudyRecord) -> None:
-        """A reference that degrades is a reference finding, not a subject failure."""
+        """A reference that degrades is a reference finding, not a subject failure.
+
+        The subject is required to be valid either way.  The reference is required to be
+        valid unless the study declared in advance that it is not, which is the whole content
+        of ``accepted_reference_failure``: a comparator can be worth comparing against on
+        agreement and non-inferiority while failing its own truth gates, and the alternative
+        the framework offered was deleting it.  The declaration is checked against the rows,
+        so a study cannot carry a reason for a failure it no longer has.
+        """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
-        assert published["reference_valid"].all(), published.loc[~published["reference_valid"]]
         assert published["subject_valid"].all(), published.loc[~published["subject_valid"]]
+        if not study.accepted_reference_failure:
+            assert published["reference_valid"].all(), published.loc[~published["reference_valid"]]
+            return
+        assert not published["reference_valid"].all(), (
+            f"{study.slug} declares an accepted reference failure but every reference row "
+            f"is valid; the declaration is stale"
+        )
+        assert published["passed"].all(), (
+            "an accepted reference failure must not relax the subject's own paired verdict"
+        )
 
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
@@ -395,10 +415,10 @@ class TestPublishedVerdicts:
         margins = study.margins
         for row in overfitting.itertuples():
             if row.role == "control":
-                expected = row.se_ratio_ci_upper <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
+                expected = row.se_ratio_ci_upper <= property_verdicts.OVERFIT_SE_CONTROL_CEILING
             else:
                 expected = (
-                    row.se_ratio_ci_lower >= cvtmle_properties.OVERFIT_SE_FLOOR
+                    row.se_ratio_ci_lower >= property_verdicts.OVERFIT_SE_FLOOR
                     and row.se_ratio_ci_upper <= margins.se_ratio_sanity[1]
                 )
             assert bool(row.passed) is bool(expected), (
@@ -409,7 +429,7 @@ class TestPublishedVerdicts:
         assert bool(overfitting["property_passed"].iloc[0]) is bool(
             overfitting["passed"].all()
             and overfitting["coverage_gain_ci_lower"].iloc[0]
-            >= cvtmle_properties.OVERFIT_COVERAGE_GAIN
+            >= property_verdicts.OVERFIT_COVERAGE_GAIN
         )
 
 
@@ -1140,10 +1160,10 @@ class TestTheQuantityVocabulary:
             property_verdicts.ROOT_N_SLOPE - property_verdicts.ROOT_N_SLOPE_MARGIN
         )
         if "crossfit_overfitting" in study.property_cells:
-            assert declared["margin:overfit_se_floor"] == cvtmle_properties.OVERFIT_SE_FLOOR
+            assert declared["margin:overfit_se_floor"] == property_verdicts.OVERFIT_SE_FLOOR
             assert (
                 declared["margin:overfit_control_ceiling"]
-                == cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
+                == property_verdicts.OVERFIT_SE_CONTROL_CEILING
             )
         if "generated_design" in study.property_cells:
             assert (
