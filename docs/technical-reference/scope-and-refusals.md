@@ -30,13 +30,13 @@ rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [doubly-robust inference](../user-guide.md#doubly-robust-inference) |
-| the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](../user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
-| `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](../user-guide.md#tilting-the-odds-of-treatment) |
-| the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](../user-guide.md#treatment-given-over-time) |
+| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
+| the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
+| `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
+| the targeted bootstrap and `res.sensitivity` for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics) |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
-| blocked-temporal and rolling-origin splits | [cross-fitting](../user-guide.md#cross-fitting-and-cv-tmle) |
-| replicate weights (BRR, jackknife) | [observation weights](../user-guide.md#observation-weights-and-which-population-they-define). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
+| blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
+| replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 
 Which multi-arm surfaces are covered, and which four are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
@@ -119,7 +119,7 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | surface | status | why |
 | --- | --- | --- |
 | `TMLE`: `ey` per arm, `ate` / `att` / `atc` per non-reference arm, regimes, MSMs over arms | supported | one counterfactual mean per arm and one contrast per non-reference arm. The [oracle-law gate](validation-methods.md#the-oracle-law-gate) states that a target meant for more than two arms needs a branch on the three-armed law |
-| `DRTMLE`: univariate and bivariate reductions | supported | [armwise one-vs-rest](dr-tmle.md#variations), with each reduction and correction indexed by a free level. The cited theorem is binary, so this is an implementation-backed armwise extension rather than a claim about that theorem's literal scope |
+| `DRTMLE`: univariate and bivariate reductions | supported | [armwise one-vs-rest](dr-tmle/index.md#variations), with each reduction and correction indexed by a free level. The cited theorem is binary, so this is an implementation-backed armwise extension rather than a claim about that theorem's literal scope |
 | `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism, selected against one nonredundant vector. See the [standing decision](../architecture-invariants.md#targets-interventions-and-variants) |
 | `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](longitudinal-tmle.md#the-algorithm-as-implemented). Each node owns its level set, and the clever covariate selects the assigned label's probability |
 | positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast, and each reads its arms from the parameter's structured index rather than assuming two |

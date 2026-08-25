@@ -16,9 +16,10 @@ estimator reaches this yet"*, which was true for one commit and has not been sin
 **These three are the only nuisances a learner fits in the validation study**, whose two
 primaries are injected analytic sequences -- and their consistency is the theorem premise
 that study did not establish.  ``reduced_outcome_learner=`` and
-``reduced_treatment_learner=`` are therefore not a tuning detail: ``docs/drtmle.md``,
-*What the nuisances must satisfy*, states the conditions they have to meet, and *What the
-validation programme established* records that the reference study for the reduced
+``reduced_treatment_learner=`` are therefore not a tuning detail.  Under
+``docs/technical-reference/dr-tmle/``, ``nuisance-conditions.md`` states the conditions
+they have to meet, and ``validation-programme.md`` records that the reference study for
+the reduced
 regressions did not establish them.
 
 Written in this package's notation, with :math:`1_a = 1\{A = a\}` and both reduced
@@ -521,7 +522,7 @@ def fit_reduced(
     and not free for anything choosing a split point from the data.  That is why ``crossfit``
     exists: :math:`\Delta_k` *is* the pooled-minus-nested difference, so the open condition
     of the argument is the quantity the reference construction computes.
-    ``docs/drtmle.md``'s *Reduced-regression cross-fitting* is the argument in full, with
+    ``docs/technical-reference/dr-tmle/targeting.md`` carries the argument in full, with
     both of its conditions and which learners meet them.
 
     **On the univariate construction, one bound is chosen here rather than at targeting

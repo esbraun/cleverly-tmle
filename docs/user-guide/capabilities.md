@@ -31,7 +31,15 @@ decompositions, transport, direct Riesz learning, and EP learning are proposals 
 current scope. The [roadmap](../roadmap.md) states the evidence required before a proposed method
 can become a release claim.
 
-## Migration
+## Extending the package
 
-The clean alpha API removed old one-call constructors. Use the [migration guide](../migration.md)
-for the complete argument map and the static audit tool.
+The public protocols are `Estimand`, `IdentificationProvider`, `EstimationMethod`, and
+`CausalResult`.
+
+- A custom provider returns an `IdentifiedEffect` only when it can name the observed-data
+  functional and its assumptions.
+- A custom method declares which functionals it supports and returns a result with stable
+  parameter keys.
+- A new registered analytic target needs the oracle, Gateaux, remainder, and mutation evidence
+  that the [evidence manifest](../technical-reference/evidence.md) describes. A typed wrapper
+  certifies nothing.

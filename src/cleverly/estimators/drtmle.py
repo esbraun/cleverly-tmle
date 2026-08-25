@@ -10,7 +10,8 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    caller obtaining
    adequate primary *and reduced-regression* fits.  Those are method-specific rate conditions on
    estimated functions; they are not verifiable from a fit's own output, and in particular
-   **numerical score convergence does not verify them**.  ``docs/drtmle.md`` is the contract
+   **numerical score convergence does not verify them**.  The contract is under
+   ``docs/technical-reference/dr-tmle/``
    in full; three things a caller's numbers depend on are here.
 
    1. **Solved score equations validate targeting, not nuisance adequacy**, and this is the
@@ -237,8 +238,9 @@ class DRTMLE(TMLE):
     consistently estimated.
 
     **Read the module docstring's warning before using this in anger**, and
-    ``docs/drtmle.md`` for the contract in full.  The curve it reports was transcribed from
-    the R package rather than derived -- that is its *provenance*, and its *evidence* is that
+    ``docs/technical-reference/dr-tmle/`` carries the contract in full.  The curve it
+    reports was transcribed from the R package rather than derived -- that is its
+    *provenance*, and its *evidence* is that
     it has since been checked against Theorem 1's appendices and against the Gateaux
     derivative of the parameter, and agrees with both.  The registered canonical DR-TMLE study
     separately compares its binary complete-data numbers with the pinned R package under the
@@ -290,7 +292,7 @@ class DRTMLE(TMLE):
         document asserts.  Both share the stopping rule, the stall test and the closing
         pass, deliberately: what is in question is the route.
 
-        Two cautions carry over from ``docs/drtmle.md``'s *The update order*.
+        Two cautions carry over from ``docs/technical-reference/dr-tmle/targeting.md``.
         Compare the **scores and the estimates**,
         never the fluctuation coefficients: the submodels a round passes through differ, so
         an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at

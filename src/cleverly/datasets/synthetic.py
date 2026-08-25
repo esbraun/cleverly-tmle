@@ -1415,7 +1415,7 @@ def multi_arm_dgp(
 
     The binary law exists because the risk ratio, the odds ratio and the E-value built on
     them need a binomial outcome, and there was otherwise no multi-arm law to ask them of
-    -- which is how ``docs/user-guide.md`` came to show ``evalue("rr[medium vs low]")``
+    -- which is how the user guide came to show ``evalue("rr[medium vs low]")``
     against a gaussian fit.
     """
     if family not in {"gaussian", "binomial"}:

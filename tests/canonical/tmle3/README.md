@@ -8,7 +8,7 @@ evidence, not the derivation or the scientific oracle.
 
 The study is declared in `tests/studies/canonical_tmle.py`; everything that turns its rows into
 summaries and verdicts is the shared machinery in `tests/studies/evidence/`. The reader-facing
-account is [`docs/technical-reference/method-evidence.md`](../../../docs/technical-reference/method-evidence.md).
+account is [`docs/technical-reference/method-evidence/canonical-point-treatment-tmle.md`](../../../docs/technical-reference/method-evidence/canonical-point-treatment-tmle.md).
 
 The R runner uses the public `tmle3` specifications directly except for ATT and ATC. Those
 two estimands use the constrained, one-dimensional updater exercised by the pinned

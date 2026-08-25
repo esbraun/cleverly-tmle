@@ -15,10 +15,10 @@ How to read a *pass* is also important. The trap that survives a green suite is:
 > where a parity check is blind too. At correct nuisances `Q_r` and `g_{r,2}` are zero row
 > by row, so every `test_influence_gateaux*` module passes against a flipped sign.
 
-A row whose only evidence is a Gateaux comparison is therefore *not* the same claim as a
-row that also carries a remainder rate and an exact identity, and a reader deciding how far
-to trust a number should be able to see which they are looking at without opening five test
-modules. That is the whole of what this table is.
+A row whose only evidence is a Gateaux comparison is therefore *not* the same claim as a row
+that also carries a remainder rate and an exact identity. A reader deciding how far to trust a
+number should be able to see which row they are looking at, without opening five test modules.
+That is the whole of what this table is.
 
 **It is a gate, not a note.** `tests/unit/test_registry.py::TestEvidenceManifest` checks it
 in both directions against `TARGETS`, and checks that every module named here exists. The part
@@ -71,8 +71,8 @@ the complementary question. Apply a complete estimator to samples from a known l
 bias and uncertainty behave as its source theory predicts?
 
 Those studies are summarised in the
-[implementation validation grid](index.md#implementation-validation-grid). Their test-by-test
-results are the [implementation validation studies](method-evidence.md). The two halves are
+[implementation validation grid](method-evidence/validation-grid.md). Their test-by-test
+results are the [implementation validation studies](method-evidence/index.md). The two halves are
 different instruments and neither one substitutes for the other.
 
 ## Estimator variants over registered targets
@@ -84,9 +84,10 @@ existing C-TMLE and DR-TMLE suites, which continue down their original branches.
 
 Complete-outcome cross-validated DR-TMLE is a construction over the same targets, not a registry
 addition. Its source audit maps the pinned R `cvFolds` path to
-`cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled",
-cv_evaluation=False`: primary and reduced predictions are out of fold, followed by one global
-alternation, a whole-sample plug-in mean, and `cov(IC) / n` from the rowwise corrected curve.
+`cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled", cv_evaluation=False`.
+Primary and reduced predictions are out of fold. One global alternation follows, then a
+whole-sample plug-in mean, then `cov(IC) / n` from the rowwise corrected curve.
+
 `tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
 on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
 variance are nonzero mutations there. The same module's training-row and longhand cell-mean tests
@@ -108,11 +109,12 @@ historical `ill_conditioned` counter is positive despite a passing final score c
 The bivariate alternative is also a construction over these targets. Its acceptance chain
 starts at van der Laan (2014), Theorem 3 and the bivariate remainder, then separately pins the
 pinned R source's two-column reduced probability and `(gr-g)/(g*gr)` outcome direction.
-`tests/unit/test_reduced_regressions.py` uses a finite-support joint-conditioning tie that fails if
-either generated design column is replaced by `W`; `tests/unit/test_reduced_submodel.py` keeps a
-nonzero deliberate mutation omitting `1/g`; and `tests/unit/test_oracle_reductions.py` injects the
-exact bivariate conditional expectations with both primary nuisances wrong, recovers `ey1`, `ey0`,
-and `ate`, and requires every score/correction identity to pass. The production cross-fitted fit
+Three modules carry it. `tests/unit/test_reduced_regressions.py` uses a finite-support
+joint-conditioning tie that fails if either generated design column is replaced by `W`.
+`tests/unit/test_reduced_submodel.py` keeps a nonzero deliberate mutation omitting `1/g`.
+`tests/unit/test_oracle_reductions.py` injects the exact bivariate conditional expectations with
+both primary nuisances wrong, recovers `ey1`, `ey0`, and `ate`, and requires every score and
+correction identity to pass. The production cross-fitted fit
 and serialization round trip are pinned in `tests/unit/test_drtmle_fit.py`. `gr2` is `NaN` on this
 path by design, so accidental use of the absent univariate-only regression cannot silently return
 zero. For multiple treatment levels, the pinned R source applies those same branches once per
@@ -143,13 +145,14 @@ probabilities is a plain TMLE and is accepted as one; `_FailIfFit` is the witnes
 supplied array reaches the fit rather than the refusal merely being gone.
 
 **Bounding the two mechanisms separately is what the scope label had to learn.** `contract`
-measured its truncation witnesses on the treatment mechanism alone, which is blind in exactly
-the regime this construction is for: a randomized trial's `g` is flat by design and cannot clip,
-so a fit whose `P(Delta=1|A,W)` was pinned on a fifth of its rows was certified `"theorem"`.
-`TestTheContractSeesTheObservationTruncations` is a pair of fits. One is well-behaved. The
-second has its observation mechanism pinched while its treatment mechanism demonstrably is not,
-and is asserted to leave every pre-existing column inactive, so a bound-active verdict there
-cannot come from anything but the two new witnesses. The same fixture carries the positivity
+measured its truncation witnesses on the treatment mechanism alone. That is blind in exactly the
+regime this construction is for. A randomized trial's `g` is flat by design and cannot clip, so a
+fit whose `P(Delta=1|A,W)` was pinned on a fifth of its rows was certified `"theorem"`.
+`TestTheContractSeesTheObservationTruncations` is now a pair of fits.
+
+One is well-behaved. The second has its observation mechanism pinched while its treatment
+mechanism demonstrably is not. It is asserted to leave every pre-existing column inactive, so a
+bound-active verdict there can come only from the two new witnesses. The same fixture carries the positivity
 report's derived `P(A=a,Delta=1|W)` row, which counted its truncation against a product of floors
 the estimator never applies: 1.1% reported against 20.1% actual, with the old rule kept beside it
 as the control.
@@ -232,11 +235,11 @@ counterfactual means were unchanged. The longitudinal generator failed it twice,
 shared effect also tilted the outcome on the logit scale, where
 `E_S[expit(eta + gamma S)] != expit(eta)` moves the means whatever the mechanism does.
 
-Both now put the sharing where it does not confound and assert it: `clustered_dgp` makes the
-latent an **effect modifier** independent of treatment, and the longitudinal generators share
-part of `L2`'s own noise, whose conditional law is preserved exactly so a clustered draw's
-`truth` is the *same number* as an unclustered one's (`tests/unit/test_datasets.py`,
-`tests/unit/test_datasets_longitudinal.py`).
+Both now put the sharing where it does not confound, and both assert it. `clustered_dgp` makes
+the latent an **effect modifier** independent of treatment. The longitudinal generators share part
+of `L2`'s own noise, and preserve its conditional law exactly, so a clustered draw's `truth` is the
+*same number* as an unclustered one's. See `tests/unit/test_datasets.py` and
+`tests/unit/test_datasets_longitudinal.py`.
 
 The second half is the part that is easy to lose. Removing the confounding *also removes the
 clustering*, because a shared additive residual reaches the influence curve only through

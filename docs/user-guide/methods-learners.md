@@ -109,7 +109,12 @@ candidate, before an estimator variant multiplies it again. The examples in this
 `n_folds=5, learner_folds=3` to stay quick to run, which is not a recommendation for an analysis.
 
 Keep all rows from one declared cluster in the same fold. Cross-fitting reduces empirical-process
-bias; it does not establish positivity, correct identification, or nuisance consistency.
+bias. It does not establish positivity, correct identification, or nuisance consistency.
+
+Two fold schemes are refused by name, for two different reasons. A blocked temporal split needs a
+row-level time ordering that no design role carries. A rolling-origin split nests its training
+sets, so no single fold holds out each row, and `Folds` stores exactly one fold per row. The
+rolling-origin refusal would survive a time index; it asks for a different storage contract.
 
 ## Targeting and bounds
 
@@ -118,4 +123,5 @@ finite-sample estimating procedure and should be reported with support diagnosti
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting
-rather than being ignored.
+rather than being ignored. A longitudinal fit refuses a point-only control such as `n_bootstrap=`
+instead of accepting it and discarding it.

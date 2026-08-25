@@ -1,14 +1,17 @@
-# Testing strategy
+# Test tiers and gates
 
 This page explains how the test tiers divide the work, and how to decide which one a change has to
 satisfy. `README.md` gives the commands. This page gives the design behind them.
+
+Benchmarking is a separate subject. Read
+[method benchmarking strategy](method-benchmarking.md) to design and register a validation study.
 
 ## The tiers
 
 | tier | command | what it gates |
 | --- | --- | --- |
 | fast | `pytest -m "not slow" -q` | every unit, integration and end-to-end test, plus the documentation gates. This is the default handoff gate |
-| registered validation studies | part of the fast tier | the committed results of each [implementation validation study](../technical-reference/index.md#implementation-validation-grid). The fast tests recompute every verdict from the artifacts, so the statistical evidence is checked in minutes rather than hours |
+| registered validation studies | part of the fast tier | the committed results of each [implementation validation study](../technical-reference/method-evidence/validation-grid.md). The fast tests recompute every verdict from the artifacts, so the statistical evidence is checked in minutes rather than hours |
 | evidence re-execution | `pytest -m slow -q` | re-runs each registered study's property cells from scratch, refits committed replications, and recomputes every resampling bound at the full bootstrap budget. Run it when artifacts are rebuilt |
 
 **The registered studies are becoming the primary statistical evidence.** A registered study runs

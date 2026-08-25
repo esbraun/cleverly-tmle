@@ -322,9 +322,9 @@ learner reproduces a held-out row exactly if and only if a same-cluster row was 
 The assertions are array equality and array inequality, so leakage is not a matter of degree.
 
 The evidence rows are
-[stacked point-treatment CV-TMLE](../technical-reference/method-evidence.md#stacked-point-treatment-cv-tmle)
+[stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md)
 and
-[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence.md#fold-evaluated-point-treatment-cv-tmle).
+[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md).
 The second has no canonical comparator, and its study says so in its own cell rather than borrowing
 a surrogate.
 

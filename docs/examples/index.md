@@ -5,8 +5,8 @@ to adults who leave participating hospitals for home. Each page studies one deci
 program with one method.
 
 There is one tutorial for each method entry in the
-[technical reference](../technical-reference/index.md). Two more tutorials cover intervention
-policies and survey non-response.
+[technical reference](../technical-reference/index.md). Three more cover sections inside an entry:
+intervention policies, survey non-response, and longitudinal event outcomes.
 
 ## Read this first
 
@@ -47,10 +47,11 @@ them can weaken consistency or no interference.
 | [Point-treatment TMLE](point-treatment-tmle.md) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one wrong nuisance is survivable, and two are not |
 | [CV-TMLE](cross-fitting.md) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | an in-sample interval and an undeclared team are each too narrow |
 | [Collaborative TMLE](collaborative-tmle.md) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery predicts assignment and confounds nothing |
-| [DR-TMLE](dr-tmle.md) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle.md) | nuisance misspecification is not unmeasured confounding |
+| [DR-TMLE](dr-tmle.md) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle/index.md) | nuisance misspecification is not unmeasured confounding |
 | [Intervention axes](interventions.md) | target by risk, add navigation hours, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | three policies define three estimands whose result tables look alike |
 | [Survey non-response](survey-nonresponse.md) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | respondent selection does not define a common causal population |
-| [Longitudinal TMLE](longitudinal-tmle.md) | navigation at discharge and day seven, followed by plan exits | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
+| [Longitudinal TMLE](longitudinal-tmle.md) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
+| [Retention and competing risks](longitudinal-survival.md) | plan exit as the outcome, split by whether the program can move it | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | a fit cannot remove a competing cause the program cannot intervene on |
 | [MSM projections](msm-projections.md) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a working model that does not fit still defines the parameter it reports |
 
 Every page states an applied question, builds a synthetic population, declares the design and
@@ -63,7 +64,7 @@ from causal assumptions that data cannot verify.
 | --- | --- | --- |
 | transition experience | a 30-day patient-reported score | most point-treatment pages and the survey non-response tutorial |
 | unresolved transition issues | medication, appointment, or equipment problems that remain open | the time-varying confounder in longitudinal TMLE |
-| health plan exit | voluntary plan switching or administrative eligibility loss | the survival and competing-risk sections of longitudinal TMLE |
+| health plan exit | voluntary plan switching or administrative eligibility loss | [retention and competing risks](longitudinal-survival.md) |
 
 ## Real data
 
@@ -86,6 +87,7 @@ dr-tmle
 interventions
 survey-nonresponse
 longitudinal-tmle
+longitudinal-survival
 msm-projections
 twins-causal-inference
 ```

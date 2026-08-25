@@ -383,9 +383,9 @@ recovers the truth, and its interval means what it says.
 
 Forty replications is a demonstration rather than evidence. The registered study behind this method
 runs 1,600 replications on two laws. It is published test by test in the
-[implementation validation grid](../technical-reference/index.md#implementation-validation-grid) and
+[implementation validation grid](../technical-reference/method-evidence/validation-grid.md) and
 in
-[canonical point-treatment TMLE](../technical-reference/method-evidence.md#canonical-point-treatment-tmle).
+[canonical point-treatment TMLE](../technical-reference/method-evidence/canonical-point-treatment-tmle.md).
 
 ### What each layer can and cannot establish
 
@@ -434,4 +434,5 @@ dependency versions compatible.
 | a rule, a dose change, or an odds tilt instead of "offer to everyone" | [intervention axes](interventions.md) |
 | most patients never returned the survey | [survey non-response](survey-nonresponse.md) |
 | navigation at more than one decision time | [longitudinal TMLE](longitudinal-tmle.md) |
+| leaving the plan is the outcome, and one cause is administrative | [retention and competing risks](longitudinal-survival.md) |
 | three navigation cadences summarized as a trend | [MSM projections](msm-projections.md) |

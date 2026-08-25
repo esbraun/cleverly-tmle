@@ -4,7 +4,7 @@ Method benchmarking has two complementary parts: bounded comparisons with an ext
 implementation and independent statistical studies against properties implied by the derivation.
 Neither replaces the package's exact-law, Gateaux, remainder, identity, and deliberate-mutation
 checks. Use this strategy when adding or changing a method-level row in the
-[implementation validation grid](../technical-reference/index.md#implementation-validation-grid).
+[implementation validation grid](../technical-reference/method-evidence/validation-grid.md).
 
 ## Begin with the scientific claim
 

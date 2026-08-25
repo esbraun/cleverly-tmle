@@ -176,6 +176,7 @@ PRELUDES: dict[str, str] = {
     "docs/examples/interventions.md": "",
     "docs/examples/survey-nonresponse.md": "",
     "docs/examples/longitudinal-tmle.md": "",
+    "docs/examples/longitudinal-survival.md": "",
     "docs/examples/msm-projections.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
@@ -192,18 +193,11 @@ PRELUDES: dict[str, str] = {
 #: and several show an API on purpose that no longer exists.
 REACHED = ("docs/examples", "docs/getting-started", "docs/user-guide", "docs/workflow.md")
 
-#: Declared, not silent.  ``docs/user-guide.md`` is the legacy recipe compendium that the site
-#: routes into the user guide.  It is one worked recipe per capability and would need a prelude
-#: per section.  The TWINS notebook downloads a pinned external dataset and deliberately runs the
-#: estimator comparison at publication time; Sphinx renders its stored outputs with execution
-#: disabled.  Both are left out rather than half-covered, and both remain explicit gaps in this
-#: smoke module rather than properties of the documents.
-EXCLUDED = frozenset(
-    {
-        "docs/examples/twins-causal-inference.ipynb",
-        "docs/user-guide.md",
-    }
-)
+#: Declared, not silent.  The TWINS notebook downloads a pinned external dataset and deliberately
+#: runs the estimator comparison at publication time; Sphinx renders its stored outputs with
+#: execution disabled.  It is left out rather than half-covered, and remains an explicit gap in
+#: this smoke module rather than a property of the document.
+EXCLUDED = frozenset({"docs/examples/twins-causal-inference.ipynb"})
 
 TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
 

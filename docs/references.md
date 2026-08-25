@@ -10,7 +10,7 @@ it, it carries a section or page number as well; those are the citations worth c
 are the ones that have them.
 
 **Nothing here is stored in the repository.** Two PDFs were, and were deleted once everything they
-were cited for had been transcribed into [the DR-TMLE contract](drtmle.md). That is why the two
+were cited for had been transcribed into [the DR-TMLE contract](technical-reference/dr-tmle/index.md). That is why the two
 `DRTMLE` sources below carry page numbers where the rest carry none. A path to a file only a
 previous reader had is not a citation; a page number is.
 
@@ -198,8 +198,13 @@ previous reader had is not a citation; a page number is.
 ## Doubly-robust inference (`DRTMLE`)
 
 The variant rests on three sources. The first two give the estimating equations. The third gives
-the implementation for the influence curve. What each supplies, and where in it, is
-[the contract's source table](drtmle.md#the-sources).
+the implementation for the influence curve. The papers are not kept in the repository, so each
+entry below gives section, equation, theorem, or page locators that resolve without a local copy.
+
+Two names are inverted between the papers and the `benkeser/drtmle` source. This package's
+`ReducedSet.gr1` is R's `grn2`, and `gr2` is R's `grn1`. That is the single easiest thing here to
+transcribe backwards. No R enters this repository or its CI, so the pinned source is provenance
+rather than a comparison target.
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
   inference*, International Journal of Biostatistics 10(1):29–57. **Theorem 3** is the bivariate

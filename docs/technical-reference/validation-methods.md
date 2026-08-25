@@ -345,17 +345,16 @@ bias and its uncertainty behave as its source theory predicts?
 
 The design rules are in
 [method benchmarking strategy](../development/method-benchmarking.md). The grid is in
-[the technical reference index](index.md#implementation-validation-grid). The test-by-test results
-are in [the implementation validation studies](method-evidence.md).
+[the technical reference index](method-evidence/validation-grid.md). The test-by-test results
+are in [the implementation validation studies](method-evidence/index.md).
 
 Three properties of the harness are worth stating here, because they are what make a green study
 mean something.
 
 - **A verdict is bounded by a margin declared before the run.** No rule tests whether a discrepancy
-  is exactly zero. A significance test converges on rejecting any estimator whose finite-sample
-  remainder is not identically zero, which is every estimator, so the study would eventually go red
-  for the one reason that is not a defect. `tests/unit/test_evidence_framework.py` holds both kinds
-  of rule side by side and asserts which way each one moves as replications grow.
+  is exactly zero.
+  [The verdict rules](method-evidence/how-to-read.md#the-verdict-rules) give the argument and list
+  every rule with its own control.
 - **Every positive claim carries a control that must fail.** Double robustness carries a
   both-wrong-nuisance control. A type-I error cell carries a power cell, so an inert test cannot
   pass by never firing. An interval-calibration cell carries deliberately invalid inference.

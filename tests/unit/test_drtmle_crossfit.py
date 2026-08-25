@@ -1,7 +1,8 @@
 r"""The public ``reduced_crossfit`` contract: where each construction trains, and what moves.
 
 ``DRTMLE(reduced_crossfit=...)`` takes ``"pooled"`` (the default) or ``"nested"``, and
-``docs/drtmle.md``'s *Reduced-regression cross-fitting* is the argument the pair exists for.
+``docs/technical-reference/dr-tmle/targeting.md``'s
+*Reduced-regression cross-fitting* is the argument the pair exists for.
 The short version: the cross-fitting argument for the cheap construction splits into a term
 the ordinary lemma reaches and a term it does not, and what is left over is
 :math:`\Delta_k` -- the difference between fold ``k``'s reduced regression as fitted and the

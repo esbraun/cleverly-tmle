@@ -11,8 +11,8 @@ substitute for it, since that is the quantity targeting drove to zero and it ans
 different question.  :math:`P_0\hat D` needs the curve as a *function* of :math:`(W, A, Y)`,
 and an array of out-of-fold predictions defines one nowhere.  ``DRTMLE(evaluation=...)``
 supplies it, and this module is what says the thing it supplies is the fit's own state
-rather than something that resembles it.  ``docs/drtmle.md``'s *The remainder terms, and the
-rate conditions* is what the quantity is for.
+rather than something that resembles it.  ``docs/technical-reference/dr-tmle/theorem.md``'s
+*The remainder terms, and the rate conditions* is what the quantity is for.
 
 **Two claims, and they fail against different mutations.**
 

@@ -234,9 +234,8 @@ def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> No
         reason = _REFUSED.get(name)
         if reason is None:
             raise TypeError(
-                f"{where} got an unexpected keyword argument {name!r}; see the "
-                "'Treatment given over time' section of docs/user-guide.md for what a "
-                "longitudinal fit supports"
+                f"{where} got an unexpected keyword argument {name!r}; see "
+                "docs/user-guide/longitudinal.md for what a longitudinal fit supports"
             )
         raise TypeError(f"{name}= is not supported by a longitudinal fit: {reason}")
 

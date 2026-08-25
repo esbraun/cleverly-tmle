@@ -275,7 +275,7 @@ class TestAFitWithOracleReductionsRecoversTheTruth:
 
     The residual ``3.6e-08`` is not slack in the claim, it is
     Equation (9) is never solved exactly because its covariate reads the very mechanism it
-    tilts, a documented [property of the alternation](../../docs/drtmle.md#the-alternation).  The
+    tilts, a documented [property of the alternation](../../docs/technical-reference/dr-tmle/targeting.md#the-alternation).  The
     control below is what says so -- under ``guard=("g",)`` there is no mechanism equation and
     the recovery is exact to the bit.
     """

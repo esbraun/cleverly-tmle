@@ -1,8 +1,8 @@
 # Roadmap
 
-This is the single planning contract for `cleverly`. It contains proposed work only: implemented
-capabilities belong in the [user guide](user-guide.md), scientific contracts in the
-[technical reference](technical-reference/index.md) and [DR-TMLE contract](drtmle.md), validation results in
+This is the single planning contract for `cleverly`. It contains proposed work only. Implemented
+capabilities belong in the [user guide](user-guide/index.md), scientific contracts in the
+[technical reference](technical-reference/index.md) and [DR-TMLE contract](technical-reference/dr-tmle/index.md), validation results in
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
 
@@ -99,22 +99,19 @@ manifest, fixture, and diagnostic names the storage direction.
 
 #### Contracts and public surface
 
-Introduce immutable advanced contracts under a Riesz namespace:
+Introduce immutable advanced contracts under a Riesz namespace.
 
-- `FunctionalStage` declares the regression, plug-in map, representer problem, intervention
-  evaluation, residual source, identification metadata, targeting map, stage name, and history;
-- `NestedFunctional` carries ordered stages, evidence ID, output shape, parameter key, and causal
-  metadata; custom statistical functionals may use it, but causal prose and intervals require a
-  registered evidence ID and complete influence construction;
-- `AnalyticRepresenter`, `DirectRiesz`, `ProvidedRepresenter`, and internal
-  `ComposedRepresenter` implement mechanism-derived, directly learned, externally supplied, and
-  cumulative stagewise representers;
-- fitted stage artifacts retain observed and intervention regression predictions, `alpha`,
-  `alpha_star`, component and cumulative products, residual sources, masks, folds, targeting
-  coefficients, losses, balance diagnostics, row identity, and training provenance; and
-- `RieszTMLEMethod` returns a scalar `RieszResult` satisfying `CausalResult` and the shared
-  inference, contrast, identification, assessment, persistence, and provenance protocols without
-  fabricating propensity objects for direct fits.
+| contract | what it declares |
+| --- | --- |
+| `FunctionalStage` | the regression, plug-in map, representer problem, intervention evaluation, residual source, identification metadata, targeting map, stage name, and history |
+| `NestedFunctional` | ordered stages, evidence ID, output shape, parameter key, and causal metadata |
+| `AnalyticRepresenter`, `DirectRiesz`, `ProvidedRepresenter`, internal `ComposedRepresenter` | the mechanism-derived, directly learned, externally supplied, and cumulative stagewise representers |
+| fitted stage artifacts | observed and intervention regression predictions, `alpha`, `alpha_star`, component and cumulative products, residual sources, masks, folds, targeting coefficients, losses, balance diagnostics, row identity, and training provenance |
+| `RieszTMLEMethod` | a scalar `RieszResult` satisfying `CausalResult` and the shared inference, contrast, identification, assessment, persistence, and provenance protocols |
+
+A custom statistical functional may use `NestedFunctional`. Causal prose and intervals need a
+registered evidence ID and a complete influence construction. `RieszTMLEMethod` never fabricates a
+propensity object for a direct fit.
 
 A provided representer must establish row identity, folds, training provenance, and
 counterfactual evaluation. Missing `alpha_star` is refused rather than replaced by observed
@@ -214,10 +211,11 @@ influence curve, metadata record, and cached assessment.
 
 #### Evidence and implementation sequence
 
-For every registered functional, add exact finite-support laws, Gateaux derivatives, product
-remainders with both nuisance errors nonzero, score checks, union-model witnesses where derived,
-nonzero targeting, sign and `alpha_star` mutations, stage/product-order mutations, mask and
-counterfactual mutations, leakage spies, analytic regressions, and a pinned secondary fixture.
+Every registered functional needs the full instrument set. That is exact finite-support laws,
+Gateaux derivatives, and product remainders with both nuisance errors nonzero. It is also score
+checks, union-model witnesses where derived, and nonzero targeting. The mutations are sign,
+`alpha_star`, stage and product order, mask, and counterfactual. Leakage spies, analytic
+regressions, and a pinned secondary fixture complete it.
 Direct fits additionally require loss improvement, held-out moments, same-fold observed and
 intervention predictions, provenance, and extreme-representer diagnostic response.
 
@@ -244,9 +242,9 @@ the original identified estimand and graph/provider provenance, verifies treatme
 adjustment set, and population, and refuses other strategies before fitting.
 
 A graph stays optional and no causal discovery is performed. Supplying a graph *and* an
-adjustment set means "validate this proposed set", never "pick whichever is convenient": a
-disagreement is an error, and it is resolved by the user naming a different valid set rather than
-by the provider choosing one. Front-door, IV, transport, mediation, and unidentified results stay
+adjustment set means "validate this proposed set". It never means "pick whichever is convenient".
+A disagreement is an error. The user resolves it by naming a different valid set, and the provider
+never chooses one. Front-door, IV, transport, mediation, and unidentified results stay
 refused until a matching `cleverly` functional and estimator are evidenced.
 
 The reverse adapter accepts a DoWhy `IdentifiedEstimand`, translates supported backdoor effects,
@@ -288,7 +286,7 @@ Do not expose a generic engine capability as a certified causal estimand.
 ## Longitudinal track
 
 The four core LTMLE evidence rows are implemented and registered in the
-[validation grid](technical-reference/index.md#implementation-validation-grid). They separate
+[validation grid](technical-reference/method-evidence/validation-grid.md). They separate
 end-of-study and survival parameters from ordinary and cross-fitted nuisance estimation. The
 remaining items below are proposed extensions to that core.
 

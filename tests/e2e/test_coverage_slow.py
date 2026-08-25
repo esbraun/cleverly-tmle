@@ -510,7 +510,7 @@ class TestDoublyRobustInference:
     deliberately does **not** require coverage near ``0.95``: coverage is a property of the
     learner, the DGP, the sample size and the dependency versions, not a deterministic
     software invariant, and a nominal floor here would be a version-pinned flake that fails
-    for reasons no commit caused.  ``docs/drtmle.md`` is where the release claim lives, and it
+    for reasons no commit caused.  ``docs/technical-reference/dr-tmle/index.md`` is where the release claim lives, and it
     is *conditional* validity -- the interval is valid given adequate nuisance fits, which is
     a rate condition no simulation in a nightly budget establishes.
 
@@ -629,7 +629,7 @@ class TestDoublyRobustInference:
         What is worth catching here is the order of magnitude -- a wrong sign in
         ``D = D* - D*_Q - D*_g`` doubles the correction rather than removing it, and a
         dropped term removes it entirely, both of which land far outside a factor of two.
-        The calibration question belongs to ``docs/drtmle.md``'s nuisance conditions, which
+        The calibration question belongs to ``docs/technical-reference/dr-tmle/nuisance-conditions.md``, which
         no simulation of this size settles.
         """
         ratio = studies["drtmle"]["ate"].se_ratio

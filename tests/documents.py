@@ -89,17 +89,17 @@ def pipe_table(
     Selecting by header rather than by position is what lets a document carry several tables
     of different shapes without any of the gates over them counting lines.  A renamed column
     is then a failure here instead of a silent reinterpretation of every row beneath it.
-    When ``section`` is supplied, search only the level-two heading with that text or anchor;
-    method-evidence studies share one document and must not read one another's measured-value
-    tables.
+    When ``section`` is supplied, search only the level-one heading with that text or anchor.
+    Each method-evidence study is now its own page, so the range runs to end of file; the
+    scoping stays because it is what makes the caller name the page it means to read.
     """
     lines = document.read_text(encoding="utf-8").splitlines()
     if section is not None:
 
         def matches_section(line: str) -> bool:
-            if not line.startswith("## "):
+            if not line.startswith("# "):
                 return False
-            heading = line[3:].strip()
+            heading = line[2:].strip()
             kept = "".join(
                 character
                 for character in heading.casefold()
@@ -112,12 +112,12 @@ def pipe_table(
             (index for index, line in enumerate(lines) if matches_section(line)),
             None,
         )
-        assert start is not None, f"{document.name} has no level-two section {section!r}"
+        assert start is not None, f"{document.name} has no level-one section {section!r}"
         stop = next(
             (
                 index
                 for index, line in enumerate(lines[start + 1 :], start=start + 1)
-                if line.startswith("## ")
+                if line.startswith("# ")
             ),
             len(lines),
         )

@@ -18,11 +18,14 @@ anything, with a valid interval, while letting a machine-learning model fit both
 | some outcomes are missing, or you want an effect at a fixed intermediate | missingness and a controlled direct effect compose into the same clever covariate | positivity is then needed for the product of the mechanisms, not for the treatment alone |
 | the exposure is continuous, or the policy is a rule rather than a level | regimes, modified treatment policies, and incremental tilts run through the same engine | each axis is a different estimand with a different influence curve. They are not interchangeable |
 
-Reach for a different entry when the exposure repeats over time
-([longitudinal TMLE](longitudinal-tmle.md)), when you want the effect summarised by a working model
-([MSM projections](msm-projections.md)), when the adjustment set is large and mostly irrelevant
-([collaborative TMLE](collaborative-tmle.md)), or when you expect one nuisance to be inconsistent
-and still want an interval ([DR-TMLE](dr-tmle.md)).
+Reach for a different entry in four cases.
+
+| when | read |
+| --- | --- |
+| the exposure repeats over time | [longitudinal TMLE](longitudinal-tmle.md) |
+| you want the effect summarised by a working model | [MSM projections](msm-projections.md) |
+| the adjustment set is large and mostly irrelevant | [collaborative TMLE](collaborative-tmle.md) |
+| you expect one nuisance to be inconsistent and still want an interval | [DR-TMLE](dr-tmle/index.md) |
 
 Three worked applied analyses cover this entry. The
 [point-treatment tutorial](../examples/point-treatment-tmle.md) is the main one, and it also
@@ -287,6 +290,6 @@ pins the asymmetry.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [implementation validation grid](index.md#implementation-validation-grid) | the registered study row for ordinary point-treatment TMLE |
-| [canonical point-treatment TMLE](method-evidence.md#canonical-point-treatment-tmle) | 34 accuracy tests, 17 paired comparisons against R `tmle3`, and 12 theory-property cells, test by test |
+| [implementation validation grid](method-evidence/validation-grid.md) | the registered study row for ordinary point-treatment TMLE |
+| [canonical point-treatment TMLE](method-evidence/canonical-point-treatment-tmle.md) | 34 accuracy tests, 17 paired comparisons against R `tmle3`, and 12 theory-property cells, test by test |
 | [the evidence manifest](evidence.md#the-table) | which oracle, Gateaux, remainder, and identity instruments each registered target has, and what none of them would see |

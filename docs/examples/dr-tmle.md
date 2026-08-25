@@ -4,10 +4,10 @@ This test of change is about inference rather than the estimate. An ordinary TML
 robust for *consistency* and singly robust for *inference*. This page shows what that distinction
 means for a program that cannot model its own rollout, and what the DR-TMLE variant does about it.
 
-Read [DR-TMLE](../technical-reference/dr-tmle.md) for the applied framing, and the
-[DR-TMLE production contract](../drtmle.md) for the theorem, the refusals, and the release claim.
+Read [DR-TMLE](../technical-reference/dr-tmle/index.md) for the applied framing, and the
+[DR-TMLE production contract](../technical-reference/dr-tmle/index.md) for the theorem, the refusals, and the release claim.
 The contract is authoritative. Read
-[its release claim](../drtmle.md#the-release-claim-in-one-paragraph) before you rely on this variant.
+[its release claim](../technical-reference/dr-tmle/index.md#the-release-claim-in-one-paragraph) before you rely on this variant.
 
 ## The applied question
 
@@ -31,39 +31,19 @@ and recovery, exchangeability fails. DR-TMLE does not repair that design failure
 
 ## Why this method
 
-Without outcome missingness, the treatment-specific mean under a binary treatment has the exact
-signed remainder:
+The discharge team's assignment model is the one this analysis doubts. DR-TMLE exists for that
+case. It solves two further score equations, built from reduced-dimension regressions, so the
+interval can stay valid when one primary nuisance is inconsistent.
 
-$$
-R_{2,a}=\int \frac{\hat g_a-g_{0,a}}{\hat g_a}
-(\hat Q_a-Q_{0,a})\,dP_0.
-$$
+Ordinary TMLE is doubly robust for the point estimate and singly robust for the interval. One
+consistent nuisance still gives a consistent estimate. The interval needs both nuisances to
+converge fast enough. The
+[DR-TMLE reference entry](../technical-reference/dr-tmle/index.md#what-this-solves) derives the
+remainder term and the rate conditions, and tabulates what the variant buys and what it costs.
 
-Here $g_a(W)=P(A=a\mid W)$, and the norms below are $L^2(P_0)$. The ATE remainder is the difference
-between the two arm remainders. With outcome missingness, the complete treatment-and-observation
-mechanism replaces $g_a$. If $\hat g_a\geq\epsilon>0$, Cauchy-Schwarz gives the separate bound
-
-$$
-|R_{2,a}|\leq\epsilon^{-1}
-\lVert\hat g_a-g_{0,a}\rVert_2\lVert\hat Q_a-Q_{0,a}\rVert_2.
-$$
-
-That bound is why one consistent nuisance is enough for consistency. One error converges, the other
-stays bounded, and the product goes to zero.
-
-The interval needs the stronger condition $\sqrt{n}R_2 \to 0$. Nuisance errors of order
-$o(n^{-1/4})$ satisfy it, and errors of exactly $n^{-1/4}$ leave $\sqrt{n}R_2$ bounded away from
-zero. If one error does not shrink, the remainder is first order in the other. The estimator's bias
-then dominates the standard-error scale, and coverage decays as the sample grows.
-
-| your situation | what this method buys | what it costs |
-| --- | --- | --- |
-| you doubt one nuisance and still want an interval | an interval entitled to be believed under weaker conditions | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
-| both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost, for no gain. This is the case the variant is not for |
-| you want a narrower interval | this is not that | the corrected curve is the estimator's own influence function, and it is not the efficient one |
-
-DR-TMLE solves two further score equations, built from reduced-dimension regressions, so that valid
-inference can survive one inconsistent primary nuisance.
+Read that table before you choose this method. Most of its rows are reasons not to. With both
+nuisances consistent the corrections converge to zero, so the extra cost buys nothing. The
+corrected interval is also not narrower than the ordinary one.
 
 ## The data
 
@@ -116,7 +96,7 @@ for method in effect.available_methods():
 
 The availability check matters more here than elsewhere. DR-TMLE refuses continuous treatment, ATT
 and ATC, the intervention axes, MSM projections, and composition with C-TMLE. Each refusal names
-what a derivation would need. The list is in [the contract](../drtmle.md#refused-by-name).
+what a derivation would need. The list is in [the contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name).
 
 ## Estimate
 
@@ -236,7 +216,7 @@ approximately zero, on this fit, with an assignment model the analyst already be
 Convergence is a property of the targeting step. It is not evidence that the reduced regressions or
 the primary nuisances converge at the rates the theorem needs. Those are rate conditions on
 estimated functions, and a fit's own output cannot verify them. The contract devotes
-[a whole section](../drtmle.md#6-solved-scores-do-not-establish-nuisance-consistency) to this, and
+[a whole section](../technical-reference/dr-tmle/diagnostics.md#solved-scores-do-not-establish-nuisance-consistency) to this, and
 calls it the single most important thing on that page.
 
 | layer | establishes | does not establish |
@@ -249,7 +229,7 @@ calls it the single most important thing on that page.
 DR-TMLE ships under **conditional validity**. The interval is valid conditional on the practitioner
 obtaining adequate primary and reduced-regression fits. This variant has a method entry and a
 contract, and it has no row in the
-[implementation validation grid](../technical-reference/index.md#implementation-validation-grid),
+[implementation validation grid](../technical-reference/method-evidence/validation-grid.md),
 because no registered repeated-sampling study covers it. Read that absence as part of the claim.
 
 ## Where to go next
