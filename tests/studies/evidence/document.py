@@ -273,6 +273,7 @@ _BIAS_GATED = frozenset(
         "double_robustness",
         "competing_risk_recursion_necessity",
         "robustness_contract",
+        "projection_necessity",
         "selector_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",

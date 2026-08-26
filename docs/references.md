@@ -125,6 +125,13 @@ previous reader had is not a citation; a page number is.
   (`LF_static`, `Param_TSM`, `Param_MSM`) confirms equality-density/static-intervention indexing
   but is not a longitudinal categorical oracle. The companion Poulos repository was inspected at
   [`0e8dc6e`](https://github.com/jvpoulos/multi-ltmle/tree/0e8dc6eca1012e5a3eab7aa80b772cf432b8f032).
+- MSM study audit (2026-08-26): the same pinned `tmle3` `Param_MSM` supplies the Gaussian
+  identity-link point projection after its arm-indicator coefficients and joint influence curves
+  are mapped to the declared basis. Its documented custom-weight path needs a classed function to
+  pass two premature string-sentinel comparisons in this release. The longitudinal comparator
+  fits each plan with the pinned R `ltmle`, then projects the estimates and joint influence curves.
+  Raw `ltmleMSM` coefficients are excluded because its quasibinomial projection is a different
+  parameter.
 - Source audit snapshot (2026-08-24): R `lmtp` 1.5.4 at
   [`f04a2b4`](https://github.com/nt-williams/lmtp/tree/f04a2b47f46debc515ce4ae778e05ebfde922c44).
   Its `cf_tmle` function runs one complete backward recursion per outer fold. Its

@@ -11,9 +11,8 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Point and longitudinal MSM studies | source audit | projection-specific statistical laws; no raw `ltmleMSM` coefficient parity | [V1](#v1-point-and-longitudinal-msm-studies) |
-| Validation | V2 | Intervention-family studies | source audit for each intervention | intervention-specific laws and maintained comparators where available | [V2](#v2-intervention-family-studies) |
-| Validation | V3 | Remaining composition studies | source audit for each composition | V1 and V2 establish the reusable study designs | [V3](#v3-remaining-composition-studies) |
+| Validation | V1 | Intervention-family studies | source audit for each intervention | intervention-specific laws and maintained comparators where available | [V1](#v1-intervention-family-studies) |
+| Validation | V2 | Remaining composition studies | source audit for each composition | V1 establishes the next reusable study designs | [V2](#v2-remaining-composition-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -77,51 +76,15 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Point and longitudinal MSM studies
-
-Add separate rows for the point-treatment and ordinary longitudinal projections. Both rows use the
-identity link, an unsaturated design, and fixed nonuniform projection weights. Each coefficient
-truth comes from the declared projection measure rather than a fitted working model.
-
-The point row uses the finite-support law in `tests/discrete_law.py`. Its primary samples replace
-the binary outcome with a bounded continuous draw that has the same conditional mean. This change
-makes pinned R `tmle3` use its Gaussian `Param_MSM` projection. Transform the R arm-indicator
-coefficients and influence curves into the `(intercept)`, treatment, and baseline parameterization.
-
-The longitudinal row uses the existing two-node censored law and four plans. Fit each plan with
-pinned R `ltmle`, then project the regimen estimates and their joint influence curves. This
-construction targets the declared outcome-scale projection and preserves regimen correlation. Do
-not use raw R `ltmleMSM` coefficients because its quasibinomial projection is another parameter.
-
-Register these independent repeated-sampling properties for each row:
-
-- outcome-correct and mechanism-correct robustness, with both-correct and both-wrong controls;
-- coefficient bias, coverage, standard-error calibration, and root-n behavior at three sizes;
-- a sharp null for the treatment or duration coefficient, with a nonzero power alternative;
-- a nonzero targeting control; and
-- a projection control that replaces the declared weights or working design.
-
-Use 99% confidence bounds for every verdict. Size each replication budget against the binding
-coverage, calibration, or type-I endpoint before the final run. Run disposable Python and R smoke
-studies before full regeneration. Keep failed fits, missing rows, and active bounds as hard errors.
-
-Commit the seven standard artifacts and a hash-complete manifest for each row. Update the evidence
-manifest, validation grid, method page, technical matrix, references, and MSM example. Remove V1
-and renumber the validation track only after both rows and all documentation gates pass.
-
-The limits must retain fixed designs and weights, identity-link pointwise Wald inference, ordinary
-longitudinal fitting, and the tested finite-support laws. Cross-fitted longitudinal coefficient
-inference stays refused until an unsaturated projection study supports it.
-
-### V2. Intervention-family studies
+### V1. Intervention-family studies
 
 Add separate rows for deterministic and stochastic regimes, modified treatment policies, and
 incremental propensity-score interventions. Each row needs its own law and theory properties.
 Use a canonical comparator only where it evaluates the same intervention and influence curve.
 
-### V3. Remaining composition studies
+### V2. Remaining composition studies
 
-Inventory the implementation matrix after V1 and V2 land. Add rows for uncovered missing-data,
+Inventory the implementation matrix after V1 lands. Add rows for uncovered missing-data,
 categorical longitudinal, weighting, clustering, and inference compositions only when one study
 can name the exact parameter and a nonredundant failure mode. Do not let a broad row borrow evidence
 from a nearby construction.

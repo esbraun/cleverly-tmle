@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "study": "ordinary longitudinal MSM projection",
+  "slug": "longitudinal-msm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "bdc346887d3200a6652cd1d90a1d49d0a4c978e0",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "ltmle projected regimen fits",
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "fixed projection of correlated ltmle regimen estimates and ICs"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2500,
+    "seed": 20260829,
+    "publication_policy": "gated",
+    "scenarios": {
+      "censored_regimen_projection": [
+        "msm_regimen[(intercept)]",
+        "msm_regimen[duration]"
+      ]
+    },
+    "construction": "ordinary pooled longitudinal MSM",
+    "link": "identity",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "early",
+      "treat then continue if l2 positive"
+    ],
+    "terms": [
+      "(intercept)",
+      "duration"
+    ],
+    "duration": {
+      "never": 0.0,
+      "always": 2.0,
+      "early": 1.0,
+      "treat then continue if l2 positive": 1.0
+    },
+    "projection_weights": {
+      "never": 0.1,
+      "always": 10.0,
+      "early": 0.1,
+      "treat then continue if l2 positive": 10.0
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_longitudinal_msm.py": "73904f1b7993e7a0f412682d4c077147ef4439aef3b350f7a3f58a4c648f4507",
+    "tests/studies/longitudinal_msm_properties.py": "15e5c9ef82779621596e7e26e04239ff0695235daddd7407a14bc9e20da1f45a",
+    "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "5bbb1bc96c2456ad95cf8732def6fb9daca62681529bb828700c857c8d8ce60b",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/ltmle_msm/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/ltmle_msm/run_study.R": "5fdbeb8e08a4e7f92662ee6d39d0b8fa668b0d071e760136f9e8f9247912f0d5"
+  },
+  "sha256": {
+    "replicates.csv.gz": "43e7544403c8cfb39c0d380dd6ba3cf89c09d467d1f95139d8012e2600361f35",
+    "summary.csv": "5c1a494c72a960979427ef1b0bcbe099cbe04ced0b89160c15ce0a9104751992",
+    "equivalence.csv": "7a9c0f30f2f3ad7e4aa65f3f387375b0eba23b1f2040a4e47758e4e7440a1037",
+    "performance-tests.csv": "63b7c0c9f41b59a532a549cc757d7646aed66f015d41b97b56233d15f1731ad2",
+    "property-replicates.csv.gz": "586c917eede6519effa46084896d761394e7668af1a971bc30d40ceae6ae8ca4",
+    "properties.csv": "46ac7b6d320681a83ffa3c487a6fbd2f700f9f03c598d583b45008c6a72a39a5"
+  }
+}

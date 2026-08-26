@@ -59,6 +59,16 @@ _ARM = re.compile(
 #: is still looked up whole.
 _SIZE = re.compile(r"^(?P<cell>.+)_n(?P<size>\d+)$")
 
+TERMS: dict[str, str] = {
+    "(intercept)": "intercept coefficient",
+    "a": "treatment coefficient",
+    "W": "baseline-covariate coefficient",
+    "duration": "treatment-duration coefficient",
+}
+_TERM = re.compile(
+    r"^(?P<term>" + "|".join(re.escape(term) for term in TERMS) + r")__(?P<cell>.+)$"
+)
+
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
@@ -72,6 +82,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "drtmle-r": "R `drtmle`",
     "ltmle": "R `ltmle`",
+    "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
@@ -90,7 +101,13 @@ SCENARIOS: dict[str, str] = {
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
     ),
+    "censored_regimen_projection": (
+        "two-time-point law with monotone censoring and four projected treatment plans"
+    ),
     "continuous": "bounded continuous-outcome law with effect modification",
+    "bounded_continuous_projection": (
+        "bounded continuous-outcome law with an unsaturated working model"
+    ),
     "both_correct": "paper binary law, both nuisances correct",
     "outcome_correct": "paper binary law, outcome regression correct",
     "treatment_correct": "paper binary law, treatment mechanism correct",
@@ -148,6 +165,10 @@ PROPERTIES: dict[str, str] = {
         "two-sided calibration bands"
     ),
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
+    "projection_necessity": (
+        "the declared projection measure determines the coefficient rather than an implicit "
+        "uniform measure"
+    ),
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
     ),
@@ -267,6 +288,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
     ),
+    ("projection_necessity", "declared_weights"): (
+        "the working model uses its declared nonuniform projection weights",
+        "bias interval inside the equivalence margin",
+    ),
+    ("projection_necessity", "uniform_weights"): (
+        "the identical working model is projected under uniform weights",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("robustness_contract", "outcome_correct"): (
         "the outcome regression is correct and the mechanism is not",
         "bias interval inside the equivalence margin",
@@ -383,6 +412,13 @@ def estimand(key: str) -> str:
         except KeyError:
             raise Undescribed(f"no description for estimand {key!r}") from None
     name, argument = match.group("name"), match.group("argument")
+    if name in {"msm", "msm_regimen"}:
+        try:
+            term = TERMS[argument]
+        except KeyError:
+            raise Undescribed(f"no description for MSM term {argument!r}") from None
+        construction = "point-treatment" if name == "msm" else "longitudinal regimen"
+        return f"{construction} MSM projection {term}"
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
@@ -449,6 +485,9 @@ def cell(
     """
     arm = _ARM.match(key)
     base = arm.group("cell") if arm else key
+    term = _TERM.match(base)
+    if term is not None:
+        base = term.group("cell")
     # A contraction ladder names one configuration at three sizes, so the size is a suffix on
     # a shared description rather than three near-identical entries.  Stripped the same way
     # the arm prefix is, and reattached below, so a rung says which size it is.
@@ -480,4 +519,6 @@ def cell(
             )
     if arm is not None:
         tested = f"{ARMS[arm.group('arm')]}: {tested}"
+    if term is not None:
+        tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required
