@@ -65,8 +65,13 @@ TERMS: dict[str, str] = {
     "W": "baseline-covariate coefficient",
     "duration": "treatment-duration coefficient",
 }
+#: An MSM coefficient's cell name, ``"<term>__<configuration>"``.  Longest alternative first,
+#: for the reason :data:`_ARM` is: a term that another term starts with would otherwise be
+#: shadowed, and the shorter match would subscript :data:`TERMS` with the wrong key.
 _TERM = re.compile(
-    r"^(?P<term>" + "|".join(re.escape(term) for term in TERMS) + r")__(?P<cell>.+)$"
+    r"^(?P<term>"
+    + "|".join(re.escape(term) for term in sorted(TERMS, key=len, reverse=True))
+    + r")__(?P<cell>.+)$"
 )
 
 
@@ -352,12 +357,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the selector is forced to stop at an empty path",
         "bias interval must fall entirely outside the margin",
     ),
+    # "misspecified" rather than "constant", and "fit" rather than "backward recursion":
+    # six studies register this family and the description is shared by all of them.  The
+    # longitudinal ones fluctuate a sample-prior constant over a two-node recursion; the
+    # point-treatment MSM projection fluctuates a deliberately inverted oracle over one node.
+    # Naming either study's construction here published a false sentence on the other's page.
     ("targeting_necessity", "targeted"): (
-        "the estimator fluctuates a constant outcome model, so targeting does all the adjusting",
+        "the estimator fluctuates a misspecified outcome model, so targeting does all the "
+        "adjusting",
         "bias interval inside the equivalence margin",
     ),
     ("targeting_necessity", "untargeted"): (
-        "the identical backward recursion with no fluctuation at any node",
+        "the identical fit with every fluctuation step removed",
         "bias interval must fall entirely outside the margin",
     ),
     ("survival_recursion_necessity", "survival"): (

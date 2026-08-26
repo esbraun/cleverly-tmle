@@ -87,8 +87,8 @@ the package reaches its documented custom-weight branch without patching the pin
 | `root_n_rate` | `W__reported_se` | positive | baseline-covariate coefficient: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4999 to -0.4945 | pass |
 | `root_n_rate` | `a__empirical_sd` | positive | treatment coefficient: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5236 to -0.4672 | pass |
 | `root_n_rate` | `a__reported_se` | positive | treatment coefficient: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4993 to -0.4945 | pass |
-| `targeting_necessity` | `a__targeted` | positive | treatment coefficient: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0013 to 0.0030, margin 0.0071 | pass |
-| `targeting_necessity` | `a__untargeted` | control | treatment coefficient: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.5208 to -0.5206, margin 0.000401 | pass |
+| `targeting_necessity` | `a__targeted` | positive | treatment coefficient: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0013 to 0.0030, margin 0.0071 | pass |
+| `targeting_necessity` | `a__untargeted` | control | treatment coefficient: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias -0.5208 to -0.5206, margin 0.000401 | pass |
 | `type_i_error` | `a__sharp_null` | positive | treatment coefficient: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0413, 0.0253 to 0.0629 | pass |
 <!-- /generated -->
 

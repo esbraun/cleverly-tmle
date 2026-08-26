@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -9,21 +10,25 @@ import pandas as pd
 from scipy.stats import norm
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
+from cleverly.datasets import RULE_LABEL
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import ltmle_properties as end_study_properties
+from tests.studies.canonical_longitudinal_msm import DURATION as study_durations
 from tests.studies.canonical_longitudinal_msm import (
     G_BOUNDS,
     STUDY,
     TERMS,
     declared_msm,
 )
+from tests.studies.canonical_longitudinal_msm import (
+    PROJECTION_WEIGHT as study_projection_weights,
+)
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    paired_displacement,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -31,6 +36,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_controls,
     calibration_verdicts,
     finish,
+    necessity_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -55,8 +61,27 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 LABELS = ("never", "always", "early", "treat_if_l2")
 REGIMENS = {label: law.REGIMEN_SPEC[label] for label in LABELS}
-DURATION = {"never": 0.0, "always": 2.0, "early": 1.0, "treat_if_l2": 1.0}
-PROJECTION_WEIGHT = {"never": 0.1, "always": 10.0, "early": 0.1, "treat_if_l2": 10.0}
+
+# The two laws spell the same dynamic plan differently: ``cleverly.datasets`` calls it
+# ``RULE_LABEL`` and the finite-support law calls it ``treat_if_l2``.  Only the spelling
+# differs, so the declared measure is *relabelled* from the paired study rather than typed
+# out a second time.  A projection coefficient is defined by its measure, so a property study
+# that drifted onto a different one would be reporting bias against a parameter the paired
+# study never estimated -- and both halves would still be internally consistent.
+_RELABEL = {RULE_LABEL: "treat_if_l2"}
+
+
+def _relabelled(declared: Mapping[str, float]) -> dict[str, float]:
+    return {_RELABEL.get(label, label): float(value) for label, value in declared.items()}
+
+
+DURATION = _relabelled(study_durations)
+PROJECTION_WEIGHT = _relabelled(study_projection_weights)
+if tuple(DURATION) != LABELS or tuple(PROJECTION_WEIGHT) != LABELS:  # pragma: no cover
+    raise AssertionError(
+        "the paired study reordered or renamed its plans; the projection operator below "
+        f"reads them positionally, so {LABELS} must still be the declared order"
+    )
 NAMES = {term: f"msm_regimen[{term}]" for term in TERMS}
 COLUMNS: dict[str, Any] = {
     "outcome": "Y",
@@ -295,48 +320,22 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    _necessity_verdicts(
+    necessity_verdicts(
         summary,
         rows,
         family="targeting_necessity",
-        positive="duration__targeted",
-        control="duration__untargeted",
+        labels=("duration",),
+        arms=("targeted", "untargeted"),
         column="targeting_displacement",
         threshold=TARGETING_DISPLACEMENT,
     )
-    _necessity_verdicts(
+    necessity_verdicts(
         summary,
         rows,
         family="projection_necessity",
-        positive="duration__declared_weights",
-        control="duration__uniform_weights",
+        labels=("duration",),
+        arms=("declared_weights", "uniform_weights"),
         column="projection_displacement",
         threshold=PROJECTION_DISPLACEMENT,
     )
     return finish(summary, rates)
-
-
-def _necessity_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    *,
-    family: str,
-    positive: str,
-    control: str,
-    column: str,
-    threshold: float,
-) -> None:
-    mask = summary["property"] == family
-    if not mask.any():
-        return
-    summary.loc[mask & (summary["role"] == "positive"), "passed"] = summary.loc[
-        mask & (summary["role"] == "positive"), "bias_equivalent"
-    ]
-    summary.loc[mask & (summary["role"] == "control"), "passed"] = summary.loc[
-        mask & (summary["role"] == "control"), "bias_discriminated"
-    ]
-    displacement = paired_displacement(rows, family, positive, control)
-    summary.loc[mask, column] = displacement
-    summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "passed"].all() and displacement >= threshold
-    )

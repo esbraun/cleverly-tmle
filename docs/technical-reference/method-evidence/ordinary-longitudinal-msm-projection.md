@@ -73,8 +73,8 @@ the covariance created because every regimen fit uses the same sample.
 | `root_n_rate` | `(intercept)__reported_se` | positive | intercept coefficient: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4902 to -0.4844 | pass |
 | `root_n_rate` | `duration__empirical_sd` | positive | treatment-duration coefficient: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5600 to -0.4904 | pass |
 | `root_n_rate` | `duration__reported_se` | positive | treatment-duration coefficient: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4801 to -0.4710 | pass |
-| `targeting_necessity` | `duration__targeted` | positive | treatment-duration coefficient: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0049 to 0.0046, margin 0.0145 | pass |
-| `targeting_necessity` | `duration__untargeted` | control | treatment-duration coefficient: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0500 to -0.0403, margin 0.0148 | pass |
+| `targeting_necessity` | `duration__targeted` | positive | treatment-duration coefficient: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0049 to 0.0046, margin 0.0145 | pass |
+| `targeting_necessity` | `duration__untargeted` | control | treatment-duration coefficient: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias -0.0500 to -0.0403, margin 0.0148 | pass |
 | `type_i_error` | `duration__sharp_null` | positive | treatment-duration coefficient: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0550, 0.0363 to 0.0792 | pass |
 <!-- /generated -->
 

@@ -191,6 +191,13 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
 
 
 def initial_beta(result: Any, labels: tuple[str, ...] = tuple(REGIMENS)) -> np.ndarray:
+    """Project each plan's unfluctuated sequential regression, before targeting.
+
+    The gathering differs from the point study's counterpart because the two estimators
+    expose their initial fits differently -- a plan's first recursion step here, an arm's
+    outcome regression there -- and only the projection itself is shared.  ``msm.link`` is a
+    string by declaration, so it is passed through rather than coerced.
+    """
     raw = np.column_stack(
         [result.scaler.unscale_levels(result.fits[label].steps[0].initial) for label in labels]
     )
@@ -199,7 +206,7 @@ def initial_beta(result: Any, labels: tuple[str, ...] = tuple(REGIMENS)) -> np.n
         result.msm.weights,
         raw,
         result.data.weights,
-        str(result.msm.link),
+        result.msm.link,
     ).beta
 
 

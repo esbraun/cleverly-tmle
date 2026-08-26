@@ -23,7 +23,6 @@ from tests.studies.canonical_ltmle_survival_crossfit import PROPERTY_LABELS, STU
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    paired_displacement,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -32,6 +31,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
+    necessity_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -578,44 +578,23 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
-    targeting = summary["property"] == "targeting_necessity"
-    summary.loc[targeting & (summary["role"] == "positive"), "passed"] = summary.loc[
-        targeting & (summary["role"] == "positive"), "bias_equivalent"
-    ]
-    summary.loc[targeting & (summary["role"] == "control"), "passed"] = summary.loc[
-        targeting & (summary["role"] == "control"), "bias_discriminated"
-    ]
-    displacements = [
-        paired_displacement(
-            rows,
-            "targeting_necessity",
-            f"{label}__targeted",
-            f"{label}__untargeted",
-        )
-        for label in PROPERTY_LABELS
-    ]
-    targeting_displacement = min(displacements)
-    summary.loc[targeting, "targeting_displacement"] = targeting_displacement
-    summary.loc[targeting, "property_passed"] = bool(
-        summary.loc[targeting, "passed"].all() and targeting_displacement >= TARGETING_DISPLACEMENT
-    )
-
-    recursion = summary["property"] == "survival_recursion_necessity"
-    summary.loc[recursion & (summary["role"] == "positive"), "passed"] = summary.loc[
-        recursion & (summary["role"] == "positive"), "bias_equivalent"
-    ]
-    summary.loc[recursion & (summary["role"] == "control"), "passed"] = summary.loc[
-        recursion & (summary["role"] == "control"), "bias_discriminated"
-    ]
-    recursion_displacement = paired_displacement(
+    necessity_verdicts(
+        summary,
         rows,
-        "survival_recursion_necessity",
-        "always_t2__survival",
-        "always_t2__survivor_only",
+        family="targeting_necessity",
+        labels=PROPERTY_LABELS,
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
     )
-    summary.loc[recursion, "recursion_displacement"] = recursion_displacement
-    summary.loc[recursion, "property_passed"] = bool(
-        summary.loc[recursion, "passed"].all() and recursion_displacement >= RECURSION_DISPLACEMENT
+    necessity_verdicts(
+        summary,
+        rows,
+        family="survival_recursion_necessity",
+        labels=("always_t2",),
+        arms=("survival", "survivor_only"),
+        column="recursion_displacement",
+        threshold=RECURSION_DISPLACEMENT,
     )
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_survival_ltmle")
     return finish(summary, rates)

@@ -23,7 +23,6 @@ from tests.studies.canonical_point_msm import (
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    paired_displacement,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -31,6 +30,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_controls,
     calibration_verdicts,
     finish,
+    necessity_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -304,48 +304,22 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    _necessity_verdicts(
+    necessity_verdicts(
         summary,
         rows,
         family="targeting_necessity",
-        positive="a__targeted",
-        control="a__untargeted",
+        labels=("a",),
+        arms=("targeted", "untargeted"),
         column="targeting_displacement",
         threshold=TARGETING_DISPLACEMENT,
     )
-    _necessity_verdicts(
+    necessity_verdicts(
         summary,
         rows,
         family="projection_necessity",
-        positive="W__declared_weights",
-        control="W__uniform_weights",
+        labels=("W",),
+        arms=("declared_weights", "uniform_weights"),
         column="projection_displacement",
         threshold=PROJECTION_DISPLACEMENT,
     )
     return finish(summary, rates)
-
-
-def _necessity_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    *,
-    family: str,
-    positive: str,
-    control: str,
-    column: str,
-    threshold: float,
-) -> None:
-    mask = summary["property"] == family
-    if not mask.any():
-        return
-    summary.loc[mask & (summary["role"] == "positive"), "passed"] = summary.loc[
-        mask & (summary["role"] == "positive"), "bias_equivalent"
-    ]
-    summary.loc[mask & (summary["role"] == "control"), "passed"] = summary.loc[
-        mask & (summary["role"] == "control"), "bias_discriminated"
-    ]
-    displacement = paired_displacement(rows, family, positive, control)
-    summary.loc[mask, column] = displacement
-    summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "passed"].all() and displacement >= threshold
-    )

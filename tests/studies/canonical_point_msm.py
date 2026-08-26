@@ -34,6 +34,12 @@ ESTIMANDS = tuple(f"msm[{term}]" for term in law.MSM_TERMS)
 # regression is correctly specified, while the declared MSM deliberately omits W^2 and
 # therefore remains a genuine projection rather than a saturated outcome model.
 PRIMARY_Q = np.array([[0.25, 0.50], [0.35, 0.60], [0.55, 0.80]])
+#: The fixed projection measure ``h(a, W) = 1 + 0.5 a + 5 W``, on the law's three-point
+#: support.  The one declaration: :func:`truth` contracts over it and :func:`declared_msm`
+#: indexes it, so the coefficient the study calls true and the coefficient it estimates
+#: cannot be measuring two different measures.  Writing the formula a second time inside the
+#: fit is what this replaces, and nothing would have caught the two drifting apart -- the
+#: study would simply have reported a bias against a projection it never ran.
 PROJECTION_WEIGHTS = np.array([[1.0 + 0.5 * a + 5.0 * w for a in range(2)] for w in range(3)])
 
 STUDY = StudyRecord(
@@ -122,7 +128,12 @@ def declared_msm(*, uniform: bool = False) -> MSM:
 
     def weight(arm: Any, frame: Any) -> np.ndarray:
         w = np.asarray(frame["W"], dtype=float)
-        return np.ones(len(w)) if uniform else 1.0 + 0.5 * float(arm) + 5.0 * w
+        if uniform:
+            return np.ones(len(w))
+        level = np.rint(w).astype(int)
+        if not np.array_equal(level, w):  # pragma: no cover - a study contract guard
+            raise ValueError("the projection measure is declared on the law's integer W levels")
+        return PROJECTION_WEIGHTS[level, int(arm)]
 
     return MSM(design=design, terms=law.MSM_TERMS, weights=weight)
 
