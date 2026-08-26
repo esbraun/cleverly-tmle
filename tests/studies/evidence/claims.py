@@ -233,7 +233,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # on separate displacements computed from separate arms, and a page that published one
     # threshold for both would describe one of them wrongly however the numbers happened to
     # compare.
-    if "survival_recursion_necessity" in record.property_cells:
+    if (
+        "survival_recursion_necessity" in record.property_cells
+        or "competing_risk_recursion_necessity" in record.property_cells
+    ):
         declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
     return declared
 

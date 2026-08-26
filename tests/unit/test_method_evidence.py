@@ -417,7 +417,11 @@ class TestPublishedVerdicts:
                 >= study.properties().TARGETING_DISPLACEMENT
             )
 
-        recursion = published.loc[published["property"] == "survival_recursion_necessity"]
+        recursion = published.loc[
+            published["property"].isin(
+                {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
+            )
+        ]
         if not recursion.empty:
             # The same shape as targeting above, and needed for the same reason: each row's own
             # bias endpoint is satisfied by a recursion that does nothing, because the
@@ -483,6 +487,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "double_robustness",
         "robustness_contract",
         "selector_necessity",
+        "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
     }
@@ -1244,7 +1249,10 @@ class TestTheQuantityVocabulary:
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
             )
-        if "survival_recursion_necessity" in study.property_cells:
+        if (
+            "survival_recursion_necessity" in study.property_cells
+            or "competing_risk_recursion_necessity" in study.property_cells
+        ):
             assert (
                 declared["margin:recursion_displacement"]
                 == study.properties().RECURSION_DISPLACEMENT

@@ -31,8 +31,23 @@ def test_quasibinomial_irls_solves_the_fractional_response_score() -> None:
     )
 
 
-def _null_mass(**pattern: int) -> float:
-    return float(sum(properties.NULL_PROBS[index] for index in law._index(**pattern)))
+def baseline_only(probs: np.ndarray, a1: int, a2: int) -> float:
+    """The mean outcome an analysis that never conditions on ``L2`` would report.
+
+    Written longhand off the support rather than by disabling something in the estimator, for
+    the reason every deliberate-mutation control in this suite is: a flag on the code under
+    audit makes the control a statement about a branch in it.  The only difference from
+    :func:`law.functional` is that the outcome regression conditions on ``(W, A1, A2, C2 = 1)``
+    with ``L2`` marginalised out of the *observed* law rather than on ``L2`` as well.  Since
+    ``A2`` and ``C2`` both depend on ``L2``, conditioning on them reweights it, which is the
+    bias a longitudinal fit exists to remove.
+    """
+    return sum(
+        (law._mass(probs, w=w) / law._mass(probs))
+        * law._mass(probs, w=w, a1=a1, c1=1, a2=a2, c2=1, y=1)
+        / law._mass(probs, w=w, a1=a1, c1=1, a2=a2, c2=1)
+        for w in (0, 1)
+    )
 
 
 def test_the_sharp_null_is_exact_and_still_needs_the_longitudinal_adjustment() -> None:
@@ -52,8 +67,8 @@ def test_the_sharp_null_is_exact_and_still_needs_the_longitudinal_adjustment() -
     # and with the first arm.  Any one of them constant would collapse a piece of the problem.
     assert law.G1[0] != law.G1[1]
     conditional = {
-        (w, l2): _null_mass(w=w, a1=1, l2=l2, a2=1, c2=1, y=1)
-        / _null_mass(w=w, a1=1, l2=l2, a2=1, c2=1)
+        (w, l2): law._mass(properties.NULL_PROBS, w=w, a1=1, l2=l2, a2=1, c2=1, y=1)
+        / law._mass(properties.NULL_PROBS, w=w, a1=1, l2=l2, a2=1, c2=1)
         for w in (0, 1)
         for l2 in (0, 1)
     }
@@ -65,15 +80,8 @@ def test_the_sharp_null_is_exact_and_still_needs_the_longitudinal_adjustment() -
 
     # And the deliberate-mutation control: a baseline-only standardisation, which is what an
     # analysis that dropped L2 would compute, does *not* recover the null.
-    def baseline_only(a1: int, a2: int) -> float:
-        return sum(
-            (_null_mass(w=w) / _null_mass())
-            * _null_mass(w=w, a1=a1, c1=1, a2=a2, c2=1, y=1)
-            / _null_mass(w=w, a1=a1, c1=1, a2=a2, c2=1)
-            for w in (0, 1)
-        )
-
-    assert abs(baseline_only(1, 1) - baseline_only(0, 0)) > 1e-3
+    null = properties.NULL_PROBS
+    assert abs(baseline_only(null, 1, 1) - baseline_only(null, 0, 0)) > 1e-3
 
 
 def test_the_untargeted_plug_in_is_the_fit_without_its_fluctuation() -> None:

@@ -1,0 +1,147 @@
+{
+  "schema_version": 2,
+  "study": "ordinary competing-risk longitudinal TMLE",
+  "slug": "canonical-ltmle-competing",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-competing-ltmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "6ddf0fee84ca31e3f1d50f4261e3df5a07d797b1",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 4000,
+    "seed": 20260826,
+    "resampling_seed": 20260828,
+    "publication_policy": "gated",
+    "scenarios": {
+      "censored_competing_risk_curve": [
+        "cif_regimen[never, relapse @ t=1]",
+        "cif_regimen[never, relapse @ t=2]",
+        "cif_regimen[always, relapse @ t=1]",
+        "cif_regimen[always, relapse @ t=2]",
+        "cif_regimen[continue_if_l2, relapse @ t=2]",
+        "cif_regimen[never, death @ t=1]",
+        "cif_regimen[never, death @ t=2]",
+        "cif_regimen[always, death @ t=1]",
+        "cif_regimen[always, death @ t=2]",
+        "cif_regimen[continue_if_l2, death @ t=2]",
+        "ate_regimen[always vs never, relapse @ t=1]",
+        "ate_regimen[always vs never, relapse @ t=2]",
+        "ate_regimen[continue_if_l2 vs never, relapse @ t=2]",
+        "ate_regimen[always vs never, death @ t=1]",
+        "ate_regimen[always vs never, death @ t=2]",
+        "ate_regimen[continue_if_l2 vs never, death @ t=2]"
+      ]
+    },
+    "construction": "ordinary",
+    "outcome_kind": "competing_absorbing_events",
+    "horizon_mode": "all_prefixes",
+    "r_survival_outcome": true,
+    "cross_fit": false,
+    "outer_folds": 1,
+    "learner_folds": 2,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "stratify": true,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "horizons": [
+      1,
+      2
+    ],
+    "causes": [
+      "relapse",
+      "death"
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "continue_if_l2"
+    ],
+    "outcome_designs": [
+      [
+        "intercept"
+      ],
+      [
+        "intercept"
+      ]
+    ],
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
+    "reference_competing_event": "the_other_cause",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ltmle_competing.py": "f4dc48ceb13bdb9207067bdba582a5e4da389624b458bb4cc3a9d2a107fb9b62",
+    "tests/studies/ltmle_competing_properties.py": "cb4755369e65b045282b9ea7c21c3bb19ae5679867da743f92e0b1ed43c5eb0d",
+    "tests/studies/canonical_ltmle.py": "9058761787420541d5d5ea8a1baab66680160592520d90831cd525d6591aa5cc",
+    "tests/studies/canonical_ltmle_crossfit.py": "47eba51631e1f68c504935937c04dc2b6256a65d29694b61a7719e0ebba7c411",
+    "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "5bbb1bc96c2456ad95cf8732def6fb9daca62681529bb828700c857c8d8ce60b",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/canonical/lmtp_competing_adapter.R": "c4f5d807b1810a77baf408ff65322958f8dcbae68620ec64bd7cbe98f4a30f01",
+    "tests/canonical/lmtp_ltmle_competing/run_study.R": "0b876393f4096daf692b919d0b5fca5f6723866dd078f29597be968f2c9d4a3e"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_ltmle_competing/run_study.R": "0b876393f4096daf692b919d0b5fca5f6723866dd078f29597be968f2c9d4a3e",
+    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/canonical/lmtp_competing_adapter.R": "c4f5d807b1810a77baf408ff65322958f8dcbae68620ec64bd7cbe98f4a30f01"
+  },
+  "sha256": {
+    "replicates.csv.gz": "b57905b9c268f3ce34acf8b93cf951fec341d2a2b67c75c7b2555feb78e66cd1",
+    "summary.csv": "901c15b52d6aeefe73d6a1dad246df800b2e703cc24cfbb36b01b7d37ba1c4f9",
+    "equivalence.csv": "2963e798e3da2af850c2a798b44aad6f37cd29d55f64332b0cbb76ef70061677",
+    "performance-tests.csv": "577b973202789782002f145027452f7c8910fc2a4fa34be14dd1e0756550fbb5",
+    "property-replicates.csv.gz": "8b472e0f65e140f8345e7ee6c9d9d0d111ab558f464f436c295a89b709148f21",
+    "properties.csv": "4d29b6876e70853da27b5bc144f3145f6e1c4130755444852044926b5f1c8d00"
+  }
+}

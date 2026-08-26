@@ -30,9 +30,28 @@ _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 _HORIZON = " @ t="
 _CAUSE = ", "
 
-#: Longitudinal property cells prefix the plan they belong to.
+#: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
+#: arm, so :func:`cell` strips it and reports it beside the family's shared description.
+ARMS: dict[str, str] = {
+    "static": "static plan",
+    "dynamic": "dynamic plan",
+    "static_t1": "static plan at horizon one",
+    "static_t2": "static plan at horizon two",
+    "dynamic_t2": "dynamic plan at horizon two",
+    "always_t2": "always-treat risk at horizon two",
+    "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
+    "death_static_t2": "static death contrast at horizon two",
+    "relapse_always_t2": "always-treat relapse incidence at horizon two",
+    "death_always_t2": "always-treat death incidence at horizon two",
+}
+
+#: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
+#: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
+#: extends one of them and not the other -- and that is the one lookup here which would not
+#: raise :class:`Undescribed`.  Longest alternative first, so a longer arm is never shadowed
+#: by a shorter one it starts with.
 _ARM = re.compile(
-    r"^(?P<arm>static|dynamic|static_t1|static_t2|dynamic_t2|always_t2)__(?P<cell>.+)$"
+    r"^(?P<arm>" + "|".join(sorted(ARMS, key=len, reverse=True)) + r")__(?P<cell>.+)$"
 )
 
 #: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
@@ -45,6 +64,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
+    "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
+    "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
@@ -66,6 +87,9 @@ SCENARIOS: dict[str, str] = {
     "binary_ordered": "binary-outcome law, ordered selector",
     "censored_end_of_study": "two-time-point law with monotone censoring",
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
+    "censored_competing_risk_curve": (
+        "two-time-point, two-cause competing-risk law with monotone censoring"
+    ),
     "continuous": "bounded continuous-outcome law with effect modification",
     "both_correct": "paper binary law, both nuisances correct",
     "outcome_correct": "paper binary law, outcome regression correct",
@@ -89,12 +113,14 @@ ESTIMANDS: dict[str, str] = {
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
+    "continue_if_l2": "treat first, then continue if L2 equals one",
     "never": "treat at neither time",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
 }
 
 #: What the parameterised estimand names mean once the regimen is resolved.
 PARAMETERISED: dict[str, str] = {
+    "cif_regimen": "cumulative incidence under the plan",
     "ey_regimen": "mean outcome under the plan",
     "ate_regimen": "difference in mean outcome between the plans",
     "risk_regimen": "cumulative risk under the plan",
@@ -130,6 +156,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "selector_necessity": "the collaborative selector is what produces the result, not the fit around it",
+    "competing_risk_recursion_necessity": (
+        "the cumulative-incidence recursion uses all-cause survival rather than survival from "
+        "the target cause alone"
+    ),
     "survival_recursion_necessity": (
         "the absorbing-event recursion is what produces cumulative risk, not an analysis "
         "restricted to survivors"
@@ -163,6 +193,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("crossfit_overfitting", "cross_fitted_survival_ltmle"): (
         "five-fold horizon-two survival LTMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "cross_fitted_competing_ltmle"): (
+        "five-fold horizon-two competing-risk LTMLE with a fully grown outcome tree",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("double_robust_contraction", "outcome_correct"): (
@@ -257,8 +291,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias, coverage and SE calibration at n = 2,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
+    ("root_n_and_efficiency", "n_4000"): (
+        "bias, coverage and SE calibration at n = 4,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
     ("root_n_and_efficiency", "n_8000"): (
         "bias, coverage and SE calibration at n = 8,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("root_n_and_efficiency", "n_32000"): (
+        "bias, coverage and SE calibration at n = 32,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_4500"): (
@@ -297,20 +339,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same horizon-two outcome analyzed only among first-node survivors",
         "bias interval must fall entirely outside the margin",
     ),
+    ("competing_risk_recursion_necessity", "all_cause"): (
+        "the estimator removes every first-node event from the later risk set",
+        "bias interval inside the equivalence margin",
+    ),
+    ("competing_risk_recursion_necessity", "cause_specific_control"): (
+        "the same recursion wrongly lets the competing cause remain at risk",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("type_i_error", "sharp_null"): (
         "a confounded law whose true contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
-}
-
-#: Longitudinal cells belong to one of the two plans a study contrasts.
-ARMS: dict[str, str] = {
-    "static": "static plan",
-    "dynamic": "dynamic plan",
-    "static_t1": "static plan at horizon one",
-    "static_t2": "static plan at horizon two",
-    "dynamic_t2": "dynamic plan at horizon two",
-    "always_t2": "always-treat risk at horizon two",
 }
 
 
@@ -346,30 +386,41 @@ def estimand(key: str) -> str:
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
-    if name == "ate_regimen" and _HORIZON in argument:
-        # A contrast reported at a horizon is a difference of cumulative risks, because the
-        # only estimator that indexes a regimen mean by horizon is the survival recursion.
-        #
-        # Read off the notation rather than off the study's declared ``outcome_kind``, which
-        # is the thing that actually settles it.  That is tolerable only because the one other
-        # construction using this infix is competing risks, whose contrast carries a cause in
-        # the same bracket -- ``ate_regimen[always vs never, relapse @ t=2]`` -- and whose
-        # cumulative *incidence* is a different parameter.  Refused here rather than described
-        # wrongly: a cause-specific row needs its own entry, and the study that adds one has
-        # to say so instead of inheriting this wording by notation.
-        if _CAUSE in argument:
+    if _HORIZON not in argument:
+        return f"{parameter} {regimen(argument)}"
+    # Two constructions index a regimen mean by horizon, and the bracket is what tells them
+    # apart.  A competing-risk key carries a cause beside the plan --
+    # ``ate_regimen[always vs never, relapse @ t=2]`` -- and a single-event key does not.
+    # Cumulative *incidence* and cumulative *risk* are different parameters, so each gets its
+    # own wording rather than inheriting the other's.
+    #
+    # This reads the notation.  What actually settles it is the study's declared
+    # ``outcome_kind``, and that is out of reach here: this function is handed a key, not a
+    # record.  The notation is sufficient while these two constructions are the only ones that
+    # index by horizon.  A third would need its own infix, or this function would need the
+    # record -- it must not be added by widening one of the two branches below.
+    if _CAUSE in argument:
+        plan_and_cause, horizon = argument.rsplit(_HORIZON, 1)
+        plan, cause = plan_and_cause.rsplit(_CAUSE, 1)
+        if name == "cif_regimen":
+            incidence = f"cumulative incidence of {cause} under the plan"
+        elif name == "ate_regimen":
+            incidence = f"difference in cumulative incidence of {cause} between the plans"
+        else:
             raise Undescribed(
                 f"{key!r} carries a cause as well as a horizon, so it is a cumulative "
-                f"incidence rather than a cumulative risk; give it its own description"
+                f"incidence; {name!r} has no cause-specific description"
             )
+        return f"{incidence} {regimen(plan)} at horizon t = {horizon}"
+    if name == "ate_regimen":
         parameter = "difference in cumulative risk between the plans"
     return f"{parameter} {regimen(argument)}"
 
 
 def regimen(argument: str) -> str:
     """A regimen label, or a contrast written as one label against another."""
-    if " @ t=" in argument:
-        label, horizon = argument.rsplit(" @ t=", 1)
+    if _HORIZON in argument:
+        label, horizon = argument.rsplit(_HORIZON, 1)
         return f"{regimen(label)} at horizon t = {horizon}"
     if " vs " in argument:
         treated, reference = argument.split(" vs ", 1)

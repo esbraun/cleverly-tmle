@@ -11,6 +11,9 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
+| Validation | V1 | Point and longitudinal MSM studies | source audit | projection-specific statistical laws; no raw `ltmleMSM` coefficient parity | [V1](#v1-point-and-longitudinal-msm-studies) |
+| Validation | V2 | Intervention-family studies | source audit for each intervention | intervention-specific laws and maintained comparators where available | [V2](#v2-intervention-family-studies) |
+| Validation | V3 | Remaining composition studies | source audit for each composition | V1 and V2 establish the reusable study designs | [V3](#v3-remaining-composition-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -66,6 +69,33 @@ An item is complete only when all applicable conditions hold:
   presenting a proposal as a release claim; and
 - every relevant check has run locally and GitHub Actions is green. CI is the final merge signal,
   not a substitute for the local validation record.
+
+## Validation track
+
+The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
+records completed studies. This track records the sequence for implementation families that the
+grid does not cover. A completed item leaves this roadmap and enters the grid with committed
+artifacts.
+
+### V1. Point and longitudinal MSM studies
+
+Add statistical rows for the point and ordinary longitudinal projections. Define coefficient
+truths from the declared projection measure. Do not use raw R `ltmleMSM` coefficient parity because
+its quasibinomial projection is a different parameter. Cross-fitted longitudinal coefficient
+inference stays refused until an unsaturated projection study supports it.
+
+### V2. Intervention-family studies
+
+Add separate rows for deterministic and stochastic regimes, modified treatment policies, and
+incremental propensity-score interventions. Each row needs its own law and theory properties.
+Use a canonical comparator only where it evaluates the same intervention and influence curve.
+
+### V3. Remaining composition studies
+
+Inventory the implementation matrix after V1 and V2 land. Add rows for uncovered missing-data,
+categorical longitudinal, weighting, clustering, and inference compositions only when one study
+can name the exact parameter and a nonredundant failure mode. Do not let a broad row borrow evidence
+from a nearby construction.
 
 ## Extensibility track
 

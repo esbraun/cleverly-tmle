@@ -271,6 +271,7 @@ def _has_exact_efficiency(row: Any) -> bool:
 _BIAS_GATED = frozenset(
     {
         "double_robustness",
+        "competing_risk_recursion_necessity",
         "robustness_contract",
         "selector_necessity",
         "survival_recursion_necessity",
