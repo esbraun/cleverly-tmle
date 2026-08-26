@@ -131,6 +131,9 @@ previous reader had is not a citation; a page number is.
   `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
+- Competing-risk audit of the same snapshot: its survival path accepts a competing-event column
+  through `compete=`. The returned estimate is event-free survival for the target cause. The
+  registered studies transform that value to incidence and negate its influence curve.
 - Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
   structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
   10.1016/j.jspi.2005.12.008.

@@ -287,19 +287,23 @@ print(churn_result.validate().summary())
 | --- | --- | --- |
 | the stagewise report | how many members were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | every node's fluctuation converged | that the node regressions are correctly specified |
-| the registered survival studies | ordinary and cross-fitted survival fits recover known two-horizon truths and witness targeting and the survival recursion | competing risks, MSM, weights, clustering, or simultaneous bands |
+| the registered event-process studies | ordinary and cross-fitted fits recover known two-horizon survival and competing-risk truths | MSMs, weights, clustering, eliminated competing events, or simultaneous bands |
 
 The survival curve rests on two registered rows, the
 [ordinary](../technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md) and
 the
 [cross-fitted](../technical-reference/method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md)
-study. Both are pointwise, two-horizon, one-cause rows. Neither covers the two-cause fit.
+study. Both are pointwise, two-horizon, one-cause rows.
 
-The competing-risk fit has no registered repeated-sampling study. It rests on exact-law and Gateaux
-evidence in the
-[evidence manifest](../technical-reference/evidence.md#longitudinal-estimands-outside-the-target-registry).
-Read its estimate as checked arithmetic on a checked influence curve, and not as a covered
-interval.
+The competing-risk fit has separate
+[ordinary](../technical-reference/method-evidence/ordinary-competing-risk-longitudinal-tmle.md) and
+[cross-fitted](../technical-reference/method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md)
+rows. Each row covers two causes, two horizons, censoring, and static and dynamic plans. The rows
+also test targeting and the all-cause risk-set recursion with nonzero controls.
+
+These rows do not cover simultaneous bands, learned mechanisms, active truncation, weights,
+clustering, or elimination of a competing event. Read those compositions as unsupported by this
+study rather than as inherited from a nearby row.
 
 ## Where to go next
 

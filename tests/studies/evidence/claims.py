@@ -219,22 +219,30 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         for cell in record.property_cells.get("interval_calibration", ())
     ):
         properties = record.properties()
-        low, high = properties.EFFICIENCY_RATIO_BAND
+        constants = getattr(properties, "base", properties)
+        low, high = constants.EFFICIENCY_RATIO_BAND
         declared.update(
             {
                 "margin:efficiency_ratio_lower": low,
                 "margin:efficiency_ratio_upper": high,
-                "margin:shrunken_se_factor": properties.SHRUNKEN_SE_FACTOR,
+                "margin:shrunken_se_factor": constants.SHRUNKEN_SE_FACTOR,
             }
         )
     if "targeting_necessity" in record.property_cells:
-        declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+        properties = record.properties()
+        constants = getattr(properties, "base", properties)
+        declared["margin:targeting_displacement"] = constants.TARGETING_DISPLACEMENT
     # Its own entry rather than a second reader of the one above.  The two families are gated
     # on separate displacements computed from separate arms, and a page that published one
     # threshold for both would describe one of them wrongly however the numbers happened to
     # compare.
-    if "survival_recursion_necessity" in record.property_cells:
-        declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
+    if (
+        "survival_recursion_necessity" in record.property_cells
+        or "competing_risk_recursion_necessity" in record.property_cells
+    ):
+        properties = record.properties()
+        constants = getattr(properties, "base", properties)
+        declared["margin:recursion_displacement"] = constants.RECURSION_DISPLACEMENT
     return declared
 
 

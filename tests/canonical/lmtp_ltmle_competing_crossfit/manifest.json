@@ -1,0 +1,149 @@
+{
+  "schema_version": 2,
+  "study": "cross-fitted competing-risk longitudinal TMLE",
+  "slug": "canonical-ltmle-competing-crossfit",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-cross-fitted-competing-ltmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "240b9ca76b382a1d12e8060ec3a0a53142dc3e6b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 4000,
+    "seed": 20260827,
+    "publication_policy": "gated",
+    "scenarios": {
+      "censored_competing_risk_curve": [
+        "cif_regimen[never, relapse @ t=1]",
+        "cif_regimen[never, relapse @ t=2]",
+        "cif_regimen[always, relapse @ t=1]",
+        "cif_regimen[always, relapse @ t=2]",
+        "cif_regimen[continue_if_l2, relapse @ t=2]",
+        "cif_regimen[never, death @ t=1]",
+        "cif_regimen[never, death @ t=2]",
+        "cif_regimen[always, death @ t=1]",
+        "cif_regimen[always, death @ t=2]",
+        "cif_regimen[continue_if_l2, death @ t=2]",
+        "ate_regimen[always vs never, relapse @ t=1]",
+        "ate_regimen[always vs never, relapse @ t=2]",
+        "ate_regimen[continue_if_l2 vs never, relapse @ t=2]",
+        "ate_regimen[always vs never, death @ t=1]",
+        "ate_regimen[always vs never, death @ t=2]",
+        "ate_regimen[continue_if_l2 vs never, death @ t=2]"
+      ]
+    },
+    "construction": "fold_specific_cross_fit",
+    "outcome_kind": "competing_absorbing_events",
+    "horizon_mode": "all_prefixes",
+    "r_survival_outcome": true,
+    "cross_fit": true,
+    "outer_folds": 5,
+    "learner_folds": 2,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "stratify": true,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "horizons": [
+      1,
+      2
+    ],
+    "causes": [
+      "relapse",
+      "death"
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "continue_if_l2"
+    ],
+    "outcome_designs": [
+      [
+        "intercept"
+      ],
+      [
+        "intercept"
+      ]
+    ],
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
+    "reference_competing_event": "the_other_cause",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ltmle_competing_crossfit.py": "dbb031fd7a04ca17263ce934cfa4e310021945304565deb36f8b1764b3c09c38",
+    "tests/studies/ltmle_competing_crossfit_properties.py": "bca92db1053f69a2cc6e86a8258e5f2215d396d9294b6439ed192aea67e98277",
+    "tests/studies/canonical_ltmle_competing.py": "f5ac144219206dcd476250c07af410ee253276748849875a2ece6893c8b965b1",
+    "tests/studies/ltmle_competing_properties.py": "f543bb794a244f787a1c02302c1c6793dc7583a7eb999d023d06f9dffa26fe7f",
+    "tests/studies/canonical_ltmle_crossfit.py": "47eba51631e1f68c504935937c04dc2b6256a65d29694b61a7719e0ebba7c411",
+    "tests/studies/canonical_ltmle.py": "9058761787420541d5d5ea8a1baab66680160592520d90831cd525d6591aa5cc",
+    "tests/discrete_law_competing.py": "ecb39b7ea34b46f15052fdbec310b8df4c4dd5aed5ee53ff5d854fd91513b748",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "5bbb1bc96c2456ad95cf8732def6fb9daca62681529bb828700c857c8d8ce60b",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit/audit.py": "8703b3389c17c599b7bf33e5037867be5e56857d4194b45b6e35ec24e65d8275",
+    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/canonical/lmtp_competing_adapter.R": "97a6f348fdc9656c3d4e0f93b900395ebfeae75305b7e57cb21229cd6c1e1468",
+    "tests/canonical/lmtp_ltmle_competing/run_study.R": "bdb5cbc9d8e4d82339aefc3f07c21357a365388cb7cce127ce42b2c1caf34137"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_ltmle_competing/run_study.R": "bdb5cbc9d8e4d82339aefc3f07c21357a365388cb7cce127ce42b2c1caf34137",
+    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/canonical/lmtp_competing_adapter.R": "97a6f348fdc9656c3d4e0f93b900395ebfeae75305b7e57cb21229cd6c1e1468"
+  },
+  "sha256": {
+    "replicates.csv.gz": "dff93b7dedb73d6bea3f16d76a4b42288d3f6d343b2bf08e1036c660476dfcc2",
+    "summary.csv": "574de4fee21ede321efbde8595a3c3ebb2214c2428f2799b6a8ebaff2dbb5de7",
+    "equivalence.csv": "4dedf0fea3237ecb11222d79894347e2cc7b7d8de691c33f82a88d854714f6b7",
+    "performance-tests.csv": "67ee1d2c1eaef26f26c02ab2d72553b590642a4743a08ee11e0ab89fec968548",
+    "property-replicates.csv.gz": "0d6ea2caf1f4cf385140824f5282be5e3d45ca5330d1d9edcdc345bbbe7dbb58",
+    "properties.csv": "cce437304e3bfc21dc825c2585660361a470891f2bad2bc3f2ca76e0537afb02"
+  }
+}

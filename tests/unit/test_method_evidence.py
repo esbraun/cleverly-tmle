@@ -362,7 +362,7 @@ class TestPublishedVerdicts:
             "efficiency_empirical_ci_lower" in calibration.columns
             and calibration["efficiency_empirical_ci_lower"].notna().any()
         ):
-            properties = study.properties()
+            properties = _property_constants(study)
             for row in calibration.itertuples():
                 kind = row.cell.split("__", 1)[1]
                 if kind == "correctly_specified":
@@ -414,10 +414,14 @@ class TestPublishedVerdicts:
             assert bool(targeting["property_passed"].iloc[0]) is bool(
                 targeting["passed"].all()
                 and targeting["targeting_displacement"].iloc[0]
-                >= study.properties().TARGETING_DISPLACEMENT
+                >= _property_constants(study).TARGETING_DISPLACEMENT
             )
 
-        recursion = published.loc[published["property"] == "survival_recursion_necessity"]
+        recursion = published.loc[
+            published["property"].isin(
+                {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
+            )
+        ]
         if not recursion.empty:
             # The same shape as targeting above, and needed for the same reason: each row's own
             # bias endpoint is satisfied by a recursion that does nothing, because the
@@ -428,7 +432,7 @@ class TestPublishedVerdicts:
             assert bool(recursion["property_passed"].iloc[0]) is bool(
                 recursion["passed"].all()
                 and recursion["recursion_displacement"].iloc[0]
-                >= study.properties().RECURSION_DISPLACEMENT
+                >= _property_constants(study).RECURSION_DISPLACEMENT
             )
 
         design = published.loc[published["property"] == "generated_design"]
@@ -483,6 +487,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "double_robustness",
         "robustness_contract",
         "selector_necessity",
+        "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
     }
@@ -507,6 +512,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "type_i_error",
     }
 )
+
+
+def _property_constants(study: StudyRecord) -> Any:
+    """The module that owns thresholds for a direct study or a thin cross-fit wrapper."""
+    properties = study.properties()
+    return getattr(properties, "base", properties)
 
 
 class TestNegativeControls:
@@ -1242,18 +1253,21 @@ class TestTheQuantityVocabulary:
         if "targeting_necessity" in study.property_cells:
             assert (
                 declared["margin:targeting_displacement"]
-                == study.properties().TARGETING_DISPLACEMENT
+                == _property_constants(study).TARGETING_DISPLACEMENT
             )
-        if "survival_recursion_necessity" in study.property_cells:
+        if (
+            "survival_recursion_necessity" in study.property_cells
+            or "competing_risk_recursion_necessity" in study.property_cells
+        ):
             assert (
                 declared["margin:recursion_displacement"]
-                == study.properties().RECURSION_DISPLACEMENT
+                == _property_constants(study).RECURSION_DISPLACEMENT
             )
         if any(
             cell.endswith("noise_control")
             for cell in study.property_cells.get("interval_calibration", ())
         ):
-            efficiency = study.properties()
+            efficiency = _property_constants(study)
             low, high = efficiency.EFFICIENCY_RATIO_BAND
             assert declared["margin:efficiency_ratio_lower"] == low
             assert declared["margin:efficiency_ratio_upper"] == high

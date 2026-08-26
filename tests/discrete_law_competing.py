@@ -106,6 +106,7 @@ __all__ = [
     "functional",
     "gateaux",
     "outcome_columns",
+    "probabilities",
 ]
 
 #: Rows in the realised sample.  ``4**8``: one factor of four for ``P(W)`` -- see the
@@ -270,7 +271,7 @@ def outcome_columns() -> dict[str, list[str]]:
     }
 
 
-def _mass_of(point: tuple[Any, ...]) -> float:
+def _mass_of(point: tuple[Any, ...], *, h1: np.ndarray = H1, h2: np.ndarray = H2) -> float:
     """``P`` of one support point, as a product of the conditionals above."""
     w, a1, c1, j1, l2, a2, c2, j2 = point
     mass = P_W[w] * (G1[w] if a1 == 1 else 1.0 - G1[w])
@@ -281,16 +282,29 @@ def _mass_of(point: tuple[Any, ...]) -> float:
     # but it contributes its *own* hazard, and what survives to the next node is one minus
     # the sum over causes rather than one minus this cause's.
     if j1 != 0:
-        return float(mass * H1[j1 - 1, w, a1])
-    mass *= 1.0 - H1[:, w, a1].sum()
+        return float(mass * h1[j1 - 1, w, a1])
+    mass *= 1.0 - h1[:, w, a1].sum()
     mass *= P_L2[w, a1] if l2 == 1 else 1.0 - P_L2[w, a1]
     mass *= G2[w, a1, l2] if a2 == 1 else 1.0 - G2[w, a1, l2]
     if c2 == 0:
         return float(mass * (1.0 - C2[w, a1, l2, a2]))
     mass *= C2[w, a1, l2, a2]
     if j2 != 0:
-        return float(mass * H2[j2 - 1, w, a1, l2, a2])
-    return float(mass * (1.0 - H2[:, w, a1, l2, a2].sum()))
+        return float(mass * h2[j2 - 1, w, a1, l2, a2])
+    return float(mass * (1.0 - h2[:, w, a1, l2, a2].sum()))
+
+
+def probabilities(h1: np.ndarray = H1, h2: np.ndarray = H2) -> np.ndarray:
+    """Support probabilities under alternative cause-specific hazards.
+
+    The treatment, censoring, and time-varying covariate laws remain fixed.  Property
+    studies use this function for sharp-null and power laws without creating a second
+    support convention.
+    """
+    probs = np.array([_mass_of(point, h1=h1, h2=h2) for point in SUPPORT])
+    if np.any(probs < 0) or not np.isclose(probs.sum(), 1.0):
+        raise ValueError("the competing-risk hazards do not define a probability law")
+    return probs
 
 
 def _counts() -> np.ndarray:

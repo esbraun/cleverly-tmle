@@ -232,6 +232,10 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
+    from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
+    from tests.studies.canonical_ltmle_competing_crossfit import (
+        STUDY as CANONICAL_LTMLE_COMPETING_CROSSFIT,
+    )
     from tests.studies.canonical_ltmle_crossfit import STUDY as CANONICAL_LTMLE_CROSSFIT
     from tests.studies.canonical_ltmle_survival import STUDY as CANONICAL_LTMLE_SURVIVAL
     from tests.studies.canonical_ltmle_survival_crossfit import (
@@ -251,4 +255,6 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_CROSSFIT,
         CANONICAL_LTMLE_SURVIVAL,
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
+        CANONICAL_LTMLE_COMPETING,
+        CANONICAL_LTMLE_COMPETING_CROSSFIT,
     )

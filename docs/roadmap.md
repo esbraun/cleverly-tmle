@@ -11,10 +11,9 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Competing-risk longitudinal TMLE studies | source audit complete | existing competing-risk oracle and pinned `lmtp` source | [V1](#v1-competing-risk-longitudinal-tmle-studies) |
-| Validation | V2 | Point and longitudinal MSM studies | source audit | projection-specific statistical laws; no raw `ltmleMSM` coefficient parity | [V2](#v2-point-and-longitudinal-msm-studies) |
-| Validation | V3 | Intervention-family studies | source audit for each intervention | intervention-specific laws and maintained comparators where available | [V3](#v3-intervention-family-studies) |
-| Validation | V4 | Remaining composition studies | source audit for each composition | V1 through V3 establish the reusable study designs | [V4](#v4-remaining-composition-studies) |
+| Validation | V1 | Point and longitudinal MSM studies | source audit | projection-specific statistical laws; no raw `ltmleMSM` coefficient parity | [V1](#v1-point-and-longitudinal-msm-studies) |
+| Validation | V2 | Intervention-family studies | source audit for each intervention | intervention-specific laws and maintained comparators where available | [V2](#v2-intervention-family-studies) |
+| Validation | V3 | Remaining composition studies | source audit for each composition | V1 and V2 establish the reusable study designs | [V3](#v3-remaining-composition-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -78,55 +77,22 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Competing-risk longitudinal TMLE studies
-
-Add separate ordinary and five-fold cross-fitted rows for cause-specific cumulative incidence.
-Use the existing two-cause, two-node law in `tests/discrete_law_competing.py`. Report both causes,
-both horizons, the three declared regimens, and their contrasts against `never`.
-
-Use R `lmtp` 1.5.4 at commit `f04a2b4` as the bounded implementation witness. Fit each cause as the
-event and supply the other cause through `compete=`. Give both implementations the same realized
-folds and exact treatment and censoring mechanism. Transform R's event-free estimate and influence
-curve to the cumulative-incidence scale. Keep ordinary and cross-fitted results in separate rows.
-
-The R comparison must exercise a nonzero finite-sample blind spot. Use misspecified working
-regressions with an exact mechanism, and retain the initial plug-in value. This design makes
-targeting load-bearing and checks the competing-event risk mask away from the oracle truth. It
-does not treat parity as a derivation.
-
-Register independent repeated-sampling properties for each row:
-
-- outcome-correct and mechanism-correct robustness, with both-correct and both-wrong controls;
-- bias, coverage, standard-error calibration, and root-n behavior for one contrast per cause;
-- a confounded sharp null and two cause-specific power alternatives;
-- a nonzero targeting control; and
-- an all-cause risk-set control that replaces all-cause survival with cause-specific survival.
-
-The cross-fitted row also needs the flexible-learner overfitting control and exact-fold witness used
-by the existing cross-fitted survival row. Run a disposable R smoke study before the full study.
-Commit all six artifacts and each manifest only after every declared gate can be recomputed from
-them.
-
-Update the evidence manifest, validation grid, method page, references, and survival example. The
-limits must retain pointwise inference, one fixed split, two nodes, two causes, supplied mechanisms,
-and no simultaneous bands, weights, clustering, or eliminated competing event.
-
-### V2. Point and longitudinal MSM studies
+### V1. Point and longitudinal MSM studies
 
 Add statistical rows for the point and ordinary longitudinal projections. Define coefficient
 truths from the declared projection measure. Do not use raw R `ltmleMSM` coefficient parity because
 its quasibinomial projection is a different parameter. Cross-fitted longitudinal coefficient
 inference stays refused until an unsaturated projection study supports it.
 
-### V3. Intervention-family studies
+### V2. Intervention-family studies
 
 Add separate rows for deterministic and stochastic regimes, modified treatment policies, and
 incremental propensity-score interventions. Each row needs its own law and theory properties.
 Use a canonical comparator only where it evaluates the same intervention and influence curve.
 
-### V4. Remaining composition studies
+### V3. Remaining composition studies
 
-Inventory the implementation matrix after V1 through V3 land. Add rows for uncovered missing-data,
+Inventory the implementation matrix after V1 and V2 land. Add rows for uncovered missing-data,
 categorical longitudinal, weighting, clustering, and inference compositions only when one study
 can name the exact parameter and a nonredundant failure mode. Do not let a broad row borrow evidence
 from a nearby construction.
