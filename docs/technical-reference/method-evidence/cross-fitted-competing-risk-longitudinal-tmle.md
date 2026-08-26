@@ -17,7 +17,8 @@ the first horizon. A structural test checks this identity outside repeated sampl
 | plans | never treat, always treat, and continue when L2 equals one | the same unique plan and horizon combinations |
 | mechanisms | exact treatment and censoring probabilities | the same exact per-node density ratios |
 | sequential regressions | fold-specific intercept-only regressions | fold-specific `SL.mean` regressions on the same histories |
-| intervals | pointwise 95% Wald intervals from held-out influence curves | the same, after transforming event-free estimates to incidence |
+| learner path | scikit-learn estimators, called directly | lmtp's internal `run_ensemble` replaced by the same single-learner fit, without SuperLearner's inner cross-validation. The adapter checks the two agree to 1e-10 before every run |
+| intervals | pointwise 95% Wald intervals from held-out influence curves | the same, after transforming one minus the incidence back to incidence |
 
 The outcome regressions are misspecified in this comparison. Therefore, targeting stays nonzero
 and the competing-event risk mask affects the result. The exact mechanisms and identical folds
@@ -73,7 +74,7 @@ isolate those steps without making the comparison an oracle-law duplicate.
 | two-time-point, two-cause competing-risk law with monotone censoring | `ate_regimen[always vs never, relapse @ t=2]` | difference in cumulative incidence of relapse between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | 7.061e-12 | 1.542e-09 | 1.0000 | 0 | 3.015e-10 vs 0.0500 | equivalent |
 | two-time-point, two-cause competing-risk law with monotone censoring | `ate_regimen[continue_if_l2 vs never, death @ t=2]` | difference in cumulative incidence of death between the plans "treat first, then continue if L2 equals one" against "treat at neither time" at horizon t = 2 | -1.844e-10 | 4.078e-08 | 1.0000 | 0 | 2.425e-10 vs 0.0500 | equivalent |
 | two-time-point, two-cause competing-risk law with monotone censoring | `ate_regimen[continue_if_l2 vs never, relapse @ t=2]` | difference in cumulative incidence of relapse between the plans "treat first, then continue if L2 equals one" against "treat at neither time" at horizon t = 2 | 2.866e-11 | 6.285e-09 | 1.0000 | 0 | 2.196e-10 vs 0.0500 | equivalent |
-| two-time-point, two-cause competing-risk law with monotone censoring | `cif_regimen[always, death @ t=1]` | cumulative incidence of death under the plan treat at both times at horizon t = 1 | -4.785e-12 | 2.096e-09 | 1.0000 | 0 | 7.361e-10 vs 0.0500 | equivalent |
+| two-time-point, two-cause competing-risk law with monotone censoring | `cif_regimen[always, death @ t=1]` | cumulative incidence of death under the plan treat at both times at horizon t = 1 | -4.785e-12 | 2.096e-09 | 1.0000 | 0 | 7.360e-10 vs 0.0500 | equivalent |
 | two-time-point, two-cause competing-risk law with monotone censoring | `cif_regimen[always, death @ t=2]` | cumulative incidence of death under the plan treat at both times at horizon t = 2 | -1.064e-10 | 2.580e-08 | 1.0000 | 0 | 4.155e-09 vs 0.0500 | equivalent |
 | two-time-point, two-cause competing-risk law with monotone censoring | `cif_regimen[always, relapse @ t=1]` | cumulative incidence of relapse under the plan treat at both times at horizon t = 1 | -1.047e-10 | 4.202e-08 | 1.0000 | 0 | 1.806e-08 vs 0.0500 | equivalent |
 | two-time-point, two-cause competing-risk law with monotone censoring | `cif_regimen[always, relapse @ t=2]` | cumulative incidence of relapse under the plan treat at both times at horizon t = 2 | -9.406e-11 | 2.311e-08 | 1.0000 | 0 | 3.241e-10 vs 0.0500 | equivalent |
@@ -126,13 +127,19 @@ isolate those steps without making the comparison an oracle-law duplicate.
 | `targeting_necessity` | `death_static_t2__untargeted` | control | static death contrast at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias -0.0156 to -0.0110, margin 0.0077 | pass |
 | `targeting_necessity` | `relapse_dynamic_t2__targeted` | positive | dynamic relapse contrast at horizon two: the estimator fluctuates a constant outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0022 to 0.0022, margin 0.0075 | pass |
 | `targeting_necessity` | `relapse_dynamic_t2__untargeted` | control | dynamic relapse contrast at horizon two: the identical backward recursion with no fluctuation at any node | bias interval must fall entirely outside the margin | bias 0.0262 to 0.0304, margin 0.0072 | pass |
-| `type_i_error` | `death_static_t2__sharp_null` | positive | static death contrast at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0444, 0.0322 to 0.0594 | pass |
-| `type_i_error` | `relapse_dynamic_t2__sharp_null` | positive | dynamic relapse contrast at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0488, 0.0359 to 0.0643 | pass |
+| `type_i_error` | `death_static_t2__sharp_null` | positive | static death contrast at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0550, 0.0414 to 0.0714 | pass |
+| `type_i_error` | `relapse_dynamic_t2__sharp_null` | positive | dynamic relapse contrast at horizon two: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0625, 0.0479 to 0.0797 | pass |
 <!-- /generated -->
 
 The property study keeps the ordinary row's two-cause instruments. It also pairs a fully grown
 outcome tree with the same fit without cross-fitting. The joint verdict requires cross-fitting to
 restore standard-error scale and improve coverage.
+
+At the second horizon a baseline-only standardisation misses the null by -0.0077 for death and
+0.0091 for relapse. The null is therefore one an estimator has to be longitudinal to find. At the
+first horizon that same analysis returns exactly zero, because no time-varying node precedes the
+first event node. A crude comparison of arms is biased at both horizons, so the first-horizon
+cells still test baseline and censoring adjustment.
 
 ## Measured values
 
@@ -199,6 +206,7 @@ committed results.
 | Agreement with `lmtp` is distributional | The paired claim tests mean similarity and non-inferiority, not rowwise numerical equality |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
 | The comparison covers two causes and two horizons | Longer event processes and more causes need separate evidence |
+| The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |
 | The inference is pointwise | The row does not validate simultaneous bands across causes, plans, or horizons |
 | The mechanisms are supplied | The comparison does not test learned-mechanism parity or active truncation |
 | Competing events remain natural | The row does not validate an estimand that eliminates a competing event |

@@ -22,6 +22,18 @@ STUDY = canonical.STUDY
 PROPERTY_LABELS = base.PROPERTY_LABELS
 CONTRASTS = base.CONTRASTS
 EFFICIENCY_SD = base.EFFICIENCY_SD
+
+# The four acceptance margins, re-exported rather than delegated to.  ``claims.thresholds``
+# publishes each of these under a ``margin:`` name, and it reaches them through
+# ``record.properties()`` -- the module this study's record names, which is this one.  A
+# cross-fitted study that left them only on ``base`` would publish nothing unless the reader
+# knew to follow an import alias, so the alias stays an implementation detail and the
+# declaration is stated here, where the record points.
+EFFICIENCY_RATIO_BAND = base.EFFICIENCY_RATIO_BAND
+SHRUNKEN_SE_FACTOR = base.SHRUNKEN_SE_FACTOR
+TARGETING_DISPLACEMENT = base.TARGETING_DISPLACEMENT
+RECURSION_DISPLACEMENT = base.RECURSION_DISPLACEMENT
+
 OVERFIT_REPLICATES = 8_000
 OVERFIT_N = 1_000
 OVERFIT_POSITIVE = "cross_fitted_competing_ltmle"
@@ -86,8 +98,9 @@ def _overfit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[s
     cell, replicate, n, requested, seed = payload
     frame, truth = _balanced_competing_panel(n, seed)
     result = _overfit(frame, cross_fit=cell == OVERFIT_POSITIVE)
-    source_name = "ate_regimen[always vs never, relapse @ t=2]"
-    name = source_name
+    # The relapse half of the split all-cause event.  ``_balanced_competing_panel`` returns
+    # the matching truth, which is half the panel's own all-cause contrast.
+    name = "ate_regimen[always vs never, relapse @ t=2]"
     return [
         replicate_row(
             property_name="crossfit_overfitting",

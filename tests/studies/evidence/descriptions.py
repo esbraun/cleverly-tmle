@@ -30,10 +30,28 @@ _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 _HORIZON = " @ t="
 _CAUSE = ", "
 
-#: Longitudinal property cells prefix the plan they belong to.
+#: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
+#: arm, so :func:`cell` strips it and reports it beside the family's shared description.
+ARMS: dict[str, str] = {
+    "static": "static plan",
+    "dynamic": "dynamic plan",
+    "static_t1": "static plan at horizon one",
+    "static_t2": "static plan at horizon two",
+    "dynamic_t2": "dynamic plan at horizon two",
+    "always_t2": "always-treat risk at horizon two",
+    "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
+    "death_static_t2": "static death contrast at horizon two",
+    "relapse_always_t2": "always-treat relapse incidence at horizon two",
+    "death_always_t2": "always-treat death incidence at horizon two",
+}
+
+#: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
+#: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
+#: extends one of them and not the other -- and that is the one lookup here which would not
+#: raise :class:`Undescribed`.  Longest alternative first, so a longer arm is never shadowed
+#: by a shorter one it starts with.
 _ARM = re.compile(
-    r"^(?P<arm>static|dynamic|static_t1|static_t2|dynamic_t2|always_t2|"
-    r"relapse_dynamic_t2|death_static_t2|relapse_always_t2|death_always_t2)__(?P<cell>.+)$"
+    r"^(?P<arm>" + "|".join(sorted(ARMS, key=len, reverse=True)) + r")__(?P<cell>.+)$"
 )
 
 #: A contraction ladder's rung, ``"<configuration>_n<size>"``.  Matched only for the family
@@ -335,20 +353,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
 }
 
-#: Longitudinal cells belong to one of the two plans a study contrasts.
-ARMS: dict[str, str] = {
-    "static": "static plan",
-    "dynamic": "dynamic plan",
-    "static_t1": "static plan at horizon one",
-    "static_t2": "static plan at horizon two",
-    "dynamic_t2": "dynamic plan at horizon two",
-    "always_t2": "always-treat risk at horizon two",
-    "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
-    "death_static_t2": "static death contrast at horizon two",
-    "relapse_always_t2": "always-treat relapse incidence at horizon two",
-    "death_always_t2": "always-treat death incidence at horizon two",
-}
-
 
 class Undescribed(LookupError):
     """A committed result names a key this module does not describe."""
@@ -382,33 +386,41 @@ def estimand(key: str) -> str:
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
-    if _HORIZON in argument and _CAUSE in argument:
+    if _HORIZON not in argument:
+        return f"{parameter} {regimen(argument)}"
+    # Two constructions index a regimen mean by horizon, and the bracket is what tells them
+    # apart.  A competing-risk key carries a cause beside the plan --
+    # ``ate_regimen[always vs never, relapse @ t=2]`` -- and a single-event key does not.
+    # Cumulative *incidence* and cumulative *risk* are different parameters, so each gets its
+    # own wording rather than inheriting the other's.
+    #
+    # This reads the notation.  What actually settles it is the study's declared
+    # ``outcome_kind``, and that is out of reach here: this function is handed a key, not a
+    # record.  The notation is sufficient while these two constructions are the only ones that
+    # index by horizon.  A third would need its own infix, or this function would need the
+    # record -- it must not be added by widening one of the two branches below.
+    if _CAUSE in argument:
         plan_and_cause, horizon = argument.rsplit(_HORIZON, 1)
         plan, cause = plan_and_cause.rsplit(_CAUSE, 1)
         if name == "cif_regimen":
-            return (
-                f"cumulative incidence of {cause} under the plan {regimen(plan)} "
-                f"at horizon t = {horizon}"
+            incidence = f"cumulative incidence of {cause} under the plan"
+        elif name == "ate_regimen":
+            incidence = f"difference in cumulative incidence of {cause} between the plans"
+        else:
+            raise Undescribed(
+                f"{key!r} carries a cause as well as a horizon, so it is a cumulative "
+                f"incidence; {name!r} has no cause-specific description"
             )
-        if name == "ate_regimen":
-            return (
-                f"difference in cumulative incidence of {cause} between the plans "
-                f"{regimen(plan)} at horizon t = {horizon}"
-            )
-    if name == "ate_regimen" and _HORIZON in argument:
-        # A contrast reported at a horizon is a difference of cumulative risks, because the
-        # only estimator that indexes a regimen mean by horizon is the survival recursion.
-        #
-        # Read off the notation rather than off the study's declared ``outcome_kind``, which
-        # is the thing that actually settles it.  That is tolerable only because the one other
+        return f"{incidence} {regimen(plan)} at horizon t = {horizon}"
+    if name == "ate_regimen":
         parameter = "difference in cumulative risk between the plans"
     return f"{parameter} {regimen(argument)}"
 
 
 def regimen(argument: str) -> str:
     """A regimen label, or a contrast written as one label against another."""
-    if " @ t=" in argument:
-        label, horizon = argument.rsplit(" @ t=", 1)
+    if _HORIZON in argument:
+        label, horizon = argument.rsplit(_HORIZON, 1)
         return f"{regimen(label)} at horizon t = {horizon}"
     if " vs " in argument:
         treated, reference = argument.split(" vs ", 1)

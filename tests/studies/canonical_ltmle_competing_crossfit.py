@@ -66,10 +66,10 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.canonical_ltmle_competing_crossfit",
     properties_module="tests.studies.ltmle_competing_crossfit_properties",
-    property_cells=ordinary._property_cells(crossfit=True),
+    property_cells=ordinary.property_cells(crossfit=True),
 )
 
-CONFIGURATION = ordinary._configuration(crossfit=True)
+CONFIGURATION = ordinary.manifest_configuration(crossfit=True)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -92,7 +92,7 @@ def cleverly_rows(
 ) -> list[dict[str, Any]]:
     if scenario != SCENARIO:
         raise KeyError(scenario)
-    return ordinary._rows_from_result(fit_cleverly(frame), truth, scenario, replicate, study=STUDY)
+    return ordinary.rows_from_result(fit_cleverly(frame), truth, scenario, replicate, study=STUDY)
 
 
 def _replicate(
@@ -109,7 +109,7 @@ def _replicate(
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
-    rows = ordinary._rows_from_result(result, truth, scenario, replicate, study=STUDY)
+    rows = ordinary.rows_from_result(result, truth, scenario, replicate, study=STUDY)
     return sample, truths, rows
 
 

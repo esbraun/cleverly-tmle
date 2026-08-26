@@ -52,10 +52,6 @@ def test_the_primary_study_reports_every_unique_parameter_once() -> None:
     np.testing.assert_array_equal(dynamic.influence_curve_scaled, always.influence_curve_scaled)
 
 
-def _mass(probs: np.ndarray, **pattern: int) -> float:
-    return float(sum(probs[index] for index in law._index(**pattern)))
-
-
 def baseline_only(probs: np.ndarray, arm: int, horizon: int) -> float:
     """The cumulative risk an analysis that never conditions on ``L2`` would report.
 
@@ -67,16 +63,16 @@ def baseline_only(probs: np.ndarray, arm: int, horizon: int) -> float:
     ``A2`` and ``C2`` both depend on ``L2``, conditioning on them reweights it, which is the
     bias a longitudinal fit exists to remove.
     """
-    total = _mass(probs)
+    total = law._mass(probs)
     psi = 0.0
     for w in (0, 1):
-        share = _mass(probs, w=w) / total
-        hazard1 = _mass(probs, w=w, a1=arm, c1=1, y1=1) / _mass(probs, w=w, a1=arm, c1=1)
+        share = law._mass(probs, w=w) / total
+        hazard1 = law._mass(probs, w=w, a1=arm, c1=1, y1=1) / law._mass(probs, w=w, a1=arm, c1=1)
         if horizon == 1:
             psi += share * hazard1
             continue
-        reached = _mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1)
-        events = _mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1, y2=1)
+        reached = law._mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1)
+        events = law._mass(probs, w=w, a1=arm, c1=1, y1=0, a2=arm, c2=1, y2=1)
         psi += share * (hazard1 + (1.0 - hazard1) * events / reached)
     return psi
 
@@ -114,7 +110,7 @@ def test_the_horizon_one_null_carries_no_longitudinal_content() -> None:
     assert naive == pytest.approx(0.0, abs=1e-15)
 
     def crude(arm: int) -> float:
-        return _mass(properties.NULL_PROBS, a1=arm, c1=1, y1=1) / _mass(
+        return law._mass(properties.NULL_PROBS, a1=arm, c1=1, y1=1) / law._mass(
             properties.NULL_PROBS, a1=arm, c1=1
         )
 

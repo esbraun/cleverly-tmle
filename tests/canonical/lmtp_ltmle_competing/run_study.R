@@ -27,74 +27,56 @@ assigned <- function(frame, label, horizon) {
   cbind(rep(a1, nrow(frame)), a2)
 }
 
+# The law's own mechanism, node by node, given to lmtp because it has no `gform` argument to be
+# handed one through.  Cleverly receives the same numbers via KnownCompetingMechanism, so the
+# paired comparison measures the competing-risk recursion, the targeting and the influence curve
+# rather than two mechanism-fitting pipelines.
+#
+# Every conditional is a lookup over history cells rather than a closed form, because this law
+# is a table.  Written as `array()` plus an index matrix rather than as nested `ifelse` chains:
+# the arrays below are transcriptions of `G1`, `C1`, `G2` and `C2` in
+# `tests/discrete_law_competing.py` and can be read against them cell by cell, whereas a chain
+# that enumerates seven of eight cells and falls through to a bare literal for the eighth hides
+# the one that was left out.  `lmtp_competing_adapter.R` re-checks the result against lmtp's own
+# fitted ratios on every run.
+#
+# `array()` fills in column-major order, so the first index varies fastest.  Each array is
+# indexed [w + 1, a1 + 1, ...] to match the Python arrays' [w, a1, ...].
+G1 <- array(c(0.50, 0.25), dim = c(2))                       # P(A1 = 1 | W)
+C1 <- array(c(0.75, 0.75, 0.50, 0.75), dim = c(2, 2))        # P(C1 = 1 | W, A1)
+G2 <- array(                                                 # P(A2 = 1 | W, A1, L2)
+  c(0.50, 0.75, 0.25, 0.50, 0.75, 0.50, 0.50, 0.25),
+  dim = c(2, 2, 2)
+)
+C2 <- array(                                                 # P(C2 = 1 | W, A1, L2, A2)
+  c(
+    0.75, 0.75, 0.50, 0.75,
+    0.75, 0.50, 0.75, 0.75,
+    0.50, 0.75, 0.75, 0.50,
+    0.75, 0.75, 0.50, 0.75
+  ),
+  dim = c(2, 2, 2, 2)
+)
+
 exact_ratios <- function(frame, arms, horizon) {
+  # Per node, not cumulative: column t is zero exactly where the unit left the path at that
+  # node, and lmtp multiplies the columns downstream.  The adapter re-checks both halves.
   w <- as.integer(frame$W)
   a1 <- as.integer(arms[, 1])
-  p_a1 <- ifelse(w == 0, 0.50, 0.25)
+  p_a1 <- G1[w + 1]
   g1 <- ifelse(a1 == 1, p_a1, 1 - p_a1)
-  c1 <- ifelse(w == 0 & a1 == 1, 0.50, 0.75)
+  c1 <- C1[cbind(w + 1, a1 + 1)]
   followed1 <- frame$A1 == a1 & frame$C1 == 1
   first <- ifelse(followed1, 1 / (g1 * c1), 0)
   if (horizon == 1) return(matrix(first, ncol = 1))
 
   l2 <- as.integer(ifelse(is.na(frame$L2), 0, frame$L2))
   a2 <- as.integer(arms[, 2])
-  p_a2 <- ifelse(
-    w == 0 & a1 == 0 & l2 == 0, 0.50,
-    ifelse(
-      w == 0 & a1 == 0 & l2 == 1, 0.75,
-      ifelse(
-        w == 0 & a1 == 1 & l2 == 0, 0.25,
-        ifelse(
-          w == 0 & a1 == 1 & l2 == 1, 0.50,
-          ifelse(
-            w == 1 & a1 == 0 & l2 == 0, 0.75,
-            ifelse(w == 1 & a1 == 0 & l2 == 1, 0.50,
-              ifelse(w == 1 & a1 == 1 & l2 == 0, 0.50, 0.25)
-            )
-          )
-        )
-      )
-    )
-  )
+  p_a2 <- G2[cbind(w + 1, a1 + 1, l2 + 1)]
   g2 <- ifelse(a2 == 1, p_a2, 1 - p_a2)
-  c2_zero <- ifelse(
-    w == 0 & a1 == 0 & l2 == 0, 0.75,
-    ifelse(
-      w == 0 & a1 == 0 & l2 == 1, 0.75,
-      ifelse(
-        w == 0 & a1 == 1 & l2 == 0, 0.50,
-        ifelse(
-          w == 0 & a1 == 1 & l2 == 1, 0.75,
-          ifelse(
-            w == 1 & a1 == 0 & l2 == 0, 0.75,
-            ifelse(w == 1 & a1 == 0 & l2 == 1, 0.50,
-              ifelse(w == 1 & a1 == 1 & l2 == 0, 0.75, 0.75)
-            )
-          )
-        )
-      )
-    )
-  )
-  c2_one <- ifelse(
-    w == 0 & a1 == 0 & l2 == 0, 0.50,
-    ifelse(
-      w == 0 & a1 == 0 & l2 == 1, 0.75,
-      ifelse(
-        w == 0 & a1 == 1 & l2 == 0, 0.75,
-        ifelse(
-          w == 0 & a1 == 1 & l2 == 1, 0.50,
-          ifelse(
-            w == 1 & a1 == 0 & l2 == 0, 0.75,
-            ifelse(w == 1 & a1 == 0 & l2 == 1, 0.75,
-              ifelse(w == 1 & a1 == 1 & l2 == 0, 0.50, 0.75)
-            )
-          )
-        )
-      )
-    )
-  )
-  c2 <- ifelse(a2 == 1, c2_one, c2_zero)
+  c2 <- C2[cbind(w + 1, a1 + 1, l2 + 1, a2 + 1)]
+  # A unit that had an event of either cause at the first node has no second-node arm.  ``A2``
+  # is ``NA`` there, which is what removes it from the second column rather than a separate mask.
   followed2 <- !is.na(frame$A2) & frame$A2 == a2 & !is.na(frame$C2) & frame$C2 == 1
   cbind(first, ifelse(followed2, 1 / (g2 * c2), 0))
 }

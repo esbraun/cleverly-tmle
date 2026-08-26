@@ -362,7 +362,7 @@ class TestPublishedVerdicts:
             "efficiency_empirical_ci_lower" in calibration.columns
             and calibration["efficiency_empirical_ci_lower"].notna().any()
         ):
-            properties = _property_constants(study)
+            properties = study.properties()
             for row in calibration.itertuples():
                 kind = row.cell.split("__", 1)[1]
                 if kind == "correctly_specified":
@@ -414,7 +414,7 @@ class TestPublishedVerdicts:
             assert bool(targeting["property_passed"].iloc[0]) is bool(
                 targeting["passed"].all()
                 and targeting["targeting_displacement"].iloc[0]
-                >= _property_constants(study).TARGETING_DISPLACEMENT
+                >= study.properties().TARGETING_DISPLACEMENT
             )
 
         recursion = published.loc[
@@ -432,7 +432,7 @@ class TestPublishedVerdicts:
             assert bool(recursion["property_passed"].iloc[0]) is bool(
                 recursion["passed"].all()
                 and recursion["recursion_displacement"].iloc[0]
-                >= _property_constants(study).RECURSION_DISPLACEMENT
+                >= study.properties().RECURSION_DISPLACEMENT
             )
 
         design = published.loc[published["property"] == "generated_design"]
@@ -512,12 +512,6 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "type_i_error",
     }
 )
-
-
-def _property_constants(study: StudyRecord) -> Any:
-    """The module that owns thresholds for a direct study or a thin cross-fit wrapper."""
-    properties = study.properties()
-    return getattr(properties, "base", properties)
 
 
 class TestNegativeControls:
@@ -1253,7 +1247,7 @@ class TestTheQuantityVocabulary:
         if "targeting_necessity" in study.property_cells:
             assert (
                 declared["margin:targeting_displacement"]
-                == _property_constants(study).TARGETING_DISPLACEMENT
+                == study.properties().TARGETING_DISPLACEMENT
             )
         if (
             "survival_recursion_necessity" in study.property_cells
@@ -1261,13 +1255,13 @@ class TestTheQuantityVocabulary:
         ):
             assert (
                 declared["margin:recursion_displacement"]
-                == _property_constants(study).RECURSION_DISPLACEMENT
+                == study.properties().RECURSION_DISPLACEMENT
             )
         if any(
             cell.endswith("noise_control")
             for cell in study.property_cells.get("interval_calibration", ())
         ):
-            efficiency = _property_constants(study)
+            efficiency = study.properties()
             low, high = efficiency.EFFICIENCY_RATIO_BAND
             assert declared["margin:efficiency_ratio_lower"] == low
             assert declared["margin:efficiency_ratio_upper"] == high

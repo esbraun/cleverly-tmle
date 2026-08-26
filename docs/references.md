@@ -132,8 +132,12 @@ previous reader had is not a citation; a page number is.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
 - Competing-risk audit of the same snapshot: its survival path accepts a competing-event column
-  through `compete=`. The returned estimate is event-free survival for the target cause. The
-  registered studies transform that value to incidence and negate its influence curve.
+  through `compete=`. The returned estimate is one minus the cause-specific cumulative incidence.
+  That value is not a survival probability. It counts a unit that had the competing event. The
+  registered studies transform it to incidence and negate its influence curve.
+- The registered competing-risk studies replace one internal `lmtp` function. `run_ensemble`
+  becomes a direct single-learner fit. The adapter checks that substitution against `SuperLearner`
+  on each run.
 - Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
   structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
   10.1016/j.jspi.2005.12.008.

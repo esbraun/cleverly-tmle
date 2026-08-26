@@ -48,7 +48,18 @@ RECURSION_N = DOUBLE_ROBUST_N
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
 TARGETING_DISPLACEMENT = 0.25
-RECURSION_DISPLACEMENT = 0.25
+
+#: How far the cause-specific-survival control must sit from the all-cause recursion, in
+#: empirical standard deviations of the recursion's own estimate, before the family will call
+#: the all-cause risk set load bearing.
+#:
+#: The same number as :data:`TARGETING_DISPLACEMENT`, and declared separately rather than
+#: reused, because the two families answer different questions and a reader has to be able to
+#: see which threshold each verdict was read against.  The *value* is the same for the reason
+#: that one is: it is :attr:`Margins.standardized_bias`, the bias a positive cell is allowed
+#: to carry, so a control has to move the estimate by at least as much as the study is
+#: prepared to overlook.
+RECURSION_DISPLACEMENT = TARGETING_DISPLACEMENT
 
 STUDY = canonical.STUDY
 REGIMENS = law.REGIMEN_SPEC
@@ -63,21 +74,66 @@ EFFICIENCY_SD = {
     for label, name in CONTRASTS.items()
 }
 
-# The null retains baseline confounding and two positive causes.  Treatment does not enter
-# either hazard, and the second-node hazards do not depend on the treatment-affected L2.
+# A sharp null that still needs the whole longitudinal recursion.
+#
+# Every contrast the fit reports is exactly zero -- both causes, both horizons, both plans --
+# and none of it is bought by making a hazard constant.  ``NULL_H1`` does not depend on ``A1``,
+# which zeroes the first horizon and, because the all-cause survival ``S_1`` is then the same
+# in every arm, leaves the second horizon a statement about ``NULL_H2`` alone.  ``NULL_H2``
+# then *does* vary with ``L2``, with ``A1`` and with ``A2``: the plans' second-node averages
+# coincide only after averaging, and they are averaged under two different ``L2`` laws, because
+# ``P(L2 = 1 | w, A1 = 0)`` is ``(0.25, 0.50)`` while ``P(L2 = 1 | w, A1 = 1)`` is
+# ``(0.75, 0.75)``.  That mismatch is the freedom ``ltmle_properties._null_outcome`` documents.
+#
+# The cancellation runs *across* ``W``, not within it.  At ``w = 1`` the never path weights
+# ``L2`` as ``(0.50, 0.50)`` and either treated path as ``(0.25, 0.75)``; on the quarter grid
+# the only per-stratum matches are the flat ones.  So a null that cancels stratum by stratum is
+# forced to hold the second hazard constant in ``L2`` -- which is what the first version of
+# these constants did, and why it needed no longitudinal estimator at all.
+#
+# ``test_ltmle_competing_method_study`` is the witness.  A standardisation that adjusts for
+# ``W`` and never for ``L2`` misses the horizon-two null by -0.0077 (death, always against
+# never) and +0.0091 (relapse, the rule against never).  The previous constants left the second
+# hazard constant in ``L2``, ``A1`` and ``A2``, and that same analysis recovered the null
+# exactly, so the type-I cell could not tell a sequential-regression fit from two cross
+# sections.  A crude comparison of arms misses it at both horizons, so the cell still requires
+# baseline adjustment as well.
+#
+# Every value is a multiple of ``1/4`` and strictly positive, and every all-cause sum is
+# ``0.75``, so a quarter survives each node and ``law.counts`` realises the derived law exactly
+# in ``N`` rows just as it does :data:`law.PROBS`.
 NULL_H1 = np.array(
     [
-        [[0.25, 0.25], [0.50, 0.50]],
-        [[0.25, 0.25], [0.25, 0.25]],
+        [[0.25, 0.25], [0.50, 0.50]],  # relapse: 0.25 at W = 0, 0.50 at W = 1
+        [[0.50, 0.50], [0.25, 0.25]],  # death:   0.50 at W = 0, 0.25 at W = 1
     ]
 )
-NULL_H2 = np.full_like(law.H2, 0.25)
-# At W=1 the two cause hazards remain distinct while their sum stays below one.
-NULL_H2[0, 1, :, :, :] = 0.50
+
+# Only the eight cells the three plans traverse and the null needs moved are overwritten.  The
+# rest of ``law.H2`` stands, including the six cells holding ``A2`` opposite the arm the plan
+# assigns at that ``L2``: no plan reaches them, so they enter the observed law and the nuisance
+# fits but neither the truth nor the bias, and there is nothing to choose there.
+# Indexed ``[cause - 1, w, a1, l2, a2]``.
+NULL_H2 = np.array(law.H2, copy=True)
+NULL_H2[0, 0, 1, 0, 0] = 0.25  # relapse, W=0: the rule's L2 = 0 arm
+NULL_H2[0, 0, 1, 1, 1] = 0.50  # relapse, W=0: the L2 = 1 arm both treated plans share
+NULL_H2[0, 1, 0, 0, 0] = 0.50  # relapse, W=1: the never path, now moving with L2
+NULL_H2[0, 1, 1, 0, 1] = 0.50  # relapse, W=1: the always path at L2 = 0
+NULL_H2[1, 0, 0, 0, 0] = 0.50  # death,   W=0: the never path, now moving with L2
+NULL_H2[1, 0, 1, 0, 1] = 0.25  # death,   W=0: the always path at L2 = 0
+NULL_H2[1, 1, 1, 0, 1] = 0.25  # death,   W=1: the always path at L2 = 0
+NULL_H2[1, 1, 1, 1, 1] = 0.50  # death,   W=1: the always path at L2 = 1
+
 NULL_PROBS = law.probabilities(NULL_H1, NULL_H2)
-POWER_PROBS = law.PROBS
 NULL_TRUTH = {label: float(law.functional(NULL_PROBS, name)) for label, name in CONTRASTS.items()}
-POWER_TRUTH = {label: float(law.functional(POWER_PROBS, name)) for label, name in CONTRASTS.items()}
+
+# No separate alternative, unlike both sibling studies.  ``ltmle_survival_properties`` needs one
+# because its horizon-two static effect "is intentionally small, so the power cell needs a
+# predeclared alternative".  This law's two registered contrasts are 0.1211 and -0.1523 under
+# its own hazards, which is a material effect already, so the primary law *is* the declared
+# alternative and the power cell samples it directly.
+# ``test_each_power_control_has_a_material_cause_specific_effect`` is what pins that.
+POWER_TRUTH = {label: float(law.TRUTH[name]) for label, name in CONTRASTS.items()}
 
 _SUPPORT_FRAME = law.frame().iloc[law.first_row_of()].reset_index(drop=True)
 
@@ -208,24 +264,14 @@ def _fit_replication(
     fit_fn: Callable[[pd.DataFrame, str], Any],
 ) -> list[dict[str, Any]]:
     property_name, suffix, replicate, n, requested, seed, configuration = payload
-    probs = (
-        NULL_PROBS
-        if property_name == "type_i_error"
-        else POWER_PROBS
-        if property_name == "power"
-        else law.PROBS
-    )
+    # The power cell samples the primary law, so it needs no branch of its own here; see
+    # :data:`POWER_TRUTH` for why this study declares no separate alternative.
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
     frame = sample(probs, n, seed)
     result = fit_fn(frame, configuration)
     rows: list[dict[str, Any]] = []
     for label, name in CONTRASTS.items():
-        truth = (
-            NULL_TRUTH[label]
-            if property_name == "type_i_error"
-            else POWER_TRUTH[label]
-            if property_name == "power"
-            else float(law.TRUTH[name])
-        )
+        truth = NULL_TRUTH[label] if property_name == "type_i_error" else float(law.TRUTH[name])
         role = "control" if suffix == "both_wrong" else "positive"
         rows.append(
             replicate_row(

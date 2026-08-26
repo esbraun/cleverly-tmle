@@ -63,7 +63,14 @@ ESTIMANDS = (*MEAN_NAMES, *CONTRAST_NAMES)
 PROPERTY_LABELS = ("relapse_dynamic_t2", "death_static_t2")
 
 
-def _property_cells(*, crossfit: bool) -> dict[str, tuple[str, ...]]:
+def property_cells(*, crossfit: bool) -> dict[str, tuple[str, ...]]:
+    """The property cells both competing-risk studies declare, cross-fitting aside.
+
+    Public, unlike the equivalent in every other study module, because the cross-fitted
+    study calls it: the two rows differ in one flag and nothing else, so a second copy of
+    this table would be a place for the two to disagree about what they measured.  The same
+    goes for :func:`manifest_configuration` and :func:`rows_from_result` below.
+    """
     cells = {
         "double_robustness": tuple(
             f"{label}__{configuration}"
@@ -115,7 +122,8 @@ REFERENCE_METADATA = {
 }
 
 
-def _configuration(*, crossfit: bool) -> dict[str, Any]:
+def manifest_configuration(*, crossfit: bool) -> dict[str, Any]:
+    """What the manifest records about how either row was fitted."""
     return {
         "construction": "fold_specific_cross_fit" if crossfit else "ordinary",
         "outcome_kind": "competing_absorbing_events",
@@ -174,10 +182,10 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.canonical_ltmle_competing",
     properties_module="tests.studies.ltmle_competing_properties",
-    property_cells=_property_cells(crossfit=False),
+    property_cells=property_cells(crossfit=False),
 )
 
-CONFIGURATION = _configuration(crossfit=False)
+CONFIGURATION = manifest_configuration(crossfit=False)
 
 
 class KnownCompetingMechanism(BaseEstimator):
@@ -268,7 +276,7 @@ def _initials(result: Any) -> dict[str, float]:
     return values
 
 
-def _rows_from_result(
+def rows_from_result(
     result: Any,
     truth: Mapping[str, float],
     scenario: str,
@@ -311,7 +319,7 @@ def cleverly_rows(
 ) -> list[dict[str, Any]]:
     if scenario != SCENARIO:
         raise KeyError(scenario)
-    return _rows_from_result(fit_cleverly(frame), truth, scenario, replicate)
+    return rows_from_result(fit_cleverly(frame), truth, scenario, replicate)
 
 
 def _replicate(
@@ -328,7 +336,7 @@ def _replicate(
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
-    return sample, truths, _rows_from_result(result, truth, scenario, replicate)
+    return sample, truths, rows_from_result(result, truth, scenario, replicate)
 
 
 def draw_and_fit(

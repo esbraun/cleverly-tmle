@@ -100,6 +100,7 @@ __all__ = [
     "TRUTH",
     "CellMeans",
     "N",
+    "counts",
     "eif",
     "first_row_of",
     "frame",
@@ -294,23 +295,19 @@ def _mass_of(point: tuple[Any, ...], *, h1: np.ndarray = H1, h2: np.ndarray = H2
     return float(mass * (1.0 - h2[:, w, a1, l2, a2].sum()))
 
 
-def probabilities(h1: np.ndarray = H1, h2: np.ndarray = H2) -> np.ndarray:
-    """Support probabilities under alternative cause-specific hazards.
+def counts(h1: Any = None, h2: Any = None) -> np.ndarray:
+    """Rows per support point in an ``N``-row sample that realises the law exactly.
 
-    The treatment, censoring, and time-varying covariate laws remain fixed.  Property
-    studies use this function for sharp-null and power laws without creating a second
-    support convention.
+    ``None`` means this module's own hazards; an array replaces that node's cause-specific
+    hazards and leaves the treatment, censoring and covariate laws alone.  Both guards below
+    apply to a derived law as much as to this one, which is the reason
+    :func:`probabilities` routes through here rather than returning the raw products.
     """
-    probs = np.array([_mass_of(point, h1=h1, h2=h2) for point in SUPPORT])
-    if np.any(probs < 0) or not np.isclose(probs.sum(), 1.0):
-        raise ValueError("the competing-risk hazards do not define a probability law")
-    return probs
-
-
-def _counts() -> np.ndarray:
-    counts = np.array([_mass_of(point) * N for point in SUPPORT])
-    rounded = np.rint(counts)
-    if np.max(np.abs(counts - rounded)) > 1e-6:  # pragma: no cover - guards the constants
+    h1 = H1 if h1 is None else h1
+    h2 = H2 if h2 is None else h2
+    values = np.array([_mass_of(point, h1=h1, h2=h2) * N for point in SUPPORT])
+    rounded = np.rint(values)
+    if np.max(np.abs(values - rounded)) > 1e-6:  # pragma: no cover - guards the constants
         raise AssertionError(
             "the cell probabilities are not multiples of 1/N, so no sample of N rows can "
             "realise the law exactly -- keep every conditional a multiple of 1/4"
@@ -324,7 +321,24 @@ def _counts() -> np.ndarray:
     return rounded.astype(int)
 
 
-COUNTS = _counts()
+def probabilities(h1: Any = None, h2: Any = None) -> np.ndarray:
+    """Cell probabilities, optionally with the cause-specific hazards replaced.
+
+    Taken from the counts rather than from the products, as both sibling laws do, so a law
+    derived here is bit-for-bit the empirical law of the sample :func:`frame` would lay out
+    for it.  Every exactness argument in this module rests on that property, and a derived
+    law has to *inherit* it rather than approximately share it -- which is why this route
+    rounds to whole rows and refuses a hazard off the quarter grid instead of normalising
+    whatever it was handed.
+
+    Property studies build their sharp-null laws through here, so the guard is not
+    hypothetical: a null off the grid samples perfectly well and silently stops agreeing
+    with any exact-law control built on :func:`frame`.
+    """
+    return counts(h1, h2) / N
+
+
+COUNTS = counts()
 
 #: ``P`` over the support, taken from the counts so it is bit-for-bit the empirical law
 #: of :func:`frame`.
