@@ -82,7 +82,7 @@ the whole study on any failed fit, changed fold, missing estimand, or dropped re
 | bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000733 | 0.6941 | 1.0041 | 0.0037 | 0.0039 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000007 | 0.0069 | 1.0032 | 0.000625 | 0.0015 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -6.210e-07 | 0.000509 | 1.0039 | -0.0012 | 0.0047 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -1.684e-13 | 1.421e-10 | 1.0000 | 0 | 3.919e-11 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -1.684e-13 | 1.421e-10 | 1.0000 | 0 | 3.920e-11 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000029 | 0.0422 | 1.0072 | -0.000625 | 0.0024 vs 0.0500 | equivalent |
 <!-- /generated -->
 

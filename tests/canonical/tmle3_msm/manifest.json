@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "bdc346887d3200a6652cd1d90a1d49d0a4c978e0",
+      "cleverly_commit": "6021c07d3452b6bb3786225682b308a5d5f350e9",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -76,20 +76,21 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_point_msm.py": "f8b1e9b2c3cc2b01862326bec520de4b121bc7b88265c1168b11df59a374a4d1",
-    "tests/studies/point_msm_properties.py": "6065ebaf988b538b6fb9e0ab98096a588c853d55e9d71bb3b180779195ad3aed",
+    "tests/studies/canonical_point_msm.py": "4004a32a0d655d77a751b3e76871cf763d2dce79ba8ae3c9e99fda7d6ee576a6",
+    "tests/studies/point_msm_properties.py": "6f4bbd9266011820ba3d3d877b4a38e6736533fdf3ed86ede5407367c22dd81e",
     "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
-    "tests/studies/evidence/property_verdicts.py": "5bbb1bc96c2456ad95cf8732def6fb9daca62681529bb828700c857c8d8ce60b",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
   "reference_sha256": {
-    "tests/canonical/tmle3_msm/Dockerfile": "032fb1d1e994a4fbd3ddd0828b794b9aefa97bbe17b9ea4ebed5229e156ec776",
-    "tests/canonical/tmle3_msm/run_study.R": "8853c3a5df64131b4360cdeb4662afb89831e147cc4478bf300408139932ed0e"
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/tmle3_msm/run_study.R": "91a3efabdff959e616afbc5573bea0e8873aae607c53982a5a10bc9b7e7907b4",
+    "tests/canonical/study_harness.R": "7d09ff6e9e3407ba1cef0b07ba74af426fbbcddc60fd87626f1feb8266cc28b0"
   },
   "sha256": {
     "replicates.csv.gz": "adb248abf19f617e691cf887ee0df6ee56a93cab911518f78a513fd3ae3f9a36",

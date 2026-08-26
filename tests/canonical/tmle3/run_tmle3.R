@@ -2,19 +2,16 @@ suppressPackageStartupMessages({
   library(sl3)
   library(tmle3)
 })
+source("/fixture/study_harness.R")
 options(digits = 17)
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 3) stop("usage: run_tmle3.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
-input <- args[[1]]
-truth_input <- args[[2]]
-output <- args[[3]]
+paths <- study_arguments("usage: run_tmle3.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
 
 # The truth arrives once per replication rather than repeated on every row.  Carrying ten
 # constant columns through 3.2 million rows was most of this process's memory, and memory is
 # what decides how many workers fit.
-samples <- read.csv(gzfile(input), stringsAsFactors = FALSE)
-truths <- read.csv(truth_input, stringsAsFactors = FALSE)
+samples <- read.csv(gzfile(paths$samples), stringsAsFactors = FALSE)
+truths <- read.csv(paths$truths, stringsAsFactors = FALSE)
 truth_key <- paste(truths$scenario, truths$replicate, sep = "|")
 truth_columns <- grep("^truth_", names(truths), value = TRUE)
 learners <- list(A = sl3::Lrnr_glm$new(), Y = sl3::Lrnr_glm$new())
@@ -128,83 +125,21 @@ fit_one <- function(frame, scenario, replicate) {
 }
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
-expected_groups <- length(groups)
+expected <- length(groups)
 rm(samples)
 invisible(gc())
-fit_group <- function(i) {
-  frame <- groups[[i]]
-  tryCatch(
-    {
-      result <- fit_one(frame, frame$scenario[[1]], frame$replicate[[1]])
-      if (i %% 10 == 0) cat(sprintf("completed %d/%d samples\n", i, length(groups)))
-      result
-    },
-    error = function(condition) {
-      structure(
-        list(
-          index = i,
-          scenario = frame$scenario[[1]],
-          replicate = frame$replicate[[1]],
-          message = conditionMessage(condition)
-        ),
-        class = "study_error"
-      )
-    }
-  )
-}
-# The whole core budget the caller measured, not a hard-coded four.  The Python side has
-# already finished by the time this runs, so nothing else is competing for these cores.
-requested <- suppressWarnings(as.integer(Sys.getenv("CLEVERLY_R_CORES", "")))
-cores <- if (is.na(requested) || requested < 1L) {
-  max(1L, parallel::detectCores(logical = TRUE))
-} else {
-  requested
-}
-# Capped by memory as well as by cores.  ``mclapply`` forks, and a forked worker that the
-# kernel kills does not raise: it returns a non-data-frame that ``rbind`` drops without a
-# word, which is how a run once lost 86 of 3,200 replications while reporting success.  The
-# check after the loop refuses that outcome; this cap is what stops it happening.
-memory_kb <- as.numeric(
-  sub("[^0-9]*([0-9]+).*", "\\1", grep("MemTotal", readLines("/proc/meminfo"), value = TRUE))
+
+fit_group <- study_fitter(
+  groups,
+  function(frame) fit_one(frame, frame$scenario[[1]], frame$replicate[[1]])
 )
-footprint_kb <- as.numeric(utils::object.size(groups)) / 1024
-affordable <- max(1L, as.integer(floor(memory_kb * 0.5 / max(footprint_kb * 0.5, 1))))
-if (affordable < cores) {
-  cat(sprintf("capping %d cores to %d for memory\n", cores, affordable))
-  cores <- affordable
-}
-cat(sprintf("fitting %d samples on %d cores\n", length(groups), cores))
-results <- parallel::mclapply(
-  seq_along(groups), fit_group, mc.cores = cores, mc.preschedule = FALSE
+cores <- study_cores(groups)
+results <- parallel::mclapply(seq_along(groups), fit_group, mc.cores = cores, mc.preschedule = FALSE)
+study_collect(
+  results,
+  expected,
+  paths$output,
+  versions = c(study_version("tmle3"), study_version("sl3")),
+  key = c("scenario", "replicate"),
+  na = "NA"
 )
-malformed <- which(!vapply(results, is.data.frame, logical(1)) &
-  !vapply(results, inherits, logical(1), what = "study_error"))
-if (length(malformed)) {
-  stop(sprintf(
-    "%d of %d workers returned no result at all (groups %s); they were killed rather than erroring",
-    length(malformed), expected_groups, paste(utils::head(malformed, 10), collapse = ", ")
-  ))
-}
-failed <- vapply(results, inherits, logical(1), what = "study_error")
-if (any(failed)) {
-  messages <- vapply(
-    results[failed],
-    function(error) sprintf(
-      "%s replicate %s (group %s): %s",
-      error$scenario, error$replicate, error$index, error$message
-    ),
-    character(1)
-  )
-  stop(paste(messages, collapse = "\n"))
-}
-out <- do.call(rbind, results)
-if (length(unique(paste(out$scenario, out$replicate))) != expected_groups) {
-  stop(sprintf(
-    "wrote %d of %d replications; a silently dropped replication is not a shorter study",
-    length(unique(paste(out$scenario, out$replicate))), expected_groups
-  ))
-}
-write.csv(out, output, row.names = FALSE)
-cat("tmle3 ", as.character(packageVersion("tmle3")), "\n", sep = "")
-cat("sl3 ", as.character(packageVersion("sl3")), "\n", sep = "")
-cat("R ", R.version.string, "\n", sep = "")

@@ -8,6 +8,7 @@ import pytest
 
 from tests import discrete_law as point_law
 from tests import discrete_law_longitudinal as longitudinal_law
+from tests.canonical import runner_source
 from tests.studies import canonical_longitudinal_msm as longitudinal_study
 from tests.studies import canonical_point_msm as point_study
 from tests.studies import longitudinal_msm_properties as longitudinal_properties
@@ -106,7 +107,7 @@ def test_point_reference_uses_the_pinned_msm_parameter_and_custom_measure() -> N
         expected, weights, err_msg="the declared measure is no longer additive in a and W"
     )
 
-    source = (point_study.STUDY.artifacts / "run_study.R").read_text(encoding="utf-8")
+    source = runner_source(point_study.STUDY.artifacts / "run_study.R")
     assert "Param_MSM$new" in source
     assert "tmle3_Spec_MSM$new" in source
     assert f"{base:g} + {per_arm:g} * A + {per_covariate:g} * V" in source
@@ -114,7 +115,8 @@ def test_point_reference_uses_the_pinned_msm_parameter_and_custom_measure() -> N
 
 
 def test_longitudinal_reference_projects_separate_ltmle_fits_not_ltmle_msm() -> None:
-    source = (longitudinal_study.STUDY.artifacts / "run_study.R").read_text(encoding="utf-8")
+    """Read the runner as executed: half of it now lives in the shared regimen adapter."""
+    source = runner_source(longitudinal_study.STUDY.artifacts / "run_study.R")
     assert "do.call(ltmle, arguments)" in source
     assert "operator %*%" in source
     assert "ltmleMSM" not in source

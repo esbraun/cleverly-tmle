@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-stacked-cvtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "9865de63e00b15148d8d02f4f54b5a4e6da9870f",
+      "cleverly_commit": "6021c07d3452b6bb3786225682b308a5d5f350e9",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -25,6 +25,7 @@
     "replicates": 1600,
     "n": 1000,
     "seed": 20240820,
+    "publication_policy": "gated",
     "scenarios": {
       "binary": [
         "ey1",
@@ -83,33 +84,33 @@
       "rmse_ratio_noninferiority_margin": 1.1,
       "coverage_difference_noninferiority_margin": -0.025,
       "calibration_excess_noninferiority_margin": 0.05
-    },
-    "publication_policy": "gated"
+    }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_cvtmle.py": "80abcff8e6a7ff598cf0d1cf930cd723799332cff1055900f386e2e45f52383a",
-    "tests/studies/canonical_tmle.py": "a838846026526e05ef776f53241e7631d5535fe4e5a9f6291645ddd152023f55",
+    "tests/studies/canonical_cvtmle.py": "511e13b4a7c150e96bd328249e9c5e4dde01f2a8c2d440f80317100b971ccc73",
+    "tests/studies/canonical_tmle.py": "eea9d910a22fc138d74c4e8abcdc6f568f58ffea21bd0f3d2ceba71454c35e09",
     "tests/studies/canonical_properties.py": "6ccf61032a3e466803df59e2531ccf80a8882045aad8376d3708de2c97b04caa",
     "tests/studies/cvtmle_properties.py": "945f4a8b46455b38334c0a6474c71d51f3a077bbb490d253aefe227aa5e3028d",
     "tests/studies/stacked_cvtmle_properties.py": "c59e93a082b776365875cba8a4cda32120dab7d6d42c3fcb8fd3f76091ae355e",
-    "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
-    "tests/studies/evidence/property_verdicts.py": "fb469ec435b470a4f99f938b81a68bcd77fefe01e03cae7828b512aefc71392d",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
   "reference_sha256": {
-    "tests/canonical/tmle3_cvtmle/Dockerfile": "d921bde6638d77cebe9f2c1d44643dcdbeaf4ee80e3bbff0adbf37e1b5970afe",
-    "tests/canonical/tmle3_cvtmle/run_tmle3_cvtmle.R": "1daaa32ded48c60f013173658c5d810a4b7cc98dd17b2758576fb2dd087e2473"
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/tmle3_cvtmle/run_tmle3_cvtmle.R": "7da2bd62aeb4331596a346678f317853a7257833e50610923b591033935506ab",
+    "tests/canonical/study_harness.R": "7d09ff6e9e3407ba1cef0b07ba74af426fbbcddc60fd87626f1feb8266cc28b0"
   },
   "sha256": {
-    "replicates.csv.gz": "a1e2f886617aba5a3de051735f536a2a3f255978328cea8c46c7aeba1f133952",
+    "replicates.csv.gz": "ebd2d9f1a22f0bb5715b04b19c738e0698bbcb4ff276d5d03d4d052f1207d5ec",
     "summary.csv": "6c918239d070dbdf8eb7094af344e783de0abc8c832e555fb2194bddf8dc37be",
-    "equivalence.csv": "36bb1ab908f0b062c120b36d1a6a2644581f92352d49745e69765f0f690ec371",
+    "equivalence.csv": "664bbf6c753edd2af22af51e3f01ecdaa10a35c4bd35ee9f909346e2a48c56ab",
     "performance-tests.csv": "d45cdde4bc96721c55431171f65ff12cbdf8b907514c29004c723f681006a09f",
-    "property-replicates.csv.gz": "4a2b4447699cc998bfe0bd6708e9fefdc5048e60df25083e2bad743b8d59481e",
+    "property-replicates.csv.gz": "c569c5682a242fb0f15228b809f2862ecbb55ea2f4cc6d6c3ccc7774c03bad94",
     "properties.csv": "ba6fd3a4ac7b00910957423433aa09bbfc7c4ef183bd84f52bc14fdfdbc5ebd5"
   }
 }

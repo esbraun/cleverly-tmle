@@ -2,13 +2,12 @@ suppressPackageStartupMessages({
   library(sl3)
   library(tmle3)
 })
+source("/fixture/study_harness.R")
 options(digits = 17)
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 3) stop("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
-samples <- read.csv(gzfile(args[[1]]), stringsAsFactors = FALSE)
-truths <- read.csv(args[[2]], stringsAsFactors = FALSE)
-output <- args[[3]]
+paths <- study_arguments("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
+samples <- read.csv(gzfile(paths$samples), stringsAsFactors = FALSE)
+truths <- read.csv(paths$truths, stringsAsFactors = FALSE)
 scenario <- "bounded_continuous_projection"
 labels <- c("msm[(intercept)]", "msm[a]", "msm[W]")
 z <- qnorm(0.975)
@@ -108,48 +107,13 @@ expected <- length(groups)
 rm(samples)
 invisible(gc())
 
-fit_group <- function(index) {
-  frame <- groups[[index]]
-  tryCatch(
-    {
-      result <- fit_one(frame)
-      if (index %% 10 == 0) cat(sprintf("completed %d/%d samples\n", index, expected))
-      result
-    },
-    error = function(condition) {
-      structure(
-        list(index = index, replicate = frame$replicate[[1]], message = conditionMessage(condition)),
-        class = "study_error"
-      )
-    }
-  )
-}
-
-requested <- suppressWarnings(as.integer(Sys.getenv("CLEVERLY_R_CORES", "")))
-cores <- if (is.na(requested) || requested < 1L) max(1L, parallel::detectCores()) else requested
-memory_kb <- as.numeric(
-  sub("[^0-9]*([0-9]+).*", "\\1", grep("MemTotal", readLines("/proc/meminfo"), value = TRUE))
-)
-footprint_kb <- as.numeric(utils::object.size(groups)) / 1024
-affordable <- max(1L, as.integer(floor(memory_kb * 0.5 / max(footprint_kb * 0.5, 1))))
-if (affordable < cores) cores <- affordable
-cat(sprintf("fitting %d samples on %d cores\n", expected, cores))
+fit_group <- study_fitter(groups, fit_one)
+cores <- study_cores(groups)
 results <- parallel::mclapply(seq_along(groups), fit_group, mc.cores = cores, mc.preschedule = FALSE)
-malformed <- which(!vapply(results, is.data.frame, logical(1)) &
-  !vapply(results, inherits, logical(1), what = "study_error"))
-if (length(malformed)) stop(sprintf("workers returned no result for groups %s", paste(malformed, collapse = ", ")))
-failed <- vapply(results, inherits, logical(1), what = "study_error")
-if (any(failed)) {
-  messages <- vapply(
-    results[failed],
-    function(error) sprintf("replicate %s: %s", error$replicate, error$message),
-    character(1)
-  )
-  stop(paste(messages, collapse = "\n"))
-}
-result <- do.call(rbind, results)
-if (length(unique(result$replicate)) != expected) stop("the R run dropped replications")
-write.csv(result, output, row.names = FALSE, na = "")
-cat("tmle3 ", as.character(packageVersion("tmle3")), "\n", sep = "")
-cat("sl3 ", as.character(packageVersion("sl3")), "\n", sep = "")
-cat("R ", R.version.string, "\n", sep = "")
+study_collect(
+  results,
+  expected,
+  paths$output,
+  versions = c(study_version("tmle3"), study_version("sl3")),
+  na = ""
+)
