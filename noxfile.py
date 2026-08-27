@@ -9,7 +9,11 @@ from __future__ import annotations
 import nox
 
 nox.options.default_venv_backend = "uv|virtualenv"
-nox.options.sessions = ["lint", "typecheck", "tests"]
+# The order and the membership follow `ci.yml`'s jobs, `docs` included: that job builds the site
+# with `-W` on every pull request, so a bare `nox` that skipped the build would report green on a
+# tree the request rejects.  `minimal-install` has no session here, because it exists to install
+# one dataframe backend and nothing else.
+nox.options.sessions = ["lint", "typecheck", "docs", "tests"]
 
 PYTHONS = ["3.11", "3.12", "3.13"]
 

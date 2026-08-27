@@ -42,6 +42,28 @@ jobs:
           extra: dev
       - run: mypy
 
+  # The site that `pages.yml` deploys, built here before the merge rather than after it.
+  #
+  # This is not the removed documentation dispatch, and `docs/architecture-invariants.md` still
+  # rules that one out. That job re-ran what the fast tier already runs. This one covers what no
+  # fast test can see: numpydoc validation of every rendered docstring, a document that no
+  # toctree references, and a cross-reference Sphinx cannot resolve. `pages.yml` triggers on a
+  # push to `main`, so until now the first run of `-W` happened after the merge, and a broken
+  # docstring took the published site down rather than failing a pull request.
+  #
+  # 3.12 is the interpreter `pages.yml` deploys from, so this job answers the question that
+  # matters: does the site that will ship build clean. The `docs` extra is what that build needs,
+  # and this job is the one that installs it.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+          extra: docs
+      - run: sphinx-build -W --keep-going -b html docs docs/_build/html
+
   tests:
     runs-on: ubuntu-latest
     strategy:

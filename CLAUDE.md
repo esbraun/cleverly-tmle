@@ -10,6 +10,8 @@ Everything else is routed:
 | for | read |
 | --- | --- |
 | setup, development commands, the public overview | `README.md` |
+| making a change, and the checks it needs | `docs/development/contributing.md` |
+| opening a pull request, and the commit style | `docs/development/pull-requests.md` |
 | where technical documentation lives | `docs/README.md` |
 | cross-module constraints not derivable from one implementation | `docs/architecture-invariants.md` |
 | test tiers, and which deprecated studies no longer run | `docs/development/testing-strategy.md` |
@@ -31,8 +33,9 @@ Current behavior is determined by code and tests, not by historical plans or inv
 
 - Read `docs/development/testing-strategy.md` before choosing a tier. The fast tier is the default
   handoff gate. The repeated-sampling studies that predate the registered rows are deprecated
-  and skipped; do not re-enable one to justify a change. Re-execute the committed evidence
-  artefacts when a study is regenerated.
+  and skipped; do not re-enable one to justify a change. A shipped method is validated by its rows
+  in the implementation validation grid, which the fast tier recomputes from committed artifacts.
+  Nothing is contingent on `pytest -m slow` running.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
   `cleverly[all]` plus tooling. An optional extra kept out of `dev` *and* out of a dedicated CI job
   is installed by no session, so its tests can only skip, and a skipped correctness check reads
@@ -41,6 +44,10 @@ Current behavior is determined by code and tests, not by historical plans or inv
 - Ruff *formats* the Python examples in Markdown, so run it over the whole tree. Its linter does
   not read Markdown at all, and the formatter skips any block it cannot parse. Neither one sees a
   syntax error in an example.
+- Follow `docs/development/pull-requests.md` when you prepare a handoff. It gives the commit
+  subject and body style, the evidence line the body carries, and what each CI job checks. The
+  `docs` job builds the site with `-W` on every pull request, so a docstring that numpydoc rejects
+  now fails the request rather than the deploy. Run `nox -s docs` before you hand off.
 
 ## Documentation writing
 
