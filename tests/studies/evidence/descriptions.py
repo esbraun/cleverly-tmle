@@ -360,27 +360,33 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("double_robustness", "both_correct"): (
         "both the outcome regression and the treatment mechanism are correctly specified",
-        "bias interval inside the equivalence margin",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "outcome_correct"): (
         "only the outcome regression is correctly specified",
-        "bias interval inside the equivalence margin",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "treatment_correct"): (
         "only the treatment mechanism is correctly specified",
-        "bias interval inside the equivalence margin",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "density_correct"): (
         "only the continuous-dose density ratio is correctly specified",
-        "bias interval inside the equivalence margin",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "mechanism_correct"): (
         "only the treatment and censoring mechanisms are correctly specified",
-        "bias interval inside the equivalence margin",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
     ),
     ("double_robustness", "both_wrong"): (
         "both nuisances are misspecified",
-        "bias interval must fall entirely outside the margin",
+        "bias interval must fall entirely outside the margin, with the reported standard "
+        "error still on the scale of the empirical spread",
     ),
     ("generated_design", "oracle_design"): (
         "the outcome-adaptive design is supplied rather than estimated",

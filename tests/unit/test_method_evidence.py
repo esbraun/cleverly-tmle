@@ -389,6 +389,20 @@ class TestPublishedVerdicts:
                 rows & control, "bias_discriminated"
             ), f"{family}: a control's verdict is not its own discrimination endpoint"
 
+        # Two clauses, and the second is the one a bias-gated rule cannot state.  Each row
+        # keeps its own direction on the bias, and every row of the family must also have
+        # reported an error on the scale of its own spread -- otherwise the fit collapsed and
+        # the bias beside it is evidence about the collapse, not about the union model.
+        low, high = property_verdicts.UNION_MODEL_SE_BAND
+        union = published.loc[published["property"] == "double_robustness"]
+        for row in union.itertuples():
+            endpoint = row.bias_discriminated if row.role == "control" else row.bias_equivalent
+            expected = bool(endpoint) and low <= row.se_ratio <= high
+            assert bool(row.passed) is expected, (
+                f"{row.cell} publishes passed={row.passed} against its own union-model "
+                f"endpoints: bias {endpoint}, SE ratio {row.se_ratio}"
+            )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -609,7 +623,6 @@ class TestPublishedVerdicts:
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
     {
-        "double_robustness",
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",
@@ -639,6 +652,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # about the bias is ``double_robustness``'s and repeating it at three more sizes
         # would publish one red cell four times without adding a statement.
         "double_robust_contraction",
+        # Bias in both directions *and* the union-model SE screen, so it is no longer the
+        # one-endpoint family this list's siblings are.  Listing it as bias-gated is what let
+        # a control with a reported error 87.6 times its empirical spread publish a pass: the
+        # gate asserted ``passed == bias_discriminated`` exactly, so the framework held the
+        # gap in place rather than merely missing it.
+        "double_robustness",
         "generated_design",
         "interval_calibration",
         "natural_course_identity",
@@ -727,6 +746,56 @@ class TestNegativeControls:
         untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the calibration cell moved a verdict somewhere else"
+        )
+
+    def test_a_collapsed_reported_error_fails_the_union_model_cells(
+        self, study: StudyRecord
+    ) -> None:
+        """The failure a bias-only union-model verdict let through.
+
+        A ``double_robustness`` cell fits at least one nuisance wrong on purpose, so nothing
+        in the run guarantees the fit stayed well posed.  A univariate guard regression handed
+        a constant single regressor reported a standard error 87.6 times its empirical spread,
+        and the ``both_wrong`` control passed on its bias endpoint alone, because that endpoint
+        is standardized by the *empirical* spread and never reads what the fit reported.
+
+        :data:`~tests.studies.evidence.property_verdicts.UNION_MODEL_SE_BAND` is the screen,
+        and it binds on no committed cell -- the family spans 0.61 to 2.31, which is the union
+        model behaving as the theory allows.  A rule nothing can fail reads exactly like a rule
+        nothing has broken, so this mutation is what makes it load bearing.
+
+        Scaling ``std_error`` moves the reported error and nothing else: ``covered`` and
+        ``rejected`` travel on the committed rows, and the bias endpoints are computed from the
+        estimates.  So the mutation isolates the clause, and the untouched assertion below
+        shows it reaches no other verdict.
+        """
+        if "double_robustness" not in study.property_cells:
+            pytest.skip("the study declares no union-model cells")
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        union = published.loc[published.index.get_level_values(0) == "double_robustness"]
+        # At least one, not all of them: two registered rows publish a red union-model cell
+        # under reporting policy, and a mutation whose cells were already failing would show
+        # nothing.
+        assert union["passed"].any(), "no union-model cell currently passes, so nothing can flip"
+
+        mutated = rows.copy()
+        mask = mutated["property"] == "double_robustness"
+        # Two orders of magnitude, which is the scale the collapse actually reached.  Every
+        # committed cell sits below 2.31, so this clears the band's upper limit from every one
+        # of them without depending on where any single cell started.
+        mutated.loc[mask, "std_error"] *= 100.0
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        changed = list(union.index)
+        assert not summary.loc[changed, "passed"].any(), (
+            "a reported error 100 times the empirical spread still publishes a union-model pass"
+        )
+        assert summary.loc[changed, "bias_equivalent"].equals(
+            published.loc[changed, "bias_equivalent"]
+        ), "the mutation moved a bias endpoint, so it does not isolate the SE screen"
+        untouched = summary.index.drop(changed)
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+            "corrupting the union-model cells moved a verdict somewhere else"
         )
 
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
@@ -1391,6 +1460,10 @@ class TestTheQuantityVocabulary:
                 declared["margin:overfit_control_ceiling"]
                 == property_verdicts.OVERFIT_SE_CONTROL_CEILING
             )
+        if "double_robustness" in study.property_cells:
+            low, high = property_verdicts.UNION_MODEL_SE_BAND
+            assert declared["margin:union_model_se_lower"] == low
+            assert declared["margin:union_model_se_upper"] == high
         if "generated_design" in study.property_cells:
             assert (
                 declared["margin:generated_design_deficit"]

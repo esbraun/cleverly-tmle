@@ -45,10 +45,10 @@ margins while keeping the unresolved comparison visible.
 | --- | --- | --- | --- | --- | --- | --- |
 | `cap_necessity` | `shift__declared_cap` | positive | capped modified treatment policy: the 0.5 shift leaves doses unchanged when the declared cap would be crossed | bias interval inside the equivalence margin | bias -0.000961 to 0.000688, margin 0.0028 | pass |
 | `cap_necessity` | `shift__uncapped_control` | control | capped modified treatment policy: the same named policy removes the cap and shifts every dose | bias interval must fall entirely outside the margin | bias 0.2719 to 0.2731, margin 0.0021 | pass |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.000628 to 0.0010, margin 0.0028 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0098 to 0.0115, margin 0.0028 | pass |
-| `double_robustness` | `density_correct` | positive | only the continuous-dose density ratio is correctly specified | bias interval inside the equivalence margin | bias -0.000172 to 0.0015, margin 0.0028 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.000619 to 0.000889, margin 0.0025 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000628 to 0.0010, margin 0.0028, SE ratio 1.0225 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0098 to 0.0115, margin 0.0028, SE ratio 1.0705 | pass |
+| `double_robustness` | `density_correct` | positive | only the continuous-dose density ratio is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000172 to 0.0015, margin 0.0028, SE ratio 1.0100 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000619 to 0.000889, margin 0.0025, SE ratio 1.1914 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9448 to 0.9621, SE ratio 0.9854 to 1.0431 | pass |
 | `interval_calibration` | `shrunken_se_control` | control | the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8142 to 0.8450, SE ratio 0.6888 to 0.7305 | pass |
 | `natural_course_identity` | `natural__mean` | positive | natural course: the observed sample mean is retained as the identity control | the paired intervention estimate must equal it exactly | maximum paired difference 1.184e-09 | pass |
@@ -107,6 +107,8 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:targeting_displacement` | 0.2500 | minimum targeting displacement |
 | `margin:necessity_displacement` | 0.2500 | minimum policy-control displacement |
 

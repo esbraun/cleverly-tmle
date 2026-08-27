@@ -32,10 +32,10 @@ probabilities. The dynamic rule assigns both arms and differs from either static
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0013 to 0.0014, margin 0.0046 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.2079 to -0.2047, margin 0.0054 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0020 to 0.000562, margin 0.0043 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0020 to 0.0010, margin 0.0050 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0013 to 0.0014, margin 0.0046, SE ratio 0.9911 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.2079 to -0.2047, margin 0.0054, SE ratio 1.5052 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0020 to 0.000562, margin 0.0043, SE ratio 1.7493 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0020 to 0.0010, margin 0.0050, SE ratio 0.9999 | pass |
 | `interval_calibration` | `rule__correctly_specified` | positive | covariate-dependent rule: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9451 to 0.9623, SE ratio 0.9829 to 1.0392, empirical efficiency ratio 0.9615 to 1.0169, reported efficiency ratio 0.9986 to 1.0001 | pass |
 | `interval_calibration` | `rule__noise_control` | control | covariate-dependent rule: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8302 to 0.8599, SE ratio 0.6993 to 0.7411, empirical efficiency ratio 1.3484 to 1.4288, reported efficiency ratio 0.9985 to 1.0001 | pass |
 | `interval_calibration` | `rule__shrunken_se_control` | control | covariate-dependent rule: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8183 to 0.8489, SE ratio 0.6875 to 0.7277, empirical efficiency ratio 0.9612 to 1.0177, reported efficiency ratio 0.6990 to 0.7001 | pass |
@@ -95,6 +95,8 @@ confounded sharp null, targeting, the declared rule, and exact static reduction.
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:efficiency_ratio_lower` | 0.9000 | efficiency-ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | efficiency-ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |

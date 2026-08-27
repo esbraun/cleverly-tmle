@@ -68,10 +68,10 @@ and solver status for every replication.
 | `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor | coverage 0.9145 to 0.9649, bias 0.000233 | pass |
 | `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor | coverage 0.9204 to 0.9688, bias -0.000672 | pass |
 | `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor | coverage 0.9285 to 0.9740, bias 0.000686 | pass |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0050 to 0.0026, margin 0.0090 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0463 to 0.0540, margin 0.0092 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.000186 to 0.0079, margin 0.0095 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0011 to 0.0068, margin 0.0068 | **fail** |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0050 to 0.0026, margin 0.0090, SE ratio 1.0624 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0463 to 0.0540, margin 0.0092, SE ratio 1.0337 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000186 to 0.0079, margin 0.0095, SE ratio 0.9992 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0011 to 0.0068, margin 0.0068, SE ratio 0.9925 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9272 to 0.9576, SE ratio 0.9246 to 1.0107 | **fail** |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000510, coverage 0.9373 to 0.9859, SE ratio 1.0061 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.000840, coverage 0.9087 to 0.9702, SE ratio 0.9853 | pass |
@@ -115,6 +115,8 @@ and solver status for every replication.
 | `margin:root_n_slope_lower` | -0.6250 | lower contraction band |
 | `margin:root_n_slope_upper` | -0.3750 | upper contraction band |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 
 ## Limitations
 

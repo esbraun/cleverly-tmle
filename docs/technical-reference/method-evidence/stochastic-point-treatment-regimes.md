@@ -41,10 +41,10 @@ evaluates a counterfactual at one treatment value and integrates over no density
 | --- | --- | --- | --- | --- | --- | --- |
 | `density_necessity` | `tilt__declared` | positive | known stochastic tilt: the estimator integrates over the declared covariate-dependent treatment density | bias interval inside the equivalence margin | bias -0.000592 to 0.000920, margin 0.0025 | pass |
 | `density_necessity` | `tilt__uniform_control` | control | known stochastic tilt: the same fit replaces the declared density with a uniform distribution | bias interval must fall entirely outside the margin | bias 0.0269 to 0.0285, margin 0.0026 | pass |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.000926 to 0.000563, margin 0.0025 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.1967 to -0.1954, margin 0.0022 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.000754 to 0.000361, margin 0.0019 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0011 to 0.000477, margin 0.0027 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000926 to 0.000563, margin 0.0025, SE ratio 0.9980 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.1967 to -0.1954, margin 0.0022, SE ratio 2.1881 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000754 to 0.000361, margin 0.0019, SE ratio 2.3099 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0011 to 0.000477, margin 0.0027, SE ratio 1.0028 | pass |
 | `interval_calibration` | `tilt__correctly_specified` | positive | known stochastic tilt: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9445 to 0.9619, SE ratio 0.9796 to 1.0372, empirical efficiency ratio 0.9625 to 1.0191, reported efficiency ratio 0.9971 to 0.9996 | pass |
 | `interval_calibration` | `tilt__noise_control` | control | known stochastic tilt: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8238 to 0.8539, SE ratio 0.6954 to 0.7353, empirical efficiency ratio 1.3579 to 1.4358, reported efficiency ratio 0.9971 to 0.9997 | pass |
 | `interval_calibration` | `tilt__shrunken_se_control` | control | known stochastic tilt: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8150 to 0.8457, SE ratio 0.6863 to 0.7265, empirical efficiency ratio 0.9620 to 1.0183, reported efficiency ratio 0.6979 to 0.6998 | pass |
@@ -100,6 +100,8 @@ targeting. A paired control replaces the declared density with a uniform density
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:efficiency_ratio_lower` | 0.9000 | efficiency-ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | efficiency-ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |

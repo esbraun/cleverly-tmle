@@ -223,6 +223,12 @@ def _measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+        # The union-model family carries a second endpoint for the same reason.  A collapsed
+        # nuisance reports an error two orders of magnitude off its own spread and leaves the
+        # bias interval looking like any other cell's, so the ratio the screen is read from
+        # belongs in the column a reader reads.
+        if family == "double_robustness":
+            measured += f", SE ratio {render(float(row.se_ratio))}"
         return measured
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
