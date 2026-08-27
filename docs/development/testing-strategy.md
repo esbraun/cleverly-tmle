@@ -12,12 +12,45 @@ Benchmarking is a separate subject. Read
 | --- | --- | --- |
 | fast | `pytest -m "not slow" -q` | every unit, integration and end-to-end test, plus the documentation gates. This is the default handoff gate |
 | registered validation studies | part of the fast tier | the committed results of each [implementation validation study](../technical-reference/method-evidence/validation-grid.md). The fast tests recompute every verdict from the artifacts, so the statistical evidence is checked in minutes rather than hours |
-| evidence re-execution | `pytest -m slow -q` | re-runs each registered study's property cells from scratch, refits committed replications, and recomputes every resampling bound at the full bootstrap budget. Run it when artifacts are rebuilt |
+| evidence re-execution | `pytest -m slow -q` | re-runs each registered study's property cells from scratch, refits committed replications, and recomputes every resampling bound at the full bootstrap budget |
 
-**The registered studies are becoming the primary statistical evidence.** A registered study runs
-its expensive sampling once, commits the per-replication results, and the fast tier then checks
-every verdict, every published number, and every negative control against those artifacts. That
-gives repeated-sampling evidence at fast-tier cost.
+**The registered studies are the primary statistical evidence.** A registered study runs its
+expensive sampling once, commits the per-replication results, and the fast tier then checks every
+verdict, every published number, and every negative control against those artifacts. That gives
+repeated-sampling evidence at fast-tier cost.
+
+The registered studies supersede the re-execution tier. No gate is contingent on `pytest -m slow`
+running, and no handoff waits for it.
+
+## How an implementation study validates a method
+
+A shipped method is validated by its rows in the
+[implementation validation grid](../technical-reference/method-evidence/validation-grid.md), and
+not by a tier that somebody remembers to run. The mechanism has four parts.
+
+| part | what it does | where it lives |
+| --- | --- | --- |
+| the declaration | names the scenarios, estimands, sample size, replication count, and every acceptance margin, before the run | a `StudyRecord` in `tests/studies/evidence/registry.py` |
+| the run | samples a law with an exact parameter oracle, fits `cleverly`, and fits the digest-pinned reference implementation on the identical rows | the study's own law and fit modules |
+| the artifacts | the per-replication estimates, the property cells, the equivalence results, and a hash-complete `manifest.json` | the study's artifact directory |
+| the gate | recomputes every verdict, published number, and negative control from those artifacts | the fast tier |
+
+A study answers three separate questions, and the counts are not interchangeable: accuracy against
+a known truth, agreement with an independently maintained implementation, and declared
+repeated-sampling properties.
+[How to read these studies](../technical-reference/method-evidence/how-to-read.md) defines each
+one, and states what each cannot establish.
+
+Two properties make the artifacts evidence rather than a record of one run. Each margin is
+declared before the run rather than chosen after it. Each positive cell is paired with a control
+that must fail the same instrument in the opposite direction, so an inert test cannot pass.
+
+The scientific derivation is checked separately. The exact-law, Gateaux, remainder, identity, and
+deliberate-mutation instruments run in the fast tier and are listed per estimand in the
+[evidence manifest](../technical-reference/evidence.md). A study measures a complete estimator
+under repeated sampling. It does not replace those instruments.
+
+Read [method benchmarking strategy](method-benchmarking.md) to design and register one.
 
 ## The deprecated studies
 
@@ -57,8 +90,9 @@ Run a slow test only when all three conditions hold.
 3. The evidence depends on repeated sampling, a large sample, or many expensive flexible fits that
    the fast tier cannot supply.
 
-Slow claims currently include coverage, type-I error, root-n and large-sample consistency,
-comparative variance, and flexible-learner bias.
+Coverage, type-I error, root-n and large-sample consistency, comparative variance, and
+flexible-learner bias are claims a registered study makes. A slow run inspects them. It is not
+where they are published.
 
 Inspect the relevant slow test before you run it. A file location is not enough. Neither is a broad
 label such as "estimator change".
@@ -76,20 +110,23 @@ The last row is worth an example. Changing a configuration declaration from sile
 pre-construction refusal cannot affect a slow study's fitted sampling distribution. It does not
 justify running one.
 
-## When to run the evidence re-execution tier
+## The evidence re-execution tier
 
-Run `pytest -m slow -q` when a registered study's artifacts are rebuilt, and when shared estimation
-or inference code changes in a way that could alter what a committed replication produces.
+`pytest -m slow -q` re-executes what the fast tier reads. It is a diagnostic, and it is not a gate.
+No handoff, no pull request, and no evidence row is contingent on it running.
 
-The fast tier recomputes every published verdict from the committed rows and refits two
-replications per study. What it cannot see is a `property-replicates.csv.gz` that has gone stale
-against the code, because it never re-executes the property fits. That is the gap this tier closes,
-and it is the reason it survived the deprecation above: no registered study can replace it, since
-it is the thing that checks the registered studies.
+One thing it reaches that the fast tier does not is a stale `property-replicates.csv.gz`. The fast
+tier recomputes every published verdict from the committed rows and refits two replications per
+study. It never re-executes the property fits.
 
-A regeneration that has just run is already covered. `regenerate.py` produces the property rows
-with the current code and refuses the run on any failed gate, so re-executing them immediately
-afterwards confirms determinism rather than freshness.
+Regeneration closes that gap at the point where it opens. `regenerate.py` produces the property
+rows with the current code, and it refuses the run on any failed gate. The artifacts a study
+commits were therefore produced by the code it was committed against. Re-executing them afterwards
+confirms determinism rather than freshness.
+
+Reach for this tier when you are diagnosing a specific disagreement between committed rows and
+current behaviour. Name the study whose path and assertion can observe the change, rather than
+running the whole tier.
 
 ## Never run two tiers at the same time
 

@@ -158,13 +158,14 @@ uv pip install -e ".[dev,docs]"
 ruff check .
 ruff format --check .
 python -m tests.prose
-mypy src/cleverly
+mypy
 pytest -m "not slow" -q
 sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
-`nox -s docs` runs the warning-as-error build in an isolated environment. CI uses this command.
-The direct call is faster, so the installation command above includes the `docs` extra.
+`mypy` reads its own configuration, which covers `src/cleverly` and `scripts`. `nox -s docs` runs
+the warning-as-error build in an isolated environment. CI uses this command. The direct call is
+faster, so the installation command above includes the `docs` extra.
 
 `python -m tests.prose` reports on the reader-facing prose. It does not rewrite anything and it
 does not fail on what it finds. Read each finding, then either change the sentence or record
@@ -176,6 +177,9 @@ The fast tier compiles every Python fence and executes the registered reader-fac
 also resolves relative links and checks that generated API source represents the root API.
 Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
 relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) gives the branch names, the checks each kind of change needs,
+and the commit style.
 
 ## Citing
 
