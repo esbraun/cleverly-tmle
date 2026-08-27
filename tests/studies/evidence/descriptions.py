@@ -410,7 +410,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin",
     ),
     ("missingness_necessity", "declared"): (
-        "the observation indicator is declared and the full observed-data likelihood is targeted",
+        "the observation indicator is declared, so correct mechanisms carry a wrong outcome model",
         "bias interval inside the equivalence margin",
     ),
     ("missingness_necessity", "complete_case_control"): (

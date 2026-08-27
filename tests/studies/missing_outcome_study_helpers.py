@@ -108,13 +108,11 @@ def primary_rows(
 
 
 def efficiency_sd(probs: np.ndarray, estimand: str) -> float:
-    """Standard deviation of the oracle observed-data influence curve."""
-    base = np.asarray(probs, dtype=complex)
-    step = 1e-30
-    curve = np.empty(len(mar.SUPPORT))
-    for point, support in enumerate(mar.SUPPORT):
-        mass = np.zeros_like(base)
-        mass[support] = 1.0
-        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
-        curve[point] = np.imag(mar.functional(perturbed, estimand)) / step
+    r"""Standard deviation of the oracle observed-data influence curve.
+
+    :math:`\sqrt{E_P[D^*(O)^2]}`, and the curve is the law's own Gateaux derivative rather
+    than a second complex-step loop written beside it.  The mixture the derivative is taken
+    along already centres :math:`D^*`, so the raw second moment is the variance.
+    """
+    curve = mar.eif(estimand, probs=probs)
     return float(np.sqrt(np.sum(np.asarray(probs).reshape(-1) * curve**2)))

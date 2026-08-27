@@ -197,8 +197,9 @@ def control_row(
     estimate: float,
     standard_error: float,
     critical: float,
+    role: str = "control",
 ) -> dict[str, Any]:
-    """The same row for a control that has no interval of its own.
+    """The same row for an arm that has no interval of its own.
 
     An unfluctuated plug-in and a survivor-only recursion are numbers, not fits: neither has
     an influence curve to report, and inventing one would make the control a claim about
@@ -206,12 +207,24 @@ def control_row(
     positive arm's, and the families that use this row are gated on their bias endpoints
     alone.  The coverage and rejection columns exist so the row satisfies the shared schema
     and so a reader can see how far off the point estimate sits in the table's own units.
+
+    ``role`` is here because a family may read one statistic at two points and gate on the
+    pair, rather than pairing a fit against a control.  ``correction_necessity`` reads the
+    DR-TMLE correction score before and after the cycle, so its "after" arm is the positive
+    one; without the argument its caller patched the returned dictionary, which put the
+    schema's meaning in the caller rather than here.
+
+    Such a caller has no scale to supply either, and passes a unit placeholder.  The
+    consequence is on the record rather than hidden: ``mean_std_error``, ``se_ratio``,
+    ``coverage`` and ``rejection_rate`` are then arithmetic on that placeholder and mean
+    nothing.  Renderers select on the family, so no published table quotes them, and the
+    family's verdict reads the bias endpoints alone.
     """
     half = critical * standard_error
     return {
         "property": property_name,
         "cell": cell,
-        "role": "control",
+        "role": role,
         "replicate": replicate,
         "n": n,
         "requested_replicates": requested,

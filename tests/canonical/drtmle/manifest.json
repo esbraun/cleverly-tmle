@@ -105,7 +105,7 @@
     "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
   "reference_sha256": {
-    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle/Dockerfile": "ddeb48b470fb77e50165f04489f4317cfc28cc23532a765bffaad6085c243bad",
     "tests/canonical/drtmle/run_drtmle.R": "d3e3814046e510e78a271ccb41a2492350a151ae3e1dccfe983b5343007ab885"
   },
   "sha256": {

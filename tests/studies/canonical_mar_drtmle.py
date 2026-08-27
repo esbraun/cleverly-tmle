@@ -53,7 +53,6 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mar-drtmle",
     reference="drtmle-r-mar",
-    publication_policy="reporting",
     modules=(
         "tests/studies/canonical_mar_drtmle.py",
         "tests/studies/mar_drtmle_properties.py",
@@ -101,11 +100,17 @@ CONFIGURATION = {
     "construction": "Díaz and van der Laan randomized MAR DR-TMLE",
     "cross_fit": False,
     "simultaneous_intervals": False,
-    "known_treatment_probability": 0.5,
+    "known_treatment_probability": float(RANDOMIZATION[0]),
     "g_bounds": list(G_BOUNDS),
     "missingness_bound": NUISANCE_BOUND,
     "guard": ["Q", "g"],
-    "reduction": "missing_outcome",
+    # Two names, because they are two different things.  ``reduction`` is the constructor
+    # setting and only accepts ``"univariate"`` or ``"bivariate"``; a ``delta=`` fit replaces
+    # it with Diaz and van der Laan's five regressions, and ``fitted_reduction`` is the family
+    # ``ReducedFit.reduction`` then reports.  Publishing the fitted name alone read as a
+    # constructor argument no caller could pass.
+    "reduction": "univariate",
+    "fitted_reduction": "missing_outcome",
     "max_outer": MAX_OUTER,
 }
 
@@ -139,6 +144,10 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
             max_iter=100,
             tol=1e-10,
             random_state=0,
+            # Read off the published record rather than left to the class default, so the
+            # manifest cannot describe a fit the constructor did not make.
+            guard=tuple(CONFIGURATION["guard"]),
+            reduction=str(CONFIGURATION["reduction"]),
         )
         .fit(
             frame,
@@ -146,7 +155,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
             treatment="A",
             covariates=["W"],
             delta="Delta",
-            treatment_probabilities=np.full(len(frame), 0.5),
+            treatment_probabilities=np.full(len(frame), RANDOMIZATION[0]),
         )
         .single()
     )
@@ -178,8 +187,11 @@ def _replicate(
     sample = frame.copy()
     sample["qn0"] = law.q[levels, 0]
     sample["qn1"] = law.q[levels, 1]
-    sample["gn0"] = 0.5 * law.pi[levels, 0]
-    sample["gn1"] = 0.5 * law.pi[levels, 1]
+    # R `drtmle` takes one joint treatment-response mechanism, so the comparator is handed
+    # ``P(A = a, Delta = 1 | W)``.  Built from :data:`RANDOMIZATION` rather than from a literal
+    # 0.5, so a change to the trial's assignment probability reaches the comparator too.
+    sample["gn0"] = (1.0 - RANDOMIZATION[levels]) * law.pi[levels, 0]
+    sample["gn1"] = RANDOMIZATION[levels] * law.pi[levels, 1]
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", scenario)
     truth_rows = [

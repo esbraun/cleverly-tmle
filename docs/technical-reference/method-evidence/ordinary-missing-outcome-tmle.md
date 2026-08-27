@@ -47,7 +47,7 @@ intervals.
 | `mar_robustness` | `outcome_correct` | positive | only the outcome regression is correct | bias interval inside the equivalence margin | bias -0.000857 to 0.0023, margin 0.0053 | pass |
 | `mar_robustness` | `treatment_wrong` | control | only the observation mechanism is correct | bias interval must fall entirely outside the margin | bias -0.2110 to -0.2059, margin 0.0084 | pass |
 | `missingness_necessity` | `ate__complete_case_control` | control | average treatment effect: the identical estimator silently discards unobserved outcomes and ignores selection | bias interval must fall entirely outside the margin | bias -0.1229 to -0.1172, margin 0.0096 | pass |
-| `missingness_necessity` | `ate__declared` | positive | average treatment effect: the observation indicator is declared and the full observed-data likelihood is targeted | bias interval inside the equivalence margin | bias -0.0055 to 0.000397, margin 0.0099 | pass |
+| `missingness_necessity` | `ate__declared` | positive | average treatment effect: the observation indicator is declared, so correct mechanisms carry a wrong outcome model | bias interval inside the equivalence margin | bias -0.0055 to 0.000397, margin 0.0099 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9934 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000585, coverage 0.9252 to 0.9667, SE ratio 0.9909 | pass |
 | `root_n_and_efficiency` | `n_500` | control | bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0012, coverage 0.9165 to 0.9606, SE ratio 0.9635 | pass |
@@ -116,6 +116,8 @@ targeting, and the consequence of silently analyzing complete cases.
 - The nuisance functions are supplied as finite-support oracles. This isolates targeting and
   inference; it does not validate flexible learner wrappers or cross-fitting.
 - The comparison uses pointwise Wald intervals and does not cover simultaneous bands.
+- The study reports the two arm means and their difference. The `att`, `atc`, `rr` and `or`
+  estimands keep only their exact-law Gateaux and remainder evidence under `delta=`.
 - The study excludes weights, clusters, missing treatment, multinomial treatment, MNAR outcomes,
   longitudinal data, and DR-TMLE correction cycles.
 

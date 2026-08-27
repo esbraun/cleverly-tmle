@@ -49,11 +49,11 @@ directly.
 | `interval_calibration` | `ate__correctly_specified` | positive | average treatment effect: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9319 to 0.9563, SE ratio 0.9581 to 1.0289, empirical efficiency ratio 0.9717 to 1.0435, reported efficiency ratio 0.9985 to 1.0012 | pass |
 | `interval_calibration` | `ate__noise_control` | control | average treatment effect: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8146 to 0.8540, SE ratio 0.6781 to 0.7297, empirical efficiency ratio 1.3703 to 1.4743, reported efficiency ratio 0.9985 to 1.0013 | pass |
 | `interval_calibration` | `ate__shrunken_se_control` | control | average treatment effect: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8059 to 0.8461, SE ratio 0.6694 to 0.7213, empirical efficiency ratio 0.9701 to 1.0456, reported efficiency ratio 0.6989 to 0.7009 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0029, coverage 0.9026 to 0.9664, SE ratio 0.9954 | pass |
-| `root_n_and_efficiency` | `n_500` | control | bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0028, coverage 0.8996 to 0.9646, SE ratio 0.9855 | **fail** |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0010, coverage 0.9057 to 0.9683, SE ratio 0.9804 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5454 to -0.4500 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5023 to -0.4976 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000264, coverage 0.9392 to 0.9704, SE ratio 1.0032 | pass |
+| `root_n_and_efficiency` | `n_500` | control | bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.000770, coverage 0.9248 to 0.9599, SE ratio 0.9935 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000680, coverage 0.9267 to 0.9613, SE ratio 0.9861 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5237 to -0.4723 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5015 to -0.4987 | pass |
 <!-- /generated -->
 
 The property grid reports the both-correct limit, outcome drift, observation drift, and a
@@ -70,7 +70,7 @@ and the five-reduction cycle's empirical score reduction against the same scores
 | `independent_tests_total` | 6 | truth tests reported |
 | `paired_tests_passed` | 3 | paired comparisons passing |
 | `paired_tests_total` | 3 | paired comparisons reported |
-| `property_cells_passed` | 13 | property cells passing |
+| `property_cells_passed` | 14 | property cells passing |
 | `property_cells_total` | 14 | property cells reported |
 | `max_standardized_bias` | 0.0631 | largest primary standardized bias |
 | `min_coverage` | 0.9500 | lowest primary coverage |
@@ -112,8 +112,8 @@ and the five-reduction cycle's empirical score reduction against the same scores
   use linear and logistic models without cross-fitting.
 - The comparison uses pointwise Wald intervals. Its joint-mechanism R comparator establishes only
   the shared both-correct limit, not internal five-reduction parity.
-- The row uses reporting publication policy: any red statistical verdict remains visible rather
-  than being removed or made to pass by changing a margin.
+- The property grid declares no type-I error, power, or targeting cell. The ordinary
+  missing-outcome study carries those three instruments for the `delta=` path.
 - The study excludes observational treatment assignment, weights, clusters, simultaneous bands,
   missing treatment, multinomial treatment, MNAR outcomes, and other DR-TMLE compositions.
 

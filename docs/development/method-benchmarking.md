@@ -121,6 +121,44 @@ missingness, weights, clusters, fold repeats, learner class, truncation, interva
 unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
 complete fast tier, and only the named slow study whose path and assertion can observe the change.
 
+## What makes a study stale
+
+A study's artifacts are evidence about one run. The `manifest.json` records three groups of
+hashes, and each group answers a different question.
+
+| hash group | what it covers | what the fast tier does | what a difference means |
+| --- | --- | --- | --- |
+| `sha256` | the six published artifacts | refuses every difference | somebody edited the committed evidence |
+| `reference_sha256` | Dockerfiles, R runners, shared R harnesses | refuses an undeclared difference | the comparator's source moved after the run |
+| `study_module_sha256` | the Python modules the record names | records the hash and gates nothing | a Python source moved after the run |
+
+Ask one question of any change to a hashed source. Does it change what the study computes?
+
+A **result-determining** change makes the artifacts stale, so regenerate the study. Laws, margins,
+cells, seeds, learners, estimator arguments, the published schema, and package pins are all
+result-determining.
+
+A **result-neutral** change does not. A rename, a comment, a type annotation, an extracted helper,
+and a script moved from an image into a mount are all result-neutral. A regeneration would spend
+hours to write identical bytes.
+
+No tool separates the two, so each hash group takes its own position.
+
+The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
+
+Python modules are not gated. Re-execution is what keeps the artifacts honest, and a hash gate
+would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
+`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves.
+`pytest -m slow` re-executes each study, so a change that was not result-neutral appears as a
+changed artifact.
+
+Reference sources sit between the two. They are gated, because a pinned container is the one input
+a reader cannot re-derive from this repository. Declare a result-neutral difference in
+[`tests/canonical/provenance-revisions.md`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md).
+
+Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
+hash makes the manifest claim that bytes which did not exist produced the result.
+
 ## Adding a method row
 
 A row is not written, it is earned by registering a study. The machinery in

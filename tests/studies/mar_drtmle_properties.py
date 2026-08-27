@@ -15,10 +15,12 @@ from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_mar_drtmle import (
+    CONFIGURATION,
     G_BOUNDS,
     MAX_OUTER,
     NUISANCE_BOUND,
     PROBS,
+    RANDOMIZATION,
     STUDY,
 )
 from tests.studies.evidence.properties import control_row, replicate_row
@@ -37,7 +39,15 @@ from tests.studies.missing_outcome_study_helpers import (
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
-RATE_REPLICATES = 400
+#: Larger than the ladder budget the ordinary MAR study runs, and the reason is the rule the
+#: smallest rung answers to.  That rung is a control, so it must *resolve*: its exact coverage
+#: interval has to land clear of nominal on one side or the other, and an interval straddling
+#: nominal establishes nothing in either direction.  At 400 replications the 99% interval ran
+#: 0.8996 to 0.9646 around a point estimate of 0.9375 and straddled.  Resolution is bought with
+#: replications and nothing else -- the floor it must clear does not move -- so the budget is
+#: set from the width the verdict needs: at 1,200 the lower endpoint clears 0.90 for any true
+#: coverage at or above 0.93, which the other two rungs put this estimator well inside.
+RATE_REPLICATES = 1_200
 RATE_SIZES = (500, 2_000, 8_000)
 CALIBRATION_REPLICATES = 2_400
 CALIBRATION_N = 2_000
@@ -52,7 +62,7 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 WRONG_Q = np.full_like(mar.Q, 0.5)
 WRONG_PI = np.full_like(mar.PI, 0.6)
-WRONG_PROBS = probabilities(WRONG_Q, g=np.full(3, 0.5), pi=WRONG_PI)
+WRONG_PROBS = probabilities(WRONG_Q, g=RANDOMIZATION, pi=WRONG_PI)
 TRUTH = float(mar.functional(PROBS, TARGET))
 EFFICIENCY_SD = efficiency_sd(PROBS, TARGET)
 
@@ -79,6 +89,8 @@ def _fit(frame: pd.DataFrame, configuration: str) -> Any:
             max_iter=100,
             tol=1e-10,
             random_state=0,
+            guard=tuple(CONFIGURATION["guard"]),
+            reduction=str(CONFIGURATION["reduction"]),
         )
         .fit(
             frame,
@@ -86,7 +98,7 @@ def _fit(frame: pd.DataFrame, configuration: str) -> Any:
             treatment="A",
             covariates=["W"],
             delta="Delta",
-            treatment_probabilities=np.full(len(frame), 0.5),
+            treatment_probabilities=np.full(len(frame), RANDOMIZATION[0]),
         )
         .single()
     )
@@ -115,23 +127,26 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     if property_name == "correction_necessity":
         reduction = result.repeats[0].fluctuations["mean"].reduction
         paired = []
-        for score_cell, role, score in (
+        for score_cell, score_role, score in (
             ("five_reduction_cycle__closed_score", "positive", reduction.score),
             ("five_reduction_cycle__initial_score_control", "control", reduction.score_initial),
         ):
-            row = control_row(
-                property_name=property_name,
-                cell=score_cell,
-                replicate=replicate,
-                n=n,
-                requested=requested,
-                truth=0.0,
-                estimate=float(np.max(np.abs(score))),
-                standard_error=1.0,
-                critical=1.0,
+            paired.append(
+                control_row(
+                    property_name=property_name,
+                    cell=score_cell,
+                    replicate=replicate,
+                    n=n,
+                    requested=requested,
+                    truth=0.0,
+                    estimate=float(np.max(np.abs(score))),
+                    # No scale to report: the pair is one score read at two points of the
+                    # cycle, and the verdict is a ratio of its own bias endpoints.
+                    standard_error=1.0,
+                    critical=1.0,
+                    role=score_role,
+                )
             )
-            row["role"] = role
-            paired.append(row)
         rows = paired
     return rows
 

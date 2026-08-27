@@ -58,6 +58,57 @@ IDS = [study.slug for study in STUDIES]
 #: resampling at a fraction of the published budget.
 CONTROL_BOOTSTRAP = 2_000
 
+#: Where a result-neutral edit to a hashed reference source is declared, instead of being hidden
+#: by rewriting the manifest that recorded the bytes which actually ran.
+REVISIONS = ROOT / "tests" / "canonical" / "provenance-revisions.md"
+REVISION_COLUMNS = ("source", "recorded", "current", "judgement")
+
+
+def _revisions() -> dict[tuple[str, str], str]:
+    """``(source, hash a manifest recorded) -> hash the file carries now``, from the ledger.
+
+    Keyed on the *recorded* hash rather than on the source alone, so one source may be judged
+    more than once as different studies are regenerated at different times.  The shared
+    ``drtmle`` context is the case: one study records the edited Dockerfile because it was
+    regenerated after the edit, and the other still records the Dockerfile that built its image.
+    """
+    table: dict[tuple[str, str], str] = {}
+    for row in pipe_table(REVISIONS, REVISION_COLUMNS):
+        key = (row["source"].strip("`"), row["recorded"].strip("`"))
+        assert key not in table, f"{key} carries two judgements; a source has one or none"
+        assert row["judgement"].startswith("result-neutral:"), (
+            f"{key} is declared without saying what kind of claim it makes. A judgement that "
+            f"is not 'result-neutral: <reason>' is a regeneration, not a declaration"
+        )
+        table[key] = row["current"].strip("`")
+    return table
+
+
+def test_no_provenance_revision_outlives_the_manifest_it_explains() -> None:
+    """The ledger refuses a stale row, on the terms ``accepted_reference_failure`` already sets.
+
+    A declaration explains a difference between one recorded hash and the working tree.  Once
+    every study that recorded that hash has been regenerated, there is no difference left and
+    the row explains nothing; carried anyway, it would read as a standing exemption for the
+    source rather than as a judgement about one edit.
+    """
+    recorded: dict[str, set[str]] = {}
+    for study in STUDIES:
+        manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
+        for name, digest in manifest["reference_sha256"].items():
+            recorded.setdefault(name, set()).add(digest)
+    for (name, digest), current in _revisions().items():
+        assert digest in recorded.get(name, set()), (
+            f"no manifest records {name} at {digest[:12]} any more, so this row explains "
+            f"nothing. Remove it rather than carrying a stale exception"
+        )
+        source = ROOT / name
+        assert source.exists(), f"{name} is judged by the ledger but is gone"
+        assert hashlib.sha256(source.read_bytes()).hexdigest() == current, (
+            f"{name} changed again after it was judged; re-read the edit and restate the "
+            f"judgement against the bytes that are committed now"
+        )
+
 
 @pytest.fixture(params=STUDIES, ids=IDS)
 def study(request: pytest.FixtureRequest) -> StudyRecord:
@@ -92,7 +143,23 @@ class TestArtifacts:
         for name, digest in manifest["reference_sha256"].items():
             source = ROOT / name
             assert source.exists(), f"{name} is hashed by the manifest but is gone"
-            assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
+            current = hashlib.sha256(source.read_bytes()).hexdigest()
+            if current == digest:
+                continue
+            # A moved reference source is one of two things, and the gate has to make the
+            # maintainer say which.  A result-determining edit means the artefacts are stale
+            # and the study is regenerated.  A result-neutral edit is declared in the ledger.
+            # Editing `digest` in the manifest is the third option, and it is the one that
+            # leaves the manifest claiming that bytes which never ran produced the result.
+            declared = _revisions().get((name, digest))
+            assert declared is not None, (
+                f"{name} no longer hashes to what {study.slug} recorded. Regenerate the study, "
+                f"or record the judgement in {REVISIONS.name} rather than editing the manifest"
+            )
+            assert declared == current, (
+                f"{name} changed again after its judgement in {REVISIONS.name}, which explains "
+                f"{declared[:12]} and not {current[:12]}"
+            )
         configuration = manifest["configuration"]
         assert configuration["replicates"] == study.replicates
         assert configuration["n"] == study.n

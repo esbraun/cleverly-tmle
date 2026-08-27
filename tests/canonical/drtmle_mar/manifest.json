@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-mar-drtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "b12d1a8ac3b5c8bc073d4327752eb9fd3fef101f",
+      "cleverly_commit": "b9d4c272c8968d1924688b4f7a3723272be1a439",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -27,7 +27,7 @@
     "n": 2000,
     "seed": 20260923,
     "resampling_seed": 20260924,
-    "publication_policy": "reporting",
+    "publication_policy": "gated",
     "scenarios": {
       "binary_mar_randomized": [
         "ey0",
@@ -48,7 +48,8 @@
       "Q",
       "g"
     ],
-    "reduction": "missing_outcome",
+    "reduction": "univariate",
+    "fitted_reduction": "missing_outcome",
     "max_outer": 100,
     "margins": {
       "confidence_level": 0.99,
@@ -77,8 +78,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_mar_drtmle.py": "320ac2f97b832b0c121686e20ac297b0a3b774381e08d49f73857c0a7ef5eca9",
-    "tests/studies/mar_drtmle_properties.py": "4d6088a158e34aecd01838d54e9f168ab64500c0af6e340c067e4d6de11a4a96",
+    "tests/studies/canonical_mar_drtmle.py": "47fa60faf165815347051f27aaa87879c762bd92315552ed639dc75520b8aee7",
+    "tests/studies/mar_drtmle_properties.py": "3fb5a3ac1a9009c9a97d6d283f628d71ab06384b9b2c2d7a692585ba3dc04a1d",
     "tests/studies/missing_outcome_study_helpers.py": "47b6080f92fcde8220e84850b9452965288b7f964fc2c99e0f80fedd02b765e7",
     "tests/discrete_law_mar.py": "ad9308fbbda20c02ec0fcae5e0d57a088e2572e852661908e54a63386da182f9",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
@@ -99,7 +100,7 @@
     "summary.csv": "fbb2c558e6ef72fdfd622b64cfde1bdc2792232b4891a14b89beeab5516b7e72",
     "equivalence.csv": "d091ce328e561937a40de64b68b19a3a87de136efeba78c530fcbf2080939249",
     "performance-tests.csv": "b9c96cfbcf48c8ac45de52425303a7269cbe38e25408e197ed6d373287ed61c3",
-    "property-replicates.csv.gz": "443a76a3f090349f7caaa005f349c1329ce086a2c54cf48ddce07ec99bd09016",
-    "properties.csv": "ed4283612bcd54883a492538f3fd14f3e68f5c3e64866595226bbad8c1292452"
+    "property-replicates.csv.gz": "8b19f02f257d7ce450377e5d1fb94f024bc341ecabddf74c0062acbfd05383c2",
+    "properties.csv": "462c03903146a94ea2fa4cfa3d1da065a0ec05394db4370a3d454e9d616fac07"
   }
 }
