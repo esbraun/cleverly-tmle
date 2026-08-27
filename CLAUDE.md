@@ -10,6 +10,8 @@ Everything else is routed:
 | for | read |
 | --- | --- |
 | setup, development commands, the public overview | `README.md` |
+| making a change, and the checks it needs | `docs/development/contributing.md` |
+| opening a pull request, and the commit style | `docs/development/pull-requests.md` |
 | where technical documentation lives | `docs/README.md` |
 | cross-module constraints not derivable from one implementation | `docs/architecture-invariants.md` |
 | test tiers, and which deprecated studies no longer run | `docs/development/testing-strategy.md` |
@@ -41,6 +43,10 @@ Current behavior is determined by code and tests, not by historical plans or inv
 - Ruff *formats* the Python examples in Markdown, so run it over the whole tree. Its linter does
   not read Markdown at all, and the formatter skips any block it cannot parse. Neither one sees a
   syntax error in an example.
+- Follow `docs/development/pull-requests.md` when you prepare a handoff. It gives the commit
+  subject and body style, the evidence line the body carries, and what each CI job checks. The
+  `docs` job builds the site with `-W` on every pull request, so a docstring that numpydoc rejects
+  now fails the request rather than the deploy. Run `nox -s docs` before you hand off.
 
 ## Documentation writing
 

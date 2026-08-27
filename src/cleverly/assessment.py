@@ -71,18 +71,23 @@ __all__ = [
 STITCHED_SCORE_Z_TOLERANCE = 4.0
 
 
-class AssessmentStatus(StrEnum):
+class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
     """Status returned by a diagnostic or validation operation.
 
     ``NOT_APPLICABLE`` means that the operation does not apply to the fitted
     estimand. ``UNAVAILABLE`` means that the operation applies, but the result
     does not contain the artifacts needed to run it.
 
-    Parameters
-    ----------
-    *values
-        Present because :class:`enum.StrEnum` gives every member a synthetic
-        constructor. Reach a status by name, as ``AssessmentStatus.PASSED``.
+    Reach a status by name, as ``AssessmentStatus.PASSED``.
+
+    The synthetic constructor that :class:`enum.StrEnum` gives every member is not a
+    caller argument, and its parameters *differ by interpreter*: 3.11 exposes ``value``,
+    ``names``, ``module``, ``qualname``, ``type``, ``start`` and ``boundary``, while 3.12
+    collapses several into ``*values``.  Documenting either one satisfies numpydoc on that
+    version and fails it on the other, which is how a ``Parameters`` block written for 3.12
+    left `PR01` and `PR02` firing on the 3.11 build.  Ignoring both is the version-independent
+    answer, and ``docs/development/contributing.md`` tells a contributor to build the
+    documentation on whichever interpreter they have.
     """
 
     PASSED = "passed"

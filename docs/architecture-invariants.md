@@ -269,6 +269,17 @@ Note the division: the ruff *formatter* does reach inside `python` fences and is
 whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
 job and not the formatter's.
 
+**The warning-as-error build runs on every pull request, and that is a different job.** `ci.yml`'s
+`docs` job builds the site with `-W` on Python 3.12, which is the interpreter `pages.yml` deploys
+from. It is not the dispatch ruled out above, because it checks what no fast test reaches:
+numpydoc validation of each rendered docstring, a document that no toctree references, and a
+cross-reference Sphinx cannot resolve. Before it existed, `pages.yml` gave the first `-W` run
+*after* the merge, so a rejected docstring took the published site down instead of failing a
+request. A docstring must therefore validate on every supported interpreter and not on one:
+`AssessmentStatus` documented the synthetic `enum.StrEnum` constructor that 3.12 exposes, which
+left `PR01` and `PR02` firing on a 3.11 build of the same tree. *Reconsider when* the build stops
+paying for its runtime on a request.
+
 **Prose is reported, never gated.** `tests/prose.py` reports on reader-facing writing and
 `tests/unit/test_documentation_prose.py` fails on a finding carrying no recorded judgment, not on
 the writing. Recording `accepted: <reason>` in `tests/prose-report.md` is a passing outcome, so
