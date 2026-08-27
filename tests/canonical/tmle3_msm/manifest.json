@@ -1,0 +1,103 @@
+{
+  "schema_version": 2,
+  "study": "ordinary point-treatment MSM projection",
+  "slug": "point-msm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "tmle3",
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "tmle3 Param_MSM with Gaussian identity-link projection"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260828,
+    "resampling_seed": 20260830,
+    "publication_policy": "gated",
+    "scenarios": {
+      "bounded_continuous_projection": [
+        "msm[(intercept)]",
+        "msm[a]",
+        "msm[W]"
+      ]
+    },
+    "construction": "ordinary",
+    "link": "identity",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "terms": [
+      "(intercept)",
+      "a",
+      "W"
+    ],
+    "projection_weights": "1 + 0.5 * treatment + 5 * W",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_point_msm.py": "4004a32a0d655d77a751b3e76871cf763d2dce79ba8ae3c9e99fda7d6ee576a6",
+    "tests/studies/point_msm_properties.py": "6f4bbd9266011820ba3d3d877b4a38e6736533fdf3ed86ede5407367c22dd81e",
+    "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/tmle3_msm/run_study.R": "91a3efabdff959e616afbc5573bea0e8873aae607c53982a5a10bc9b7e7907b4",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "adb248abf19f617e691cf887ee0df6ee56a93cab911518f78a513fd3ae3f9a36",
+    "summary.csv": "92541467a8c0c9e00c19f082237f714e6d5a10e8904c9fc5a5c60a36939422c9",
+    "equivalence.csv": "0d71a17e439e86b39a7fd1da790bc9717cc308d0f903c67e7bac3d1ae7e69927",
+    "performance-tests.csv": "c1d00ba3fbe98ef86426b4f5aaf835635e3c9f2342914c794671a05690dbac31",
+    "property-replicates.csv.gz": "8c3c6d574bb8dbad7b6e2454ceb1e3478d1631bbafeefdd5fc62a2447ffe7a85",
+    "properties.csv": "1fc9175f505af3ffe90613b5a5517a0b6a5f0a2aaeb484fef8dae884542ea33e"
+  }
+}

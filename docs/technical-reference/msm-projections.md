@@ -174,6 +174,8 @@ guidance rather than an optional extra.
 | --- | --- |
 | [the `msm` row](evidence.md#the-table) | the Gateaux comparison, the nonzero remainder, the saturated reduction, the link-specific submodel tests, and the continuous-dose density-ratio scores |
 | [working model over regimen and horizon cells](evidence.md#longitudinal-estimands-outside-the-target-registry) | the non-saturated, nonuniform projection law, the exact pooled-design and loss-weight checks, and the rank-refusal tests |
+| [point-treatment repeated-sampling study](method-evidence/point-treatment-msm-projection.md) | truth, R `tmle3` agreement, coefficient efficiency, robustness, targeting, and a load-bearing projection-measure control |
+| [ordinary longitudinal repeated-sampling study](method-evidence/ordinary-longitudinal-msm-projection.md) | projected joint R `ltmle` curves, longitudinal robustness, coefficient efficiency, targeting, and the projection-measure control |
 
-There is no registered repeated-sampling study for this axis. The continuous-dose test uses a
-linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.
+The registered rows cover fixed, identity-link, ordinary projections. The continuous-dose test
+still uses a linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.

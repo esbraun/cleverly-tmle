@@ -17,6 +17,7 @@ from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     Rate,
     coverage_gain_interval,
+    paired_displacement,
     rate,
     ratio_intervals,
     se_ratio_interval,
@@ -424,6 +425,75 @@ def calibration_verdicts(
         else:
             raise ValueError(f"unknown calibration cell kind {kind!r}")
         summary.loc[index, "passed"] = bool(passed)
+
+
+def necessity_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    *,
+    family: str,
+    labels: Sequence[str],
+    arms: tuple[str, str],
+    column: str,
+    threshold: float,
+) -> None:
+    """Was the step load bearing, and did it carry the estimate the right way?
+
+    A *necessity* family pairs a positive arm against a control that removes exactly one step
+    -- the fluctuation, the backward recursion, the declared projection measure -- and leaves
+    everything else, including the draw, alone.  Two claims come out of that, and the family
+    needs both.  Each row's own endpoint says the positive arm's bias is inside the
+    equivalence margin and the control's is outside it.  But a step that did nothing at all
+    would satisfy *neither* arm's rule in a way that distinguishes it, because the control
+    would then simply be the estimate.  So the pair needs a statement of its own, and it is
+    the displacement: how far the control's mean sits from the positive arm's, in that arm's
+    empirical spread, against a threshold the study declared before the run.
+
+    Where a family reports more than one label, the published figure is the *least* displaced
+    pair rather than the average.  The claim is that the step matters for every parameter the
+    family reports, and an average lets a well-displaced label carry an inert one.
+
+    Written here rather than per study for the reason
+    :func:`crossfit_overfitting_verdicts` is.  Seven property modules published this rule --
+    ``targeting_necessity`` in six of them, plus a survival recursion, a competing-risk
+    recursion and a projection measure -- and a rule written seven times is a rule that can be
+    changed in one of them.  The study supplies only its labels, its two arm suffixes, the
+    column it publishes the displacement in, and the threshold.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes ``passed``, ``column`` and ``property_passed`` on.
+    rows : pandas.DataFrame
+        The replication rows both arms were emitted from, paired on ``replicate``.
+    family : str
+        The property the cells are filed under.
+    labels : Sequence[str]
+        The parameters the family reports.  Cell names are ``f"{label}__{arm}"``.
+    arms : tuple[str, str]
+        The positive and control suffixes, in that order.
+    column : str
+        The summary column the joint displacement is published in.
+    threshold : float
+        The declared minimum displacement.
+    """
+    mask = summary["property"] == family
+    if not mask.any():
+        return
+    positive_arm, control_arm = arms
+    positive = mask & (summary["role"] == "positive")
+    control = mask & (summary["role"] == "control")
+    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
+    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+
+    displacement = min(
+        paired_displacement(rows, family, f"{label}__{positive_arm}", f"{label}__{control_arm}")
+        for label in labels
+    )
+    summary.loc[mask, column] = displacement
+    summary.loc[mask, "property_passed"] = bool(
+        summary.loc[mask, "passed"].all() and displacement >= threshold
+    )
 
 
 def crossfit_overfitting_verdicts(

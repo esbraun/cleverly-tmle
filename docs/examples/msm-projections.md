@@ -253,11 +253,14 @@ by extrapolation into a cadence that kind of patient never received.
 | the saturated control | the projection reproduces the arm report when it can | that a non-saturated working model is a good summary |
 | the score-equation report | one solved score per coefficient | that the working model resembles the truth |
 | the support report | whether every cadence the design reads was actually observed | that the coefficient answers the board's question |
-| the evidence manifest | exact-law, rank, and pooled-design witnesses for the point and longitudinal projections | a repeated-sampling study. MSM projections have no row in the validation grid |
+| the registered projection studies | point and ordinary longitudinal coefficients recover known truths, match the same external parameters, and pass robustness, calibration, targeting, and projection-measure controls | non-identity links, continuous doses, adaptive weights, or cross-fitted longitudinal coefficient inference |
 
-The evidence for this family is the point `msm` row and the longitudinal MSM rows in the
-[evidence manifest](../technical-reference/evidence.md#the-table), with rank and pooled-design
-witnesses. R `ltmleMSM` differs in projection scale and is not treated as a parity oracle.
+The scientific evidence is the point `msm` row and the longitudinal MSM rows in the
+[evidence manifest](../technical-reference/evidence.md#the-table). The registered
+[point](../technical-reference/method-evidence/point-treatment-msm-projection.md) and
+[longitudinal](../technical-reference/method-evidence/ordinary-longitudinal-msm-projection.md)
+studies add repeated-sampling evidence. R `ltmleMSM` differs in projection scale and is not a
+parity oracle.
 
 One composition is refused. `msm=` cannot be combined with `interventions=` or `shifts=`, because one
 fluctuation solves one set of score equations. A fit reporting parameters from two axes would put two

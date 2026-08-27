@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "3626ecc5cad1059ebc7858a3cfaeeae9952f7017",
+      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -26,6 +26,7 @@
     "replicates": 1600,
     "n": 2000,
     "seed": 20260822,
+    "publication_policy": "gated",
     "scenarios": {
       "censored_end_of_study": [
         "ey_regimen[never]",
@@ -80,30 +81,31 @@
       "rmse_ratio_noninferiority_margin": 1.1,
       "coverage_difference_noninferiority_margin": -0.025,
       "calibration_excess_noninferiority_margin": 0.05
-    },
-    "publication_policy": "gated"
+    }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle.py": "c37d72669d14b94c8d134ad79f5fb739e59c710100349bf4cfbf4e53576121ba",
-    "tests/studies/ltmle_properties.py": "e0cfa3c469dd21a513233dfbef02d61fdca11107ea553059263abf61d3cece24",
+    "tests/studies/canonical_ltmle.py": "9058761787420541d5d5ea8a1baab66680160592520d90831cd525d6591aa5cc",
+    "tests/studies/ltmle_properties.py": "a24bd7bb06dd2c48adbed9c16ce91c05cee13a42d330bfdd5ae7b08d1183a91b",
     "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
-    "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "af50fd1effc1ef8f7822529831f6e210e2598f54dfa53dc51e2e6a04be557372",
-    "tests/studies/evidence/property_verdicts.py": "fb469ec435b470a4f99f938b81a68bcd77fefe01e03cae7828b512aefc71392d",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
   "reference_sha256": {
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "tests/canonical/ltmle/run_study.R": "9f75920e7a64493fa3daa7e23ea0c44eeed250d88409ac43ec5169963a0676da",
-    "tests/canonical/ltmle/generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743"
+    "tests/canonical/ltmle/run_study.R": "4cec49c5a875aa06fbd5203aca63c61c843d2fdcf1b507d518fcabec63346b41",
+    "tests/canonical/ltmle/generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/ltmle_regimen_adapter.R": "03f1b3d2ae35ae8f63096b42c1e00875845e916a9c74b5ffb947ac2a1f28baab"
   },
   "sha256": {
     "replicates.csv.gz": "09baf175614a92a3eee5527b087026b9a936fa1d98b73010b882c55d61f622e7",
     "summary.csv": "19b06742e0ffaec86370a7ffa1c92fe9ec89394b2cd9ea424795aaf79d7dc363",
-    "equivalence.csv": "315e9af1deadbfcca4f4b9ebd62a2fca14758a1f3b4d319cc768bf3ee4236715",
+    "equivalence.csv": "d970200a2a5ac088accffadf9e5051146c0c3f9661ef00eedc3c37510e0a1897",
     "performance-tests.csv": "4feb491faeaa589b1693d329892c0167bfb253d5ea019b9b583592771f46124a",
     "property-replicates.csv.gz": "ff41c8d9623b5d097d69d2b4dab0306081af6c6a273968bc74aadafd6fdba7f2",
     "properties.csv": "58908407cc4e8077a89a4ac27e0f410a15a5d698e6bf6f0876a6fb53e8a7ef9b"

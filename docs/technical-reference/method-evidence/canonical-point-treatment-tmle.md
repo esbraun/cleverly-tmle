@@ -89,7 +89,7 @@ binary-outcome law covers those plus `paf`, `rr`, and `or`.
 | bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000744 | 0.6995 | 1.0019 | -0.000625 | 0.0033 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -6.584e-08 | 0.000064 | 1.0030 | -0.000625 | 0.0019 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000015 | 0.0122 | 1.0032 | 0 | 0.0040 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -5.673e-13 | 4.814e-10 | 1.0000 | 0 | 1.179e-10 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -5.672e-13 | 4.814e-10 | 1.0000 | 0 | 1.179e-10 vs 0.0500 | equivalent |
 | bounded continuous-outcome law with effect modification | `par` | population attributable risk | -0.000001 | 0.0020 | 1.0045 | -0.0031 | 0.0020 vs 0.0500 | equivalent |
 <!-- /generated -->
 

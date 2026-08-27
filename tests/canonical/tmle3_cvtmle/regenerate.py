@@ -5,12 +5,19 @@ from pathlib import Path
 from tests.canonical.regenerate import Reference, main
 from tests.studies import canonical_cvtmle, stacked_cvtmle_properties
 
+ROOT = Path(__file__).parents[3]
+
 if __name__ == "__main__":
     main(
         canonical_cvtmle,
         stacked_cvtmle_properties,
         here=Path(__file__).resolve().parent,
         reference=Reference(
-            image="cleverly-tmle3-cvtmle-reference:ed72f8a", runner="run_tmle3_cvtmle.R"
+            image="cleverly-tmle3-reference:ed72f8a",
+            runner="tmle3_cvtmle/run_tmle3_cvtmle.R",
+            mount_runner=True,
+            extra_files=("study_harness.R",),
+            build_context=ROOT / "tests" / "canonical" / "tmle3",
+            runner_root=ROOT / "tests" / "canonical",
         ),
     )

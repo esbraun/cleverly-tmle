@@ -14,6 +14,5 @@ RUN apt-get update \
 ENV TMLE3_COMMIT=${TMLE3_COMMIT}
 ENV SL3_COMMIT=${SL3_COMMIT}
 
-COPY run_tmle3.R /opt/run_tmle3.R
 WORKDIR /work
-ENTRYPOINT ["Rscript", "/opt/run_tmle3.R"]
+ENTRYPOINT ["Rscript"]

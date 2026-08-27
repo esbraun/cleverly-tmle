@@ -417,6 +417,15 @@ class TestPublishedVerdicts:
                 >= study.properties().TARGETING_DISPLACEMENT
             )
 
+        projection = published.loc[published["property"] == "projection_necessity"]
+        if not projection.empty:
+            assert projection["property_passed"].nunique() == 1
+            assert bool(projection["property_passed"].iloc[0]) is bool(
+                projection["passed"].all()
+                and projection["projection_displacement"].iloc[0]
+                >= study.properties().PROJECTION_DISPLACEMENT
+            )
+
         recursion = published.loc[
             published["property"].isin(
                 {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
@@ -490,6 +499,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "projection_necessity",
     }
 )
 
@@ -1248,6 +1258,11 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
+            )
+        if "projection_necessity" in study.property_cells:
+            assert (
+                declared["margin:projection_displacement"]
+                == study.properties().PROJECTION_DISPLACEMENT
             )
         if (
             "survival_recursion_necessity" in study.property_cells

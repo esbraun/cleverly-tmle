@@ -22,7 +22,6 @@ from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
-    paired_displacement,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -31,6 +30,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
+    necessity_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -495,9 +495,12 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     the four rate rows and every calibration interval -- including the efficiency ratios, which
     the shared pass computes once against :data:`EFFICIENCY_SD` -- are
     :func:`~tests.studies.evidence.property_verdicts.apply_shared_verdicts`, exactly as they are
-    for every other registered study.  Two things are genuinely this study's own and only those
-    are written here: calibration cells that come in three *kinds* rather than one, and the
-    targeting family below.
+    for every other registered study, and so is the targeting family:
+    :func:`~tests.studies.evidence.property_verdicts.necessity_verdicts` states the rule once
+    for every study that pairs a positive arm against a step-removed control.  What is left
+    here is this study's own declarations -- its labels, its arms, and the displacement
+    threshold it fixed before the run -- plus calibration cells that come in three *kinds*
+    rather than one.
     """
     margins = STUDY.margins
     summary, rates = apply_shared_verdicts(
@@ -514,39 +517,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
-    _targeting_verdicts(summary, rows)
+    necessity_verdicts(
+        summary,
+        rows,
+        family="targeting_necessity",
+        labels=tuple(CONTRASTS),
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    )
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_ltmle")
     return finish(summary, rates)
-
-
-def _targeting_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Was the fluctuation load bearing, and did it carry the estimate the right way?
-
-    Two claims, and the family needs both.  Each row's own endpoint says the targeted arm's
-    bias is inside the equivalence margin and the plug-in's is outside it -- but a fluctuation
-    that did nothing at all would satisfy *neither* arm's rule in a way that distinguishes it,
-    because the plug-in would then simply be the estimate.  So the joint clause is the
-    displacement: how far apart the two arms' means sit, in the targeted arm's own empirical
-    standard deviations, against :data:`TARGETING_DISPLACEMENT` declared before the run.
-    """
-    mask = summary["property"] == "targeting_necessity"
-    if not mask.any():
-        return
-    positive = mask & (summary["role"] == "positive")
-    control = mask & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
-
-    displacements = [
-        paired_displacement(
-            rows, "targeting_necessity", f"{label}__targeted", f"{label}__untargeted"
-        )
-        for label in CONTRASTS
-    ]
-    # The family's claim is that targeting matters for *every* contrast it reports, so the
-    # shared figure is the least displaced one rather than the average of the two.
-    displacement = min(displacements)
-    summary.loc[mask, "targeting_displacement"] = displacement
-    summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "passed"].all() and displacement >= TARGETING_DISPLACEMENT
-    )
