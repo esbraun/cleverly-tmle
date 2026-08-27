@@ -208,9 +208,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
     dgp = shift_dgp(curvature=PRIMARY_CURVATURE)
-    edges = tuple(
-        float(value) for value in bin_edges(np.asarray(frame["A"]), PRIMARY_DENSITY_BINS)
-    )
+    edges = tuple(float(value) for value in bin_edges(np.asarray(frame["A"]), PRIMARY_DENSITY_BINS))
     estimator = TMLE(
         shifts=shifts(),
         outcome_learner=QuadraticShiftOutcome(),

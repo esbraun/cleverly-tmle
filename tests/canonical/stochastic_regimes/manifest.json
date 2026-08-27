@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "89031c60827627f336ce8a06d8ae1da77248bc2b",
+      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",

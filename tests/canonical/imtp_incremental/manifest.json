@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "89031c60827627f336ce8a06d8ae1da77248bc2b",
+      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -87,7 +87,7 @@
     "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
     "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
     "tests/incrementals.py": "e86b0702753dc7777da81cd92c683996ab40eed9ab69be6d6317f8b7c0876a22",
-    "tests/studies/evidence/comparison.py": "28816b47bc09fe39b7107d2b6c6b644684c19cf6a735d7b8e2c8517c36f1595f",
+    "tests/studies/evidence/comparison.py": "5491bf4e1199452f1df59f85ce88987c4653d085253eaf6fa927d9384de34ee0",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",

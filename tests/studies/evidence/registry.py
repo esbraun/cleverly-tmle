@@ -195,7 +195,9 @@ class StudyRecord:
             raise ValueError("a point-only reference declaration needs a reference implementation")
         unknown = self.point_only_reference.difference(self.estimands)
         if unknown:
-            raise ValueError(f"point-only reference estimands are not registered: {sorted(unknown)}")
+            raise ValueError(
+                f"point-only reference estimands are not registered: {sorted(unknown)}"
+            )
         if self.point_only_reference.intersection(self.incomparable_se):
             raise ValueError("point-only references and scale-incomparable SEs must be distinct")
 

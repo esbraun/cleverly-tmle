@@ -257,8 +257,7 @@ def equivalence(
         not_inferior = bool(
             bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
             and (
-                point_only
-                or bound["coverage_difference_lower"] >= margins.coverage_noninferiority
+                point_only or bound["coverage_difference_lower"] >= margins.coverage_noninferiority
             )
             and (
                 not se_comparable

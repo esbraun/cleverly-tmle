@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "89031c60827627f336ce8a06d8ae1da77248bc2b",
+      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -74,11 +74,11 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_shift_policies.py": "d1a5c7e1bf56765bfb9388aa7a4bcd71dfd12905e21976050821baf31f50abfe",
+    "tests/studies/canonical_shift_policies.py": "7b1e9cd64eb974fb85b62b80e91aa8c9ba8a3ecb18de3235ed272140d889fc70",
     "tests/studies/shift_policy_properties.py": "d1e3cb4d8d31bd447857767867b06a64ebd71e3b6a74778b8197e6677dd9ad19",
     "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
     "tests/discrete_law_shift.py": "95c2df8bcb215f04b2bda71c130704282e3b26e81169609f6f6aadc7a817448d",
-    "tests/studies/evidence/comparison.py": "28816b47bc09fe39b7107d2b6c6b644684c19cf6a735d7b8e2c8517c36f1595f",
+    "tests/studies/evidence/comparison.py": "5491bf4e1199452f1df59f85ce88987c4653d085253eaf6fa927d9384de34ee0",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
