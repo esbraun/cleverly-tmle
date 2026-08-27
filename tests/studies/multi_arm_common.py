@@ -144,8 +144,10 @@ def rows_from_result(
                 initial_estimate = left - right
             elif stem == "rr":
                 initial_estimate = left / right
-            else:
+            elif stem == "or":
                 initial_estimate = (left / (1.0 - left)) / (right / (1.0 - right))
+            else:
+                raise ValueError(f"no untargeted plug-in is defined for {name!r}")
         rows.append(
             {
                 "implementation": implementation,
@@ -292,11 +294,6 @@ class OracleMultiOutcome(BaseEstimator):
     def predict_proba(self, design: Any) -> np.ndarray:
         mean = self._mean(design)
         return np.column_stack((1.0 - mean, mean))
-
-
-def inference_row_names() -> tuple[str, ...]:
-    """The declared estimands, exposed for compact registry tests."""
-    return ALL_ESTIMANDS
 
 
 __all__ = [

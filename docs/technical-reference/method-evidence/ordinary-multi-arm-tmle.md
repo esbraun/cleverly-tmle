@@ -109,8 +109,11 @@ reports every arm mean plus two ATEs, risk ratios, and odds ratios against the `
 ## Limitations
 
 The comparison covers one binary-outcome law, one reference arm, pointwise intervals, and
-ordinary nuisance fitting. It does not validate simultaneous intervals, conditional effects,
-continuous outcomes, cross-fitting, or behavior under serious practical-positivity failure.
+ordinary GLM nuisance fitting. It does not validate simultaneous intervals, conditional effects,
+continuous outcomes, cross-fitting, flexible learners, or behavior under serious
+practical-positivity failure. It excludes missing outcomes, weights, clusters, fold repeats, and
+longitudinal treatment. Each of those is a separate row, not an implied one.
+
 R `tmle3` receives numeric arm codes because the pinned adapter mishandles a factor column in
-counterfactual prediction; the law is linear in that code while `cleverly` still receives the
-original labels and a saturated arm design.
+counterfactual prediction. The law is linear in that code. `cleverly` still receives the original
+labels and a saturated arm design, so the label-to-column mapping stays under test.

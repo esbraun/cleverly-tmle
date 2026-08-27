@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-multi-arm-ctmle-selector",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "14a54274e2d5e334f68748ebe5c26a6666e0e063",
+      "cleverly_commit": "4959542545c04c26ba9436c91fe154349fbdf8d7",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -101,10 +101,10 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/multi_arm_common.py": "bbd39564e022e0c21f18c47cb1a99752280caa83e848698298de10289dd68abc",
-    "tests/studies/canonical_multi_arm_ctmle_selector.py": "44f7bad329eb61608920c160b03f747dcc6df2bddf5bcdb6d0c9fc7bbe06801c",
-    "tests/studies/multi_arm_ctmle_selector_properties.py": "42e16a6f7bd0b33cd9232e013b1e1eac66072f979562de2dffd3af6deaf213cf",
-    "tests/studies/multi_arm_properties.py": "1355c5ed101f0fbcbdcad8a2ca804f2661d015900c0e6586b0441b5856efe7a6",
+    "tests/studies/multi_arm_common.py": "1791a9ab51b2e9c2036c6f22091153d0dca61bd068852de9509bf3771dba9edf",
+    "tests/studies/canonical_multi_arm_ctmle_selector.py": "1416872840f24dc7721f90f13578bb51de1d9852392af79364d3708aa6713c86",
+    "tests/studies/multi_arm_ctmle_selector_properties.py": "13caf5ecc9e639ae8ff3948187a99ea9cb339c73b0b9270fac2e3cc59ef287e7",
+    "tests/studies/multi_arm_properties.py": "0ae74135e3da7502c01eaf00db379d94deecf75da1e7ad9761d16c529093d7ad",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
     "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
@@ -117,7 +117,7 @@
     "summary.csv": "771dc1a1bf07c4b53e0406ac1dd7878644eda2520eb63f644da5ee0f486c63db",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "b2b7aa91e15d825fea56d221b330934733ed9080f3da2682a84450b9f9d58591",
-    "property-replicates.csv.gz": "60071dc2a8d7872c2f8ae13447e04fa2be3cdcda81464f1fe779b9576512aabf",
-    "properties.csv": "589ef02aa36e384dba9914a92c87b2fe0e4b8e559ba433ffe53c067411f51a70"
+    "property-replicates.csv.gz": "bf4d4422d7e5cf7388d5b23a279704d518c522448c159a8b4731e7b763a8e46d",
+    "properties.csv": "e44c34a04e3374847021b7cd1388a98285e3129329d0875dfbf8826ca72f92b1"
   }
 }

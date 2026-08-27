@@ -31,6 +31,11 @@ N_FOLDS = 5
 MAX_OUTER = 100
 SCENARIO = "multi_arm_binary_drtmle"
 
+#: What every replication carries into the fit-health audit, and what the audit publishes.
+#: The published order puts the derived threshold and verdict beside the score they judge,
+#: so the two tuples are written out rather than sliced apart: an inserted source column
+#: would otherwise land in the published frame at whichever position the slice happened to
+#: put it.
 FIT_DIAGNOSTIC_SOURCE_COLUMNS = (
     "implementation",
     "scenario",
@@ -42,10 +47,16 @@ FIT_DIAGNOSTIC_SOURCE_COLUMNS = (
     "bound_active",
 )
 FIT_DIAGNOSTIC_COLUMNS = (
-    *FIT_DIAGNOSTIC_SOURCE_COLUMNS[:5],
+    "implementation",
+    "scenario",
+    "replicate",
+    "n",
+    "score_max",
     "score_threshold",
     "score_passed",
-    *FIT_DIAGNOSTIC_SOURCE_COLUMNS[5:],
+    "solver_reported",
+    "solver_passed",
+    "bound_active",
 )
 
 STUDY = StudyRecord(
@@ -88,6 +99,20 @@ STUDY = StudyRecord(
         "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
         "root_n_rate": ("empirical_sd", "reported_se"),
         "interval_calibration": ("correctly_specified",),
+        "double_robust_contraction": (
+            "outcome_correct_n2000",
+            "outcome_correct_n4000",
+            "outcome_correct_n8000",
+            "treatment_correct_n2000",
+            "treatment_correct_n4000",
+            "treatment_correct_n8000",
+            "both_wrong_n2000",
+            "both_wrong_n4000",
+            "both_wrong_n8000",
+            "rate_outcome_correct",
+            "rate_treatment_correct",
+            "rate_both_wrong",
+        ),
     },
 )
 
@@ -178,6 +203,15 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     score = result.diagnostics.score_equations()
     if not np.isfinite([float(row.score) for row in score.rows]).all():
         raise RuntimeError("DR-TMLE empirical score audit is non-finite")
+    # ``fit-diagnostics.csv`` publishes ``bound_active`` as ``False`` for every replication of
+    # both implementations.  That is a claim about this law, so it is checked rather than
+    # asserted: the registered law was chosen to keep every arm probability inside the
+    # declared 2.5% region, and a run where it did not would publish a truncated mechanism
+    # under a column that says otherwise.
+    nuisance = result.repeats[0].nuisance
+    raw = np.asarray(nuisance.propensity.values, dtype=float)
+    if not np.array_equal(raw, nuisance.bounded_propensity(multi_arm_common.G_BOUNDS)):
+        raise RuntimeError("the propensity bound activated in the multi-arm comparison")
     return result
 
 
@@ -199,7 +233,7 @@ def _replicate(
     sample = frame.copy()
     sample["A_code"] = pd.Categorical(sample["A"], categories=multi_arm_common.LABELS).codes
     nuisance = result.repeats[0].nuisance
-    for code in range(3):
+    for code in range(len(multi_arm_common.LABELS)):
         sample[f"qn{code}"] = nuisance.outcome.arms[float(code)]
         sample[f"gn{code}"] = nuisance.propensity.arm(float(code))
     sample.insert(0, "replicate", replicate)

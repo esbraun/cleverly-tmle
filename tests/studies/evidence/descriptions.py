@@ -566,6 +566,21 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the selector chooses its own mechanism path",
         "bias interval inside the equivalence margin",
     ),
+    ("selector_necessity", "greedy"): (
+        "the greedy selector chooses its own mechanism path",
+        "bias interval inside the equivalence margin, and RMSE below the control's by the "
+        "declared ratio",
+    ),
+    ("selector_necessity", "ordered"): (
+        "the ordered selector chooses how far along a fixed covariate order to go",
+        "bias interval inside the equivalence margin, and RMSE below the control's by the "
+        "declared ratio",
+    ),
+    ("selector_necessity", "discrete"): (
+        "the discrete selector chooses among a declared candidate ladder",
+        "bias interval inside the equivalence margin, and RMSE below the control's by the "
+        "declared ratio",
+    ),
     ("selector_necessity", "empty_control"): (
         "the selector is forced to stop at an empty path",
         "bias interval must fall entirely outside the margin",

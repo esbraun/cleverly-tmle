@@ -50,7 +50,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_multi_arm_ctmle_selector",
     properties_module="tests.studies.multi_arm_ctmle_selector_properties",
     property_cells={
-        "selector_necessity": ("collaborative", "empty_control"),
+        "selector_necessity": ("greedy", "ordered", "discrete", "empty_control"),
         "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
         "root_n_rate": ("empirical_sd", "reported_se"),
         "interval_calibration": ("correctly_specified",),

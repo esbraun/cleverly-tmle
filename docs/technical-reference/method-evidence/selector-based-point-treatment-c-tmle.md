@@ -63,8 +63,8 @@ inner folds, with the penalty on.
 | `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000211, coverage 0.9252 to 0.9667, SE ratio 0.9622 | pass |
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5270 to -0.4640 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5043 to -0.5019 | pass |
-| `selector_necessity` | `collaborative` | positive | the selector chooses its own mechanism path | bias interval inside the equivalence margin | bias 0.0043 to 0.0199, margin 0.0214 | pass |
-| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.7865 to 0.8046, margin 0.0247 | pass |
+| `selector_necessity` | `collaborative` | positive | the selector chooses its own mechanism path | bias interval inside the equivalence margin | bias 0.0043 to 0.0199, margin 0.0214, RMSE ratio 0.1077 | pass |
+| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.7865 to 0.8046, margin 0.0247, RMSE ratio 0.1077 | pass |
 | `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0275, 0.0109 to 0.0561 | pass |
 <!-- /generated -->
 

@@ -6,9 +6,9 @@ binary-treatment only, and separate binary fits would target different parameter
 form a legitimate multi-arm comparator.
 
 Each strategy is tested against the known truth for three arm means and two ATEs, risk ratios,
-and odds ratios. The property record also pairs the collaborative selector with an empty-path
-control on identical draws, so a selector that stops immediately is exposed rather than inferred
-from otherwise plausible point estimates.
+and odds ratios. The property record runs all three selector paths beside a forced empty path on
+identical draws. Each path reports its own root-mean-square error against that control. A path
+that reaches a ratio of one chose the control's mechanism path, so its pair is not a control.
 
 ## Accuracy against known truth
 
@@ -61,8 +61,10 @@ therefore intentionally empty.
 | `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000707, coverage 0.9087 to 0.9702, SE ratio 0.9834 | pass |
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5492 to -0.4578 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5092 to -0.5030 | pass |
-| `selector_necessity` | `collaborative` | positive | the selector chooses its own mechanism path | bias interval inside the equivalence margin | bias 0.1591 to 0.1662, margin 0.0069 | **fail** |
-| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.1591 to 0.1662, margin 0.0069 | pass |
+| `selector_necessity` | `discrete` | positive | the discrete selector chooses among a declared candidate ladder | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.1591 to 0.1662, margin 0.0069, RMSE ratio 1 | **fail** |
+| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.1591 to 0.1662, margin 0.0069, RMSE ratio 1 | pass |
+| `selector_necessity` | `greedy` | positive | the greedy selector chooses its own mechanism path | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0286 to 0.0451, margin 0.0160, RMSE ratio 0.4470 | **fail** |
+| `selector_necessity` | `ordered` | positive | the ordered selector chooses how far along a fixed covariate order to go | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0147 to 0.0296, margin 0.0144, RMSE ratio 0.3736 | **fail** |
 | `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0700, 0.0412 to 0.1095 | **fail** |
 <!-- /generated -->
 
@@ -76,7 +78,7 @@ therefore intentionally empty.
 | `independent_tests_passed` | 27 | truth tests passing |
 | `subject_tests_total` | 27 | selector truth tests |
 | `subject_tests_passed` | 27 | selector truth tests passing |
-| `property_cells_total` | 10 | repeated-sampling property cells |
+| `property_cells_total` | 12 | repeated-sampling property cells |
 | `property_cells_passed` | 6 | property cells passing |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
@@ -106,7 +108,23 @@ therefore intentionally empty.
 ## Limitations
 
 This row has reporting policy because multi-arm repeated-sampling evidence was absent when the
-study was declared. Its negative control is intentionally demanding: if the selected path and
-empty path coincide, both cells and their shared RMSE ratio remain visible as failures. The row
-does not establish equivalence to an external package, simultaneous inference, conditional
-effects, cross-fitted primary performance, or behavior under severe positivity loss.
+study was declared. Four of its cells are red, and each one measures a different thing.
+
+The selector-necessity law is a strong instrument. It is the only law in this row that puts units
+outside the declared 0.025 truncation bounds.
+`tests/unit/test_multi_arm_studies.py::test_the_selector_law_leaves_the_declared_truncation_region`
+records that difference against the registered law, which keeps every unit inside them. The greedy
+and ordered paths cut the error ratio well below the declared bar on that law. Both paths still
+carry a bias the equivalence margin rejects at n = 1,500, and their coverage stays under the floor.
+The discrete ladder reaches a ratio of one, because its cross-validated loss selects the empty
+candidate on every draw. Read those cells as measurements under practical positivity loss. They do
+not transfer to a law that satisfies the estimator's declared bounds.
+
+The interval-calibration and null-size cells are red on the registered law, where the selector
+reaches the empty candidate under a correct outcome regression. The reported interval omits the
+selection step, so this row offers no calibrated inference while selection is load-bearing.
+
+The row does not establish equivalence to an external package, simultaneous inference, conditional
+effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance
+fits, and pointwise intervals. It excludes missing outcomes, weights, clusters, fold repeats,
+simultaneous bands, and longitudinal treatment.

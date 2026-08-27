@@ -212,11 +212,12 @@ The latter checks both multi-arm DR-TMLE union-model cells against the complex-s
 derivative through real `DRTMLE` fits, and exercises `CTMLE(strategy="oat")` on the regular
 exact law where its generated design identifies `W`.
 
-The former `TestMultiArmCollaborativeCoverage` legacy guard has been superseded by those
-registered artifacts. The new records publish replication accounting, truth and comparison
-verdicts, nuisance-regime properties, root-n ladders, and the selector's empty-path control.
-The reporting-policy rows retain red cells where the evidence does not support a stronger
-claim; registration does not turn an observed limitation into an inherited binary theorem.
+The four registered rows replace the `TestMultiArmCollaborativeCoverage` legacy guard, which
+stays deprecated and does not run. The records publish replication accounting, truth and
+comparison verdicts, nuisance-regime properties, root-n ladders, and each selector path against
+one forced empty path. The reporting-policy rows keep red cells where the evidence does not
+support a stronger claim. Registration does not turn an observed limitation into an inherited
+binary theorem.
 
 ## Longitudinal estimands outside the target registry
 

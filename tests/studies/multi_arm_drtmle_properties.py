@@ -2,21 +2,136 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
+import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_drtmle import STUDY
-from tests.studies.evidence.properties import PropertyCell, run_cells
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.properties import PropertyCell, Rate, run_cells
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    finish,
+    fitted_rate_row,
+)
+
+#: Which design columns each misspecified nuisance keeps.
+#:
+#: Both drop ``W1`` and nothing else.  ``W1`` is the covariate the shared law puts in the arm
+#: logits *and* in the outcome mean, so dropping it is a real confounding failure rather than
+#: a dropped predictor a plug-in never needed.  ``W3`` enters the outcome only, and a model
+#: that omits it stays consistent for this contrast, which is why the ``both_wrong`` control
+#: has to reach past it.
+#:
+#: The outcome design is ``[arm indicator, arm indicator, W1, W2, W3]`` and the treatment
+#: design is ``[W1, W2, W3]``.  Both misspecifications stay covariate-dependent on purpose.
+#: A constant nuisance would hand this method's univariate guard regressions a constant single
+#: regressor, and the reported standard error then inflates by orders of magnitude while the
+#: cell still reads as a union-model measurement.
+MISSPECIFIED_OUTCOME_COLUMNS = (0, 1, 3, 4)
+MISSPECIFIED_TREATMENT_COLUMNS = (1, 2)
+
+#: The sizes the contraction ladder is fitted over, and how many replications each rung gets.
+#:
+#: **Why this family exists.**  ``double_robustness`` judges the bias at one size against an
+#: equivalence margin of a quarter of an empirical standard deviation, and on this law the
+#: ``treatment_correct`` cell exceeds it at ``n = 2,000``.  A single red cell cannot say which
+#: of two very different things happened: a second-order remainder that has not yet decayed,
+#: which is what the binary theorem predicts and which leaves the interval eventually valid,
+#: or an armwise extension that is not consistent at all.  Those look alike at one size and
+#: mean opposite things, and this row exists to measure the armwise extension rather than to
+#: inherit the binary result.
+#:
+#: Fitting log |bias| on log ``n`` separates them.  The ``both_wrong`` arm rides along as the
+#: control that must fail to contract.  The ladder starts at the size the level cell is judged
+#: at and doubles twice, so its first rung reproduces that regime rather than a milder one.
+CONTRACTION_SIZES = (2000, 4000, 8000)
+CONTRACTION_REPLICATES = 600
+CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
+
+
+class ColumnLogistic(BaseEstimator, ClassifierMixin):
+    """Unpenalized multinomial logistic regression on a fixed subset of design columns."""
+
+    def __init__(self, columns: Sequence[int] | None = None) -> None:
+        self.columns = columns
+
+    def _select(self, design: Any) -> np.ndarray:
+        values = np.asarray(design, dtype=float)
+        if self.columns is None:
+            return values
+        return values[:, list(self.columns)]
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> ColumnLogistic:
+        self.model_ = LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs").fit(
+            self._select(design), target, sample_weight=sample_weight
+        )
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(self._select(design)), dtype=float)
+
+
+def _misspecified_outcome() -> ColumnLogistic:
+    return ColumnLogistic(MISSPECIFIED_OUTCOME_COLUMNS)
+
+
+def _misspecified_treatment() -> ColumnLogistic:
+    return ColumnLogistic(MISSPECIFIED_TREATMENT_COLUMNS)
+
+
+def _nuisances(scenario: str) -> tuple[Any, Any]:
+    """The learner pair one nuisance regime names, in the order a cell declares them."""
+    outcome = (
+        multi_arm_properties.correct_outcome()
+        if scenario == "outcome_correct"
+        else _misspecified_outcome
+    )
+    treatment = (
+        multi_arm_properties.correct_treatment()
+        if scenario == "treatment_correct"
+        else _misspecified_treatment
+    )
+    return outcome, treatment
+
+
+def _contraction_cells() -> tuple[PropertyCell, ...]:
+    return tuple(
+        PropertyCell(
+            "double_robust_contraction",
+            f"{scenario}_n{size}",
+            multi_arm_properties.Sampler(),
+            *_nuisances(scenario),
+            size,
+            CONTRACTION_REPLICATES,
+            # One offset per rung, so no two rungs share a replication stream.  The ladder is
+            # fitted across sizes, and a shared stream would correlate the rungs and narrow
+            # the slope interval for a reason that has nothing to do with the estimator.
+            24_000 + scenario_index * 300 + size_index * 100,
+            role="control" if scenario == "both_wrong" else "positive",
+            estimand=multi_arm_properties.ESTIMAND,
+        )
+        for scenario_index, scenario in enumerate(CONTRACTION_SCENARIOS)
+        for size_index, size in enumerate(CONTRACTION_SIZES)
+    )
 
 
 def cells() -> tuple[PropertyCell, ...]:
     return (
-        *multi_arm_properties.robustness_cells(seed=22_100),
+        *multi_arm_properties.robustness_cells(
+            seed=22_100,
+            misspecified_outcome=_misspecified_outcome,
+            misspecified_treatment=_misspecified_treatment,
+        ),
         *multi_arm_properties.asymptotic_cells(seed=22_100, include_null_power=False),
+        *_contraction_cells(),
     )
 
 
@@ -48,4 +163,67 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    return finish(*apply_shared_verdicts(rows, STUDY))
+    summary, rates = apply_shared_verdicts(rows, STUDY)
+    _contraction_verdicts(summary)
+    rates.extend(_contraction_rates(rows, summary.columns))
+    return finish(summary, rates)
+
+
+def _contraction_verdicts(summary: pd.DataFrame) -> None:
+    """Each ladder rung's own claim: does the interval still cover at this size?
+
+    The rung is not judged on its bias.  ``double_robustness`` already judges that against
+    the equivalence margin, and repeating the verdict at three more sizes would publish the
+    same red cell four times without adding a statement.  What a rung adds is whether the
+    interval stays usable as ``n`` grows in a one-correct regime, and the control adds the
+    case where it must not.
+    """
+    margins = STUDY.margins
+    ladder = summary["property"] == "double_robust_contraction"
+    positive = ladder & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = (
+        summary.loc[positive, "coverage_ci_lower"] >= margins.coverage_floor
+    )
+    control = ladder & (summary["role"] == "control")
+    summary.loc[control, "passed"] = (
+        summary.loc[control, "coverage_ci_upper"] < margins.coverage_floor
+    )
+
+
+def _contracts(fitted: Rate) -> bool:
+    """Whether the fitted slope establishes that the bias shrinks with ``n`` at all.
+
+    A direction, not an exponent.  Three points give a wide interval, so requiring the
+    second-order ``-1`` would fail a correct estimator on Monte Carlo error.  Requiring the
+    whole interval below zero is what this ladder supports, and it separates a decaying
+    remainder from an inconsistent estimator.
+    """
+    return bool(fitted.interval.high < 0.0)
+
+
+def _contraction_rates(rows: pd.DataFrame, columns: Any) -> list[dict[str, Any]]:
+    """One fitted contraction slope per nuisance regime, as a published row.
+
+    Each positive regime must establish that its bias contracts.  The control must fail to,
+    and that half is what gives the family teeth: an inconsistent estimator's bias does not
+    shrink with ``n``, so a rule that only asked the positives to contract could be passed by
+    an implementation that had stopped estimating anything.
+    """
+    ladder = rows.loc[rows["property"] == "double_robust_contraction"]
+    return [
+        fitted_rate_row(
+            ladder.loc[ladder["cell"].str.startswith(f"{scenario}_n")],
+            STUDY,
+            columns,
+            ladder_property="double_robust_contraction",
+            property_name="double_robust_contraction",
+            cell=f"rate_{scenario}",
+            role="control" if scenario == "both_wrong" else "positive",
+            statistic="bias",
+            seed_labels=("double_robust_contraction", scenario),
+            verdict=(
+                (lambda fitted: not _contracts(fitted)) if scenario == "both_wrong" else _contracts
+            ),
+        )
+        for scenario in CONTRACTION_SCENARIOS
+    ]

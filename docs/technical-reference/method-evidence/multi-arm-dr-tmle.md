@@ -56,10 +56,22 @@ and solver status for every replication.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
+| `double_robust_contraction` | `both_wrong_n2000` | control | both nuisances are misspecified, at n = 2,000 | the exact coverage interval must fall below the floor | coverage 0.4650 to 0.5714, bias 0.0505 | pass |
+| `double_robust_contraction` | `both_wrong_n4000` | control | both nuisances are misspecified, at n = 4,000 | the exact coverage interval must fall below the floor | coverage 0.2058 to 0.2983, bias 0.0488 | pass |
+| `double_robust_contraction` | `both_wrong_n8000` | control | both nuisances are misspecified, at n = 8,000 | the exact coverage interval must fall below the floor | coverage 0.0223 to 0.0654, bias 0.0489 | pass |
+| `double_robust_contraction` | `outcome_correct_n2000` | positive | only the outcome regression is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor | coverage 0.9265 to 0.9727, bias 0.0011 | pass |
+| `double_robust_contraction` | `outcome_correct_n4000` | positive | only the outcome regression is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor | coverage 0.8988 to 0.9542, bias 0.000926 | **fail** |
+| `double_robust_contraction` | `outcome_correct_n8000` | positive | only the outcome regression is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor | coverage 0.9145 to 0.9649, bias 0.0017 | pass |
+| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0657 to 0.0237 | pass |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct | slope interval entirely below zero, so the bias contracts | slope -1.1804 to 3.6785 | **fail** |
+| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -3.3803 to 3.2787 | **fail** |
+| `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor | coverage 0.9145 to 0.9649, bias 0.000233 | pass |
+| `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor | coverage 0.9204 to 0.9688, bias -0.000672 | pass |
+| `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor | coverage 0.9285 to 0.9740, bias 0.000686 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0050 to 0.0026, margin 0.0090 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0683 to 0.0760, margin 0.0090 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias 0.0017 to 0.0097, margin 0.0095 | **fail** |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.000227 to 0.0062, margin 0.0070 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0463 to 0.0540, margin 0.0092 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.000186 to 0.0079, margin 0.0095 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0011 to 0.0068, margin 0.0068 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9272 to 0.9576, SE ratio 0.9246 to 1.0107 | **fail** |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000510, coverage 0.9373 to 0.9859, SE ratio 1.0061 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.000840, coverage 0.9087 to 0.9702, SE ratio 0.9853 | pass |
@@ -78,8 +90,8 @@ and solver status for every replication.
 | `independent_tests_passed` | 18 | truth tests passing |
 | `paired_tests_total` | 9 | paired comparison tests |
 | `paired_tests_passed` | 9 | paired tests passing |
-| `property_cells_total` | 10 | repeated-sampling property cells |
-| `property_cells_passed` | 8 | property cells passing |
+| `property_cells_total` | 22 | repeated-sampling property cells |
+| `property_cells_passed` | 17 | property cells passing |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -106,8 +118,31 @@ and solver status for every replication.
 
 ## Limitations
 
-This is a reporting study: red scientific verdicts remain published rather than preventing the
-record from existing. The source theorem and original R study are binary-treatment results;
-both packages expose a vector intervention API, and this row tests their armwise extension rather
-than claiming a new multi-arm theorem. It covers one law, one fold count, pooled reduced
-cross-fitting, univariate reduction, pointwise intervals, and no practical-positivity stress.
+This is a reporting study. A red scientific verdict publishes rather than prevents the record
+from existing. The source theorem and the original R study are binary-treatment results. Both
+packages expose a vector intervention API, and this row measures their armwise extension. It does
+not claim a new multi-arm theorem.
+
+The contraction ladder explains most of the red cells above. The `treatment_correct` level cell
+misses its equivalence margin at n = 2,000 by less than the interval's own last printed digit.
+The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
+margin at every one, so the level cell records Monte Carlo error rather than a remainder.
+
+Both fitted slopes then have nothing to regress. A one-correct bias that sits at the noise floor
+and changes sign across the ladder gives a wide slope interval, and neither interval establishes
+contraction. Read the ladder through its coverage rungs instead. Those rungs hold near the
+nominal rate in both one-correct regimes, while the both-wrong control's coverage collapses as
+the sample grows and its bias does not move.
+
+Two cells are red on their own terms. The `interval_calibration` SE-ratio interval reaches just
+below the lower calibration band. The `outcome_correct` rung at n = 4,000 has a coverage lower
+bound just under the floor.
+
+One R replication out of 800 exceeds the shared empirical-score bar. Every `cleverly` replication
+clears it. The propensity bound stays inactive throughout, and the subject fit is refused if it
+does not.
+
+The row covers one binary-outcome law, one fold count, pooled reduced cross-fitting, univariate
+reduction, ordinary GLM nuisance fits, and pointwise intervals. It excludes flexible learners,
+practical-positivity stress, missing outcomes, weights, clusters, fold repeats, simultaneous
+bands, and longitudinal treatment.

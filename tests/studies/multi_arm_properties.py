@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.datasets import MultiArmDGP
+from cleverly.utils.bounds import expit
 from tests.studies import multi_arm_common
 from tests.studies.evidence.properties import PropertyCell
 
@@ -40,14 +45,20 @@ class Sampler:
 
 @dataclass(frozen=True)
 class SelectorSampler:
-    """A multi-arm confounder/instrument/predictor law that makes selection load-bearing."""
+    """A multi-arm confounder/instrument/predictor law that makes selection load-bearing.
 
-    def __call__(self, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    The instrument is strong enough to make a selector's choice change the answer.  That is
+    also strong enough to push a material share of units past the estimator's declared
+    truncation bounds, which is why :meth:`process` is public: the selector row states that
+    condition, and ``tests/unit/test_multi_arm_studies.py`` asserts it off this law rather
+    than off a second copy of these coefficients.
+    """
+
+    def process(self) -> MultiArmDGP:
+        """The law itself, so a control can measure it without restating its coefficients."""
         base = multi_arm_common.law()
 
-        def arm_logits(w):  # type: ignore[no-untyped-def]
-            import numpy as np
-
+        def arm_logits(w: np.ndarray) -> np.ndarray:
             return np.column_stack(
                 (
                     np.zeros(len(w)),
@@ -56,26 +67,24 @@ class SelectorSampler:
                 )
             )
 
-        def outcome_mean(w, arm):  # type: ignore[no-untyped-def]
-            from cleverly.utils.bounds import expit
-
+        def outcome_mean(w: np.ndarray, arm: int) -> np.ndarray:
             code = multi_arm_common.LABELS.index(base.labels[arm])
             return expit(-0.5 + 0.55 * code + 1.2 * w[:, 0] + 0.8 * w[:, 2])
 
-        from dataclasses import replace
-
-        process = replace(
+        return replace(
             base,
             name="multi_arm_selector_instrument",
             arm_logits=arm_logits,
             outcome_mean=outcome_mean,
         )
+
+    def __call__(self, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
+        process = self.process()
         frame, _ = process.sample(n, seed=seed, backend="pandas")
         return frame, multi_arm_common.truth_for(process)
 
 
-def correct_outcome(effect: float = 0.6):  # type: ignore[no-untyped-def]
-    del effect
+def correct_outcome():  # type: ignore[no-untyped-def]
     return lambda: LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
 
 
@@ -96,13 +105,30 @@ def wrong_treatment():  # type: ignore[no-untyped-def]
     return lambda: DummyClassifier(strategy="prior")
 
 
-def robustness_cells(*, seed: int) -> tuple[PropertyCell, ...]:
+def robustness_cells(
+    *,
+    seed: int,
+    misspecified_outcome: Callable[[], Any] | None = None,
+    misspecified_treatment: Callable[[], Any] | None = None,
+) -> tuple[PropertyCell, ...]:
+    """The four nuisance regimes, over the shared law and the shared seed stream.
+
+    A method may supply its own misspecified nuisances.  The default pair returns the sample
+    prior, which is the plainest thing a wrong model can be and the right control for a method
+    that fits nothing else off it.  DR-TMLE is not such a method: its guard regressions take
+    the *other* nuisance as their single regressor, so a constant one hands them a constant
+    design and the reported standard error stops meaning anything.  That method passes a
+    covariate-dependent misspecification instead, and its cells then measure the union model
+    rather than a degenerate reduced regression.
+    """
     law = Sampler()
+    outcome_wrong = misspecified_outcome or wrong_outcome()
+    treatment_wrong = misspecified_treatment or wrong_treatment()
     configurations = (
         ("both_correct", correct_outcome(), correct_treatment(), "positive"),
-        ("outcome_correct", correct_outcome(), wrong_treatment(), "positive"),
-        ("treatment_correct", wrong_outcome(), correct_treatment(), "positive"),
-        ("both_wrong", wrong_outcome(), wrong_treatment(), "control"),
+        ("outcome_correct", correct_outcome(), treatment_wrong, "positive"),
+        ("treatment_correct", outcome_wrong, correct_treatment(), "positive"),
+        ("both_wrong", outcome_wrong, treatment_wrong, "control"),
     )
     sizes = {"treatment_correct": 2000}
     return tuple(
@@ -158,7 +184,7 @@ def asymptotic_cells(*, seed: int, include_null_power: bool = True) -> tuple[Pro
                     "type_i_error",
                     "sharp_null",
                     Sampler(effect=0.0),
-                    correct_outcome(effect=0.0),
+                    correct_outcome(),
                     correct_treatment(),
                     1200,
                     NULL_REPLICATES,
@@ -238,30 +264,30 @@ def generated_design_cells(*, seed: int) -> tuple[PropertyCell, ...]:
     )
 
 
+#: The selector paths the necessity family scores, and the forced path it scores them against.
+#: All four run the same law, the same learners and the same draws, so the only thing that
+#: differs between a positive cell and the control is which mechanism paths the selector may
+#: reach.  Every declared strategy gets its own cell: a family that scored one strategy would
+#: report a verdict about the selector while exercising a third of it, and the discrete ladder
+#: below is exactly the path that behaves differently from the other two on this law.
+SELECTOR_PATHS = ("greedy", "ordered", "discrete")
+SELECTOR_CONTROL = "empty_control"
+
+
 def selector_cells(*, seed: int) -> tuple[PropertyCell, ...]:
-    """The same draws with a collaborative path and an empty candidate path."""
-    return (
+    """Each declared selector path, and the forced empty path, on identical draws."""
+    return tuple(
         PropertyCell(
             "selector_necessity",
-            "collaborative",
+            cell,
             SelectorSampler(),
             wrong_outcome(),
             correct_treatment(),
             1500,
             RATE_REPLICATES,
             seed,
+            role="control" if cell == SELECTOR_CONTROL else "positive",
             estimand=ESTIMAND,
-        ),
-        PropertyCell(
-            "selector_necessity",
-            "empty_control",
-            SelectorSampler(),
-            wrong_outcome(),
-            correct_treatment(),
-            1500,
-            RATE_REPLICATES,
-            seed,
-            role="control",
-            estimand=ESTIMAND,
-        ),
+        )
+        for cell in (*SELECTOR_PATHS, SELECTOR_CONTROL)
     )

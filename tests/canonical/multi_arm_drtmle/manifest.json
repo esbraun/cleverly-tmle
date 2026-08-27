@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-multi-arm-drtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "14a54274e2d5e334f68748ebe5c26a6666e0e063",
+      "cleverly_commit": "4959542545c04c26ba9436c91fe154349fbdf8d7",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -90,10 +90,10 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/multi_arm_common.py": "bbd39564e022e0c21f18c47cb1a99752280caa83e848698298de10289dd68abc",
-    "tests/studies/canonical_multi_arm_drtmle.py": "c541b763f5abadd7b5d3935ddd9b6a5836464e4f01bf932dde8154e979ade98b",
-    "tests/studies/multi_arm_drtmle_properties.py": "d8813d65d8f4392f78d0cf2c7be369fb2633d8cdd53fb2e7b0c3e70e4b83971a",
-    "tests/studies/multi_arm_properties.py": "1355c5ed101f0fbcbdcad8a2ca804f2661d015900c0e6586b0441b5856efe7a6",
+    "tests/studies/multi_arm_common.py": "1791a9ab51b2e9c2036c6f22091153d0dca61bd068852de9509bf3771dba9edf",
+    "tests/studies/canonical_multi_arm_drtmle.py": "1302b52061f685c4210397f7d12dc5f8169f1367d48a31a146626e6ad0de59bb",
+    "tests/studies/multi_arm_drtmle_properties.py": "659341d283e3c766889127d683d0fb8c2c5ac7e8a09de82c90bd2ca187c6b89b",
+    "tests/studies/multi_arm_properties.py": "0ae74135e3da7502c01eaf00db379d94deecf75da1e7ad9761d16c529093d7ad",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
@@ -112,8 +112,8 @@
     "summary.csv": "04854e47582b785bf655d6aff2c567c002150557d69c22a5e628da0011943152",
     "equivalence.csv": "e6301d4dbb406a374e0b9edc4164c602fdd6ae5cc175418e15f2f0fcf328ca8e",
     "performance-tests.csv": "b57a7e001698092e52bc2443c13b25478bde0f5b9f985e3eb8ed266608140971",
-    "property-replicates.csv.gz": "e243433d7f9aab412a96d044ec7ee63e17e2e0a0f1719b099226b234ffc42979",
-    "properties.csv": "9122571bda9d4dc6a3a3ab1a3dec17596464f41415733e15298baa4539919d26",
+    "property-replicates.csv.gz": "adc81a89a9f4ec020a8be3d51fd65938e277a00a57dd2b7e8d88438a93424ffb",
+    "properties.csv": "723b8086fec3e06eca8bbc8592c86bee26183294ad84737d466d328d8e6d500b",
     "fit-diagnostics.csv": "f003503383c30680082e25fdc4c73c3cdbef9e493ba307ed35c62332045a5fc7"
   }
 }

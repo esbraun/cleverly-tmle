@@ -109,7 +109,14 @@ outcome-adaptive design.
 
 ## Limitations
 
+This row has reporting policy, so its red cells publish. The generated-design pair did not
+resolve: the oracle design's SE-ratio interval leaves the calibration band, and the estimated
+design showed no measurable deficit against it. The n = 500 coverage bound also misses the floor.
+The row therefore prices no cost for estimating the treatment design.
+
 The archived R comparison requires numeric arm codes because of its counterfactual-prediction
-adapter. The study covers one binary-outcome law, ordinary nuisance fits, pointwise intervals,
+adapter. The study covers one binary-outcome law, ordinary GLM nuisance fits, pointwise intervals,
 and one outcome-adaptive strategy. It does not transfer the result to selector-based C-TMLE,
-cross-fitted analysis, simultaneous inference, or severe practical-positivity violations.
+cross-fitted primary fitting, flexible learners, simultaneous inference, or severe
+practical-positivity violations. It excludes missing outcomes, weights, clusters, fold repeats,
+and longitudinal treatment.
