@@ -11,7 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Remaining composition studies | source audit for each composition | completed intervention-family study designs | [V1](#v1-remaining-composition-studies) |
+| Validation | V1 | Remaining composition studies | source audit for each composition | completed missing-outcome study designs | [V1](#v1-remaining-composition-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -77,10 +77,9 @@ artifacts.
 
 ### V1. Remaining composition studies
 
-Inventory the implementation matrix after the intervention-family rows. Add rows for uncovered
-missing-data, categorical longitudinal, weighting, clustering, and inference compositions only
-when one study can name the exact parameter and a nonredundant failure mode. Do not let a broad row
-borrow evidence from a nearby construction.
+Add rows for uncovered categorical longitudinal, weighting, clustering, and inference
+compositions. Register a row only when its study names the exact parameter and a nonredundant
+failure mode. Do not let a broad row borrow evidence from a nearby construction.
 
 ## Extensibility track
 

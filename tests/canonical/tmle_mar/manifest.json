@@ -1,0 +1,98 @@
+{
+  "schema_version": 2,
+  "study": "ordinary point-treatment TMLE with MAR outcomes",
+  "slug": "mar-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mar-tmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "b12d1a8ac3b5c8bc073d4327752eb9fd3fef101f",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "tmle-r",
+      "tmle_version": "2.1.1",
+      "tmle_source_sha256": "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260921,
+    "resampling_seed": 20260922,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_observational": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "construction": "ordinary MAR point-treatment TMLE",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "missingness_bound": 0.01,
+    "nuisance_predictions": "exact finite-law values supplied to both implementations",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_tmle.py": "e9cb12e21c6473f17bb010f4d032eb9f3bac022578a104e9ffdae204f57b84ad",
+    "tests/studies/mar_tmle_properties.py": "80512e116112901fcb9bc85c2be2e10877707acf32f2ccb10cd14cc4e9d9c465",
+    "tests/studies/missing_outcome_study_helpers.py": "47b6080f92fcde8220e84850b9452965288b7f964fc2c99e0f80fedd02b765e7",
+    "tests/discrete_law_mar.py": "ad9308fbbda20c02ec0fcae5e0d57a088e2572e852661908e54a63386da182f9",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle_mar/Dockerfile": "e1ddb86f1ed8ff57960fea5ade5b5429b9e92d4b86ffcaa7d1a3ef199401c18e",
+    "tests/canonical/tmle_mar/run_study.R": "94641ead097e2ea9b1532c148b020fa3c7db819676a1ce473c19116f40a4e1c9",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "b469fe54a5bb25bb09d2b4f374314fa741609934ed87c98b8bd3182aa44b70b7",
+    "summary.csv": "5e1561e39ff99bb8f05fdb0da38a7e41061486f66cee4515764c46a22f7540f3",
+    "equivalence.csv": "b845167026f1347444b0b326adc0079c9b536834a8e069548b4c64d250baef50",
+    "performance-tests.csv": "10c3bd3a9e988d8a8fe585e267d7088f22aa8a3c5733349fe011f65e58d8e660",
+    "property-replicates.csv.gz": "a87715ce29cb3c08cd64eab843f36b03186ba6f4e633d62bafa9a1980c415b73",
+    "properties.csv": "2d6d5c40edfbdce51d00b8cfcffc6d296e916c0f68544afa541f804156bb8d53"
+  }
+}

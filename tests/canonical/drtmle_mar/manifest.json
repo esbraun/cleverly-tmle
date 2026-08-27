@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "study": "randomized missing-outcome DR-TMLE",
+  "slug": "mar-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mar-drtmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "b9d4c272c8968d1924688b4f7a3723272be1a439",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "drtmle-r-mar",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "comparator_boundary": "joint treatment-response mechanism; both-correct limit only"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260923,
+    "resampling_seed": 20260924,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_randomized": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "construction": "D\u00edaz and van der Laan randomized MAR DR-TMLE",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "known_treatment_probability": 0.5,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "missingness_bound": 0.01,
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "reduction": "univariate",
+    "fitted_reduction": "missing_outcome",
+    "max_outer": 100,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_drtmle.py": "47fa60faf165815347051f27aaa87879c762bd92315552ed639dc75520b8aee7",
+    "tests/studies/mar_drtmle_properties.py": "3fb5a3ac1a9009c9a97d6d283f628d71ab06384b9b2c2d7a692585ba3dc04a1d",
+    "tests/studies/missing_outcome_study_helpers.py": "47b6080f92fcde8220e84850b9452965288b7f964fc2c99e0f80fedd02b765e7",
+    "tests/discrete_law_mar.py": "ad9308fbbda20c02ec0fcae5e0d57a088e2572e852661908e54a63386da182f9",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_mar/run_study.R": "35046c8f0c5dcf445725ac3be3505eb7807baa1798a30646bdfd24801931e597",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "70ed6f0bd5d387b1c1b1277427850dbdd574eba4a2cc1508313f203ea3adfdf2",
+    "summary.csv": "fbb2c558e6ef72fdfd622b64cfde1bdc2792232b4891a14b89beeab5516b7e72",
+    "equivalence.csv": "d091ce328e561937a40de64b68b19a3a87de136efeba78c530fcbf2080939249",
+    "performance-tests.csv": "b9c96cfbcf48c8ac45de52425303a7269cbe38e25408e197ed6d373287ed61c3",
+    "property-replicates.csv.gz": "8b19f02f257d7ce450377e5d1fb94f024bc341ecabddf74c0062acbfd05383c2",
+    "properties.csv": "462c03903146a94ea2fa4cfa3d1da065a0ec05394db4370a3d454e9d616fac07"
+  }
+}

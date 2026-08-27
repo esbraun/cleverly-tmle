@@ -264,7 +264,7 @@ TRUTH = {
 }
 
 
-def gateaux(estimand: str, point: int, *, step: float = 1e-30) -> float:
+def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30) -> float:
     r"""The Gateaux derivative of ``estimand`` at support point ``point``.
 
     .. math::
@@ -282,17 +282,23 @@ def gateaux(estimand: str, point: int, *, step: float = 1e-30) -> float:
     Differentiation is by complex step rather than finite difference, for the reasons
     given in :func:`tests.discrete_law.gateaux`: full double precision, hence an exact
     comparison rather than a close one.
+
+    ``probs`` defaults to :data:`PROBS`, the law this module declares.  Another set of cell
+    probabilities gets that law's influence curve instead, which is what a study built on a
+    variant of this law needs -- the randomized missing-outcome study fixes ``g`` at one half
+    and still wants an efficiency bound off the same derivative rather than off a second copy
+    of it.
     """
-    base = PROBS.astype(complex)
+    base = (PROBS if probs is None else np.asarray(probs, dtype=float)).astype(complex)
     mass = np.zeros_like(base)
     mass[SUPPORT[point]] = 1.0
     perturbed = (1.0 - 1j * step) * base + 1j * step * mass
     return float(np.imag(functional(perturbed, estimand)) / step)
 
 
-def eif(estimand: str) -> np.ndarray:
+def eif(estimand: str, *, probs: Any = None) -> np.ndarray:
     """The EIF of ``estimand`` evaluated at every support point, in support order."""
-    return np.array([gateaux(estimand, point) for point in range(len(SUPPORT))])
+    return np.array([gateaux(estimand, point, probs=probs) for point in range(len(SUPPORT))])
 
 
 #: The nuisances as the *realised sample* has them.  Equal to :data:`G`, :data:`PI` and

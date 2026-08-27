@@ -248,6 +248,8 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ltmle_survival_crossfit import (
         STUDY as CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
     )
+    from tests.studies.canonical_mar_drtmle import STUDY as CANONICAL_MAR_DRTMLE
+    from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
@@ -261,6 +263,8 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_CTMLE_OAT,
         CANONICAL_DRTMLE,
+        CANONICAL_MAR_TMLE,
+        CANONICAL_MAR_DRTMLE,
         CANONICAL_POINT_MSM,
         CANONICAL_DETERMINISTIC_REGIMES,
         CANONICAL_STOCHASTIC_REGIMES,

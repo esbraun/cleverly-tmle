@@ -7,6 +7,5 @@ RUN install2.r --error --skipinstalled remotes \
     && Rscript -e "stopifnot(as.character(packageVersion('drtmle')) == '1.1.2')"
 
 ENV DRTMLE_COMMIT=${DRTMLE_COMMIT}
-COPY run_drtmle.R /opt/run_drtmle.R
 WORKDIR /work
-ENTRYPOINT ["Rscript", "/opt/run_drtmle.R"]
+ENTRYPOINT ["Rscript"]

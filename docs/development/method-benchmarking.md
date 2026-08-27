@@ -62,6 +62,14 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
+The missing-outcome survey is separate because the response mechanism changes the observed-data
+likelihood and the comparator boundary.
+
+| candidate | parameter it reaches | verdict |
+| --- | --- | --- |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
+| R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
+
 Two limits of the framework shape this table. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes
 the specification the subject must match.
@@ -112,6 +120,44 @@ Every evidence row states what it does not cover, including relevant outcome and
 missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and
 unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
 complete fast tier, and only the named slow study whose path and assertion can observe the change.
+
+## What makes a study stale
+
+A study's artifacts are evidence about one run. The `manifest.json` records three groups of
+hashes, and each group answers a different question.
+
+| hash group | what it covers | what the fast tier does | what a difference means |
+| --- | --- | --- | --- |
+| `sha256` | the six published artifacts | refuses every difference | somebody edited the committed evidence |
+| `reference_sha256` | Dockerfiles, R runners, shared R harnesses | refuses an undeclared difference | the comparator's source moved after the run |
+| `study_module_sha256` | the Python modules the record names | records the hash and gates nothing | a Python source moved after the run |
+
+Ask one question of any change to a hashed source. Does it change what the study computes?
+
+A **result-determining** change makes the artifacts stale, so regenerate the study. Laws, margins,
+cells, seeds, learners, estimator arguments, the published schema, and package pins are all
+result-determining.
+
+A **result-neutral** change does not. A rename, a comment, a type annotation, an extracted helper,
+and a script moved from an image into a mount are all result-neutral. A regeneration would spend
+hours to write identical bytes.
+
+No tool separates the two, so each hash group takes its own position.
+
+The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
+
+Python modules are not gated. Re-execution is what keeps the artifacts honest, and a hash gate
+would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
+`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves.
+`pytest -m slow` re-executes each study, so a change that was not result-neutral appears as a
+changed artifact.
+
+Reference sources sit between the two. They are gated, because a pinned container is the one input
+a reader cannot re-derive from this repository. Declare a result-neutral difference in
+[`tests/canonical/provenance-revisions.md`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md).
+
+Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
+hash makes the manifest claim that bytes which did not exist produced the result.
 
 ## Adding a method row
 

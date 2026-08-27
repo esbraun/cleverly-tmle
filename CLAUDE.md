@@ -36,6 +36,12 @@ Current behavior is determined by code and tests, not by historical plans or inv
   and skipped; do not re-enable one to justify a change. A shipped method is validated by its rows
   in the implementation validation grid, which the fast tier recomputes from committed artifacts.
   Nothing is contingent on `pytest -m slow` running.
+- A refactor is not a reason to regenerate a study. The Python module hashes in a study's
+  `manifest.json` record the run; no test gates them, so cleaning shared code under
+  `tests/studies/evidence/` is free. The container and R-runner hashes *are* gated. Declare a
+  result-neutral edit in `tests/canonical/provenance-revisions.md` rather than rewriting a
+  recorded hash, which would leave the manifest describing bytes that never ran.
+  `docs/development/method-benchmarking.md` says how to tell the two kinds of change apart.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
   `cleverly[all]` plus tooling. An optional extra kept out of `dev` *and* out of a dedicated CI job
   is installed by no session, so its tests can only skip, and a skipped correctness check reads
