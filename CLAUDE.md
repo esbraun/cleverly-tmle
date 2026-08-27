@@ -33,8 +33,9 @@ Current behavior is determined by code and tests, not by historical plans or inv
 
 - Read `docs/development/testing-strategy.md` before choosing a tier. The fast tier is the default
   handoff gate. The repeated-sampling studies that predate the registered rows are deprecated
-  and skipped; do not re-enable one to justify a change. Re-execute the committed evidence
-  artefacts when a study is regenerated.
+  and skipped; do not re-enable one to justify a change. A shipped method is validated by its rows
+  in the implementation validation grid, which the fast tier recomputes from committed artifacts.
+  Nothing is contingent on `pytest -m slow` running.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
   `cleverly[all]` plus tooling. An optional extra kept out of `dev` *and* out of a dedicated CI job
   is installed by no session, so its tests can only skip, and a skipped correctness check reads
