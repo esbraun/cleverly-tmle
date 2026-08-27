@@ -19,7 +19,12 @@ if __name__ == "__main__":
             image="cleverly-lmtp-crossfit:1.5.4",
             runner="lmtp_ltmle_competing/run_study.R",
             mount_runner=True,
-            extra_files=("lmtp_crossfit_adapter.R", "lmtp_competing_adapter.R"),
+            extra_files=(
+                "lmtp_crossfit_adapter.R",
+                "lmtp_competing_adapter.R",
+                "study_harness.R",
+                "ltmle_regimen_adapter.R",
+            ),
             build_context=ROOT / "tests" / "canonical" / "lmtp_crossfit",
             runner_root=ROOT / "tests" / "canonical",
         ),

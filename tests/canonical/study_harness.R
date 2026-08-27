@@ -91,6 +91,88 @@ study_label <- function(frame) {
   }
 }
 
+study_refuse_failures <- function(results) {
+  # Applied to a whole run by `study_collect` and to each batch by `study_stream`.  A streaming
+  # study checks per batch on purpose: its runs are the long ones, and a replication that
+  # raises in the first chunk should not be discovered an hour later.
+  failed <- vapply(results, inherits, logical(1), what = "study_error")
+  if (!any(failed)) {
+    return(invisible(NULL))
+  }
+  messages <- vapply(
+    results[failed],
+    function(error) {
+      if (is.null(error$index) || is.na(error$index)) {
+        sprintf("%s: %s", error$label, error$message)
+      } else {
+        sprintf("%s (group %s): %s", error$label, error$index, error$message)
+      }
+    },
+    character(1)
+  )
+  stop(paste(messages, collapse = "\n"))
+}
+
+study_stream <- function(sample_path, fit_one, expected, chunk_lines = 64000L) {
+  # For a study whose sample archive does not fit in memory beside its fits.  Reads the archive
+  # in replicate-aligned chunks and fits each chunk across the granted cores, so only one chunk
+  # is ever resident.  The last replication in a chunk is carried forward rather than fitted,
+  # because a panel split across two reads is not a panel.
+  #
+  # No memory cap here: the chunk *is* the memory strategy, so measuring the footprint of one
+  # chunk and dividing would cap the cores against a number this function already chose.
+  requested <- suppressWarnings(as.integer(Sys.getenv("CLEVERLY_R_CORES", "")))
+  cores <- if (is.na(requested) || requested < 1L) {
+    max(1L, parallel::detectCores())
+  } else {
+    requested
+  }
+  cat(sprintf("fitting %d samples on %d cores\n", expected, cores))
+  fit_group <- function(frame) {
+    tryCatch(
+      fit_one(frame),
+      error = function(condition) {
+        structure(
+          list(index = NA_integer_, label = study_label(frame), message = conditionMessage(condition)),
+          class = "study_error"
+        )
+      }
+    )
+  }
+  connection <- gzfile(sample_path, open = "rt")
+  on.exit(close(connection), add = TRUE)
+  header <- readLines(connection, n = 1L)
+  carry <- NULL
+  results <- list()
+  completed <- 0L
+  repeat {
+    lines <- readLines(connection, n = chunk_lines)
+    at_end <- length(lines) == 0L
+    current <- if (at_end) {
+      NULL
+    } else {
+      as.data.frame(data.table::fread(text = paste(c(header, lines), collapse = "\n")))
+    }
+    frame <- if (is.null(carry)) current else if (is.null(current)) carry else rbind(carry, current)
+    carry <- NULL
+    if (!is.null(frame) && nrow(frame) && !at_end) {
+      last_replicate <- frame$replicate[[nrow(frame)]]
+      carry <- frame[frame$replicate == last_replicate, ]
+      frame <- frame[frame$replicate != last_replicate, ]
+    }
+    if (!is.null(frame) && nrow(frame)) {
+      groups <- split(frame, frame$replicate)
+      batch <- parallel::mclapply(groups, fit_group, mc.cores = cores, mc.preschedule = TRUE)
+      study_refuse_failures(batch)
+      results <- c(results, batch)
+      completed <- completed + length(batch)
+      cat(sprintf("completed %d/%d samples\n", completed, expected))
+    }
+    if (at_end) break
+  }
+  results
+}
+
 study_collect <- function(results, expected, output, versions, key = "replicate", na = "") {
   # Three refusals, and they are not the same refusal.  A worker that returned no result at
   # all was killed rather than having errored, so it carries no message and has to be reported
@@ -107,15 +189,7 @@ study_collect <- function(results, expected, output, versions, key = "replicate"
       length(malformed), expected, paste(utils::head(malformed, 10), collapse = ", ")
     ))
   }
-  failed <- vapply(results, inherits, logical(1), what = "study_error")
-  if (any(failed)) {
-    messages <- vapply(
-      results[failed],
-      function(error) sprintf("%s (group %s): %s", error$label, error$index, error$message),
-      character(1)
-    )
-    stop(paste(messages, collapse = "\n"))
-  }
+  study_refuse_failures(results)
   out <- do.call(rbind, results)
   observed <- length(unique(do.call(paste, unname(as.list(out[key])))))
   if (observed != expected) {

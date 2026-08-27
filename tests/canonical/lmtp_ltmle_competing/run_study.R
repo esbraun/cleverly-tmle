@@ -2,30 +2,17 @@ suppressPackageStartupMessages(library(lmtp))
 future::plan(future::sequential)
 source("/fixture/lmtp_crossfit_adapter.R")
 source("/fixture/lmtp_competing_adapter.R")
+source("/fixture/study_harness.R")
+source("/fixture/ltmle_regimen_adapter.R")
 options(digits = 17)
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 3) stop("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
-sample_path <- args[[1]]
-truths <- read.csv(args[[2]], stringsAsFactors = FALSE, check.names = FALSE)
-output <- args[[3]]
+paths <- study_arguments("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
+truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
 
 scenario <- "censored_competing_risk_curve"
 causes <- c("relapse", "death")
 z <- qnorm(0.975)
 
-assigned <- function(frame, label, horizon) {
-  a1 <- if (label == "never") 0 else 1
-  if (horizon == 1) return(matrix(rep(a1, nrow(frame)), ncol = 1))
-  a2 <- if (label == "never") {
-    rep(0, nrow(frame))
-  } else if (label == "always") {
-    rep(1, nrow(frame))
-  } else {
-    as.numeric(!is.na(frame$L2) & frame$L2 == 1)
-  }
-  cbind(rep(a1, nrow(frame)), a2)
-}
 
 # The law's own mechanism, node by node, given to lmtp because it has no `gform` argument to be
 # handed one through.  Cleverly receives the same numbers via KnownCompetingMechanism, so the
@@ -103,7 +90,12 @@ fit_plan <- function(frame, label, cause, horizon) {
     cens <- c("C1", "C2")
   }
   shifted <- natural
-  arms <- assigned(frame, label, horizon)
+  # This panel's dynamic plan reads L2 == 1 rather than L2 > 0: its second covariate is
+  # three-valued, so "positive" and "equal to one" are different plans here.
+  arms <- regimen_arms(
+    frame, label, horizon,
+    rule = function(l2) as.numeric(!is.na(l2) & l2 == 1)
+  )
   shifted$A1 <- arms[, 1]
   if (horizon == 2) shifted$A2 <- arms[, 2]
   fit <- lmtp_competing_tmle_with_folds(
@@ -219,61 +211,5 @@ fit_one <- function(frame) {
 }
 
 expected <- length(unique(truths$replicate))
-completed <- 0L
-
-fit_group <- function(frame) {
-  tryCatch(
-    fit_one(frame),
-    error = function(condition) structure(
-      list(replicate = frame$replicate[[1]], message = conditionMessage(condition)),
-      class = "study_error"
-    )
-  )
-}
-
-requested <- suppressWarnings(as.integer(Sys.getenv("CLEVERLY_R_CORES", "")))
-cores <- if (is.na(requested) || requested < 1L) max(1L, parallel::detectCores()) else requested
-cat(sprintf("fitting %d samples on %d cores\n", expected, cores))
-connection <- gzfile(sample_path, open = "rt")
-header <- readLines(connection, n = 1L)
-carry <- NULL
-results <- list()
-repeat {
-  # Keep enough complete panels in one batch for each worker to reuse its loaded R packages.
-  # At the registered n this is 127 replications plus one carried partial panel.
-  lines <- readLines(connection, n = 512000L)
-  at_end <- length(lines) == 0L
-  current <- if (at_end) NULL else as.data.frame(
-    data.table::fread(text = paste(c(header, lines), collapse = "\n"))
-  )
-  frame <- if (is.null(carry)) current else if (is.null(current)) carry else rbind(carry, current)
-  carry <- NULL
-  if (!is.null(frame) && nrow(frame) && !at_end) {
-    last_replicate <- frame$replicate[[nrow(frame)]]
-    carry <- frame[frame$replicate == last_replicate, ]
-    frame <- frame[frame$replicate != last_replicate, ]
-  }
-  if (!is.null(frame) && nrow(frame)) {
-    groups <- split(frame, frame$replicate)
-    batch <- parallel::mclapply(groups, fit_group, mc.cores = cores, mc.preschedule = TRUE)
-    failed <- vapply(batch, inherits, logical(1), what = "study_error")
-    if (any(failed)) {
-      messages <- vapply(
-        batch[failed],
-        function(error) sprintf("replicate %s: %s", error$replicate, error$message),
-        character(1)
-      )
-      stop(paste(messages, collapse = "\n"))
-    }
-    results <- c(results, batch)
-    completed <- completed + length(batch)
-    cat(sprintf("completed %d/%d samples\n", completed, expected))
-  }
-  if (at_end) break
-}
-close(connection)
-result <- do.call(rbind, results)
-if (length(unique(result$replicate)) != expected) stop("the R run dropped replications")
-write.csv(result, output, row.names = FALSE, na = "")
-cat("lmtp ", as.character(packageVersion("lmtp")), "\n", sep = "")
-cat("R ", R.version.string, "\n", sep = "")
+results <- study_stream(paths$samples, fit_one, expected, chunk_lines = 512000L)
+study_collect(results, expected, paths$output, versions = study_version("lmtp"))

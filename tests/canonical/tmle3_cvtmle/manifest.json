@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-stacked-cvtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "6021c07d3452b6bb3786225682b308a5d5f350e9",
+      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -103,7 +103,7 @@
   "reference_sha256": {
     "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
     "tests/canonical/tmle3_cvtmle/run_tmle3_cvtmle.R": "7da2bd62aeb4331596a346678f317853a7257833e50610923b591033935506ab",
-    "tests/canonical/study_harness.R": "7d09ff6e9e3407ba1cef0b07ba74af426fbbcddc60fd87626f1feb8266cc28b0"
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
     "replicates.csv.gz": "ebd2d9f1a22f0bb5715b04b19c738e0698bbcb4ff276d5d03d4d052f1207d5ec",

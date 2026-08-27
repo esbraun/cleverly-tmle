@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "6021c07d3452b6bb3786225682b308a5d5f350e9",
+      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -106,7 +106,7 @@
   "reference_sha256": {
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
     "tests/canonical/ltmle_msm/run_study.R": "b091535a98d3e5bb199df51c39a18d25af41fd907d126f85eb8e653162e392eb",
-    "tests/canonical/study_harness.R": "7d09ff6e9e3407ba1cef0b07ba74af426fbbcddc60fd87626f1feb8266cc28b0",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
     "tests/canonical/ltmle_regimen_adapter.R": "03f1b3d2ae35ae8f63096b42c1e00875845e916a9c74b5ffb947ac2a1f28baab"
   },
   "sha256": {
