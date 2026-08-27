@@ -33,11 +33,13 @@ _CAUSE = ", "
 #: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
 #: arm, so :func:`cell` strips it and reports it beside the family's shared description.
 ARMS: dict[str, str] = {
+    "ate": "average treatment effect",
     "static": "static plan",
     "dynamic": "dynamic plan",
     "static_t1": "static plan at horizon one",
     "static_t2": "static plan at horizon two",
     "dynamic_t2": "dynamic plan at horizon two",
+    "five_reduction_cycle": "five-reduction correction cycle",
     "always_t2": "always-treat risk at horizon two",
     "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
     "death_static_t2": "static death contrast at horizon two",
@@ -93,8 +95,11 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
+    "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
+    "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "drtmle-r": "R `drtmle`",
+    "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "ltmle": "R `ltmle`",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
@@ -103,6 +108,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "tmle3": "R `tmle3`",
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
+    "tmle-r": "R `tmle`",
 }
 
 
@@ -129,6 +135,8 @@ SCENARIOS: dict[str, str] = {
     "binary_dynamic_rule": "binary-outcome law with a covariate-dependent deterministic rule",
     "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
+    "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
+    "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
 }
 
@@ -191,6 +199,13 @@ PROPERTIES: dict[str, str] = {
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
+    "corrected_mar_inference": (
+        "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
+        "regression or observation mechanism is correct"
+    ),
+    "correction_necessity": (
+        "the five-reduction correction cycle materially reduces the empirical correction scores"
+    ),
     "double_robust_contraction": (
         "a bias the equivalence margin rejects at one size contracts as the sample grows, "
         "which is what separates a second-order remainder from an inconsistent estimator"
@@ -210,6 +225,14 @@ PROPERTIES: dict[str, str] = {
     ),
     "mechanism_requirement": (
         "the treatment mechanism must be correct because it defines the incremental parameter"
+    ),
+    "mar_robustness": (
+        "missing-outcome TMLE stays consistent when the outcome regression is correct or "
+        "when both treatment and observation mechanisms are correct"
+    ),
+    "missingness_necessity": (
+        "declaring the observation indicator prevents complete-case selection from changing "
+        "the target"
     ),
     "natural_course_identity": "the natural-course intervention reduces exactly to the sample mean",
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
@@ -246,6 +269,30 @@ PROPERTIES: dict[str, str] = {
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("corrected_mar_inference", "both_correct"): (
+        "the outcome regression and observation mechanism are correctly specified",
+        "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",
+    ),
+    ("corrected_mar_inference", "outcome_drift"): (
+        "the outcome regression is misspecified and the observation mechanism is correct",
+        "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",
+    ),
+    ("corrected_mar_inference", "observation_drift"): (
+        "the outcome regression is correct and the observation mechanism is misspecified",
+        "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",
+    ),
+    ("corrected_mar_inference", "both_wrong"): (
+        "the outcome regression and observation mechanism are both misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("correction_necessity", "closed_score"): (
+        "the correction scores after the complete five-reduction cycle",
+        "the upper confidence endpoint is below the declared fraction of the initial-score lower endpoint",
+    ),
+    ("correction_necessity", "initial_score_control"): (
+        "the same correction scores before the cycle is run",
+        "the lower confidence endpoint clears the declared unresolved-score floor",
+    ),
     ("crossfit_overfitting", "cross_fitted_oat"): (
         "outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
@@ -340,6 +387,34 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("mechanism_requirement", "mechanism_wrong"): (
         "the wrong treatment mechanism is held fixed when the incremental target is evaluated",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("mar_robustness", "both_correct"): (
+        "the outcome regression, treatment mechanism and observation mechanism are correct",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "outcome_correct"): (
+        "only the outcome regression is correct",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "mechanisms_correct"): (
+        "the treatment and observation mechanisms are correct and the outcome regression is not",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "treatment_wrong"): (
+        "only the observation mechanism is correct",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("mar_robustness", "observation_wrong"): (
+        "only the treatment mechanism is correct",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("missingness_necessity", "declared"): (
+        "the observation indicator is declared and the full observed-data likelihood is targeted",
+        "bias interval inside the equivalence margin",
+    ),
+    ("missingness_necessity", "complete_case_control"): (
+        "the identical estimator silently discards unobserved outcomes and ignores selection",
         "bias interval must fall entirely outside the margin",
     ),
     ("interval_calibration", "correctly_specified"): (

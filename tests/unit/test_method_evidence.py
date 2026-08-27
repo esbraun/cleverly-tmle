@@ -401,6 +401,39 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
 
+        corrected = published.loc[published["property"] == "corrected_mar_inference"]
+        for row in corrected.itertuples():
+            expected = (
+                bool(row.bias_discriminated)
+                if row.role == "control"
+                else (
+                    bool(row.bias_equivalent)
+                    and row.coverage_ci_lower >= study.margins.coverage_floor
+                    and study.margins.se_ratio_sanity[0]
+                    <= row.se_ratio
+                    <= study.margins.se_ratio_sanity[1]
+                )
+            )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its corrected-MAR endpoint"
+            )
+
+        correction = published.loc[published["property"] == "correction_necessity"]
+        if not correction.empty:
+            properties = study.properties()
+            initial = correction.loc[
+                correction["cell"].str.endswith("__initial_score_control")
+            ].iloc[0]
+            for row in correction.itertuples():
+                expected = (
+                    row.bias_ci_upper <= properties.CORRECTION_SCORE_RATIO * initial.bias_ci_lower
+                    if row.cell.endswith("__closed_score")
+                    else row.bias_ci_lower >= properties.UNCORRECTED_SCORE_FLOOR
+                )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its correction-score endpoint"
+                )
+
         necessity = published.loc[published["property"] == "selector_necessity"]
         if not necessity.empty:
             # The RMSE comparison belongs to neither row, so it is the one thing both share.
@@ -422,6 +455,15 @@ class TestPublishedVerdicts:
                 targeting["passed"].all()
                 and targeting["targeting_displacement"].iloc[0]
                 >= study.properties().TARGETING_DISPLACEMENT
+            )
+
+        missingness = published.loc[published["property"] == "missingness_necessity"]
+        if not missingness.empty:
+            assert missingness["property_passed"].nunique() == 1
+            assert bool(missingness["property_passed"].iloc[0]) is bool(
+                missingness["passed"].all()
+                and missingness["missingness_displacement"].iloc[0]
+                >= study.properties().MISSINGNESS_DISPLACEMENT
             )
 
         projection = published.loc[published["property"] == "projection_necessity"]
@@ -504,6 +546,8 @@ BIAS_GATED_PROPERTIES = frozenset(
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",
+        "mar_robustness",
+        "missingness_necessity",
         "robustness_contract",
         "selector_necessity",
         "competing_risk_recursion_necessity",
@@ -521,6 +565,8 @@ BIAS_GATED_PROPERTIES = frozenset(
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
         "crossfit_overfitting",
+        "corrected_mar_inference",
+        "correction_necessity",
         # Deliberately *not* bias-gated, though its cells carry a bias.  Its ladder rungs
         # answer to coverage and its rate rows to a fitted slope, because the level claim
         # about the bias is ``double_robustness``'s and repeating it at three more sizes

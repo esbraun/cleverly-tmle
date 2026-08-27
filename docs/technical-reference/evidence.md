@@ -134,10 +134,16 @@ the observation correction. End-to-end fits require all three correction rows to
 scores actually solved, exercise learned and known-randomization paths, refuse partial guards,
 and round-trip the five reductions plus the targeted observation mechanism. A rowwise clever-
 covariate identity verifies that treatment and observation are bounded separately before their
-product is formed. A `slow` consistency study at `n = 20,000` keeps the deliberately misspecified-
-outcome/correct-mechanism half of the union model as statistical evidence beyond score identities.
-The canonical R package's missing-data path is provenance only; no numeric parity is an
-acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
+product is formed.
+
+The registered
+[randomized missing-outcome DR-TMLE study](method-evidence/randomized-missing-outcome-dr-tmle.md)
+keeps the deliberately misspecified-outcome/correct-observation half of the union model as
+repeated-sampling evidence beyond score identities, and directly contrasts the empirical
+correction scores before and after the five-reduction cycle. Its R `drtmle` comparison is limited
+to the shared both-correct limit because the package exposes one joint treatment-response
+mechanism; numeric agreement is not an acceptance gate for the separate reductions.
+Cross-validated, observational, and missing-treatment DR-TMLE compositions are not
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
 the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array
 is row-aligned however few equations are being solved. An unguarded `delta=` fit with known

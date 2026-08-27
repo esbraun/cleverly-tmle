@@ -203,8 +203,12 @@ fit off with one verdict over three rows, two of which are the corrections. It n
 whether the fit is corrected, and says which equations it solved. See
 [the contract](diagnostics.md#solved-scores-do-not-establish-nuisance-consistency).
 
-The registered [canonical DR-TMLE study](../method-evidence/canonical-dr-tmle.md) reports rather than
-gates: it publishes failed cells instead of hiding them.
+The registered [canonical complete-outcome DR-TMLE study](../method-evidence/canonical-dr-tmle.md)
+reports rather than gates: it publishes failed cells instead of hiding them. The separate
+[randomized missing-outcome DR-TMLE study](../method-evidence/randomized-missing-outcome-dr-tmle.md)
+tests the MAR drift directions and the five-reduction score reduction; its R comparison is limited
+to the shared both-correct limit because R `drtmle` collapses treatment and response into one
+joint mechanism.
 [What the validation programme established](validation-programme.md)
 is the full list of what is and is not settled.
 

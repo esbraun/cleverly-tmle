@@ -62,6 +62,14 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
+The missing-outcome survey is separate because the response mechanism changes the observed-data
+likelihood and the comparator boundary.
+
+| candidate | parameter it reaches | verdict |
+| --- | --- | --- |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
+| R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
+
 Two limits of the framework shape this table. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes
 the specification the subject must match.

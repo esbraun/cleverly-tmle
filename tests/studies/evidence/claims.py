@@ -229,6 +229,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    if "missingness_necessity" in record.property_cells:
+        declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
+    if "correction_necessity" in record.property_cells:
+        properties = record.properties()
+        declared.update(
+            {
+                "margin:correction_score_ratio": properties.CORRECTION_SCORE_RATIO,
+                "margin:uncorrected_score_floor": properties.UNCORRECTED_SCORE_FLOOR,
+            }
+        )
     if set(record.property_cells) & {
         "cap_necessity",
         "density_necessity",

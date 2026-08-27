@@ -250,6 +250,14 @@ def _measured(row: Any) -> str:
                 f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
             )
         return measured
+    if family == "corrected_mar_inference":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "correction_necessity":
+        return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":
@@ -279,6 +287,8 @@ _BIAS_GATED = frozenset(
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
+        "mar_robustness",
+        "missingness_necessity",
         "robustness_contract",
         "projection_necessity",
         "ratio_necessity",

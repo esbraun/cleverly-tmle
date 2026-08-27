@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 import sklearn.linear_model
 from sklearn.base import BaseEstimator
-from sklearn.dummy import DummyRegressor
 
 from cleverly import PositivityWarning, load
 from cleverly.estimators import DRTMLE
@@ -557,50 +556,6 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
             delta="Delta",
             treatment_probabilities=np.full((len(frame), 3), 1 / 3),
         )
-
-
-@pytest.mark.legacy_study
-def test_the_estimator_is_consistent_when_only_the_outcome_model_is_wrong() -> None:
-    """Double robustness through the treatment and observation mechanisms.
-
-    The check the exact identities above cannot make: a deliberately misspecified outcome
-    regression against correctly specified treatment and missingness mechanisms, where
-    only a covariate that divides by the right per-arm probability recovers the truth.
-    Both arms are asserted, because the arm-1 column is right under either truncation rule
-    and it is arm 0 that carries the evidence.
-    """
-    rng = np.random.default_rng(7)
-    n = 20000
-    w1, w2 = rng.normal(size=n), rng.normal(size=n)
-    a = rng.binomial(1, 0.5, size=n).astype(float)
-    pi = 1.0 / (1.0 + np.exp(-(-0.4 + 1.2 * a + 0.8 * w1)))
-    observed = rng.binomial(1, pi, size=n).astype(float)
-    y = 2.0 + 4.0 * a + 1.5 * w1 - 0.8 * w2 + 2.0 * w1 * w2 + rng.normal(scale=0.5, size=n)
-    truth = {"ey0": 2.0, "ey1": 6.0, "ate": 4.0}
-    frame = pd.DataFrame(
-        {"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": np.where(observed == 1.0, y, np.nan)}
-    )
-    fit = (
-        DRTMLE(
-            randomized=True,
-            cross_fit=False,
-            # Misspecified on purpose, and as badly as the class allows: an intercept, blind to
-            # both the interaction and the covariate that drives the chance of being seen. Only
-            # the mechanism can carry consistency from here.
-            outcome_learner=DummyRegressor(strategy="mean"),
-            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-            missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
-            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-            estimands=("ate", "ey1", "ey0"),
-            simultaneous=False,
-            random_state=0,
-        )
-        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta")
-        .single()
-    )
-    for name, value in truth.items():
-        assert abs(fit.estimates[name].psi - value) < 0.15, name
 
 
 class TestTheContractSeesTheObservationTruncations:

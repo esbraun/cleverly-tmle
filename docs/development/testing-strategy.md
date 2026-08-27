@@ -55,14 +55,14 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 80 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 79 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Eight design families now have no active repeated-sampling
+**Read the consequence plainly.** Seven design families now have no active repeated-sampling
 evidence: fold repeats, multi-arm means, multi-arm selectors, clustering, weights,
-missing outcomes, controlled direct effects, and weighted longitudinal fits. Their exact-law,
+controlled direct effects, and weighted longitudinal fits. Their exact-law,
 Gateaux, remainder and mutation tests still run in the fast tier, so the parameter and the
 influence curve are still checked. What is no longer checked is whether the interval built from
 that curve covers under repeated sampling. Each family needs its own law, exact oracle, margins,

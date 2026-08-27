@@ -329,7 +329,9 @@ one fit.
 | the support report | whether the product of the two mechanisms stays away from zero | that the response model is correctly specified |
 | the score-equation report | the targeting solved the composed score | that missingness at random holds |
 | the mild-law comparison | that the bias needs curvature plus a sharpening mechanism, not merely missingness | which of the two cases your own data is in |
-| the evidence manifest | exact-law and remainder checks for the randomized missing-outcome construction | a repeated-sampling study. Missing outcomes have no row in the validation grid |
+| the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control | that missingness at random holds in this survey |
+| the [randomized missing-outcome DR-TMLE study](../technical-reference/method-evidence/randomized-missing-outcome-dr-tmle.md) | corrected inference under two drift directions and a direct five-reduction score-reduction mutation | observational-treatment DR-TMLE or internal parity with R's joint mechanism |
+| the evidence manifest | exact-law, Gateaux, remainder, and mutation checks for the randomized missing-outcome construction | empirical support for missingness at random |
 
 The strongest assumption on this page is the one with no diagnostic at all. Missingness at random
 says the recorded variables explain every reason a patient's own score would predict whether they
