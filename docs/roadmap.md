@@ -11,7 +11,8 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Remaining composition studies | source audit for each composition | completed intervention-family study designs | [V1](#v1-remaining-composition-studies) |
+| Validation | V1 | Missing-outcome studies | source audit complete | completed intervention-family study designs | [V1](#v1-missing-outcome-studies) |
+| Validation | V2 | Remaining composition studies | source audit for each composition | V1 establishes the composed-mechanism study design | [V2](#v2-remaining-composition-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -75,12 +76,75 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Remaining composition studies
+### V1. Missing-outcome studies
 
-Inventory the implementation matrix after the intervention-family rows. Add rows for uncovered
-missing-data, categorical longitudinal, weighting, clustering, and inference compositions only
-when one study can name the exact parameter and a nonredundant failure mode. Do not let a broad row
-borrow evidence from a nearby construction.
+Add separate rows for ordinary observational TMLE and randomized missing-outcome DR-TMLE. The
+ordinary row validates the three-nuisance MAR composition. The DR-TMLE row validates its five
+reduced regressions and corrected influence curve. Do not let either row borrow complete-data
+evidence from the existing point-treatment and DR-TMLE rows.
+
+#### Ordinary observational TMLE
+
+Use an observational binary-treatment law with an outcome observed under a nonconstant MAR
+mechanism. The response mechanism must depend on treatment and baseline covariates. It must also
+move the complete-case target away from the full-population treatment effect.
+
+Compare ordinary fitting with R `tmle` 2.1.1. Pin the package source and R image by digest. Give
+both implementations the same realized rows, bounds, nuisance predictions, and outcome scale.
+Compare treatment-specific means and their difference with pointwise 95% Wald intervals.
+
+The property study must test the composed robustness contract. A correct outcome regression must
+rescue two wrong mechanisms. Correct treatment and response mechanisms together must rescue a
+wrong outcome regression. Separate controls must break each mechanism while the outcome regression
+stays wrong, so a study cannot mistake one correct factor for the complete product.
+
+Test bias, coverage, standard-error calibration, and root-n behavior at three sizes. Add a
+confounded sharp null and a nonzero power control. Retain nonzero targeting and missingness controls.
+The missingness control must analyze complete cases and must fail against the full-population truth.
+
+#### Randomized missing-outcome DR-TMLE
+
+Use a binary randomized trial with treatment-dependent MAR outcomes. Supply the known treatment
+probabilities to both implementations. Compare `cleverly` with R `drtmle` 1.1.2 at commit
+`538a3a2` in the both-correct limit. Use the same realized rows, initial outcome regression, joint
+treatment-response mechanism, bounds, and iteration budget without cross-fitting.
+
+R `drtmle` collapses treatment and response into one joint mechanism. It does not implement the
+separate five-reduction cycle that `cleverly` takes from Díaz and van der Laan. Do not claim internal
+parity or use its drift behavior as evidence for those five regressions.
+
+The primary comparison must publish treatment-specific means, their contrast, and each
+implementation's corrected standard error. Keep the row in reporting mode if a declared
+finite-sample property fails. Do not widen a margin or replace the corrected curve to make it pass.
+
+The property study must cover the both-correct limit and the two drift directions. Include a
+both-wrong control. Test three-size contraction, coverage, and standard-error calibration for the
+corrected interval. Add a control that removes the three correction blocks while preserving the
+same point estimates. The control must fail where the corrected interval claims an advantage.
+
+#### Registration and publication
+
+Share the MAR law, nuisance fixtures, row conversion, and R harness across both rows. Keep the two
+estimators' targeting and correction adapters separate. Use 99% confidence bounds for every
+statistical verdict, and size replication counts against the binding endpoint before the final run.
+
+Run disposable Python and R smoke studies before full regeneration. Treat missing rows, failed
+fits, non-finite results, and active undeclared bounds as hard errors. Commit the standard artifacts
+and a hash-complete manifest for each row.
+
+Update the validation grid, study index, evidence manifest, method pages, and survey example.
+Delete deprecated missing-outcome tests only after the registered replacements pass. Remove V1 and
+promote V2 only after both rows and every documentation gate pass.
+
+Each limits section must state the treatment design, outcome type, learner class, fitting scheme,
+interval type, and MAR condition tested. It must name excluded weights, clusters, simultaneous
+bands, missing treatment, and unsupported DR-TMLE compositions.
+
+### V2. Remaining composition studies
+
+Add rows for uncovered categorical longitudinal, weighting, clustering, and inference
+compositions. Register a row only when its study names the exact parameter and a nonredundant
+failure mode. Do not let a broad row borrow evidence from a nearby construction.
 
 ## Extensibility track
 
