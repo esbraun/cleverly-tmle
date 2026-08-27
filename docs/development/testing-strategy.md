@@ -60,14 +60,17 @@ skipped rather than deleted, because deleting them would drop a claim without re
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Seven design families now have no active repeated-sampling
-evidence: fold repeats, multi-arm means, multi-arm selectors, clustering, weights,
-controlled direct effects, and weighted longitudinal fits. Their exact-law,
-Gateaux, remainder and mutation tests still run in the fast tier, so the parameter and the
-influence curve are still checked. What is no longer checked is whether the interval built from
-that curve covers under repeated sampling. Each family needs its own law, exact oracle, margins,
-and paired control before that claim exists again. Deleting the deprecated module is the last step
-of registering its replacement, not the first.
+**Read the consequence plainly.** Five design families now have no active repeated-sampling
+evidence: fold repeats, clustering, weights, controlled direct effects, and weighted
+longitudinal fits. Multi-arm means and selectors have moved into four registered
+[multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Each
+uncovered family still runs its exact-law, Gateaux, remainder and mutation tests in the fast
+tier. Those tests check the parameter and the influence curve.
+
+What is no longer checked is whether the interval built from that curve covers under repeated
+sampling. Each family needs its own law, exact oracle, margins, and paired control before that
+claim exists again. Deleting the deprecated module is the last step of registering its
+replacement, not the first.
 
 A test nobody runs is not evidence. Skipping these says so out loud rather than leaving a green
 tier that nothing executes.

@@ -78,9 +78,13 @@ different instruments and neither one substitutes for the other.
 ## Estimator variants over registered targets
 
 `CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they
-do not add registry rows. Their multi-arm constructions have separate evidence in
-`tests/unit/test_multi_arm_collaborative.py`. Binary compatibility remains covered by the
-existing C-TMLE and DR-TMLE suites, which continue down their original branches.
+do not add target-registry rows. Their multi-arm estimator constructions now have separate
+registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinary-multi-arm-tmle.md),
+[DR-TMLE](method-evidence/multi-arm-dr-tmle.md),
+[outcome-adaptive C-TMLE](method-evidence/outcome-adaptive-multi-arm-c-tmle.md), and
+[selector C-TMLE](method-evidence/selector-based-multi-arm-c-tmle.md). Binary compatibility
+remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
+branches.
 
 Complete-outcome cross-validated DR-TMLE is a construction over the same targets, not a registry
 addition. Its source audit maps the pinned R `cvFolds` path to
@@ -208,12 +212,12 @@ The latter checks both multi-arm DR-TMLE union-model cells against the complex-s
 derivative through real `DRTMLE` fits, and exercises `CTMLE(strategy="oat")` on the regular
 exact law where its generated design identifies `W`.
 
-`tests/e2e/test_coverage_slow.py::TestMultiArmCollaborativeCoverage` is the repeated-
-sampling regression guard: it requires finite, non-dropped replicates, controlled bias and
-non-collapsed coverage relative to TMLE. It is deliberately not a nuisance-rate experiment
-and therefore does not establish the stronger collaborative-double-robust theorem, price an
-adaptive multinomial `g` correction, or establish OAT asymptotics at a tied, nonregular
-generated-regressor design.
+The four registered rows replace the `TestMultiArmCollaborativeCoverage` legacy guard, which
+stays deprecated and does not run. The records publish replication accounting, truth and
+comparison verdicts, nuisance-regime properties, root-n ladders, and each selector path against
+one forced empty path. The reporting-policy rows keep red cells where the evidence does not
+support a stronger claim. Registration does not turn an observed limitation into an inherited
+binary theorem.
 
 ## Longitudinal estimands outside the target registry
 

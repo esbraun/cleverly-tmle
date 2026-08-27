@@ -97,6 +97,7 @@ class Reference:
         if self.mount_runner:
             mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
             arguments.append(f"/fixture/{self.runner}")
+        entrypoint = ["--entrypoint", "Rscript"] if self.mount_runner else []
         subprocess.run(
             [
                 "docker",
@@ -105,6 +106,7 @@ class Reference:
                 "-e",
                 f"CLEVERLY_R_CORES={cores}",
                 *mounts,
+                *entrypoint,
                 self.image,
                 *arguments,
                 f"/work/{samples.name}",
@@ -283,6 +285,11 @@ def main(
     record = dataclasses.replace(
         study.STUDY, replicates=arguments.replicates, n=arguments.n, artifacts=out
     )
+    if getattr(arguments, "skip_r", False) and record.extra_artifacts:
+        raise RuntimeError(
+            "--skip-r cannot rebuild study-specific extra artifacts: the standard "
+            "replicate file intentionally omits their source columns"
+        )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
 
     with tempfile.TemporaryDirectory(prefix=f"cleverly-{record.slug}-") as raw:

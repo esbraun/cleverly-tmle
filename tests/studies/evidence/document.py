@@ -213,7 +213,23 @@ def _measured(row: Any) -> str:
     """The endpoint a cell's own verdict was read from, named and valued."""
     family = str(row.property)
     if family in _BIAS_GATED:
-        return f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, margin {render(float(row.bias_margin))}"
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}"
+        )
+        # The selector families carry a second endpoint their *joint* verdict is read from,
+        # and a bias interval alone cannot show it.  A path that quietly chose the control's
+        # own mechanism reaches a ratio of one while its bias row looks like any other red
+        # cell, so the number that separates the two belongs in the column a reader reads.
+        if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
+            measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+        # The union-model family carries a second endpoint for the same reason.  A collapsed
+        # nuisance reports an error two orders of magnitude off its own spread and leaves the
+        # bias interval looking like any other cell's, so the ratio the screen is read from
+        # belongs in the column a reader reads.
+        if family == "double_robustness":
+            measured += f", SE ratio {render(float(row.se_ratio))}"
+        return measured
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
     if family == "double_robust_contraction":

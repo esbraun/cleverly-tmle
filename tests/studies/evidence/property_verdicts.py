@@ -36,6 +36,34 @@ ROOT_N_SLOPE_MARGIN = 0.125
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
 
+#: How far a ``double_robustness`` cell's reported standard error may sit from the sampling
+#: spread it estimates, before the cell stops describing the union model it names.
+#:
+#: An order of magnitude, and deliberately *not* :attr:`~Margins.se_ratio_sanity`.  Every cell in
+#: this family fits at least one nuisance wrong on purpose, so its influence curve is not the
+#: efficient one and no theory predicts that the standard error it reports is calibrated.  The
+#: register shows that departure is real and points both ways: the end-of-study longitudinal
+#: row's ``static__outcome_correct`` reports 0.61 beside a coverage of 0.7708, and the
+#: stochastic-regime row's ``outcome_correct`` reports 2.31 beside a coverage of 1.0000.  Both
+#: are the union model behaving as the theory allows, and
+#: :attr:`~Margins.over_coverage_ceiling` already records that conservative inference is
+#: reported rather than failed.  Holding this family to the calibrated screen would publish a
+#: defect that neither estimator has.
+#:
+#: What the band excludes is a fit that collapsed.  A univariate guard regression handed a
+#: constant single regressor reported a standard error 87.6 times its own empirical spread, and
+#: the ``both_wrong`` control passed anyway, because the verdict read the bias and nothing read
+#: the reported error at all.  A misspecified nuisance is still a regression whose influence
+#: curve has the scale of the data.  Two orders of magnitude is a numerical failure wearing a
+#: misspecification's name, and the bias verdict beside it is then evidence about the failure
+#: rather than about the union model.
+#:
+#: The screen therefore binds on no registered cell, which is what a screen should do.  It is a
+#: rule nothing can fail until something breaks, so
+#: ``test_a_collapsed_reported_error_fails_the_union_model_cells`` mutates a committed cell and
+#: requires the verdict to move.
+UNION_MODEL_SE_BAND = (0.1, 10.0)
+
 #: The three margins the ``crossfit_overfitting`` family answers to.  Shared rather than owned
 #: by the study that first declared them: four families now make the same three statements
 #: about a paired cross-fit and in-sample arm, and a margin written four times is a margin
@@ -87,7 +115,9 @@ def apply_shared_verdicts(
     double-robustness cells that means the positive cells must establish that the bias is
     *inside* the margin and the both-wrong control must establish that it is *outside* it --
     the same instrument in both directions, so neither can be passed by a study too small to
-    say anything.
+    say anything.  Every cell of that family answers to :data:`UNION_MODEL_SE_BAND` as well,
+    because a bias endpoint says nothing about the union model when the fit that produced it
+    reported an error two orders of magnitude off its own spread.
 
     Shared rather than copied per study: several method families publish these rules, so a
     verdict written twice is a verdict that can be *changed* once.  The caller supplies whatever
@@ -126,10 +156,17 @@ def apply_shared_verdicts(
     summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
 
     robustness = summary["property"] == "double_robustness"
+    # Both roles answer to the same screen, and each keeps its own bias endpoint.  A positive
+    # cell claims the bias is inside the margin and a control claims it is outside, but neither
+    # is a claim about the union model unless the fit reported an error on the scale of its own
+    # spread.  The control is where this was found: it is the arm whose bias endpoint a
+    # collapsed nuisance cannot fail, so bias alone published a pass for a cell that reported
+    # 87.6 times its empirical spread.
+    scaled = summary["se_ratio"].between(*UNION_MODEL_SE_BAND)
     positive = robustness & (summary["role"] == "positive")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
+    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"] & scaled
     control = robustness & (summary["role"] == "control")
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
 
     efficiency = summary["property"] == "root_n_and_efficiency"
     sizes = efficiency & (summary["role"] == "positive")

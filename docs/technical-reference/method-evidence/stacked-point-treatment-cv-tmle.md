@@ -93,10 +93,10 @@ the whole study on any failed fit, changed fold, missing estimand, or dropped re
 | --- | --- | --- | --- | --- | --- | --- |
 | `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.5298 to 0.6400 | pass |
 | `crossfit_overfitting` | `stacked_cvtmle` | positive | stacked CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9094 to 1.0843 | pass |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0100 to 0.0038, margin 0.0231 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.3437 to -0.3259, margin 0.0299 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0064 to 0.0067, margin 0.0219 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0305 to -0.0086, margin 0.0366 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0100 to 0.0038, margin 0.0231, SE ratio 0.9702 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.3437 to -0.3259, margin 0.0299, SE ratio 1.0323 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0064 to 0.0067, margin 0.0219, SE ratio 0.9719 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0305 to -0.0086, margin 0.0366, SE ratio 0.9327 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9430 to 0.9652, SE ratio 0.9738 to 1.0450 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000506, coverage 0.9238 to 0.9657, SE ratio 0.9823 | pass |
@@ -174,6 +174,8 @@ the committed results and checked at the precision printed.
 | `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
 | `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:overfit_se_floor` | 0.8500 | SE ratio the cross-fit arm must restore |
 | `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
 | `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |

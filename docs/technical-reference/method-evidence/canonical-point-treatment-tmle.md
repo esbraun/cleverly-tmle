@@ -98,10 +98,10 @@ binary-outcome law covers those plus `paf`, `rr`, and `or`.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.0104 to 0.0037, margin 0.0236 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias -0.3420 to -0.3244, margin 0.0295 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias -0.0062 to 0.0069, margin 0.0220 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias -0.0292 to -0.0072, margin 0.0369 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0104 to 0.0037, margin 0.0236, SE ratio 0.9510 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.3420 to -0.3244, margin 0.0295, SE ratio 1.0179 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0062 to 0.0069, margin 0.0220, SE ratio 0.9559 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0292 to -0.0072, margin 0.0369, SE ratio 0.9129 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9420 to 0.9645, SE ratio 0.9679 to 1.0385 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000513, coverage 0.9194 to 0.9627, SE ratio 0.9777 | pass |
@@ -193,6 +193,8 @@ table rather than leaving it asserting a rule the study never applied.
 | `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
 | `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 
 ## Limitations
 

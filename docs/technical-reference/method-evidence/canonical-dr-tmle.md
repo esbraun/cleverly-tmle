@@ -137,10 +137,10 @@ is zero: Cleverly is the better-calibrated side.
 | `double_robust_contraction` | `treatment_correct_n1500` | positive | only the treatment mechanism is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor | coverage 0.8921 to 0.9428, bias 0.0102 | **fail** |
 | `double_robust_contraction` | `treatment_correct_n3000` | positive | only the treatment mechanism is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor | coverage 0.9238 to 0.9657, bias 0.0034 | pass |
 | `double_robust_contraction` | `treatment_correct_n6000` | positive | only the treatment mechanism is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor | coverage 0.9150 to 0.9596, bias 0.0020 | pass |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin | bias -0.000280 to 0.0045, margin 0.0065 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.2263 to 0.2313, margin 0.0069 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin | bias 0.0025 to 0.0075, margin 0.0068 | **fail** |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin | bias 0.0050 to 0.0104, margin 0.0073 | **fail** |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000280 to 0.0045, margin 0.0065, SE ratio 1.0192 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.2263 to 0.2313, margin 0.0069, SE ratio 1.8952 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0025 to 0.0075, margin 0.0068, SE ratio 0.9786 | **fail** |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0050 to 0.0104, margin 0.0073, SE ratio 0.9567 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9439 to 0.9659, SE ratio 0.9832 to 1.0557 | pass |
 | `root_n_and_efficiency` | `n_1500` | positive | bias, coverage and SE calibration at n = 1,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0016, coverage 0.9165 to 0.9606, SE ratio 0.9523 | pass |
 | `root_n_and_efficiency` | `n_4500` | positive | bias, coverage and SE calibration at n = 4,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000463, coverage 0.9208 to 0.9637, SE ratio 0.9811 | pass |
@@ -190,6 +190,8 @@ is zero: Cleverly is the better-calibrated side.
 | `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
 | `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 
 ## What a red double-robustness cell means here
 

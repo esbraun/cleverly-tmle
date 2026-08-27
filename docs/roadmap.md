@@ -11,7 +11,12 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Remaining composition studies | source audit for each composition | completed missing-outcome study designs | [V1](#v1-remaining-composition-studies) |
+| Validation | V1 | Categorical longitudinal studies | source audit complete; no R comparator | registered multi-arm helpers | [V1](#v1-categorical-longitudinal-studies) |
+| Validation | V2 | Fold-repeat studies | source audit | V1 ordering only | [V2](#v2-fold-repeat-studies) |
+| Validation | V3 | Clustered inference studies | source audit | V2 ordering only | [V3](#v3-clustered-inference-studies) |
+| Validation | V4 | Point-treatment weight studies | source audit | V3 ordering only | [V4](#v4-point-treatment-weight-studies) |
+| Validation | V5 | Controlled direct-effect studies | source audit | V4 ordering only | [V5](#v5-controlled-direct-effect-studies) |
+| Validation | V6 | Weighted longitudinal studies | source audit | V5 establishes the fixed-weight study design | [V6](#v6-weighted-longitudinal-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -75,11 +80,36 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Remaining composition studies
+### V1. Categorical longitudinal studies
 
-Add rows for uncovered categorical longitudinal, weighting, clustering, and inference
-compositions. Register a row only when its study names the exact parameter and a nonredundant
-failure mode. Do not let a broad row borrow evidence from a nearby construction.
+Add ordinary and cross-fitted rows for categorical treatment nodes under static and dynamic plans.
+The source audit found no matched R implementation for this longitudinal construction. Use empty
+equivalence artifacts instead of a binary or point-treatment surrogate.
+
+### V2. Fold-repeat studies
+
+Validate rowwise averaging across independent fold draws. The study must distinguish repeated
+cross-fitting from one fixed split and from equal-fold averaging.
+
+### V3. Clustered inference studies
+
+Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
+negative control must analyze the same rows as independent observations.
+
+### V4. Point-treatment weight studies
+
+Validate fixed probability weights against the tilted population law. The negative control must
+omit the weights and converge to a different parameter.
+
+### V5. Controlled direct-effect studies
+
+Validate each declared intermediate level against its exact controlled parameter. The study must
+exercise the treatment and intermediate mechanism product with a nonzero control.
+
+### V6. Weighted longitudinal studies
+
+Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
+negative control must omit the weights and miss the declared longitudinal parameter.
 
 ## Extensibility track
 

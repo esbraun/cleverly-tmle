@@ -1,0 +1,111 @@
+{
+  "schema_version": 2,
+  "study": "outcome-adaptive multi-arm C-TMLE",
+  "slug": "canonical-multi-arm-ctmle-oat",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-multi-arm-ctmle-oat",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "14a54274e2d5e334f68748ebe5c26a6666e0e063",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "ctmle3-multi-arm-oat",
+      "ctmle3_commit": "a4ea77b07747dfee9b2eecb9cbca88262e0559ea",
+      "tmle3_commit": "3a610058cd89c17bb417c15fc891254388787f33",
+      "sl3_commit": "821ca890cb8701fdb59f823e28c6356e50d092bc",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 1500,
+    "seed": 20260828,
+    "resampling_seed": 20261002,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "multi_arm_binary_oat": [
+        "ey[high]",
+        "ey[low]",
+        "ey[medium]",
+        "ate[low vs high]",
+        "ate[medium vs high]",
+        "rr[low vs high]",
+        "rr[medium vs high]",
+        "or[low vs high]",
+        "or[medium vs high]"
+      ]
+    },
+    "strategy": "oat",
+    "outcome_family": "binomial",
+    "treatment_levels": [
+      "high",
+      "low",
+      "medium"
+    ],
+    "reference": "high",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.025,
+      0.975
+    ],
+    "initial_treatment_model": "empirical arm probabilities (matched to sl3 Lrnr_mean)",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/multi_arm_common.py": "bbd39564e022e0c21f18c47cb1a99752280caa83e848698298de10289dd68abc",
+    "tests/studies/canonical_multi_arm_ctmle_oat.py": "aa4f0565cf66499242b15adb0c230c1205e63f19741e11f1c7a8d0af86f3cb05",
+    "tests/studies/multi_arm_ctmle_oat_properties.py": "9a53386140d7add4cbad071ac4833db52dd64ec8f7b2759cf468be9b6d1068d1",
+    "tests/studies/multi_arm_properties.py": "1355c5ed101f0fbcbdcad8a2ca804f2661d015900c0e6586b0441b5856efe7a6",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/ctmle3_oat/Dockerfile": "5813c33dcbb06f1f34d448eb059ddb68e092ab95e1fffc522476526ebd9604e6",
+    "tests/canonical/multi_arm_ctmle3_oat/run_multi_arm_ctmle3_oat.R": "32deed7cb1be55d1e685bac3a2ea04b32bb72fc41d98602fcd12941eeeb2e0ed",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
+  },
+  "sha256": {
+    "replicates.csv.gz": "6964a392f26b6425e92970e4b14e5557ea0a2828a02be5fce816aeb54e2ece6c",
+    "summary.csv": "6355748acebb105000c89c1b0df65d533af7e6d6933acaabb8993f2b65dd4e44",
+    "equivalence.csv": "1e41685c17a5b7f3910fcbbb353fafbb0476a4f6a60d8b20b76dccb20053b741",
+    "performance-tests.csv": "677c1559c074bdf39d8c44869fca930bbe6b4de8561da2572808cec3e06eebc9",
+    "property-replicates.csv.gz": "376a148a4530c697dcb628c18c8f5d8b505a1e9ed84f19e33b34a39603a45c6f",
+    "properties.csv": "52ef61ab327028d3c2ecb534cf646da707c11361b5cb99a87543c064cfa9f347"
+  }
+}
