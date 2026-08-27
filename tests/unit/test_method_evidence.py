@@ -103,12 +103,6 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
-        if study.point_only_reference:
-            assert configuration["point_only_reference_estimands"] == sorted(
-                study.point_only_reference
-            )
-        else:
-            assert "point_only_reference_estimands" not in configuration
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -744,14 +738,27 @@ class TestTheStudyStillMeasuresTheCode:
         ``max_targeting_displacement`` and ``median_targeting_displacement`` put it in the
         measured table, and a study whose comparison cannot separate an untargeted plug-in
         carries a ``targeting_necessity`` family that can.
+
+        **A one-step comparator has no plug-in to move off.**  ``npcausal``'s ``ipsi`` adds the
+        correction to an average of influence values and never forms an untargeted estimate, so
+        there is no second number for its runner to publish.  Writing the estimate twice would
+        answer this check with a tautology, so the runner writes nothing and this check requires
+        the study to carry the family that can separate the two instead.  The distinction is the
+        point: an absent column says the quantity does not exist, and a repeated one would say it
+        exists and did not move.
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         reference = rows.loc[rows["implementation"] == study.reference]
-        if study.point_only_reference:
-            reference = reference.loc[~reference["estimand"].isin(study.point_only_reference)]
-            if reference.empty:
-                pytest.skip("the reference exposes point estimates but no targeting witness")
+        if reference["initial_estimate"].isna().all():
+            assert "targeting_necessity" in study.property_cells, (
+                f"{study.slug} publishes no plug-in for {study.reference} and declares no "
+                f"targeting_necessity family, so nothing separates targeting from a plug-in"
+            )
+            pytest.skip(f"{study.reference} publishes no untargeted plug-in")
+        assert reference["initial_estimate"].notna().all(), (
+            "the reference publishes a plug-in for some replications and not others"
+        )
         moved = (reference["estimate"] - reference["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 
@@ -772,19 +779,6 @@ class TestTheStudyStillMeasuresTheCode:
                 f"{estimand} is declared incomparable but both implementations report the "
                 f"same scale {reported}, so the exemption is not earned"
             )
-
-    def test_point_only_references_never_gate_inference(
-        self, study: StudyRecord, rows: pd.DataFrame
-    ) -> None:
-        if not study.point_only_reference:
-            pytest.skip("study declares no point-only reference estimands")
-        assert study.accepted_reference_failure
-        assert study.point_only_reference.issubset(study.estimands)
-        published = pd.read_csv(study.artifact("equivalence.csv")).set_index("estimand")
-        selected = published.loc[sorted(study.point_only_reference)]
-        assert not selected["se_comparable"].any()
-        assert not selected["coverage_superior"].any()
-        assert selected["coverage_difference_lower"].isna().all()
 
     def test_the_ratio_estimands_report_on_the_log_scale(
         self, study: StudyRecord, rows: pd.DataFrame

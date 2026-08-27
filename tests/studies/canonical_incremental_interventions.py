@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 
 from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
@@ -21,10 +20,11 @@ from tests.studies.intervention_study_helpers import (
     incremental_estimates,
     primary_rows,
     sample_discrete,
+    saturated_discrete_outcome,
     truths,
 )
 
-IMTP_COMMIT = "d4b5204f9505147a54ac415180e84b86f005c8b2"
+NPCAUSAL_COMMIT = "56a5ac117a29258b67b94874be662a171b5131f7"
 R_BASE_IMAGE = (
     "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
 )
@@ -38,7 +38,7 @@ ESTIMANDS = tuple(law.PER_ARM_NAMES["ey_ipsi"]) + tuple(law.PER_ARM_NAMES["ate_i
 STUDY = StudyRecord(
     name="incremental propensity-score interventions",
     slug="incremental-interventions",
-    artifacts=ROOT / "tests" / "canonical" / "imtp_incremental",
+    artifacts=ROOT / "tests" / "canonical" / "npcausal_incremental",
     document="docs/technical-reference/method-evidence/incremental-propensity-interventions.md",
     anchor="incremental-propensity-interventions",
     scenarios={SCENARIO: ESTIMANDS},
@@ -48,13 +48,7 @@ STUDY = StudyRecord(
     resampling_seed=20260914,
     margins=Margins(),
     implementation="cleverly",
-    reference="imtp",
-    accepted_reference_failure=(
-        "Pinned imtp supplies a point-curve witness only: its reported influence curve omits "
-        "the derivative through the treatment mechanism, so its independent inference gate "
-        "is expected to fail and is not evidence for cleverly's inference."
-    ),
-    point_only_reference=frozenset(ESTIMANDS),
+    reference="npcausal",
     modules=(
         "tests/studies/canonical_incremental_interventions.py",
         "tests/studies/incremental_intervention_properties.py",
@@ -99,10 +93,11 @@ STUDY = StudyRecord(
 )
 
 REFERENCE_METADATA = {
-    "imtp_commit": IMTP_COMMIT,
+    "npcausal_commit": NPCAUSAL_COMMIT,
     "r_base_image": R_BASE_IMAGE,
     "reference_parameter": "point-treatment incremental odds curve",
-    "reference_scope": "point estimates only; influence-curve inference is not canonical",
+    "reference_scope": "point estimates and efficient-influence-curve inference",
+    "reference_nuisances": "two-fold cross-fitted, saturated over the three covariate levels",
 }
 
 CONFIGURATION = {
@@ -110,7 +105,7 @@ CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
     "deltas": dict(law.IPSI_DELTAS),
-    "external_comparator": "imtp point estimates only",
+    "external_comparator": "npcausal ipsi, point estimates and inference",
 }
 
 
@@ -128,7 +123,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     return (
         TMLE(
             incremental=incrementals.interventions(),
-            outcome_learner=LogisticRegression(C=1e6, max_iter=2_000),
+            outcome_learner=saturated_discrete_outcome(),
             treatment_learner=OracleTreatment(law.DiscreteLaw()),
             cross_fit=False,
             simultaneous=False,

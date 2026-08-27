@@ -9,10 +9,10 @@ probabilities. The dynamic rule assigns both arms and differs from either static
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "treat at neither time" | `cleverly` | -0.0027 to 0.000738 | 0.9525 | 0.9990 | pass |
-| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "treat at neither time" | R `lmtp` | -0.0026 to 0.000768 | 0.9513 | 1.0014 | pass |
-| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime treat at neither time | `cleverly` | -0.000873 to 0.0018 | 0.9500 | 1.0070 | pass |
-| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime treat at neither time | R `lmtp` | -0.000902 to 0.0017 | 0.9500 | 1.0071 | pass |
+| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "assign no treatment" | `cleverly` | -0.0027 to 0.000738 | 0.9525 | 0.9990 | pass |
+| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "assign no treatment" | R `lmtp` | -0.0026 to 0.000768 | 0.9513 | 1.0014 | pass |
+| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime assign no treatment | `cleverly` | -0.000873 to 0.0018 | 0.9500 | 1.0070 | pass |
+| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime assign no treatment | R `lmtp` | -0.000902 to 0.0017 | 0.9500 | 1.0071 | pass |
 | binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[rule]` | mean under the regime follow the covariate-dependent rule | `cleverly` | -0.0020 to 0.0010 | 0.9563 | 1.0322 | pass |
 | binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[rule]` | mean under the regime follow the covariate-dependent rule | R `lmtp` | -0.0021 to 0.0010 | 0.9550 | 1.0335 | pass |
 <!-- /generated -->
@@ -22,8 +22,8 @@ probabilities. The dynamic rule assigns both arms and differs from either static
 <!-- generated: agreement -->
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "treat at neither time" | -0.000025 | 0.0091 | 1.0009 | 0.0012 | 0.0054 vs 0.0500 | equivalent |
-| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime treat at neither time | 0.000029 | 0.0132 | 1.0011 | 0 | 0.000900 vs 0.0500 | equivalent |
+| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "assign no treatment" | -0.000025 | 0.0091 | 1.0009 | 0.0012 | 0.0054 vs 0.0500 | equivalent |
+| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime assign no treatment | 0.000029 | 0.0132 | 1.0011 | 0 | 0.000900 vs 0.0500 | equivalent |
 | binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[rule]` | mean under the regime follow the covariate-dependent rule | 0.000003 | 0.0013 | 0.9957 | 0.0013 | 0.0044 vs 0.0500 | equivalent |
 <!-- /generated -->
 

@@ -165,10 +165,6 @@ class StudyRecord:
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
-    #: Estimands for which the external implementation is a point-estimate witness only.
-    #: Their paired point similarity and RMSE remain gated; reference coverage and standard
-    #: errors are independently reported but cannot support a non-inferiority claim.
-    point_only_reference: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -191,15 +187,6 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
-        if self.point_only_reference and self.reference is None:
-            raise ValueError("a point-only reference declaration needs a reference implementation")
-        unknown = self.point_only_reference.difference(self.estimands)
-        if unknown:
-            raise ValueError(
-                f"point-only reference estimands are not registered: {sorted(unknown)}"
-            )
-        if self.point_only_reference.intersection(self.incomparable_se):
-            raise ValueError("point-only references and scale-incomparable SEs must be distinct")
 
     @property
     def implementations(self) -> tuple[str, ...]:

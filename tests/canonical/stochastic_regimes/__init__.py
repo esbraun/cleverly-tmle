@@ -1,1 +1,1 @@
-"""Evidence artifacts for known stochastic point-treatment regimes."""
+"""Pinned R lmtp comparison for known stochastic point-treatment regimes."""

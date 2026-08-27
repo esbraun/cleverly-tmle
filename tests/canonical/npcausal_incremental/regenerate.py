@@ -1,4 +1,4 @@
-"""Regenerate incremental-intervention point-curve evidence."""
+"""Regenerate incremental-intervention evidence against R ``npcausal``."""
 
 from pathlib import Path
 
@@ -10,11 +10,11 @@ from tests.studies import (
 from tests.studies.evidence.registry import ROOT
 
 REFERENCE = Reference(
-    image="cleverly-imtp:0.1.0-d4b5204",
-    runner="imtp_incremental/run_study.R",
+    image="cleverly-npcausal:0.1.0-56a5ac1",
+    runner="npcausal_incremental/run_study.R",
     mount_runner=True,
-    extra_files=("imtp_incremental/Dockerfile", "study_harness.R"),
-    build_context=ROOT / "tests" / "canonical" / "imtp_incremental",
+    extra_files=("npcausal_incremental/Dockerfile", "study_harness.R"),
+    build_context=ROOT / "tests" / "canonical" / "npcausal_incremental",
     runner_root=ROOT / "tests" / "canonical",
 )
 

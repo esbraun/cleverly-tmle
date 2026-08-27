@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
+      "cleverly_commit": "a2dbae67caafd84b255140c80467c2aa9a36034b",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -15,11 +15,12 @@
       "scikit_learn": "1.9.0"
     },
     "reference": {
-      "implementation": "imtp",
-      "imtp_commit": "d4b5204f9505147a54ac415180e84b86f005c8b2",
+      "implementation": "npcausal",
+      "npcausal_commit": "56a5ac117a29258b67b94874be662a171b5131f7",
       "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
       "reference_parameter": "point-treatment incremental odds curve",
-      "reference_scope": "point estimates only; influence-curve inference is not canonical"
+      "reference_scope": "point estimates and efficient-influence-curve inference",
+      "reference_nuisances": "two-fold cross-fitted, saturated over the three covariate levels"
     }
   },
   "configuration": {
@@ -28,14 +29,6 @@
     "seed": 20260904,
     "resampling_seed": 20260914,
     "publication_policy": "gated",
-    "accepted_reference_failure": "Pinned imtp supplies a point-curve witness only: its reported influence curve omits the derivative through the treatment mechanism, so its independent inference gate is expected to fail and is not evidence for cleverly's inference.",
-    "point_only_reference_estimands": [
-      "ate_ipsi[odds x0.5 vs natural course]",
-      "ate_ipsi[odds x2 vs natural course]",
-      "ey_ipsi[natural course]",
-      "ey_ipsi[odds x0.5]",
-      "ey_ipsi[odds x2]"
-    ],
     "scenarios": {
       "binary_incremental_odds": [
         "ey_ipsi[natural course]",
@@ -53,7 +46,7 @@
       "odds x2": 2.0,
       "odds x0.5": 0.5
     },
-    "external_comparator": "imtp point estimates only",
+    "external_comparator": "npcausal ipsi, point estimates and inference",
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -81,13 +74,13 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_incremental_interventions.py": "e106c49e59cfdcf188eb1a0bcecf4070451f91088b285ee734d93a35d79389e5",
+    "tests/studies/canonical_incremental_interventions.py": "99ff5f0233a13ed45c783c930832da7209c40c3a94795665dc084349b79cde29",
     "tests/studies/incremental_intervention_properties.py": "1904ac66708591174999f178e69a632b3dab66287c95f24fcc11f57f760818d2",
-    "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
+    "tests/studies/intervention_study_helpers.py": "93571e010ead888f67ee1651a4d679e34a082d3b4150dc93694975725d8af88b",
     "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
     "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
     "tests/incrementals.py": "e86b0702753dc7777da81cd92c683996ab40eed9ab69be6d6317f8b7c0876a22",
-    "tests/studies/evidence/comparison.py": "5491bf4e1199452f1df59f85ce88987c4653d085253eaf6fa927d9384de34ee0",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
@@ -96,15 +89,15 @@
     "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
   "reference_sha256": {
-    "tests/canonical/imtp_incremental/Dockerfile": "c397467f016c99257260d85915beca9e7043fc1c011e18bbe11b61cac5663c9e",
-    "tests/canonical/imtp_incremental/run_study.R": "f97b59e4cb95203d437aac9d8afb35b0ccbdf29d3c62e53f46afac41d7d3336c",
+    "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+    "tests/canonical/npcausal_incremental/run_study.R": "eb57449bc3273d2b700b87a0559e777c5498c7cc8af8d99c7991323665b3af7d",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
-    "replicates.csv.gz": "35e6c26394b964ca00d7ba172e749c126d25de502c5f1536f8aaba9990bcb9ba",
-    "summary.csv": "ada4826bbed4dccbdc0a4564595309b37aa26615119a22eb169db779418f9a3f",
-    "equivalence.csv": "a588368fe3c331d5a3d4a493ad3009cd1ed1b85f86e4fa2f3c2cbbbccd3eacfc",
-    "performance-tests.csv": "db660c13312ed7d2b8e83ac6a5c507a2249b25d6f56e4d2e91ba9042bcebfda9",
+    "replicates.csv.gz": "978ab721fce3631955be9c5cadddce2976eab1f5018523bd9903ec31e36781cd",
+    "summary.csv": "0db691ec6224bef3a71772d97965f8119088cb8b60459d766a6a18cf9a4a2792",
+    "equivalence.csv": "5f39b7ef706076c1f87f987f19380e1eba197658fe839df2f21287a445d14e63",
+    "performance-tests.csv": "df0b9c7cae7a438767835dd735bcdc0a514607a739c6b078d06a27ba17592fe0",
     "property-replicates.csv.gz": "42d31646df372db2a6c19025e29938d7b80d5e3dbc765ff67817acc8a6f35833",
     "properties.csv": "b6072e4f511360e48c4440d0f0e769415d2fd615b47bcd1dda070ef5a29e4f1a"
   }

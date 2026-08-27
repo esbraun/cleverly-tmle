@@ -118,5 +118,16 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
 - The uncapped shift requires extrapolation at rare sample-edge doses; the support warning is an explicit limitation.
 - One of five paired comparisons is inconclusive at the shared 99% non-inferiority margin. The reporting policy publishes it without changing the observed margin.
+- That row is `ate_shift[+0.25 vs natural course]`, and it fails calibration non-inferiority alone.
+  Its cause is the density asymmetry this page declares above, not a defect in either targeting
+  step. Three measurements locate it. The two natural-course rows are identical to six figures,
+  because the ratio is one there and the discretization does nothing. The two `ey_shift[+0.25]`
+  SE ratios agree to within 0.2 percent. The discretized ratio differs from the analytic ratio by
+  a median of 0.3 percent and a mean of 1.8 percent on the primary law, and a contrast subtracts
+  two influence curves that nearly cancel, which turns that small relative deviation into a four
+  percent difference in the contrast standard error.
+- Bin resolution is not the cause. A shift of 0.25 moves 99.6 percent of rows across a bin edge on
+  the primary law, against a median bin width of 0.013, so the policy is not invisible to the
+  estimator.
 - It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learning.
 - It does not validate categorical, longitudinal, or multiple-time modified treatment policies.

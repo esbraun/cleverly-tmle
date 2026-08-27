@@ -25,6 +25,10 @@ from tests.studies.intervention_study_helpers import (
     truths,
 )
 
+LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
+R_BASE_IMAGE = (
+    "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+)
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 2_000
 SEED = 20260902
@@ -62,7 +66,7 @@ STUDY = StudyRecord(
     resampling_seed=20260912,
     margins=Margins(),
     implementation="cleverly",
-    reference=None,
+    reference="lmtp",
     modules=(
         "tests/studies/canonical_stochastic_regimes.py",
         "tests/studies/stochastic_regime_properties.py",
@@ -99,13 +103,22 @@ STUDY = StudyRecord(
     },
 )
 
+REFERENCE_METADATA = {
+    "lmtp_commit": LMTP_COMMIT,
+    "r_base_image": R_BASE_IMAGE,
+    "reference_parameter": (
+        "one-node policy with a supplied density ratio: mtp=FALSE for the static regime and "
+        "mtp=TRUE for one draw from the declared stochastic density"
+    ),
+}
+
 CONFIGURATION = {
     "construction": "ordinary",
     "cross_fit": False,
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
     "regimes": ["never", "tilt"],
-    "external_comparator": None,
+    "external_comparator": "lmtp point adapter with a supplied analytic density ratio",
 }
 
 
@@ -155,17 +168,30 @@ def cleverly_rows(
     )
 
 
-def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
+def _replicate(
+    payload: tuple[str, int, int],
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
     scenario, replicate, n = payload
     frame, reference = draw_scenario(scenario, n, replicate)
-    return cleverly_rows(frame, reference, scenario, replicate)
+    sample = frame.copy()
+    sample.insert(0, "replicate", replicate)
+    sample.insert(0, "scenario", scenario)
+    truth_rows = [
+        {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
+        for name, value in reference.items()
+    ]
+    return sample, truth_rows, cleverly_rows(frame, reference, scenario, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(
+    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     outcomes = map_parallel(
         _replicate,
         [((SCENARIO, replicate, n),) for replicate in range(replicates)],
         n_jobs=n_jobs,
     )
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
+    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]

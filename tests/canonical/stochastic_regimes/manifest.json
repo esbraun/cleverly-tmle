@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
+      "cleverly_commit": "a2dbae67caafd84b255140c80467c2aa9a36034b",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -14,7 +14,12 @@
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
-    "reference": null
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "one-node policy with a supplied density ratio: mtp=FALSE for the static regime and mtp=TRUE for one draw from the declared stochastic density"
+    }
   },
   "configuration": {
     "replicates": 800,
@@ -40,7 +45,7 @@
       "never",
       "tilt"
     ],
-    "external_comparator": null,
+    "external_comparator": "lmtp point adapter with a supplied analytic density ratio",
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -68,9 +73,9 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_stochastic_regimes.py": "208132b9659d7554c7e0dc6b6ad123df0c26c79b2e578b5f07d35fe4cb4e8c32",
+    "tests/studies/canonical_stochastic_regimes.py": "d7df4eca2047abd0d85f69887be150e8dbe5851ab1896d994a054e4ae7b69594",
     "tests/studies/stochastic_regime_properties.py": "ef8f5ba2e9e48cbc3166648044ed0fbfc7eb910e67f69eff6c1ef2daee4a4d50",
-    "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
+    "tests/studies/intervention_study_helpers.py": "93571e010ead888f67ee1651a4d679e34a082d3b4150dc93694975725d8af88b",
     "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
     "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
@@ -80,12 +85,17 @@
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/stochastic_regimes/run_study.R": "5631a235de74d1f0a12aaad92936fc109bad71745c307dc04a85f4e5cfec153a",
+    "tests/canonical/lmtp_point_adapter.R": "ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
   "sha256": {
-    "replicates.csv.gz": "2e1ed996164d77272426a4014492a4fb2940aab0753f151ba0b57f4274f78dd2",
-    "summary.csv": "b13ab0d329cd84266feec6a88c0196e7b2fb2867fe6c83ffdd910f0cfc7e9d4e",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "294c1b1bc90b854dfb2a7978de9461f653a065b631b99a1a1be46da2f7d016c7",
+    "replicates.csv.gz": "82f4f312431073046b93072e42f761c6fd2c8c9383fe579efdb488ac0993c405",
+    "summary.csv": "7cabb6681d023cc66d7d533196fa8796ee6a0f21723c69971e6ad917117531c8",
+    "equivalence.csv": "60c0a25568a10cf52a7d7027e5612f7514fb0c1eca2de1c9c0dc3685ca614021",
+    "performance-tests.csv": "ffbf33dde6fcc839b166091ae0a73a7ea4f83b5f67cb1e8614bdd917f90bf0d2",
     "property-replicates.csv.gz": "9aeceb7982d04d05f464fab7b1e093ea191789b2b0810519510b9953892d38fc",
     "properties.csv": "d9bf71e288058280b1596f2837ead26ebc97ccb18f85ce54003d3bf7925bba3f"
   }

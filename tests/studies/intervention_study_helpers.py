@@ -7,10 +7,47 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures
 
 from tests import discrete_law as law
 
 INTERVENTION_CALIBRATION_REPLICATES = 4_000
+
+
+def saturated_discrete_outcome() -> Pipeline:
+    """The correctly specified outcome regression for the shared finite-support law.
+
+    The design a learner receives is ``[A, W]``, and ``W`` carries the three covariate levels
+    as the numbers 0, 1 and 2.  A logistic regression reading that column as a number states
+    that the second level sits exactly halfway between the first and the third on the logit
+    scale, which this law does not do.  One parameter per cell says nothing about the levels
+    and is what the R comparators fit, so the comparison measures targeting rather than two
+    unrelated regression pipelines.
+
+    The misspecification this replaces was not visible in bias, because the studies supply the
+    treatment mechanism exactly and a targeted estimator with a correct mechanism stays
+    consistent whatever the outcome model says.  It was visible in the *influence curve*: the
+    numeric-column fit inflated the standard error of every intervention-versus-natural-course
+    contrast by five to six percent against the exact-law efficient influence curve, while the
+    saturated fit reproduces it to within one.  A conservative interval is not a wrong answer,
+    which is why only a comparison against an implementation that saturates its own design
+    found it.
+
+    Returns
+    -------
+    sklearn.pipeline.Pipeline
+        One-hot indicators for ``A`` and ``W``, their two-way interactions, and a
+        near-unregularised logistic regression.  The identically-zero product of two levels of
+        the same variable is collinear and contributes nothing; ``C=1e6`` keeps the fit off the
+        boundary without moving it.
+    """
+    return make_pipeline(
+        OneHotEncoder(drop="first", sparse_output=False),
+        PolynomialFeatures(degree=2, interaction_only=True, include_bias=False),
+        LogisticRegression(C=1e6, max_iter=2_000),
+    )
 
 
 def sample_discrete(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:

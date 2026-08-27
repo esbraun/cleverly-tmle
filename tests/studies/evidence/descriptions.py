@@ -98,7 +98,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle": "R `ltmle`",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
-    "imtp": "R `imtp` point-curve witness",
+    "npcausal": "R `npcausal`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "tmle3": "R `tmle3`",
@@ -159,6 +159,16 @@ REGIMENS: dict[str, str] = {
     "odds x2": "multiply the treatment odds by two",
     "rule": "follow the covariate-dependent rule",
     "tilt": "draw from the known stochastic tilt",
+}
+
+#: How a point-treatment study reads a plan label whose ordinary reading counts treatment
+#: times.  ``never`` is the only label that differs, and the difference is not cosmetic: a
+#: point-treatment study assigns one treatment, so "treat at neither time" describes a design
+#: that study does not have.  The bracket alone cannot tell the two apart, because both
+#: constructions write ``[never]``; the parameter name is what separates ``ey_regime`` from
+#: ``ey_regimen`` and it is passed in rather than guessed.
+POINT_REGIMENS: dict[str, str] = {
+    "never": "assign no treatment",
 }
 
 #: What the parameterised estimand names mean once the regimen is resolved.
@@ -548,8 +558,10 @@ def estimand(key: str) -> str:
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
+    # ``ey_regime`` is the point-treatment parameter and ``ey_regimen`` the longitudinal one.
+    point = name in {"ey_regime", "ate_regime"}
     if _HORIZON not in argument:
-        return f"{parameter} {regimen(argument)}"
+        return f"{parameter} {regimen(argument, point=point)}"
     # Two constructions index a regimen mean by horizon, and the bracket is what tells them
     # apart.  A competing-risk key carries a cause beside the plan --
     # ``ate_regimen[always vs never, relapse @ t=2]`` -- and a single-event key does not.
@@ -576,17 +588,35 @@ def estimand(key: str) -> str:
         return f"{incidence} {regimen(plan)} at horizon t = {horizon}"
     if name == "ate_regimen":
         parameter = "difference in cumulative risk between the plans"
-    return f"{parameter} {regimen(argument)}"
+    return f"{parameter} {regimen(argument, point=point)}"
 
 
-def regimen(argument: str) -> str:
-    """A regimen label, or a contrast written as one label against another."""
+def regimen(argument: str, *, point: bool = False) -> str:
+    """A regimen label, or a contrast written as one label against another.
+
+    Parameters
+    ----------
+    argument : str
+        The bracketed half of an estimand key, which may be one label or ``"a vs b"``.
+    point : bool, optional
+        Whether the parameter is the point-treatment one. A label listed in
+        :data:`POINT_REGIMENS` reads differently there.
+
+    Returns
+    -------
+    str
+        The label in words.
+    """
     if _HORIZON in argument:
         label, horizon = argument.rsplit(_HORIZON, 1)
-        return f"{regimen(label)} at horizon t = {horizon}"
+        return f"{regimen(label, point=point)} at horizon t = {horizon}"
     if " vs " in argument:
         treated, reference = argument.split(" vs ", 1)
-        return f'"{regimen(treated)}" against "{regimen(reference)}"'
+        treated_words = regimen(treated, point=point)
+        reference_words = regimen(reference, point=point)
+        return f'"{treated_words}" against "{reference_words}"'
+    if point and argument in POINT_REGIMENS:
+        return POINT_REGIMENS[argument]
     try:
         return REGIMENS[argument]
     except KeyError:

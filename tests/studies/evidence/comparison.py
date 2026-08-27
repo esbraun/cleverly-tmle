@@ -157,8 +157,7 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         replicates=margins.bootstrap_replicates,
         seed=seed,
     )
-    point_only = estimand in record.point_only_reference
-    comparable = not point_only and estimand not in record.incomparable_se
+    comparable = estimand not in record.incomparable_se
     calibration_upper = (
         upper_bound(samples["calibration_excess"], confidence_level=margins.confidence_level)
         if comparable
@@ -177,12 +176,8 @@ def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[
         "rmse_ratio_upper": upper_bound(
             samples["rmse_ratio"], confidence_level=margins.confidence_level
         ),
-        "coverage_difference_lower": (
-            math.nan
-            if point_only
-            else lower_bound(
-                samples["coverage_difference"], confidence_level=margins.confidence_level
-            )
+        "coverage_difference_lower": lower_bound(
+            samples["coverage_difference"], confidence_level=margins.confidence_level
         ),
         "calibration_excess_upper": calibration_upper,
         "calibration_excess_resolution": calibration_upper - point,
@@ -245,8 +240,7 @@ def equivalence(
         )
         rmse_ratio = float(cell.loc[subject, "rmse"] / cell.loc[reference, "rmse"])
         coverage_difference = float(cell.loc[subject, "coverage"] - cell.loc[reference, "coverage"])
-        point_only = estimand in record.point_only_reference
-        se_comparable = not point_only and estimand not in record.incomparable_se
+        se_comparable = estimand not in record.incomparable_se
         calibration_excess = float(
             max(
                 0.0,
@@ -256,9 +250,7 @@ def equivalence(
         )
         not_inferior = bool(
             bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
-            and (
-                point_only or bound["coverage_difference_lower"] >= margins.coverage_noninferiority
-            )
+            and bound["coverage_difference_lower"] >= margins.coverage_noninferiority
             and (
                 not se_comparable
                 or bound["calibration_excess_upper"] <= margins.calibration_noninferiority
@@ -267,8 +259,7 @@ def equivalence(
         similar = interval.within(-mean_margin, mean_margin)
         subject_valid = bool(verdicts.loc[(subject, scenario, estimand)])
         coverage_superior = bool(
-            not point_only
-            and bound["coverage_difference_lower"] > 0.0
+            bound["coverage_difference_lower"] > 0.0
             and subject_valid
             and bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
             and (

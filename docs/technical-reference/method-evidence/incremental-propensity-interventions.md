@@ -1,37 +1,42 @@
 # Incremental propensity interventions
 
 This study validates three incremental treatment-odds multipliers, including the natural course
-at one. Pinned R `imtp` at commit `d4b5204` supplies a point-curve witness on identical samples.
-Its influence curve omits the derivative through the treatment mechanism, so it is not treated
-as a canonical inference comparator; `cleverly` inference is gated independently.
+at one. It compares `cleverly` with R `npcausal` at commit `56a5ac1` on identical samples.
+Kennedy (2019) publishes `npcausal`, and its influence values carry the derivative through the
+treatment mechanism. The comparison therefore gates inference as well as the point curve.
+
+R `imtp` 0.1.0 held this role in an earlier revision and no longer does. Its reported influence
+curve omits that derivative, so it can witness the point curve and cannot gate a standard error.
+[Choosing a comparator](../../development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)
+records the full survey.
 
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000039 to 0.000378 | 0.9569 | 1.0489 | pass |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | R `imtp` point-curve witness | 0.000059 to 0.000721 | 0.9631 | 1.0966 | pass |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000412 to 0.000034 | 0.9594 | 1.0581 | pass |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | R `imtp` point-curve witness | -0.000378 to 0.000341 | 0.9731 | 1.1180 | pass |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000039 to 0.000378 | 0.9431 | 0.9932 | pass |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | R `npcausal` | -0.000187 to 0.000234 | 0.9444 | 0.9869 | pass |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000412 to 0.000034 | 0.9463 | 0.9986 | pass |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | R `npcausal` | -0.000244 to 0.000209 | 0.9475 | 0.9889 | pass |
 | binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | `cleverly` | -0.000628 to 0.000839 | 0.9381 | 0.9824 | pass |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | R `imtp` point-curve witness | -0.000612 to 0.000910 | 0.9350 | 0.9472 | pass |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | `cleverly` | -0.000477 to 0.0010 | 0.9463 | 0.9964 | pass |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | R `imtp` point-curve witness | -0.000228 to 0.0013 | 0.7894 | 0.6448 | **fail** |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | `cleverly` | -0.000850 to 0.000683 | 0.9400 | 0.9808 | pass |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | R `imtp` point-curve witness | -0.000662 to 0.000924 | 0.9875 | 1.2503 | **fail** |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | R `npcausal` | -0.000628 to 0.000839 | 0.9381 | 0.9824 | pass |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | `cleverly` | -0.000477 to 0.0010 | 0.9444 | 0.9885 | pass |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | R `npcausal` | -0.000622 to 0.000881 | 0.9425 | 0.9895 | pass |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | `cleverly` | -0.000850 to 0.000683 | 0.9381 | 0.9762 | pass |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | R `npcausal` | -0.000681 to 0.000858 | 0.9363 | 0.9741 | pass |
 <!-- /generated -->
 
-## Agreement with the point-curve witness
+## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | -0.000221 | 0.3432 | 0.6593 | -0.0062 | n/a | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | -0.000171 | 0.2455 | 0.6501 | -0.0138 | n/a | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | -0.000043 | 0.0249 | 0.9791 | 0.0031 | n/a | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | -0.000264 | 0.1495 | 0.9925 | 0.1569 | n/a | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | -0.000214 | 0.1180 | 0.9809 | -0.0475 | n/a | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | 0.000146 | 0.2993 | 0.9984 | -0.0012 | 0.0180 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | -0.000172 | 0.3287 | 0.9944 | -0.0012 | 0.0254 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | 6.730e-13 | 3.942e-10 | 1.0000 | 0 | 4.226e-11 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | 0.000146 | 0.0834 | 1.0026 | 0.0019 | 0.0019 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | -0.000172 | 0.0962 | 0.9993 | 0.0019 | 0.0052 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -71,15 +76,15 @@ power controls, both targeting equations, the treatment-score term, and the natu
 | --- | --- | --- |
 | `replicates` | 1600 | paired replications |
 | `n` | 2000 | observations per replication |
-| `independent_tests_passed` | 8 | truth tests passing |
+| `independent_tests_passed` | 10 | truth tests passing |
 | `independent_tests_total` | 10 | truth tests reported |
-| `paired_tests_passed` | 5 | paired point-curve comparisons passing |
-| `paired_tests_total` | 5 | paired point-curve comparisons reported |
+| `paired_tests_passed` | 5 | paired comparisons passing |
+| `paired_tests_total` | 5 | paired comparisons reported |
 | `property_cells_passed` | 21 | property cells passing |
 | `property_cells_total` | 21 | property cells reported |
-| `max_standardized_bias` | 0.0760 | largest primary standardized bias |
-| `min_coverage` | 0.7894 | lowest primary coverage |
-| `max_margin_utilization` | 0.3432 | largest paired similarity-margin share |
+| `max_standardized_bias` | 0.0546 | largest primary standardized bias |
+| `min_coverage` | 0.9363 | lowest primary coverage |
+| `max_margin_utilization` | 0.3287 | largest paired similarity-margin share |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -111,8 +116,17 @@ power controls, both targeting equations, the treatment-score term, and the natu
 ## Limits
 
 - The laws use binary treatment, binary outcome, and one three-level baseline covariate.
-- The primary outcome model is logistic and the treatment mechanism is supplied exactly to `cleverly`.
-- R `imtp` uses saturated baseline indicators and one-fold main-effects Super Learner fits.
-- Only pointwise `cleverly` Wald inference is validated; `imtp` inference is explicitly noncanonical.
-- The study covers ordinary, non-cross-fitted targeting and three fixed odds multipliers.
+- Both implementations saturate that covariate. `cleverly` fits one-hot indicators and their
+  interaction with treatment. `npcausal` fits `SL.glm.interaction` over the same design. The
+  treatment mechanism is supplied exactly to `cleverly` and is estimated by `npcausal`.
+- An earlier revision fitted the covariate as one numeric column. That model is misspecified, and
+  it inflated the standard error of each contrast against the natural course by five to six
+  percent above the exact-law efficient influence curve. Bias and coverage did not show it,
+  because a correct mechanism keeps a targeted estimator consistent whatever the outcome model
+  says. Consistency under a wrong outcome model is claimed by the `mechanism_requirement`
+  property cells, which use exact nuisances and carry their own control.
+- `npcausal` cross-fits its nuisances over two folds and `cleverly` does not. The single-fold path
+  that `?ipsi` documents selects an empty training set and is not usable.
+- Only pointwise Wald inference is validated for either implementation.
+- The study covers ordinary, non-cross-fitted `cleverly` targeting and three fixed odds multipliers.
 - It excludes missing outcomes, weights, clusters, simultaneous bands, flexible learners, multinomial treatment, and longitudinal interventions.

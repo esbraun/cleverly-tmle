@@ -1,18 +1,37 @@
 # Stochastic point-treatment regimes
 
-This study validates an ordinary known stochastic regime over two treatment arms.
-No canonical implementation is compared: pinned `tmle3` does not integrate over stochastic counterfactuals,
-and `lmtp` evaluates policies applied to natural treatment values. The zero-row equivalence
-artifact records that boundary explicitly.
+This study validates an ordinary known stochastic regime over two treatment arms. It compares
+`cleverly` with pinned R `lmtp` 1.5.4 on identical binary-outcome samples and exact treatment
+probabilities.
+
+The comparison runs through the shared point adapter rather than through `lmtp`'s shift interface.
+That interface takes a function of the natural treatment value, and this regime ignores that
+value. The adapter supplies the analytic density ratio and the shifted frame directly. The static
+regime uses `mtp = FALSE`. The tilt draws one treatment value per unit from the declared density
+and uses `mtp = TRUE`. Pinned `tmle3` stays unusable for this parameter, because `Param_TSM`
+evaluates a counterfactual at one treatment value and integrates over no density.
 
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "treat at neither time" | `cleverly` | -0.000970 to 0.000901 | 0.9437 | 1.0142 | pass |
-| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime treat at neither time | `cleverly` | -0.0020 to 0.000657 | 0.9387 | 0.9948 | pass |
+| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "assign no treatment" | `cleverly` | -0.000970 to 0.000901 | 0.9437 | 1.0142 | pass |
+| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "assign no treatment" | R `lmtp` | -0.000923 to 0.000980 | 0.9487 | 1.0295 | pass |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime assign no treatment | `cleverly` | -0.0020 to 0.000657 | 0.9387 | 0.9948 | pass |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime assign no treatment | R `lmtp` | -0.0020 to 0.000662 | 0.9375 | 0.9946 | pass |
 | binary-outcome law with a known stochastic treatment density | `ey_regime[tilt]` | mean under the regime draw from the known stochastic tilt | `cleverly` | -0.0018 to 0.000390 | 0.9375 | 0.9993 | pass |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[tilt]` | mean under the regime draw from the known stochastic tilt | R `lmtp` | -0.0018 to 0.000482 | 0.9413 | 0.9976 | pass |
+<!-- /generated -->
+
+## Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "assign no treatment" | -0.000063 | 0.0403 | 0.9997 | -0.0050 | 0.0387 vs 0.0500 | equivalent |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime assign no treatment | -0.000001 | 0.000471 | 0.9981 | 0.0012 | 0.0013 vs 0.0500 | equivalent |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[tilt]` | mean under the regime draw from the known stochastic tilt | -0.000064 | 0.0348 | 0.9899 | -0.0037 | 0.0176 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -49,12 +68,15 @@ targeting. A paired control replaces the declared density with a uniform density
 | --- | --- | --- |
 | `replicates` | 800 | replications |
 | `n` | 2000 | observations per replication |
-| `independent_tests_passed` | 3 | truth tests passing |
-| `independent_tests_total` | 3 | truth tests reported |
+| `independent_tests_passed` | 6 | truth tests passing |
+| `independent_tests_total` | 6 | truth tests reported |
+| `paired_tests_passed` | 3 | paired comparisons passing |
+| `paired_tests_total` | 3 | paired comparisons reported |
 | `property_cells_passed` | 18 | property cells passing |
 | `property_cells_total` | 18 | property cells reported |
 | `max_standardized_bias` | 0.0588 | largest primary standardized bias |
 | `min_coverage` | 0.9375 | lowest primary coverage |
+| `max_margin_utilization` | 0.0403 | largest paired similarity-margin share |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -69,10 +91,10 @@ targeting. A paired control replaces the declared density with a uniform density
 | `margin:calibration_coverage_lower` | 0.9200 | calibration coverage lower bound |
 | `margin:calibration_coverage_upper` | 0.9800 | calibration coverage upper bound |
 | `margin:type_i_ceiling` | 0.1000 | type-I upper bound |
-| `margin:paired_difference` | 0.1500 | unused shared paired margin |
-| `margin:rmse_noninferiority` | 1.1000 | unused shared RMSE bound |
-| `margin:coverage_noninferiority` | -0.0250 | unused shared coverage bound |
-| `margin:calibration_noninferiority` | 0.0500 | unused shared calibration bound |
+| `margin:paired_difference` | 0.1500 | paired-similarity margin |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE non-inferiority bound |
+| `margin:coverage_noninferiority` | -0.0250 | coverage non-inferiority bound |
+| `margin:calibration_noninferiority` | 0.0500 | calibration non-inferiority bound |
 | `margin:minimum_power` | 0.8000 | minimum power lower bound |
 | `margin:root_n_slope` | -0.5000 | expected root-n slope |
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
@@ -92,3 +114,8 @@ targeting. A paired control replaces the declared density with a uniform density
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
 - It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learners.
 - It does not validate continuous-dose, incremental, or longitudinal stochastic interventions.
+- The reference evaluates its shifted regression at one draw from the declared density. It does
+  not integrate over that density, so it carries a Monte Carlo variance that `cleverly` does not.
+- Both implementations fit a logistic outcome regression on the covariate as one numeric column.
+  The paired comparison is therefore symmetric in its outcome model. The calibration claim for a
+  correctly specified pair belongs to the `interval_calibration` cells, which use exact nuisances.
