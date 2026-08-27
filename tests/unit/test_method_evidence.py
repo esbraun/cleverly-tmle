@@ -99,6 +99,16 @@ class TestArtifacts:
         assert configuration["seed"] == study.seed
         assert configuration["publication_policy"] == study.publication_policy
         assert configuration["margins"] == study.margins.as_json()
+        if study.accepted_reference_failure:
+            assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
+        else:
+            assert "accepted_reference_failure" not in configuration
+        if study.point_only_reference:
+            assert configuration["point_only_reference_estimands"] == sorted(
+                study.point_only_reference
+            )
+        else:
+            assert "point_only_reference_estimands" not in configuration
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -196,7 +206,10 @@ class TestPublishedVerdicts:
         assert set(published["implementation"]) == set(study.implementations)
         assert (published["confidence_level"] == study.margins.confidence_level).all()
         if study.publication_policy == "gated":
-            assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+            failures = published.loc[~published["passed"]]
+            if study.accepted_reference_failure:
+                failures = failures.loc[failures["implementation"] != study.reference]
+            assert failures.empty, failures.to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
         self, study: StudyRecord
@@ -494,12 +507,17 @@ class TestPublishedVerdicts:
 BIAS_GATED_PROPERTIES = frozenset(
     {
         "double_robustness",
+        "mechanism_requirement",
+        "cap_necessity",
+        "density_necessity",
         "robustness_contract",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
         "projection_necessity",
+        "ratio_necessity",
+        "rule_necessity",
     }
 )
 
@@ -516,9 +534,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "double_robust_contraction",
         "generated_design",
         "interval_calibration",
+        "natural_course_identity",
         "power",
         "root_n_and_efficiency",
         "root_n_rate",
+        "static_reduction",
+        "treatment_score_necessity",
         "type_i_error",
     }
 )
@@ -727,6 +748,10 @@ class TestTheStudyStillMeasuresTheCode:
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         reference = rows.loc[rows["implementation"] == study.reference]
+        if study.point_only_reference:
+            reference = reference.loc[~reference["estimand"].isin(study.point_only_reference)]
+            if reference.empty:
+                pytest.skip("the reference exposes point estimates but no targeting witness")
         moved = (reference["estimate"] - reference["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 
@@ -747,6 +772,19 @@ class TestTheStudyStillMeasuresTheCode:
                 f"{estimand} is declared incomparable but both implementations report the "
                 f"same scale {reported}, so the exemption is not earned"
             )
+
+    def test_point_only_references_never_gate_inference(
+        self, study: StudyRecord, rows: pd.DataFrame
+    ) -> None:
+        if not study.point_only_reference:
+            pytest.skip("study declares no point-only reference estimands")
+        assert study.accepted_reference_failure
+        assert study.point_only_reference.issubset(study.estimands)
+        published = pd.read_csv(study.artifact("equivalence.csv")).set_index("estimand")
+        selected = published.loc[sorted(study.point_only_reference)]
+        assert not selected["se_comparable"].any()
+        assert not selected["coverage_superior"].any()
+        assert selected["coverage_difference_lower"].isna().all()
 
     def test_the_ratio_estimands_report_on_the_log_scale(
         self, study: StudyRecord, rows: pd.DataFrame

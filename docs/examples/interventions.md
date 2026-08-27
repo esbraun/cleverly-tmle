@@ -293,13 +293,19 @@ print(incremental_result.validate().summary())
 | --- | --- | --- |
 | the per-policy support reports | which declared policies the program data can carry | that a well-supported policy is worth adopting |
 | the score-equation checks | each axis solved its own score equation | that the axis you chose matches the decision the office faces |
-| the evidence manifest | each axis has its own exact-law, Gateaux, and remainder checks, with nonzero witnesses | a repeated-sampling study. The intervention axes have no row in the validation grid |
+| the evidence manifest | each axis has its own exact-law, Gateaux, remainder, and registered repeated-sampling checks, with nonzero controls | that a result on these declared laws transfers to missing outcomes, weights, clusters, cross-fitting, or longitudinal treatment |
 
 The evidence for these axes is in the
 [evidence manifest](../technical-reference/evidence.md#the-table), under `ey_regime`, `ate_regime`,
 `ey_shift`, `ate_shift`, `ey_ipsi`, and `ate_ipsi`. The incremental rows carry nonzero
 treatment-score and one-sided remainder witnesses, which exist because a check at the truth alone
 would be blind to a term that vanishes there.
+
+The repeated-sampling results are reported separately for
+[deterministic regimes](../technical-reference/method-evidence/deterministic-point-treatment-regimes.md),
+[known stochastic regimes](../technical-reference/method-evidence/stochastic-point-treatment-regimes.md),
+[continuous policies](../technical-reference/method-evidence/continuous-modified-treatment-policies.md),
+and [incremental interventions](../technical-reference/method-evidence/incremental-propensity-interventions.md).
 
 The choice among the three axes is not a statistical question. It is a question about which change
 the program office can actually make.

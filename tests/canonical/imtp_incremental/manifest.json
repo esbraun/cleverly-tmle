@@ -1,0 +1,111 @@
+{
+  "schema_version": 2,
+  "study": "incremental propensity-score interventions",
+  "slug": "incremental-interventions",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "89031c60827627f336ce8a06d8ae1da77248bc2b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "imtp",
+      "imtp_commit": "d4b5204f9505147a54ac415180e84b86f005c8b2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "point-treatment incremental odds curve",
+      "reference_scope": "point estimates only; influence-curve inference is not canonical"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20260904,
+    "resampling_seed": 20260914,
+    "publication_policy": "gated",
+    "accepted_reference_failure": "Pinned imtp supplies a point-curve witness only: its reported influence curve omits the derivative through the treatment mechanism, so its independent inference gate is expected to fail and is not evidence for cleverly's inference.",
+    "point_only_reference_estimands": [
+      "ate_ipsi[odds x0.5 vs natural course]",
+      "ate_ipsi[odds x2 vs natural course]",
+      "ey_ipsi[natural course]",
+      "ey_ipsi[odds x0.5]",
+      "ey_ipsi[odds x2]"
+    ],
+    "scenarios": {
+      "binary_incremental_odds": [
+        "ey_ipsi[natural course]",
+        "ey_ipsi[odds x2]",
+        "ey_ipsi[odds x0.5]",
+        "ate_ipsi[odds x2 vs natural course]",
+        "ate_ipsi[odds x0.5 vs natural course]"
+      ]
+    },
+    "construction": "ordinary",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "deltas": {
+      "natural course": 1.0,
+      "odds x2": 2.0,
+      "odds x0.5": 0.5
+    },
+    "external_comparator": "imtp point estimates only",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_incremental_interventions.py": "e106c49e59cfdcf188eb1a0bcecf4070451f91088b285ee734d93a35d79389e5",
+    "tests/studies/incremental_intervention_properties.py": "1904ac66708591174999f178e69a632b3dab66287c95f24fcc11f57f760818d2",
+    "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
+    "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
+    "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
+    "tests/incrementals.py": "e86b0702753dc7777da81cd92c683996ab40eed9ab69be6d6317f8b7c0876a22",
+    "tests/studies/evidence/comparison.py": "28816b47bc09fe39b7107d2b6c6b644684c19cf6a735d7b8e2c8517c36f1595f",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/imtp_incremental/Dockerfile": "c397467f016c99257260d85915beca9e7043fc1c011e18bbe11b61cac5663c9e",
+    "tests/canonical/imtp_incremental/run_study.R": "f97b59e4cb95203d437aac9d8afb35b0ccbdf29d3c62e53f46afac41d7d3336c",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "35e6c26394b964ca00d7ba172e749c126d25de502c5f1536f8aaba9990bcb9ba",
+    "summary.csv": "ada4826bbed4dccbdc0a4564595309b37aa26615119a22eb169db779418f9a3f",
+    "equivalence.csv": "a588368fe3c331d5a3d4a493ad3009cd1ed1b85f86e4fa2f3c2cbbbccd3eacfc",
+    "performance-tests.csv": "db660c13312ed7d2b8e83ac6a5c507a2249b25d6f56e4d2e91ba9042bcebfda9",
+    "property-replicates.csv.gz": "42d31646df372db2a6c19025e29938d7b80d5e3dbc765ff67817acc8a6f35833",
+    "properties.csv": "b6072e4f511360e48c4440d0f0e769415d2fd615b47bcd1dda070ef5a29e4f1a"
+  }
+}

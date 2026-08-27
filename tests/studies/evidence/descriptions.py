@@ -43,6 +43,15 @@ ARMS: dict[str, str] = {
     "death_static_t2": "static death contrast at horizon two",
     "relapse_always_t2": "always-treat relapse incidence at horizon two",
     "death_always_t2": "always-treat death incidence at horizon two",
+    "contrast": "odds-x2 contrast",
+    "mechanism": "treatment-mechanism targeting",
+    "natural": "natural course",
+    "never": "never-treated plan",
+    "odds_x2": "odds-x2 incremental mean",
+    "outcome": "outcome-regression targeting",
+    "rule": "covariate-dependent rule",
+    "shift": "capped modified treatment policy",
+    "tilt": "known stochastic tilt",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -89,6 +98,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle": "R `ltmle`",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
+    "imtp": "R `imtp` point-curve witness",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "tmle3": "R `tmle3`",
@@ -116,6 +126,10 @@ SCENARIOS: dict[str, str] = {
     "both_correct": "paper binary law, both nuisances correct",
     "outcome_correct": "paper binary law, outcome regression correct",
     "treatment_correct": "paper binary law, treatment mechanism correct",
+    "binary_dynamic_rule": "binary-outcome law with a covariate-dependent deterministic rule",
+    "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
+    "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
+    "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
 }
 
 
@@ -138,6 +152,13 @@ REGIMENS: dict[str, str] = {
     "continue_if_l2": "treat first, then continue if L2 equals one",
     "never": "treat at neither time",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
+    "+0.25": "shift dose by 0.25",
+    "+0.5 capped": "shift dose by 0.5 subject to the declared cap",
+    "natural course": "leave the observed treatment mechanism unchanged",
+    "odds x0.5": "multiply the treatment odds by 0.5",
+    "odds x2": "multiply the treatment odds by two",
+    "rule": "follow the covariate-dependent rule",
+    "tilt": "draw from the known stochastic tilt",
 }
 
 #: What the parameterised estimand names mean once the regimen is resolved.
@@ -146,10 +167,17 @@ PARAMETERISED: dict[str, str] = {
     "ey_regimen": "mean outcome under the plan",
     "ate_regimen": "difference in mean outcome between the plans",
     "risk_regimen": "cumulative risk under the plan",
+    "ate_ipsi": "difference in means under the incremental interventions",
+    "ate_regime": "difference in means under the regimes",
+    "ate_shift": "difference in means under the modified treatment policies",
+    "ey_ipsi": "mean under the incremental intervention",
+    "ey_regime": "mean under the regime",
+    "ey_shift": "mean under the modified treatment policy",
 }
 
 
 PROPERTIES: dict[str, str] = {
+    "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
@@ -165,15 +193,21 @@ PROPERTIES: dict[str, str] = {
         "the outcome-adaptive design costs precision when its regression is estimated rather "
         "than known"
     ),
+    "density_necessity": "the declared stochastic intervention density determines the target",
     "interval_calibration": (
         "the reported standard error and the exact coverage both sit inside their declared "
         "two-sided calibration bands"
     ),
+    "mechanism_requirement": (
+        "the treatment mechanism must be correct because it defines the incremental parameter"
+    ),
+    "natural_course_identity": "the natural-course intervention reduces exactly to the sample mean",
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
     "projection_necessity": (
         "the declared projection measure determines the coefficient rather than an implicit "
         "uniform measure"
     ),
+    "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
     ),
@@ -181,6 +215,7 @@ PROPERTIES: dict[str, str] = {
         "bias, coverage and standard-error calibration hold across sample sizes"
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
+    "rule_necessity": "the covariate-dependent rule, rather than a static substitute, determines the target",
     "selector_necessity": "the collaborative selector is what produces the result, not the fit around it",
     "competing_risk_recursion_necessity": (
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
@@ -190,7 +225,11 @@ PROPERTIES: dict[str, str] = {
         "the absorbing-event recursion is what produces cumulative risk, not an analysis "
         "restricted to survivors"
     ),
+    "static_reduction": "a static regime reduces exactly to the corresponding treatment-arm target",
     "targeting_necessity": "the targeting step is what produces the result, not the plug-in beneath it",
+    "treatment_score_necessity": (
+        "incremental inference includes the influence-curve derivative through the treatment mechanism"
+    ),
     "type_i_error": "under a confounded sharp null the test rejects no more often than its nominal size",
 }
 
@@ -261,6 +300,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "only the treatment mechanism is correctly specified",
         "bias interval inside the equivalence margin",
     ),
+    ("double_robustness", "density_correct"): (
+        "only the continuous-dose density ratio is correctly specified",
+        "bias interval inside the equivalence margin",
+    ),
     ("double_robustness", "mechanism_correct"): (
         "only the treatment and censoring mechanisms are correctly specified",
         "bias interval inside the equivalence margin",
@@ -276,6 +319,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("generated_design", "estimated"): (
         "the same design is estimated from the data, as a real fit does",
         "the SE-ratio deficit must reach the declared shortfall",
+    ),
+    ("mechanism_requirement", "both_correct"): (
+        "both the outcome regression and treatment mechanism are correctly specified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mechanism_requirement", "outcome_wrong"): (
+        "the treatment mechanism is correct and the outcome regression is misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mechanism_requirement", "mechanism_wrong"): (
+        "the wrong treatment mechanism is held fixed when the incremental target is evaluated",
+        "bias interval must fall entirely outside the margin",
     ),
     ("interval_calibration", "correctly_specified"): (
         "both nuisances are correctly specified",
@@ -300,6 +355,66 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("projection_necessity", "uniform_weights"): (
         "the identical working model is projected under uniform weights",
         "bias interval must fall entirely outside the margin",
+    ),
+    ("rule_necessity", "declared"): (
+        "the declared covariate-dependent rule assigns both treatment arms",
+        "bias interval inside the equivalence margin",
+    ),
+    ("rule_necessity", "static_control"): (
+        "the same fit replaces the rule with an always-treated static plan",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("density_necessity", "declared"): (
+        "the estimator integrates over the declared covariate-dependent treatment density",
+        "bias interval inside the equivalence margin",
+    ),
+    ("density_necessity", "uniform_control"): (
+        "the same fit replaces the declared density with a uniform distribution",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("ratio_necessity", "declared"): (
+        "the shifted-to-natural density ratio is used in the declared direction",
+        "bias interval inside the equivalence margin",
+    ),
+    ("ratio_necessity", "reversed_control"): (
+        "the density probabilities are deliberately inverted before the pooled-hazard ratio is formed",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cap_necessity", "declared_cap"): (
+        "the 0.5 shift leaves doses unchanged when the declared cap would be crossed",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cap_necessity", "uncapped_control"): (
+        "the same named policy removes the cap and shifts every dose",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("static_reduction", "regime"): (
+        "the never-treated target is requested through the regime axis",
+        "the paired estimate must equal the treatment-arm estimate exactly",
+    ),
+    ("static_reduction", "arm"): (
+        "the same target is requested as the ordinary untreated-arm mean",
+        "the paired estimate must equal the regime estimate exactly",
+    ),
+    ("natural_course_identity", "shift"): (
+        "the zero-shift policy is evaluated through the continuous-policy axis",
+        "the paired estimate must equal the observed sample mean exactly",
+    ),
+    ("natural_course_identity", "ipsi"): (
+        "the odds multiplier one is evaluated through the incremental axis",
+        "the paired estimate must equal the observed sample mean exactly",
+    ),
+    ("natural_course_identity", "mean"): (
+        "the observed sample mean is retained as the identity control",
+        "the paired intervention estimate must equal it exactly",
+    ),
+    ("treatment_score_necessity", "full_eif"): (
+        "the incremental mean uses the complete efficient influence curve",
+        "the reported-to-empirical SE-ratio interval must stay inside the declared band",
+    ),
+    ("treatment_score_necessity", "regime_curve_control"): (
+        "the same point estimates use an influence curve with the treatment-score term removed",
+        "the SE-ratio interval must fall below the calibration band",
     ),
     ("robustness_contract", "outcome_correct"): (
         "the outcome regression is correct and the mechanism is not",
@@ -514,6 +629,19 @@ def cell(
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
+    if family == "targeting_necessity" and arm is not None:
+        if arm.group("arm") == "mechanism":
+            tested = (
+                "the treatment mechanism is fluctuated after outcome targeting"
+                if base == "targeted"
+                else "the identical targeted outcome regression is evaluated at the unfluctuated mechanism"
+            )
+        elif arm.group("arm") == "outcome":
+            tested = (
+                "the outcome regression is fluctuated before the incremental target is evaluated"
+                if base == "targeted"
+                else "the identical targeted mechanism is evaluated with the initial outcome regression"
+            )
     if family == "root_n_and_efficiency" and base in {"n_500", "n_1000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule

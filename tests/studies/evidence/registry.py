@@ -165,6 +165,10 @@ class StudyRecord:
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
+    #: Estimands for which the external implementation is a point-estimate witness only.
+    #: Their paired point similarity and RMSE remain gated; reference coverage and standard
+    #: errors are independently reported but cannot support a non-inferiority claim.
+    point_only_reference: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -187,6 +191,13 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
+        if self.point_only_reference and self.reference is None:
+            raise ValueError("a point-only reference declaration needs a reference implementation")
+        unknown = self.point_only_reference.difference(self.estimands)
+        if unknown:
+            raise ValueError(f"point-only reference estimands are not registered: {sorted(unknown)}")
+        if self.point_only_reference.intersection(self.incomparable_se):
+            raise ValueError("point-only references and scale-incomparable SEs must be distinct")
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -230,7 +241,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
+    from tests.studies.canonical_deterministic_regimes import (
+        STUDY as CANONICAL_DETERMINISTIC_REGIMES,
+    )
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
+    from tests.studies.canonical_incremental_interventions import (
+        STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
+    )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
@@ -243,6 +260,8 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
     )
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
+    from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
+    from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
@@ -254,6 +273,10 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_OAT,
         CANONICAL_DRTMLE,
         CANONICAL_POINT_MSM,
+        CANONICAL_DETERMINISTIC_REGIMES,
+        CANONICAL_STOCHASTIC_REGIMES,
+        CANONICAL_SHIFT_POLICIES,
+        CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,

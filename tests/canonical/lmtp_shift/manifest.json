@@ -1,0 +1,103 @@
+{
+  "schema_version": 2,
+  "study": "ordinary continuous modified treatment policies",
+  "slug": "shift-policies",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "89031c60827627f336ce8a06d8ae1da77248bc2b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "one-node continuous modified treatment policy"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260903,
+    "resampling_seed": 20260913,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "continuous_modified_policy": [
+        "ey_shift[natural course]",
+        "ey_shift[+0.25]",
+        "ey_shift[+0.5 capped]",
+        "ate_shift[+0.25 vs natural course]",
+        "ate_shift[+0.5 capped vs natural course]"
+      ]
+    },
+    "construction": "ordinary",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "density_bins": 320,
+    "density_bins_when_load_bearing": 320,
+    "outcome_curvature": 0.15,
+    "policies": [
+      "natural course",
+      "+0.25",
+      "+0.5 capped"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_shift_policies.py": "d1a5c7e1bf56765bfb9388aa7a4bcd71dfd12905e21976050821baf31f50abfe",
+    "tests/studies/shift_policy_properties.py": "d1e3cb4d8d31bd447857767867b06a64ebd71e3b6a74778b8197e6677dd9ad19",
+    "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
+    "tests/discrete_law_shift.py": "95c2df8bcb215f04b2bda71c130704282e3b26e81169609f6f6aadc7a817448d",
+    "tests/studies/evidence/comparison.py": "28816b47bc09fe39b7107d2b6c6b644684c19cf6a735d7b8e2c8517c36f1595f",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_shift/run_study.R": "c085d899542148aad45b9ab9f769318f6060314949f17213c217cb3f16d51b16",
+    "tests/canonical/lmtp_point_adapter.R": "ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "6e76418bef0ef2d76cedaba651a357947bfabc5ab9441e4c85855295ad6f8619",
+    "summary.csv": "8596052013f0fb45ae4039d8c399ce551e973ab2ae0a3aadab24a635e68c7b28",
+    "equivalence.csv": "4d9c2d21591ac191f74ac60464103cb907eac3586737142e50efba778aeab100",
+    "performance-tests.csv": "5cf5624b56103cc72975861cf13577e6304717e8f70cf6c5f73096d753d7afce",
+    "property-replicates.csv.gz": "066c6a5cec1f7dd636c329d06d30c9b3d93071eb69ed40af7ab7ada1f031a60d",
+    "properties.csv": "623482456ab9f39a84087b18f87467319578818f8de3794f364bdca5f6bc72db"
+  }
+}

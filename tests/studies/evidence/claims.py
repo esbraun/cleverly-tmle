@@ -229,6 +229,13 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    if set(record.property_cells) & {
+        "cap_necessity",
+        "density_necessity",
+        "ratio_necessity",
+        "rule_necessity",
+    }:
+        declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
     if "projection_necessity" in record.property_cells:
         declared["margin:projection_displacement"] = record.properties().PROJECTION_DISPLACEMENT
     # Its own entry rather than a second reader of the one above.  The two families are gated

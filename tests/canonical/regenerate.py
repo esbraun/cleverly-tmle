@@ -347,8 +347,13 @@ def main(
         configuration=study.CONFIGURATION,
     )
 
+    independent_failures = performance.loc[~performance["passed"]]
+    if reference is not None and record.accepted_reference_failure:
+        independent_failures = independent_failures.loc[
+            independent_failures["implementation"] != record.reference
+        ]
     failures = {
-        "independent performance": performance.loc[~performance["passed"]],
+        "independent performance": independent_failures,
         # Both columns, not just ``passed``: a family whose claim spans its cells records that
         # verdict in ``property_passed`` alone, so gating on the per-row column would let a
         # failed joint claim through while every row read green.

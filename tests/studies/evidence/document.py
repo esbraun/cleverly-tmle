@@ -250,6 +250,10 @@ def _measured(row: Any) -> str:
                 f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
             )
         return measured
+    if family == "static_reduction":
+        return f"maximum paired difference {render(float(row.maximum_static_difference))}"
+    if family == "natural_course_identity":
+        return f"maximum paired difference {render(float(row.maximum_identity_difference))}"
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 
@@ -271,9 +275,14 @@ def _has_exact_efficiency(row: Any) -> bool:
 _BIAS_GATED = frozenset(
     {
         "double_robustness",
+        "mechanism_requirement",
+        "cap_necessity",
         "competing_risk_recursion_necessity",
+        "density_necessity",
         "robustness_contract",
         "projection_necessity",
+        "ratio_necessity",
+        "rule_necessity",
         "selector_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",

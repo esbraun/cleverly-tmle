@@ -56,6 +56,13 @@ coverage, and SE calibration across sample sizes, and the efficiency comparison 
 Each implementation is judged on its own terms as well as on the pairing. A reference that degrades
 is reported against the reference. It does not turn `cleverly`'s row red.
 
+A study may declare particular estimands as a **point-only reference** when the external package
+computes the point curve but does not report the influence curve required by this package's
+parameter. Paired similarity and RMSE non-inferiority remain gated for those estimands. Reference
+coverage and SE calibration remain visible in the accuracy table but are not compared, and the
+manifest records both the estimands and the accepted reference failure. This declaration never
+relaxes `cleverly`'s independent truth or property gates.
+
 A paired row concludes `equivalent`, `superior`, `inferior`, or `inconclusive`. Equivalence and
 superiority are separate passing routes. A reporting study can publish a failed scientific
 verdict. It still refuses incomplete replications, invalid schemas, and broken provenance.
