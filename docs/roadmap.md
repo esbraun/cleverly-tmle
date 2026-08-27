@@ -78,9 +78,76 @@ artifacts.
 
 ### V1. Intervention-family studies
 
-Add separate rows for deterministic and stochastic regimes, modified treatment policies, and
-incremental propensity-score interventions. Each row needs its own law and theory properties.
-Use a canonical comparator only where it evaluates the same intervention and influence curve.
+Add four rows for deterministic regimes, known stochastic regimes, modified treatment policies,
+and incremental propensity-score interventions. Keep the four rows separate because their
+intervention densities and influence curves have different failure modes.
+
+#### Deterministic regimes
+
+Use a binary-treatment law with a static plan and a covariate-dependent rule. The rule must assign
+both arms with positive probability and must change the target away from both static means. Compare
+ordinary fitting with R `lmtp` 1.5.4 at commit `f04a2b4`. Set `mtp=FALSE`, use one fold, and give
+both implementations the same realized data and working models.
+
+The property study must cover static reduction, a nonconstant dynamic rule, double robustness and
+its both-wrong control. It must also cover bias, coverage, standard-error calibration, and root-n
+behavior at three sizes. Add a confounded sharp null and power control for the dynamic-versus-static
+contrast. Retain a nonzero targeting witness and a rule-arm mutation that changes the verdict.
+
+#### Known stochastic regimes
+
+Use a known covariate-dependent intervention density over two arms. Include a uniform stochastic
+regime and two static endpoints as controls. No pinned `tmle3` parameter integrates over stochastic
+counterfactuals, and `lmtp` evaluates policies applied to natural treatment values. Publish an empty
+equivalence artifact instead of treating either implementation as a comparator.
+
+The property study must cover both arms of double robustness and a both-wrong control. It must also
+cover three-size behavior, root-n rates, exact-EIF calibration, and pointwise interval coverage.
+Add a null and power pair for the stochastic-versus-static contrast. Retain a nonzero targeting
+witness and a control that replaces the declared density with a fixed uniform density.
+
+#### Modified treatment policies
+
+Use the continuous-dose law in `tests/discrete_law_shift.py` with the natural course, one uncapped
+shift, and one active cap. Compare ordinary fitting with R `lmtp` 1.5.4 at commit `f04a2b4`. Use one
+fold and the same declared outcome bounds. Match the shifted data and the conditional density-ratio
+model rather than comparing two unrelated density estimators.
+
+The property study must cover outcome-correct and density-correct robustness with a both-wrong
+control. It must also cover three-size behavior, root-n rates, exact-EIF calibration, coverage, a
+null and power pair, and nonzero targeting. Add separate controls for the density-ratio direction
+and the active-cap indicator. Keep the natural-course identity as an exact control, not a
+large-sample claim.
+
+#### Incremental propensity-score interventions
+
+Use a binary-treatment law with three odds multipliers, including the natural course at one. The
+law must make the treatment-score term nonzero. R `imtp` at commit `d4b5204` estimates the same point
+curve, but its reported curve omits the derivative through the treatment mechanism. Use it only as
+a bounded point-estimate witness. Do not compare standard errors or call it a canonical inference
+implementation.
+
+Incremental effects do not inherit the ordinary regime double-robustness claim because the
+treatment mechanism defines the parameter. Test bias, coverage, standard-error calibration, and
+root-n behavior at three sizes with both nuisances correct. Add a confounded sharp null and power
+pair, nonzero outcome and treatment targeting witnesses, and the natural-course identity. Add a
+negative control that removes the treatment-score term and must fail the calibration instrument.
+
+#### Registration and publication
+
+Use 99% confidence bounds for every statistical verdict. Size each replication budget against the
+binding coverage, calibration, or type-I endpoint before the declared run. Run disposable Python
+and R smoke studies before full regeneration. Missing rows, failed fits, non-finite results, and
+active undeclared bounds remain hard errors.
+
+Commit the seven standard artifacts and a hash-complete manifest for each row. Update the evidence
+manifest, validation grid, technical matrix, method page, references, and intervention example.
+Delete each deprecated repeated-sampling test only after its registered replacement passes. Remove
+V1 and promote V2 only after all four rows and the documentation gates pass.
+
+Each limitations section must state the tested treatment and outcome types, learner class, fitting
+scheme, interval type, and intervention support. It must also name excluded missingness, weights,
+clusters, cross-fitting, simultaneous bands, and longitudinal interventions.
 
 ### V2. Remaining composition studies
 
