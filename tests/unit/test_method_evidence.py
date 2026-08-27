@@ -99,6 +99,10 @@ class TestArtifacts:
         assert configuration["seed"] == study.seed
         assert configuration["publication_policy"] == study.publication_policy
         assert configuration["margins"] == study.margins.as_json()
+        if study.accepted_reference_failure:
+            assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
+        else:
+            assert "accepted_reference_failure" not in configuration
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -196,7 +200,10 @@ class TestPublishedVerdicts:
         assert set(published["implementation"]) == set(study.implementations)
         assert (published["confidence_level"] == study.margins.confidence_level).all()
         if study.publication_policy == "gated":
-            assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+            failures = published.loc[~published["passed"]]
+            if study.accepted_reference_failure:
+                failures = failures.loc[failures["implementation"] != study.reference]
+            assert failures.empty, failures.to_string()
 
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
         self, study: StudyRecord
@@ -494,12 +501,17 @@ class TestPublishedVerdicts:
 BIAS_GATED_PROPERTIES = frozenset(
     {
         "double_robustness",
+        "mechanism_requirement",
+        "cap_necessity",
+        "density_necessity",
         "robustness_contract",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
         "projection_necessity",
+        "ratio_necessity",
+        "rule_necessity",
     }
 )
 
@@ -516,9 +528,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "double_robust_contraction",
         "generated_design",
         "interval_calibration",
+        "natural_course_identity",
         "power",
         "root_n_and_efficiency",
         "root_n_rate",
+        "static_reduction",
+        "treatment_score_necessity",
         "type_i_error",
     }
 )
@@ -723,10 +738,27 @@ class TestTheStudyStillMeasuresTheCode:
         ``max_targeting_displacement`` and ``median_targeting_displacement`` put it in the
         measured table, and a study whose comparison cannot separate an untargeted plug-in
         carries a ``targeting_necessity`` family that can.
+
+        **A one-step comparator has no plug-in to move off.**  ``npcausal``'s ``ipsi`` adds the
+        correction to an average of influence values and never forms an untargeted estimate, so
+        there is no second number for its runner to publish.  Writing the estimate twice would
+        answer this check with a tautology, so the runner writes nothing and this check requires
+        the study to carry the family that can separate the two instead.  The distinction is the
+        point: an absent column says the quantity does not exist, and a repeated one would say it
+        exists and did not move.
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         reference = rows.loc[rows["implementation"] == study.reference]
+        if reference["initial_estimate"].isna().all():
+            assert "targeting_necessity" in study.property_cells, (
+                f"{study.slug} publishes no plug-in for {study.reference} and declares no "
+                f"targeting_necessity family, so nothing separates targeting from a plug-in"
+            )
+            pytest.skip(f"{study.reference} publishes no untargeted plug-in")
+        assert reference["initial_estimate"].notna().all(), (
+            "the reference publishes a plug-in for some replications and not others"
+        )
         moved = (reference["estimate"] - reference["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 

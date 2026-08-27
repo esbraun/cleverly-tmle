@@ -209,7 +209,12 @@ def _stub_complete(
     monkeypatch.setattr(
         regenerate,
         "independent_performance_tests",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "implementation": [record.implementation, record.reference],
+                "passed": [True, True],
+            }
+        ),
     )
     monkeypatch.setattr(regenerate, "equivalence", lambda *args, **kwargs: paired)
     monkeypatch.setattr(regenerate, "write_manifest", lambda *args, **kwargs: None)
@@ -253,6 +258,16 @@ def test_a_declared_reference_failure_publishes_and_still_gates_the_subject(
 
     published = pd.DataFrame({"passed": [True], "reference_valid": [False]})
     study = _stub_complete(monkeypatch, tmp_path, record, published)
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "implementation": [record.implementation, record.reference],
+                "passed": [True, False],
+            }
+        ),
+    )
     regenerate.main(
         study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
     )

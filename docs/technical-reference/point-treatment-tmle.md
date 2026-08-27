@@ -292,4 +292,8 @@ pins the asymmetry.
 | --- | --- |
 | [implementation validation grid](method-evidence/validation-grid.md) | the registered study row for ordinary point-treatment TMLE |
 | [canonical point-treatment TMLE](method-evidence/canonical-point-treatment-tmle.md) | 34 accuracy tests, 17 paired comparisons against R `tmle3`, and 12 theory-property cells, test by test |
+| [deterministic regimes](method-evidence/deterministic-point-treatment-regimes.md) | a dynamic rule and static reduction against pinned R `lmtp`, with rule and targeting mutations |
+| [known stochastic regimes](method-evidence/stochastic-point-treatment-regimes.md) | a comparator-free known-density study with stochastic-density and targeting controls |
+| [continuous modified treatment policies](method-evidence/continuous-modified-treatment-policies.md) | natural, uncapped, and actively capped policies against pinned R `lmtp`, with density-ratio and cap controls |
+| [incremental interventions](method-evidence/incremental-propensity-interventions.md) | a treatment-mechanism-dependent curve, including its treatment-score control and a gated R `npcausal` comparison |
 | [the evidence manifest](evidence.md#the-table) | which oracle, Gateaux, remainder, and identity instruments each registered target has, and what none of them would see |

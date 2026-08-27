@@ -154,6 +154,11 @@ def write_manifest(
                 else {}
             ),
             "publication_policy": record.publication_policy,
+            **(
+                {"accepted_reference_failure": record.accepted_reference_failure}
+                if record.accepted_reference_failure
+                else {}
+            ),
             "scenarios": {name: list(names) for name, names in record.scenarios.items()},
             **dict(configuration or {}),
             "margins": record.margins.as_json(),

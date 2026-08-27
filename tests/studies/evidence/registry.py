@@ -230,7 +230,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
+    from tests.studies.canonical_deterministic_regimes import (
+        STUDY as CANONICAL_DETERMINISTIC_REGIMES,
+    )
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
+    from tests.studies.canonical_incremental_interventions import (
+        STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
+    )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
@@ -243,6 +249,8 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
     )
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
+    from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
+    from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
@@ -254,6 +262,10 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_OAT,
         CANONICAL_DRTMLE,
         CANONICAL_POINT_MSM,
+        CANONICAL_DETERMINISTIC_REGIMES,
+        CANONICAL_STOCHASTIC_REGIMES,
+        CANONICAL_SHIFT_POLICIES,
+        CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,

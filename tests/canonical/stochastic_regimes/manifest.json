@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "study": "ordinary known stochastic point-treatment regimes",
+  "slug": "stochastic-regimes",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "a2dbae67caafd84b255140c80467c2aa9a36034b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "one-node policy with a supplied density ratio: mtp=FALSE for the static regime and mtp=TRUE for one draw from the declared stochastic density"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260902,
+    "resampling_seed": 20260912,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_known_stochastic": [
+        "ey_regime[never]",
+        "ey_regime[tilt]",
+        "ate_regime[tilt vs never]"
+      ]
+    },
+    "construction": "ordinary",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "regimes": [
+      "never",
+      "tilt"
+    ],
+    "external_comparator": "lmtp point adapter with a supplied analytic density ratio",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stochastic_regimes.py": "d7df4eca2047abd0d85f69887be150e8dbe5851ab1896d994a054e4ae7b69594",
+    "tests/studies/stochastic_regime_properties.py": "ef8f5ba2e9e48cbc3166648044ed0fbfc7eb910e67f69eff6c1ef2daee4a4d50",
+    "tests/studies/intervention_study_helpers.py": "93571e010ead888f67ee1651a4d679e34a082d3b4150dc93694975725d8af88b",
+    "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
+    "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/stochastic_regimes/run_study.R": "5631a235de74d1f0a12aaad92936fc109bad71745c307dc04a85f4e5cfec153a",
+    "tests/canonical/lmtp_point_adapter.R": "ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "82f4f312431073046b93072e42f761c6fd2c8c9383fe579efdb488ac0993c405",
+    "summary.csv": "7cabb6681d023cc66d7d533196fa8796ee6a0f21723c69971e6ad917117531c8",
+    "equivalence.csv": "60c0a25568a10cf52a7d7027e5612f7514fb0c1eca2de1c9c0dc3685ca614021",
+    "performance-tests.csv": "ffbf33dde6fcc839b166091ae0a73a7ea4f83b5f67cb1e8614bdd917f90bf0d2",
+    "property-replicates.csv.gz": "9aeceb7982d04d05f464fab7b1e093ea191789b2b0810519510b9953892d38fc",
+    "properties.csv": "d9bf71e288058280b1596f2837ead26ebc97ccb18f85ce54003d3bf7925bba3f"
+  }
+}

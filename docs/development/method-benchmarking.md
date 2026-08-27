@@ -36,6 +36,36 @@ samples; one method does not inherit another's parity or coverage claims.
 Test each implementation against known truth before comparing them. Use predeclared equivalence
 and non-inferiority margins for the paired comparison rather than a null test of exact equality.
 
+### Choose the comparator before you write the runner
+
+Search for every maintained implementation of the parameter. Record what you found. Record why
+you rejected each candidate you did not use. A study that reports no comparator makes a claim
+about the field, and a reader cannot check that claim unless the study names what it examined.
+
+Prefer the implementation that the governing source publishes. That implementation reports the
+influence curve the source derives. A separate package that reproduces the point estimate does
+not have to report the same influence curve, and one such package does not.
+
+Match the comparator's nuisance specification. Give both implementations the same regression
+family over the same design. An asymmetric pair measures two model choices instead of two
+targeting steps. The asymmetry then fails a calibration comparison for a reason that belongs to
+neither estimator.
+
+This survey covers the intervention family. Each verdict names the evidence behind it.
+
+| candidate | parameter it reaches | verdict |
+| --- | --- | --- |
+| R `lmtp` 1.5.4 | deterministic regimes, known stochastic regimes, modified treatment policies | Used by three studies. The point adapter supplies the analytic density ratio, so a regime that ignores the natural treatment value is expressible. |
+| R `npcausal` at `56a5ac1` | incremental propensity-score interventions | Used by the incremental study. Kennedy (2019) publishes it, and its influence values carry the derivative through the treatment mechanism. |
+| R `imtp` 0.1.0 at `d4b5204` | incremental odds curve | Rejected. Its influence curve omits that derivative, so it witnesses the point curve and cannot gate inference. |
+| R `ltmle` 1.3-0 | deterministic point-treatment regimes | Available and not used. `abar` accepts a single treatment node, which `ltmle_regimen_adapter.R` already reaches at `horizon = 1`. One comparator per study is the framework limit today. |
+| R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |
+| R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
+
+Two limits of the framework shape this table. A study record names one `reference`, so a second
+comparator needs a second registered study. A comparator that fits its own nuisances also fixes
+the specification the subject must match.
+
 ## Independent statistical evidence
 
 Each property cell declares an exact-truth law, fixed estimator configuration, replication budget,

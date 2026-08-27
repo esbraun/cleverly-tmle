@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "study": "ordinary deterministic point-treatment regimes",
+  "slug": "deterministic-regimes",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "73a2cc5fca551a9196c4cc6e8983fff7e370d6f5",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "one-node deterministic modified policy with mtp=FALSE"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20260901,
+    "resampling_seed": 20260911,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_dynamic_rule": [
+        "ey_regime[never]",
+        "ey_regime[rule]",
+        "ate_regime[rule vs never]"
+      ]
+    },
+    "construction": "ordinary",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "regimes": [
+      "never",
+      "rule"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_deterministic_regimes.py": "a621992c571325b7764e1b9c3f3a200e673e4e564b77abe1ec782feb291178af",
+    "tests/studies/deterministic_regime_properties.py": "c610c615c20193e90471543728f116d7384cf9309592c322db99ed862116eef0",
+    "tests/studies/intervention_study_helpers.py": "e420265cd7065b1053382e7cfd7adb8c42e12b528b62db4713ecc986822723a6",
+    "tests/studies/regime_property_helpers.py": "f043273030946404e8f071432bac0a7f4bd5f1fe961875c89b88348218b68e9b",
+    "tests/discrete_law.py": "866ec773e1e483fbfad28be8ba9a3a884094074fc8990db2608da97af2811de5",
+    "tests/studies/evidence/comparison.py": "5491bf4e1199452f1df59f85ce88987c4653d085253eaf6fa927d9384de34ee0",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_regimes/run_study.R": "3774af9c13cf4fe5f210164bf6d2e849ec7665b9a133add744f729dc80d40fc8",
+    "tests/canonical/lmtp_point_adapter.R": "ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "9f92653452421c845022eb1cbc4d874071877fb4f6e347b49de728646fcdcb17",
+    "summary.csv": "c364f95c3b1966ca026adf703202a1bfdda5d2f2844a2e10942047a6ec09dda5",
+    "equivalence.csv": "64cecd40aac24f7205a95aaa2dd656749897f99da9847612dbc42d7f79ec435a",
+    "performance-tests.csv": "511c71a4e0a40e5de52212b6bd611c0d528dbf8eb0a4a4e1a5d449c4f71bcf7e",
+    "property-replicates.csv.gz": "bc8097443096a29096d9b84f68f8ad8c5ca0bf95c299cdba0979bbd719020343",
+    "properties.csv": "58838703dcb0757a8157aaed30604730ce5355951272c1b9ac726d027db45710"
+  }
+}
