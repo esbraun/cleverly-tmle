@@ -1,0 +1,110 @@
+{
+  "schema_version": 2,
+  "study": "ordinary multi-arm point-treatment TMLE",
+  "slug": "canonical-multi-arm-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-multi-arm-tmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "14a54274e2d5e334f68748ebe5c26a6666e0e063",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "tmle3-multi-arm",
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 1500,
+    "seed": 20260827,
+    "resampling_seed": 20261001,
+    "publication_policy": "gated",
+    "scenarios": {
+      "multi_arm_binary": [
+        "ey[high]",
+        "ey[low]",
+        "ey[medium]",
+        "ate[low vs high]",
+        "ate[medium vs high]",
+        "rr[low vs high]",
+        "rr[medium vs high]",
+        "or[low vs high]",
+        "or[medium vs high]"
+      ]
+    },
+    "outcome_family": "binomial",
+    "treatment_levels": [
+      "high",
+      "low",
+      "medium"
+    ],
+    "reference": "high",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.025,
+      0.975
+    ],
+    "outcome_model": "intercept-only (matched to sl3 Lrnr_mean)",
+    "treatment_model": "multinomial logistic regression (matched to pinned nnet adapter)",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/multi_arm_common.py": "bbd39564e022e0c21f18c47cb1a99752280caa83e848698298de10289dd68abc",
+    "tests/studies/canonical_multi_arm_tmle.py": "84d3772d19bf043754a9587d5357642b6bde2ac8e1b7c80861841b14830ecf95",
+    "tests/studies/multi_arm_tmle_properties.py": "43a63e8582f7912ab052c9f1bccfa8162ecd0f4dd0ba903527bbdef51222c434",
+    "tests/studies/multi_arm_properties.py": "1355c5ed101f0fbcbdcad8a2ca804f2661d015900c0e6586b0441b5856efe7a6",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
+    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/multi_arm_tmle3/run_multi_arm_tmle3.R": "48306700318cc52555f73a5f0071fb71d05c20c8b285662977a038085e3459c3",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
+  },
+  "sha256": {
+    "replicates.csv.gz": "073099c4060087b5fd6b10119d1c405a5c6cf5d8b473d90d4fd9f09469adbbd4",
+    "summary.csv": "db7083cba1d79048f8b24fbc84f25b3ba39b860f234c62825e296aac9636cfeb",
+    "equivalence.csv": "7b4241aa37a40a10841c2ba54160dc9996616c33149cfa93abc754ee50a7e659",
+    "performance-tests.csv": "f707a50a231dd787136788b2665caaf931208731aed8708a337c23127b8324e3",
+    "property-replicates.csv.gz": "4febb42c413224785240d12c348ab354d724424b6e1cb14426edd3ac9732d777",
+    "properties.csv": "8ce4a306d2575d263ee42df433beb1caad7383e266939f69f1f2ef7c2134e8c0"
+  }
+}

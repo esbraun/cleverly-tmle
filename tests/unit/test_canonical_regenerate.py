@@ -143,6 +143,33 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
         regenerate.main(study, SimpleNamespace(), here=tmp_path)
 
 
+def test_skip_r_refuses_to_synthesize_reference_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    record = dataclasses.replace(
+        canonical_tmle.STUDY,
+        artifacts=tmp_path,
+        extra_artifacts=("fit-diagnostics.csv",),
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    arguments = _arguments(tmp_path, primary_only=False)
+    arguments.skip_r = True
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+
+    with pytest.raises(RuntimeError, match="cannot rebuild study-specific extra artifacts"):
+        regenerate.main(
+            study,
+            SimpleNamespace(),
+            here=tmp_path,
+            reference=regenerate.Reference("image", "runner"),
+        )
+
+
 def test_reporting_policy_publishes_failed_scientific_verdicts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:

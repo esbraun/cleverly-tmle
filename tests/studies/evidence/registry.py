@@ -250,6 +250,14 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_drtmle import STUDY as CANONICAL_MAR_DRTMLE
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
+    from tests.studies.canonical_multi_arm_ctmle_oat import (
+        STUDY as CANONICAL_MULTI_ARM_CTMLE_OAT,
+    )
+    from tests.studies.canonical_multi_arm_ctmle_selector import (
+        STUDY as CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
+    )
+    from tests.studies.canonical_multi_arm_drtmle import STUDY as CANONICAL_MULTI_ARM_DRTMLE
+    from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
@@ -258,11 +266,15 @@ def registered() -> tuple[StudyRecord, ...]:
 
     return (
         CANONICAL_TMLE,
+        CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_CVTMLE,
         FOLD_EVALUATED_CVTMLE,
         CANONICAL_CTMLE_SELECTOR,
+        CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_OAT,
+        CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
+        CANONICAL_MULTI_ARM_DRTMLE,
         CANONICAL_MAR_TMLE,
         CANONICAL_MAR_DRTMLE,
         CANONICAL_POINT_MSM,

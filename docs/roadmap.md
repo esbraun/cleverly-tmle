@@ -11,13 +11,12 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Multi-arm point-treatment studies | source audit complete | completed missing-outcome study designs | [V1](#v1-multi-arm-point-treatment-studies) |
-| Validation | V2 | Categorical longitudinal studies | source audit complete; no R comparator | V1 establishes shared categorical helpers | [V2](#v2-categorical-longitudinal-studies) |
-| Validation | V3 | Fold-repeat studies | source audit | V2 ordering only | [V3](#v3-fold-repeat-studies) |
-| Validation | V4 | Clustered inference studies | source audit | V3 ordering only | [V4](#v4-clustered-inference-studies) |
-| Validation | V5 | Point-treatment weight studies | source audit | V4 ordering only | [V5](#v5-point-treatment-weight-studies) |
-| Validation | V6 | Controlled direct-effect studies | source audit | V5 ordering only | [V6](#v6-controlled-direct-effect-studies) |
-| Validation | V7 | Weighted longitudinal studies | source audit | V6 establishes the fixed-weight study design | [V7](#v7-weighted-longitudinal-studies) |
+| Validation | V1 | Categorical longitudinal studies | source audit complete; no R comparator | registered multi-arm helpers | [V1](#v1-categorical-longitudinal-studies) |
+| Validation | V2 | Fold-repeat studies | source audit | V1 ordering only | [V2](#v2-fold-repeat-studies) |
+| Validation | V3 | Clustered inference studies | source audit | V2 ordering only | [V3](#v3-clustered-inference-studies) |
+| Validation | V4 | Point-treatment weight studies | source audit | V3 ordering only | [V4](#v4-point-treatment-weight-studies) |
+| Validation | V5 | Controlled direct-effect studies | source audit | V4 ordering only | [V5](#v5-controlled-direct-effect-studies) |
+| Validation | V6 | Weighted longitudinal studies | source audit | V5 establishes the fixed-weight study design | [V6](#v6-weighted-longitudinal-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -81,132 +80,33 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Multi-arm point-treatment studies
-
-Add separate rows for ordinary TMLE, DR-TMLE, outcome-adaptive C-TMLE, and selector C-TMLE.
-Each method uses a different targeting or selection construction. No row inherits evidence from a
-binary row or another multi-arm method.
-
-#### Shared law and parameter scope
-
-Use one three-arm observational law with labelled arms. The label order must differ from the
-semantic order. This condition detects code that mistakes an arm code for a matrix column.
-
-The law must have a nonconstant treatment mechanism and arm-specific effect modification. Its ATE,
-ATT, and ATC contrasts must differ. A binary-outcome version must provide exact risk-ratio and
-odds-ratio truths for each non-reference arm.
-
-Share the sampler, parameter oracle, learner fixtures, row conversion, and arm-name mapping across
-the four rows. Each record must own its seed stream. Keep estimator configuration and property
-adapters in method-specific modules.
-
-#### Ordinary multi-arm TMLE
-
-Compare ordinary fitting with R `tmle3` 0.2.0 at commit `ed72f8a`. Its `tmle_TSM_all` specification
-creates one treatment-specific mean for each categorical level. Build every contrast from the
-joint targeted means and their influence curves.
-
-Give both implementations the same rows, arm levels, outcome scale, nuisance family, bounds, and
-reference arm. Compare the three means and both ATE contrasts. Add ATT and ATC only when the R
-conditional parameter uses the same conditioning population and updater.
-
-The property study must test both halves of double robustness and a both-wrong control. It must
-test bias, coverage, standard-error calibration, and root-n behavior at three sizes. Add a
-confounded null and a power control for one declared arm contrast.
-
-Add a nonzero targeting witness. Add an arm-permutation control that changes the third-arm result.
-For binary outcomes, check both ratio scales through the shared delta-method construction.
-
-#### Multi-arm DR-TMLE
-
-Compare with R `drtmle` 1.1.2 at commit `538a3a2`. Its public `drtmle` entry accepts a
-discrete-valued treatment and a vector of requested levels. The pinned source fits corrections once
-per requested arm.
-
-Use complete outcomes and one exact fold assignment. Match the primary nuisance classes, reduced
-regressions, bounds, guard, update order, and iteration budget. Compare all arm means and both ATE
-contrasts under both-correct and one-correct nuisance regimes.
-
-Treat the result as evidence for the pinned armwise extension. Do not describe it as a proof that
-the binary theorem covers multiple arms. Publish fit-health audits under one score threshold for
-both implementations.
-
-The property study must test both union-model directions and a both-wrong control. Add a
-three-size contraction ladder when a one-correct finite-sample bias exceeds the level margin. A
-control must remove or reverse one nonzero armwise correction and fail the same instrument.
-
-#### Multi-arm outcome-adaptive C-TMLE
-
-Compare with archived R `ctmle3` 0.1.0 at commit `a4ea77b`. Its
-`tmle_oat_TSM_all` specification declares categorical treatment support. Its generated treatment
-design contains every arm-specific outcome prediction.
-
-Give both implementations the same complete rows, arm levels, GLM nuisance family, bounds, and
-targeted means. Compare the three means and derived ATE contrasts. Compare risk and odds ratios on
-their native log scales when the archived stack supports the binary-outcome law.
-
-The property study must separate a fixed generated design from an estimated generated design. It
-must retain the documented interval limitation when design estimation is load-bearing. Add an arm
-column permutation that makes the categorical design control fail.
-
-#### Multi-arm selector C-TMLE
-
-Publish an empty equivalence artifact. R `ctmle` 0.1.2 declares a binary treatment, and no audited
-package implements the complete joint categorical selector. Do not compare separate binary fits
-with the joint multinomial path.
-
-The property study must cover greedy, ordered, and discrete paths. It must score every component of
-the declared joint target. Include a control that scores only one contrast and a control that keeps
-only the empty candidate.
-
-Validate the joint ATE target on the continuous law. Validate joint risk-ratio and odds-ratio
-targets on the binary law. Keep the reported interval limitation because selection uncertainty is
-not included.
-
-#### Registration and publication
-
-Use 99% confidence bounds for every statistical verdict. Size each replication budget against the
-binding endpoint before the final run. Run disposable Python and R smoke studies first.
-
-Treat missing rows, failed fits, non-finite results, and active undeclared bounds as hard errors.
-Commit the seven standard artifacts and a hash-complete manifest for each row. Generate all measured
-tables from those artifacts.
-
-Update the validation grid, study index, technical matrix, method pages, references, and examples.
-Retire the matching legacy multi-arm checks only after every replacement row passes. Remove V1 and
-promote the remaining validation items only after all documentation gates pass.
-
-Each limits section must state the outcome type, learner class, fitting scheme, interval type, and
-parameter scope. It must name excluded missingness, weights, clusters, fold repeats, simultaneous
-bands, longitudinal treatment, and unsupported selector inference.
-
-### V2. Categorical longitudinal studies
+### V1. Categorical longitudinal studies
 
 Add ordinary and cross-fitted rows for categorical treatment nodes under static and dynamic plans.
 The source audit found no matched R implementation for this longitudinal construction. Use empty
 equivalence artifacts instead of a binary or point-treatment surrogate.
 
-### V3. Fold-repeat studies
+### V2. Fold-repeat studies
 
 Validate rowwise averaging across independent fold draws. The study must distinguish repeated
 cross-fitting from one fixed split and from equal-fold averaging.
 
-### V4. Clustered inference studies
+### V3. Clustered inference studies
 
 Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
 negative control must analyze the same rows as independent observations.
 
-### V5. Point-treatment weight studies
+### V4. Point-treatment weight studies
 
 Validate fixed probability weights against the tilted population law. The negative control must
 omit the weights and converge to a different parameter.
 
-### V6. Controlled direct-effect studies
+### V5. Controlled direct-effect studies
 
 Validate each declared intermediate level against its exact controlled parameter. The study must
 exercise the treatment and intermediate mechanism product with a nonzero control.
 
-### V7. Weighted longitudinal studies
+### V6. Weighted longitudinal studies
 
 Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
 negative control must omit the weights and miss the declared longitudinal parameter.

@@ -97,17 +97,24 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
+    "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
+    "cleverly-multi-arm-ctmle-selector": "`cleverly` multi-arm selector C-TMLE",
+    "cleverly-multi-arm-drtmle": "`cleverly` multi-arm DR-TMLE",
+    "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
+    "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
     "ltmle": "R `ltmle`",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
     "npcausal": "R `npcausal`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
+    "ctmle3-multi-arm-oat": "R `ctmle3` multi-arm outcome-adaptive TMLE",
     "tmle3": "R `tmle3`",
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
+    "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
 }
 
@@ -138,6 +145,12 @@ SCENARIOS: dict[str, str] = {
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
+    "multi_arm_binary": "three-arm binary-outcome law",
+    "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
+    "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
+    "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
+    "multi_arm_selector_greedy": "three-arm binary-outcome law, greedy selector",
+    "multi_arm_selector_ordered": "three-arm binary-outcome law, ordered selector",
 }
 
 
@@ -623,6 +636,14 @@ def estimand(key: str) -> str:
         except KeyError:
             raise Undescribed(f"no description for estimand {key!r}") from None
     name, argument = match.group("name"), match.group("argument")
+    if name == "ey":
+        return f"counterfactual mean under treatment arm {argument!r}"
+    if name in {"ate", "rr", "or"}:
+        contrast = argument.replace(" vs ", " versus ")
+        if name == "ate":
+            return f"difference in counterfactual means, {contrast}"
+        ratio = "risk ratio" if name == "rr" else "odds ratio"
+        return f"marginal {ratio}, {contrast}, reported on the log scale"
     if name in {"msm", "msm_regimen"}:
         try:
             term = TERMS[argument]
