@@ -97,6 +97,7 @@
   "study_module_sha256": {
     "tests/studies/repeated_crossfit.py": "2f24c44f16f63e8c98321b977ebc2abed5a1a3f33cbc94a8a15d205bf8d44bdd",
     "tests/studies/repeated_crossfit_properties.py": "eb142e500081e14cd85edc00bad35f0d2b3e87089e14c146da52a9ea45b30b95",
+    "tests/conftest.py": "17952b28f8ea44214f2f352edb667e91d33abe3a34ce07fd33cf4180e945a2fa",
     "tests/studies/canonical_cvtmle.py": "2ccb15b88c089e5cf7f08d8db2bf7e164ce8de8ae463af87fd1788e95dbbc68d",
     "tests/studies/canonical_tmle.py": "eea9d910a22fc138d74c4e8abcdc6f568f58ffea21bd0f3d2ceba71454c35e09",
     "tests/studies/canonical_properties.py": "6ccf61032a3e466803df59e2531ccf80a8882045aad8376d3708de2c97b04caa",

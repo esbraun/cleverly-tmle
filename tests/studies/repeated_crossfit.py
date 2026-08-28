@@ -67,6 +67,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/repeated_crossfit.py",
         "tests/studies/repeated_crossfit_properties.py",
+        "tests/conftest.py",
         "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_tmle.py",
         "tests/studies/canonical_properties.py",

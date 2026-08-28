@@ -24,15 +24,17 @@ implementation-level comparator.
 | primary estimands | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR where defined by the law |
 | primary laws | binary and bounded-continuous point-treatment laws with exact truth |
 | fixed-sample stability | 200 fold seeds on one nonlinear sample of 600 rows; three-draw averaging against one split and equal-fold evaluation |
-| aggregation decision | 400 samples of 1,000 rows and five identical fold draws; mean against median under oracle and rare-tail stress nuisance regimes |
+| aggregation decision | 400 samples of 1,000 rows and five identical fold draws; mean against median under near-oracle specificity and rare-tail stress nuisance regimes |
 | variance decision | current averaged-curve interval against the Chernozhukov/DML mean split-dispersion adjustment on the same fits |
 | Monte Carlo inference | 99% intervals around all declared endpoints |
 
 The stress law is generated rather than imposed on fitted estimates. About 4% of observations are
 in a rare tail stratum, treatment probability is 0.12 there and 0.50 elsewhere, and treatment
 effect modification is strong in that stratum. The outcome nuisance is a fully grown tree and the
-treatment mechanism is exact. The specificity control uses the exact outcome and treatment
-nuisances on the same law, where a robust repeat rule should have no material advantage.
+treatment mechanism is exact. The specificity control uses a correctly specified, near-oracle
+outcome learner on the same law. It re-estimates the affine outcome scale within each training
+fold, while the treatment mechanism remains exact. A robust repeat rule should have no material
+advantage in that stable-nuisance regime.
 
 ## Accuracy against known truth
 
@@ -74,12 +76,12 @@ nuisances on the same law, where a robust repeat rule should have no material ad
 | `fold_repeat_stability` | `rowwise_three_draw_average` | positive | three row-aligned fold draws averaged on one fixed nonlinear sample | both paired spread-ratio upper bounds stay below the declared ceiling | to one split 0.4847 to 0.7514, to equal-fold 0.4825 to 0.7509 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9425 to 0.9648, SE ratio 0.9743 to 1.0451 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `repeat_aggregation` | `oracle_mean` | positive | the five-draw mean with exact outcome and treatment nuisances | RMSE is non-inferior to the median under the declared ratio | RMSE ratio 0.9986 to 1.0014, 90th-percentile error ratio 0.9920 to 1.0079 | pass |
-| `repeat_aggregation` | `oracle_median` | control | the five-draw median on the identical oracle fits | the paired specificity comparison meets the declared ratio | RMSE ratio 0.9986 to 1.0014, 90th-percentile error ratio 0.9920 to 1.0079 | pass |
+| `repeat_aggregation` | `oracle_mean` | positive | the five-draw mean with a correctly specified, near-oracle outcome learner that re-estimates its affine scale in each training fold, and an exact treatment mechanism | RMSE is non-inferior to the median under the declared ratio | RMSE ratio 0.9986 to 1.0014, 90th-percentile error ratio 0.9920 to 1.0079 | pass |
+| `repeat_aggregation` | `oracle_median` | control | the five-draw median on the identical correctly specified-outcome and exact-treatment fits | the paired specificity comparison meets the declared ratio | RMSE ratio 0.9986 to 1.0014, 90th-percentile error ratio 0.9920 to 1.0079 | pass |
 | `repeat_aggregation` | `stress_mean` | control | the five-draw mean with a fully grown outcome tree on the rare-stratum law | the paired stress comparison detects the median's declared RMSE improvement | RMSE ratio 0.9919 to 1.0393, 90th-percentile error ratio 0.9246 to 1.0768 | **fail** |
 | `repeat_aggregation` | `stress_median` | positive | the five-draw median on the identical rare-stratum fits | RMSE improves over the mean by the declared ratio | RMSE ratio 0.9919 to 1.0393, 90th-percentile error ratio 0.9246 to 1.0768 | **fail** |
-| `repeat_variance` | `oracle_averaged_ic` | positive | the averaged-curve interval with exact nuisances | coverage clears the floor and the SE-ratio interval stays inside the sanity band | coverage 0.9275 to 0.9809, SE ratio 0.9294 to 1.1566 | pass |
-| `repeat_variance` | `oracle_dml_mean` | positive | the split-adjusted mean interval on the identical exact-nuisance fits | coverage clears the floor and the SE-ratio interval stays inside the sanity band | coverage 0.9275 to 0.9809, SE ratio 0.9326 to 1.1596 | pass |
+| `repeat_variance` | `oracle_averaged_ic` | positive | the averaged-curve interval with the fold-refitted near-oracle outcome learner and exact treatment mechanism | coverage clears the floor and the SE-ratio interval stays inside the sanity band | coverage 0.9275 to 0.9809, SE ratio 0.9294 to 1.1566 | pass |
+| `repeat_variance` | `oracle_dml_mean` | positive | the split-adjusted mean interval on the identical fold-refitted outcome and exact-treatment fits | coverage clears the floor and the SE-ratio interval stays inside the sanity band | coverage 0.9275 to 0.9809, SE ratio 0.9326 to 1.1596 | pass |
 | `repeat_variance` | `stress_averaged_ic` | control | the averaged-curve interval on the rare-stratum tree fits | coverage or the SE-ratio interval must resolve below its validity threshold | coverage 0.8875 to 0.9569, SE ratio 0.8688 to 1.0576 | **fail** |
 | `repeat_variance` | `stress_dml_mean` | positive | the split-adjusted mean interval on the identical rare-stratum tree fits | coverage clears the floor and the SE-ratio interval stays inside the sanity band | coverage 0.9439 to 0.9891, SE ratio 1.0935 to 1.3290 | **fail** |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000546, coverage 0.9208 to 0.9637, SE ratio 0.9815 | pass |
@@ -95,7 +97,7 @@ nuisances on the same law, where a robust repeat rule should have no material ad
 The ordinary repeated estimator and every shared CV-TMLE property passed. Three-draw rowwise
 averaging also reduced fold-seed spread against both no-averaging controls.
 
-The robust-alternative decision was red. In the oracle specificity arm, mean and median errors
+The robust-alternative decision was red. In the near-oracle specificity arm, mean and median errors
 were practically indistinguishable, as intended. In the stress arm, the 99% paired RMSE-ratio
 interval for median over mean crossed one and did not clear the predeclared 0.95 upper bound. The
 90th-percentile absolute-error ratio was likewise unresolved. This study therefore supplies no
@@ -130,8 +132,8 @@ from the committed results and checked at the precision printed.
 | `max_se_ratio_ci_upper` | 1.0998 | highest bootstrap primary SE-ratio endpoint |
 | `properties[fold_repeat_stability/rowwise_three_draw_average]:spread_ratio_one_split_ci_upper` | 0.7514 | upper spread-ratio bound against one split |
 | `properties[fold_repeat_stability/rowwise_three_draw_average]:spread_ratio_equal_fold_ci_upper` | 0.7509 | upper spread-ratio bound against equal-fold evaluation |
-| `properties[repeat_aggregation/oracle_mean]:rmse_ratio_ci_lower` | 0.9986 | oracle mean-to-median RMSE-ratio lower endpoint |
-| `properties[repeat_aggregation/oracle_mean]:rmse_ratio_ci_upper` | 1.0014 | oracle mean-to-median RMSE-ratio upper endpoint |
+| `properties[repeat_aggregation/oracle_mean]:rmse_ratio_ci_lower` | 0.9986 | near-oracle mean-to-median RMSE-ratio lower endpoint |
+| `properties[repeat_aggregation/oracle_mean]:rmse_ratio_ci_upper` | 1.0014 | near-oracle mean-to-median RMSE-ratio upper endpoint |
 | `properties[repeat_aggregation/stress_median]:rmse_ratio_ci_lower` | 0.9919 | stress median-to-mean RMSE-ratio lower endpoint |
 | `properties[repeat_aggregation/stress_median]:rmse_ratio_ci_upper` | 1.0393 | stress median-to-mean RMSE-ratio upper endpoint |
 | `properties[repeat_aggregation/stress_median]:p90_error_ratio_ci_lower` | 0.9246 | stress 90th-percentile error-ratio lower endpoint |
@@ -171,7 +173,7 @@ from the committed results and checked at the precision printed.
 | `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
 | `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |
 | `margin:fold_repeat_spread_ratio` | 0.8000 | largest accepted repeated-to-control spread ratio |
-| `margin:repeat_mean_rmse_ratio` | 1.1000 | largest accepted oracle mean-to-median RMSE ratio |
+| `margin:repeat_mean_rmse_ratio` | 1.1000 | largest accepted near-oracle mean-to-median RMSE ratio |
 | `margin:repeat_median_rmse_ratio` | 0.9500 | largest accepted stress median-to-mean RMSE ratio |
 
 ## Limitations

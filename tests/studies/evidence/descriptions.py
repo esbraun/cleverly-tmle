@@ -377,11 +377,12 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the paired spread ratio against whole-sample evaluation stays above the ceiling",
     ),
     ("repeat_aggregation", "oracle_mean"): (
-        "the five-draw mean with exact outcome and treatment nuisances",
+        "the five-draw mean with a correctly specified, near-oracle outcome learner that "
+        "re-estimates its affine scale in each training fold, and an exact treatment mechanism",
         "RMSE is non-inferior to the median under the declared ratio",
     ),
     ("repeat_aggregation", "oracle_median"): (
-        "the five-draw median on the identical oracle fits",
+        "the five-draw median on the identical correctly specified-outcome and exact-treatment fits",
         "the paired specificity comparison meets the declared ratio",
     ),
     ("repeat_aggregation", "stress_mean"): (
@@ -393,11 +394,13 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "RMSE improves over the mean by the declared ratio",
     ),
     ("repeat_variance", "oracle_averaged_ic"): (
-        "the averaged-curve interval with exact nuisances",
+        "the averaged-curve interval with the fold-refitted near-oracle outcome learner and "
+        "exact treatment mechanism",
         "coverage clears the floor and the SE-ratio interval stays inside the sanity band",
     ),
     ("repeat_variance", "oracle_dml_mean"): (
-        "the split-adjusted mean interval on the identical exact-nuisance fits",
+        "the split-adjusted mean interval on the identical fold-refitted outcome and "
+        "exact-treatment fits",
         "coverage clears the floor and the SE-ratio interval stays inside the sanity band",
     ),
     ("repeat_variance", "stress_averaged_ic"): (

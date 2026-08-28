@@ -17,9 +17,10 @@ single split and equal-fold evaluation. A naturally generated rare tail stratum 
 some fold draws materially less stable without altering fitted estimates after the fact. On
 identical samples and fold assignments, that experiment compares mean and median point
 aggregation and compares the shipped row-averaged influence-curve interval with the
-Chernozhukov et al. repeated-split mean variance adjustment. An oracle-outcome arm is the
-specificity control: robust aggregation should not buy a material improvement when nuisance
-fits are stable.
+Chernozhukov et al. repeated-split mean variance adjustment. The specificity control uses a
+correctly specified, near-oracle outcome learner that re-estimates the affine outcome scale in
+each training fold, together with the exact treatment mechanism. Robust aggregation should not
+buy a material improvement when those nuisance fits are stable.
 
 No canonical implementation is compared. Chernozhukov et al. establish mean and median
 aggregation and fixed-repeat first-order validity, but the maintained implementations surveyed
