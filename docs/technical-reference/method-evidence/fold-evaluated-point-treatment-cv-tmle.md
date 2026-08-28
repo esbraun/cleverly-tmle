@@ -7,9 +7,12 @@ averaging fold reports, rather than evaluating the updated regression over the w
 genuine finite-sample method choice. The construction and its source boundary are mapped in
 [CV-TMLE and cross-fitting](../cv-tmle.md#the-algorithm-as-implemented).
 
-**No canonical implementation is compared.** No maintained package ships this construction, so the
-study rests on the accuracy and theory-property questions alone. A zero-row equivalence artifact
-records that absence rather than borrowing the stacked R comparison.
+**No canonical implementation is compared.** No maintained package pairs a pooled targeting update
+with fold plug-in evaluation. The study rests on the accuracy and theory-property questions
+alone. A zero-row equivalence artifact records that absence rather than borrowing the stacked R
+comparison. Python `zepid` ships the nearest construction. It targets inside each fold, which is a
+different estimator, and the [roadmap](../../roadmap.md#v7-fold-evaluated-cv-tmle-comparator)
+proposes a separate row for that variant.
 
 ## What was compared
 
