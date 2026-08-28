@@ -7,7 +7,7 @@ name = "cleverly"
 version = "0.1.0"
 description = "A Python toolbox for causal studies based on targeted maximum likelihood estimation (TMLE)."
 readme = "README.md"
-license = { text = "GPL-3.0-only" }
+license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "Eric Braun" }]
 keywords = [
@@ -21,7 +21,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -79,6 +79,15 @@ packages = ["src/cleverly"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/cleverly/py.typed" = "cleverly/py.typed"
+
+# The project is MIT, but `tests/canonical/` is GPL-3.0: its R runners call reference
+# packages in-process, and one of them is AGPL-3. Keeping the test tree out of the sdist
+# is what makes "a default install is MIT" true rather than merely intended. The wheel
+# target above already excludes it. Excluded whole rather than at `tests/canonical/`,
+# because `tests/unit/test_method_evidence.py` and every `tests/studies/canonical_*.py`
+# read the artifacts there; a partial tree collects as errors, not as a runnable suite.
+[tool.hatch.build.targets.sdist]
+exclude = ["/tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

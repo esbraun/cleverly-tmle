@@ -3,7 +3,7 @@
 **[Read the cleverly documentation →](https://esbraun.github.io/cleverly-tmle/)**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-087f8c.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
@@ -190,4 +190,9 @@ listed in the
 
 ## License
 
-[GNU General Public License v3.0](LICENSE)
+[MIT License](LICENSE).
+
+The R comparison runners under `tests/canonical/` are under the
+[GNU General Public License v3.0](tests/canonical/LICENSE). They call reference R packages
+in the same process, and one of those packages is AGPL-3. No published distribution carries
+them, so an installed copy of `cleverly` is MIT alone.

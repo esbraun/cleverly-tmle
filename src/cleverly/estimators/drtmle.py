@@ -239,8 +239,8 @@ class DRTMLE(TMLE):
 
     **Read the module docstring's warning before using this in anger**, and
     ``docs/technical-reference/dr-tmle/`` carries the contract in full.  The curve it
-    reports was transcribed from the R package rather than derived -- that is its
-    *provenance*, and its *evidence* is that
+    reports began as an *equation* read off the R package rather than as one derived
+    here -- that is its *provenance*, and its *evidence* is that
     it has since been checked against Theorem 1's appendices and against the Gateaux
     derivative of the parameter, and agrees with both.  The registered canonical DR-TMLE study
     separately compares its binary complete-data numbers with the pinned R package under the
