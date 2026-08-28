@@ -12,10 +12,11 @@ from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import G_BOUNDS, rows_from_result
-from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS, draw_for
+from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 1000
@@ -89,7 +90,7 @@ CONFIGURATION = {
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Draw one replication from this study's declared seed."""
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:

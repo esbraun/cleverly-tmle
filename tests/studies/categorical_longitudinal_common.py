@@ -19,7 +19,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import QuasiBinomialGLM
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 G_BOUNDS = (1e-8, 1.0)
 N_FOLDS = 5
@@ -241,7 +241,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_for(
     record: StudyRecord, scenario: str, n: int, replicate: int
 ) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
 def result_rows(

@@ -11,6 +11,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
+from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 1500
@@ -78,7 +79,7 @@ def draw_from_seed(scenario: str, n: int, seed: int):  # type: ignore[no-untyped
 
 
 def draw_scenario(scenario: str, n: int, replicate: int):  # type: ignore[no-untyped-def]
-    return multi_arm_common.draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def _strategy(scenario: str) -> tuple[str, dict[str, Any]]:

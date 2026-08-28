@@ -18,10 +18,11 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS, draw_for
+from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.seeds import draw_replicate
 
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
 SL3_COMMIT = "0e8f2365bcbe54010b8120c04a7a2dcfc8119227"
@@ -107,7 +108,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     The laws come from the ordinary-TMLE study; the samples do not.  This row is separate
     evidence, and it would not be if it re-used another study's draws.
     """
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:

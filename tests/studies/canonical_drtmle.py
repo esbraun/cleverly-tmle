@@ -29,7 +29,7 @@ from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
@@ -272,11 +272,11 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 def draw_for(
     record: StudyRecord, scenario: str, n: int, replicate: int
 ) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def _learners(scenario: str) -> tuple[ColumnLogistic, ColumnLogistic]:
