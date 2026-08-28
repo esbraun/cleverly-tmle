@@ -20,7 +20,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import G_BOUNDS
+from tests.studies.canonical_ltmle import G_BOUNDS, regimen_rows
 from tests.studies.canonical_ltmle_crossfit import (
     LMTP_SOURCE_COMMIT,
     LMTP_TARBALL_SHA256,
@@ -284,31 +284,19 @@ def rows_from_result(
     *,
     study: StudyRecord = STUDY,
 ) -> list[dict[str, Any]]:
-    initials = _initials(result)
-    rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
-        estimate = result[name]
-        low, high = estimate.ci
-        reference = float(truth[name])
-        rows.append(
-            {
-                "implementation": study.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": len(result.folds.assignment),
-                "estimand": name,
-                "truth": reference,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= reference <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
+    return regimen_rows(
+        study,
+        result,
+        truth,
+        _initials(result),
+        ESTIMANDS,
+        scenario,
+        replicate,
+        # This pair publishes the fitted fold assignment's length, where the regimen studies
+        # publish ``len(frame)`` and the crossfit ones publish ``result.n``.  Kept as it was,
+        # because it is the expression the committed rows were written from.
+        n=len(result.folds.assignment),
+    )
 
 
 def cleverly_rows(
