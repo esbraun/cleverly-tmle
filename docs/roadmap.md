@@ -17,6 +17,7 @@ not block another track unless its dependency says so.
 | Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
+| Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |

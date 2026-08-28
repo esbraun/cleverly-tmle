@@ -60,9 +60,9 @@ skipped rather than deleted, because deleting them would drop a claim without re
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Five design families now have no active repeated-sampling
-evidence: fold repeats, clustering, weights, controlled direct effects, and weighted
-longitudinal fits. Multi-arm means and selectors have moved into four registered
+**Read the consequence plainly.** Four design families now have no active repeated-sampling
+evidence: clustering, weights, controlled direct effects, and weighted longitudinal fits.
+Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
 longitudinal treatment has separate ordinary and cross-fitted rows. Each uncovered family still
 runs its exact-law, Gateaux, remainder and mutation tests in the fast tier. Those tests check the
