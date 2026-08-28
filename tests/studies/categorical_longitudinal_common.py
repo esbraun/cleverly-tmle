@@ -34,12 +34,23 @@ DYNAMIC_NAME = "ate_regimen[respond vs low]"
 CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 
 #: The ``rule_necessity`` control: the declared dynamic rule with its two history-specific arms
-#: exchanged.  It disagrees with the declared rule on *both* strata rather than on one, which is
-#: the deliberate choice and not an approximation to a narrower control.  A rule the estimator
-#: reads off the wrong stratum is exactly this mutation, and the committed cell measures it at a
-#: displacement of 6.86 against a declared floor of 0.10, with the control's bias interval at
-#: -0.3159 to -0.3084 outside a margin of 0.0125.  A one-stratum variant would be a second
-#: control with a smaller displacement, not a correction to this one.
+#: exchanged.  It disagrees with the declared rule on *both* strata rather than on one, and the
+#: honest reading of that is that a larger mutation is an *easier* bar, because the cell has to
+#: establish that the bias lands outside the margin rather than inside it.
+#:
+#: It is still the right control, and the reason is arithmetic rather than judgement.  Every
+#: one-stratum alternative clears the same floor off the exact law: the weakest of them shifts
+#: the regimen mean by 0.0625, which is a displacement of 1.38 against a declared floor of 0.10
+#: and roughly five times the bias margin.  The shipped mutation measures 6.88.  No candidate
+#: sits near the boundary, so the choice cannot decide the verdict, and a one-stratum variant
+#: would be a second control rather than a correction to this one.
+#: ``test_no_rule_mutation_choice_decides_the_necessity_verdict`` computes that table so the
+#: claim is checked rather than recorded.
+#:
+#: What pins the rule *evaluation* is not this family at all.  The exact-law fold test holds the
+#: dynamic contrast to its g-formula truth and its Gateaux curve at 1e-12, which is a sharper
+#: statement than any repeated-sampling control can make.  This family establishes that the
+#: repeated-sampling instrument discriminates a changed rule.
 MUTATED_REGIMENS = {
     **REGIMENS,
     "respond": (

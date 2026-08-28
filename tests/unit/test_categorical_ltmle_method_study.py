@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +15,7 @@ from tests import discrete_law_longitudinal_multivalue as law
 from tests.studies import canonical_categorical_ltmle as ordinary
 from tests.studies import canonical_categorical_ltmle_crossfit as crossfit
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies import categorical_longitudinal_properties as shared
 from tests.studies.evidence.registry import ROOT
 
 #: The R file both registered rows run their comparator from.
@@ -129,6 +131,64 @@ def test_scrambled_raw_codes_do_not_match_the_semantic_arm_order() -> None:
     assert tuple(sorted(law.ARM_LABELS)) != law.ARM_LABELS
     assert tuple(law.ARM_LABELS[index] for index in range(3)) == ("standard", "high", "low")
     assert common.LEVELS == ("high", "low", "standard")
+
+
+def _regimen_mean(second_node: Sequence[int]) -> float:
+    """The exact mean under the ``respond`` plan's first node and a given second-node rule."""
+    probe = (law.ARM_LABELS.index("standard"), np.asarray(second_node, dtype=int))
+    with patch.dict(law.REGIMEN_ARMS, {"_probe": probe}):
+        return float(law.functional(law.PROBS, "ey_regimen[_probe]"))
+
+
+def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
+    """The shipped mutation is larger than the alternatives, and that cannot be why it passes.
+
+    ``rule_necessity``'s control has to establish that its bias lands *outside* the equivalence
+    margin, so a larger mutation is an easier bar.  The shipped control exchanges both of the
+    dynamic rule's history-specific arms, which is a bigger perturbation than changing one
+    stratum, and a control chosen for being easy to discriminate would be a control that says
+    less than it appears to.
+
+    The answer is arithmetic and needs no fitting.  Each candidate mutation's displacement is
+    its shift in the exact regimen mean over the positive cell's committed empirical spread, and
+    every one of them clears the declared floor by more than an order of magnitude.  Nothing sits
+    near the boundary, so no verdict in this family turns on which mutation was chosen.
+    """
+    published = pd.read_csv(ordinary.STUDY.artifact("properties.csv"))
+    positive = published.loc[
+        (published["property"] == "rule_necessity")
+        & (published["cell"] == "dynamic__declared_rule")
+    ]
+    assert len(positive) == 1, "the committed positive rule_necessity cell is not where this looks"
+    spread = float(positive["empirical_se"].iloc[0])
+
+    arm = {label: law.ARM_LABELS.index(label) for label in law.ARM_LABELS}
+    declared = (arm["low"], arm["high"])
+    assert _regimen_mean(declared) == pytest.approx(law.TRUTH["ey_regimen[respond]"], abs=1e-12)
+
+    shipped = (arm["high"], arm["low"])
+    alternatives = {
+        "L2=0 low->standard": (arm["standard"], arm["high"]),
+        "L2=0 low->high": (arm["high"], arm["high"]),
+        "L2=1 high->standard": (arm["low"], arm["standard"]),
+        "L2=1 high->low": (arm["low"], arm["low"]),
+    }
+
+    base = _regimen_mean(declared)
+    displacement = {
+        name: abs(_regimen_mean(rule) - base) / spread
+        for name, rule in {"shipped": shipped, **alternatives}.items()
+    }
+    for name, value in displacement.items():
+        assert value > 10.0 * shared.RULE_DISPLACEMENT, (
+            f"the {name} mutation displaces the regimen mean by {value:.2f}, which is close "
+            f"enough to the {shared.RULE_DISPLACEMENT} floor that the choice of mutation could "
+            f"decide the verdict"
+        )
+    assert displacement["shipped"] == max(displacement.values()), (
+        "the shipped mutation is no longer the largest, so the comment beside MUTATED_REGIMENS "
+        "describes a different control"
+    )
 
 
 def _mechanism_design(
