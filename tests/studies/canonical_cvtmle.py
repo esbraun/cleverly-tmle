@@ -9,7 +9,7 @@ whole-sample plug-in evaluation.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -228,6 +228,42 @@ def cleverly_rows(
     replicate: int,
 ) -> list[dict[str, Any]]:
     return rows_from_result(STUDY, fit_cleverly(frame), truth, scenario, replicate)
+
+
+def fitted_rows(
+    record: StudyRecord,
+    sample: Callable[[str, int, int], tuple[pd.DataFrame, Mapping[str, float]]],
+    rows: Callable[[pd.DataFrame, Mapping[str, float], str, int], list[dict[str, Any]]],
+    *,
+    replicates: int,
+    n: int,
+    n_jobs: int = STUDY_JOBS,
+) -> pd.DataFrame:
+    """Every declared replication of a study whose published file is rows alone.
+
+    ``sample`` and ``rows`` are the adopting study's own ``draw_scenario`` and
+    ``cleverly_rows``, passed rather than imported.  Taking the row builder rather than the
+    fitter keeps the driver on the same path as
+    ``test_refitting_a_committed_replication_reproduces_its_row``, which refits through
+    ``cleverly_rows``: a driver that reached past it could publish a row the refit gate
+    never checks.
+
+    This study's own :func:`draw_and_fit` does not use it.  It publishes the sample and the
+    truth as well, because the reference implementation reads the identical rows and the
+    identical fold assignment from the artifacts.
+    """
+
+    def replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
+        scenario, index, size = payload
+        frame, truth = sample(scenario, size, index)
+        return rows(frame, truth, scenario, index)
+
+    payloads = [
+        ((scenario, index, n),) for scenario in record.scenarios for index in range(replicates)
+    ]
+    outcomes = map_parallel(replicate, payloads, n_jobs=n_jobs)
+    built = pd.DataFrame([row for records in outcomes for row in records])
+    return built.loc[:, list(REPLICATE_COLUMNS)]
 
 
 def _replicate(
