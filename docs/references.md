@@ -115,8 +115,10 @@ previous reader had is not a citation; a page number is.
   studies with multi-valued treatments: an evaluation of antipsychotic drug treatment safety*,
   DOI [10.1002/sim.10003](https://doi.org/10.1002/sim.10003). The accompanying public
   [`jvpoulos/multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) repository contains
-  longitudinal multi-valued TMLE simulation code. It supports the estimator family, but it does
-  not provide a versioned package entry point for the paired study.
+  longitudinal multi-valued simulation code. The paper's identified parameter and estimator are
+  for one multi-valued treatment assignment. The repository is supporting implementation
+  provenance for the estimator family. It is a simulation repository, so it gives no versioned
+  package entry point for a paired study.
 - Source audit snapshots (2026-08-16): R `ltmle` at
   [`338c029`](https://github.com/joshuaschwab/ltmle/tree/338c029dae9692ef20714125773da7037688993b)
   (`FixedTimeTMLE`, `CalcCumG`, `UpdateQ`) remains binary implementation provenance; `tmle3` at
@@ -147,9 +149,8 @@ previous reader had is not a citation; a page number is.
 - [`stremr`](https://github.com/romainkp/stremr) supports categorical longitudinal exposures and
   longitudinal TMLE. It requires long-form input, so it adds a data representation that the
   paired study does not need. The pinned `lmtp` path is the primary comparator.
-- The Poulos [`multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) companion implements
-  longitudinal multi-valued treatment simulations. It is supporting implementation provenance,
-  not a maintained package entry point for the paired study.
+- The audit also read the Poulos `multi-ltmle` companion. The Poulos entry in the sources above
+  records that verdict.
 - Competing-risk audit of the same snapshot: its survival path accepts a competing-event column
   through `compete=`. The returned estimate is one minus the cause-specific cumulative incidence.
   That value is not a survival probability. It counts a unit that had the competing event. The

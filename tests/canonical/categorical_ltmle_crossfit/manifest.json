@@ -100,6 +100,7 @@
     "tests/studies/categorical_longitudinal_common.py": "72251ef40221a1852dcfcd94356c30e3f69dc4ddf922b8d43035714ccd6a35c3",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
     "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
@@ -107,7 +108,6 @@
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
     "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
-    "tests/canonical/lmtp_crossfit/audit.py": "8703b3389c17c599b7bf33e5037867be5e56857d4194b45b6e35ec24e65d8275",
     "tests/canonical/lmtp_crossfit_adapter.R": "9ec0c76f9ed1ee41276b73071d51baaacae8537662e2f61994ac49cc4493b71f",
     "tests/canonical/categorical_ltmle_runner.R": "5543f4a9005534124f33928a455196028d2341f7c8accca8cdfa28a75f5a6cce"
   },
