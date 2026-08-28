@@ -242,7 +242,9 @@ def refute(
     negative_control_outcome : str or None
         An outcome the treatment cannot affect.  Required to run that test.
     random_state : int or None
-        Seed for the randomised tests.
+        Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
+        seeded fit gives the same refutation every time.  An unseeded fit gives an unseeded
+        refutation.
     tolerance : float
         How many standard errors a null test may deviate before failing.  The default of
         3 keeps the false-alarm rate low across several tests.
@@ -260,7 +262,11 @@ def refute(
 
     original = result[estimand].psi
     std_error = result[estimand].std_error
-    rng = np.random.default_rng(random_state)
+    # The package convention for a stochastic operation on a fitted object: an explicit seed
+    # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
+    # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
+    seed = estimator.random_state if random_state is None else random_state
+    rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []
 

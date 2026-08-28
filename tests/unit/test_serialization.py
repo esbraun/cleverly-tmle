@@ -58,7 +58,10 @@ def test_file_round_trip_retains_the_complete_point_result(point_result, tmp_pat
 
 def test_loaded_result_can_refit_nuisances(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     restored = load(point_result.save(tmp_path / "refit.joblib"))
-    report = restored.diagnostics.refute(n_replicates=1, tests=["placebo"])
+    # The fixture's own seed, so the gate is a fixed draw rather than one sample of a null.
+    # One placebo replicate is 3 sigma of a null draw, which fails for 1 of the seeds 0-299;
+    # raising ``n_replicates`` buys no margin, because the gate is 3 sigma at every k below 5.
+    report = restored.diagnostics.refute(n_replicates=1, tests=["placebo"], random_state=7)
     assert report.passed
 
 

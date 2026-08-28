@@ -30,6 +30,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
+from cleverly.validation.refute import refute
 from tests.conftest import fast_tmle
 
 
@@ -497,6 +498,51 @@ class TestRefutation:
     def test_an_unknown_test_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="unknown refutation test"):
             good_overlap.diagnostics.refute(tests=["magic"])
+
+
+class TestARefutationInheritsTheFitsSeed:
+    """``refute()`` used to draw from OS entropy whenever the caller named no seed.
+
+    It was the only public stochastic operation in the package that did.  Every one of
+    these tests calls the module function rather than ``result.diagnostics.refute``,
+    because the facade memoises through ``_cached``: two facade calls with the same
+    keywords return the *same object*, so an equality assertion written through the facade
+    compares one object with itself and holds whatever the function does.
+    """
+
+    @staticmethod
+    def _placebo(result: object, **kwargs: object) -> tuple[float, ...]:
+        report = refute(result, n_replicates=1, tests=["placebo"], **kwargs)  # type: ignore[arg-type]
+        return report["placebo"].values
+
+    @pytest.fixture(scope="class")
+    def seeded(self) -> object:
+        frame, _ = make_linear_ate(n=500, seed=86)
+        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+
+    def test_two_refutations_of_one_seeded_fit_agree(self, seeded) -> None:
+        assert self._placebo(seeded) == self._placebo(seeded)
+
+    def test_the_inherited_seed_is_the_fit_own(self, seeded) -> None:
+        """Not merely repeatable: repeatable *from the seed the fit records*."""
+        assert seeded.estimator.random_state == 0
+        assert self._placebo(seeded) == self._placebo(
+            seeded, random_state=seeded.estimator.random_state
+        )
+
+    def test_an_explicit_seed_overrides_the_fit(self, seeded) -> None:
+        assert self._placebo(seeded, random_state=3) != self._placebo(seeded)
+
+    def test_an_unseeded_fit_still_draws_from_entropy(self) -> None:
+        """The guarantee is conditional on the fit carrying a seed, and says so."""
+        frame, _ = make_linear_ate(n=500, seed=87)
+        unseeded = (
+            fast_tmle(estimands=("ate",), random_state=None)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert unseeded.estimator.random_state is None
+        assert self._placebo(unseeded) != self._placebo(unseeded)
 
 
 class TestTheDefaultEstimandOfTheOmittedVariableBound:

@@ -353,6 +353,8 @@ A placebo exposure should give roughly zero. A random common cause should change
 refit should scatter around the original estimate. A test that fails is evidence of a problem. A
 test that passes is not evidence of correctness.
 
+This fit sets `random_state=21`, so the refuter inherits that seed and repeats the same report.
+
 Last comes a repeated-sampling check. This is the only instrument on the page that measures the
 estimator rather than one fit.
 
