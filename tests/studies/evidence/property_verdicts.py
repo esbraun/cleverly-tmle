@@ -18,8 +18,6 @@ from tests.studies.evidence.properties import (
     Rate,
     coverage_gain_interval,
     paired_displacement,
-    paired_error_ratio_interval,
-    paired_spread_ratio_interval,
     rate,
     ratio_intervals,
     se_ratio_interval,
@@ -78,14 +76,6 @@ UNION_MODEL_SE_BAND = (0.1, 10.0)
 OVERFIT_SE_FLOOR = 0.85
 OVERFIT_SE_CONTROL_CEILING = 0.75
 OVERFIT_COVERAGE_GAIN = 0.15
-
-#: The largest 99% upper bound accepted for the spread retained after three fold draws.
-FOLD_REPEAT_SPREAD_RATIO = 0.80
-
-#: Decision margins for ordinary mean specificity and stress-regime median superiority.
-REPEAT_MEAN_RMSE_RATIO = 1.10
-REPEAT_MEDIAN_RMSE_RATIO = 0.95
-
 
 #: Columns every study family's property summary carries, whatever else it adds.
 SHARED_COLUMNS = (
@@ -606,171 +596,6 @@ def crossfit_overfitting_verdicts(
         summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
         summary.loc[mask, "passed"] = verdicts[cell]
         summary.loc[mask, "property_passed"] = joint
-
-
-def fold_repeat_stability_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    record: StudyRecord,
-    *,
-    positive_cell: str,
-    one_split_cell: str,
-    equal_fold_cell: str,
-) -> None:
-    """Gate fold-draw averaging against two paired no-averaging controls.
-
-    The positive cell must reduce spread against both controls. Each control then uses the
-    other control as its denominator and must fail the same upper-bound rule near one.
-    """
-    selected = rows.loc[rows["property"] == "fold_repeat_stability"]
-    groups = {
-        cell: selected.loc[selected["cell"] == cell]
-        for cell in (positive_cell, one_split_cell, equal_fold_cell)
-    }
-    margins = record.margins
-
-    positive_to_one = paired_spread_ratio_interval(
-        groups[positive_cell],
-        groups[one_split_cell],
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "fold_repeat_stability", "positive_to_one"),
-    )
-    positive_to_equal = paired_spread_ratio_interval(
-        groups[positive_cell],
-        groups[equal_fold_cell],
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "fold_repeat_stability", "positive_to_equal"),
-    )
-    one_to_equal = paired_spread_ratio_interval(
-        groups[one_split_cell],
-        groups[equal_fold_cell],
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "fold_repeat_stability", "one_to_equal"),
-    )
-    equal_to_one = paired_spread_ratio_interval(
-        groups[equal_fold_cell],
-        groups[one_split_cell],
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "fold_repeat_stability", "equal_to_one"),
-    )
-
-    columns = {
-        positive_cell: (positive_to_one, positive_to_equal),
-        one_split_cell: (None, one_to_equal),
-        equal_fold_cell: (equal_to_one, None),
-    }
-    verdicts = {
-        positive_cell: bool(
-            positive_to_one.high <= FOLD_REPEAT_SPREAD_RATIO
-            and positive_to_equal.high <= FOLD_REPEAT_SPREAD_RATIO
-        ),
-        one_split_cell: bool(one_to_equal.low > FOLD_REPEAT_SPREAD_RATIO),
-        equal_fold_cell: bool(equal_to_one.low > FOLD_REPEAT_SPREAD_RATIO),
-    }
-    joint = bool(all(verdicts.values()))
-    for cell, (to_one, to_equal) in columns.items():
-        mask = (summary["property"] == "fold_repeat_stability") & (summary["cell"] == cell)
-        for label, interval in (("one_split", to_one), ("equal_fold", to_equal)):
-            if interval is None:
-                continue
-            summary.loc[mask, f"spread_ratio_{label}_ci_lower"] = interval.low
-            summary.loc[mask, f"spread_ratio_{label}_ci_upper"] = interval.high
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
-
-
-def repeat_aggregation_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    record: StudyRecord,
-) -> None:
-    """Compare mean and median aggregation on stable and unstable nuisance fits."""
-    selected = rows.loc[rows["property"] == "repeat_aggregation"]
-    groups = {
-        cell: selected.loc[selected["cell"] == cell]
-        for cell in ("oracle_mean", "oracle_median", "stress_mean", "stress_median")
-    }
-    margins = record.margins
-
-    pairs = {
-        "oracle": ("oracle_mean", "oracle_median", REPEAT_MEAN_RMSE_RATIO),
-        "stress": ("stress_median", "stress_mean", REPEAT_MEDIAN_RMSE_RATIO),
-    }
-    verdicts: dict[str, bool] = {}
-    for label, (numerator, denominator, threshold) in pairs.items():
-        rmse = paired_error_ratio_interval(
-            groups[numerator],
-            groups[denominator],
-            statistic="rmse",
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(record, "repeat_aggregation", label, "rmse"),
-        )
-        p90 = paired_error_ratio_interval(
-            groups[numerator],
-            groups[denominator],
-            statistic="p90",
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(record, "repeat_aggregation", label, "p90"),
-        )
-        pair_passed = bool(rmse.high <= threshold)
-        for cell in (numerator, denominator):
-            mask = (summary["property"] == "repeat_aggregation") & (summary["cell"] == cell)
-            summary.loc[mask, "rmse_ratio_ci_lower"] = rmse.low
-            summary.loc[mask, "rmse_ratio_ci_upper"] = rmse.high
-            summary.loc[mask, "p90_error_ratio_ci_lower"] = p90.low
-            summary.loc[mask, "p90_error_ratio_ci_upper"] = p90.high
-            summary.loc[mask, "passed"] = pair_passed
-            verdicts[cell] = pair_passed
-    joint = bool(all(verdicts.values()))
-    summary.loc[summary["property"] == "repeat_aggregation", "property_passed"] = joint
-
-
-def repeat_variance_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    record: StudyRecord,
-) -> None:
-    """Check averaged-curve and split-adjusted mean intervals on identical fits."""
-    margins = record.margins
-    cells = {
-        "oracle_averaged_ic": "positive",
-        "oracle_dml_mean": "positive",
-        "stress_averaged_ic": "control",
-        "stress_dml_mean": "positive",
-    }
-    verdicts: dict[str, bool] = {}
-    for cell, role in cells.items():
-        group = rows.loc[(rows["property"] == "repeat_variance") & (rows["cell"] == cell)]
-        ratio = se_ratio_interval(
-            group,
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(record, "repeat_variance", cell),
-        )
-        mask = (summary["property"] == "repeat_variance") & (summary["cell"] == cell)
-        coverage = summary_interval(summary, summary.index[mask][0], "coverage")
-        valid = bool(
-            coverage.low >= margins.coverage_floor
-            and ratio.low >= margins.se_ratio_sanity[0]
-            and ratio.high <= margins.se_ratio_sanity[1]
-        )
-        passed = (
-            bool(coverage.high < 1.0 - margins.alpha or ratio.high < margins.se_ratio_sanity[0])
-            if role == "control"
-            else valid
-        )
-        summary.loc[mask, "se_ratio_ci_lower"] = ratio.low
-        summary.loc[mask, "se_ratio_ci_upper"] = ratio.high
-        summary.loc[mask, "passed"] = passed
-        verdicts[cell] = passed
-    joint = bool(all(verdicts.values()))
-    summary.loc[summary["property"] == "repeat_variance", "property_passed"] = joint
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:

@@ -108,13 +108,13 @@ class NuisanceDiagnostics:
     models : tuple of NuisanceModelReport
         One report per fitted nuisance model.
     n_repeats : int
-        Cross-fitting draws the fit averaged over. The reports describe the first.
+        Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     """
 
     models: tuple[NuisanceModelReport, ...]
-    #: How many cross-fitting draws the fit averaged over.  The reports above describe the
+    #: How many cross-fitting draws the fit combined. The reports above describe the
     #: **first** draw, for the reason
     #: :attr:`~cleverly.sensitivity.PositivityReport.n_repeats` gives: a model's
     #: out-of-fold calibration is a property of that model, and one fitted under a

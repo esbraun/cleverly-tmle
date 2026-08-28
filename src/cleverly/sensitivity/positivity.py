@@ -46,7 +46,7 @@ from ..data.weighting import effective_sample_size
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
-from ..inference.influence import average_estimates
+from ..inference.influence import median_estimates
 from ..targets import parameter_stem
 from ..utils.bounds import bound, g_bounds_for
 from ..utils.frames import emit_frame
@@ -136,7 +136,7 @@ class PositivityReport:
         all.
 
     n_repeats : int
-        Cross-fitting draws the fit averaged over. Everything else here describes
+        Cross-fitting draws the fit combined. Everything else here describes
         the **first** of them, because overlap is a property of one fitted
         mechanism and averaging draws would describe one no estimate came from.
     backend : str or None
@@ -154,7 +154,7 @@ class PositivityReport:
     mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
-    #: How many cross-fitting draws the fit averaged over.  Everything above describes the
+    #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
     #: of one fitted mechanism, and averaging ``R`` propensity vectors would produce a
     #: perfectly good estimate of ``g`` that is nonetheless not the object any reported
@@ -225,7 +225,7 @@ class PositivityReport:
         if self.n_repeats > 1:
             lines.append(
                 f"describing draw 1 of {self.n_repeats}: overlap is a property of one "
-                "fitted mechanism, not of the averaged estimate"
+                "fitted mechanism, not of the median-combined estimate"
             )
         lines.append("")
         quantiles = sorted(next(iter(self.propensity_quantiles.values())))
@@ -779,12 +779,12 @@ def truncation_curve(
         if not 0.0 < lower < 0.5:
             raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
         pair = (lower, 1.0 - lower)
-        # Every draw, then averaged the way the fit averaged them. Sweeping one draw and
+        # Every draw, then combined the way the fit combines them. Sweeping one draw and
         # calling the answer the fit's would compare a bound's effect on one split against
         # a reported estimate that came from R -- and the difference between the two curves
         # would read as sensitivity to the bound. Costs R times the sweep, which is still a
         # fraction of one refit.
-        estimates = average_estimates(
+        estimates = median_estimates(
             [
                 estimator.retarget(
                     result.data,
@@ -797,7 +797,6 @@ def truncation_curve(
                 )[0]
                 for repeat in result.repeats
             ],
-            cluster=result.data.cluster,
         )
         for name, estimate in estimates.items():
             low, high = estimate.ci

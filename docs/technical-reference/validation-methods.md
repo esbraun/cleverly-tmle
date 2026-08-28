@@ -185,7 +185,8 @@ $$
 $$
 
 with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
-two primitives are exposed as `elements()`, and they are averaged across cross-fit repeats.
+two primitives are exposed as `elements()`. A median-combined repeated fit refuses this analysis
+because the median bound needs its own influence function.
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.

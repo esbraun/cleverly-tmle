@@ -11,13 +11,12 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Fold-repeat variance decision | source audit | none | [V1](#v1-fold-repeat-variance-decision) |
-| Validation | V2 | Clustered inference studies | source audit | V1 ordering only | [V2](#v2-clustered-inference-studies) |
-| Validation | V3 | Point-treatment weight studies | source audit | V2 ordering only | [V3](#v3-point-treatment-weight-studies) |
-| Validation | V4 | Controlled direct-effect studies | source audit | V3 ordering only | [V4](#v4-controlled-direct-effect-studies) |
-| Validation | V5 | Weighted longitudinal studies | source audit | V4 establishes the fixed-weight study design | [V5](#v5-weighted-longitudinal-studies) |
-| Validation | V6 | Fold-evaluated CV-TMLE comparator | source audit | V5 ordering only | [V6](#v6-fold-evaluated-cv-tmle-comparator) |
-| Validation | V7 | Selector-based multi-arm C-TMLE comparator | source audit | V6 ordering only | [V7](#v7-selector-based-multi-arm-c-tmle-comparator) |
+| Validation | V1 | Clustered inference studies | source audit | none | [V1](#v1-clustered-inference-studies) |
+| Validation | V2 | Point-treatment weight studies | source audit | V1 ordering only | [V2](#v2-point-treatment-weight-studies) |
+| Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
+| Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
+| Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
+| Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -85,24 +84,7 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Fold-repeat variance decision
-
-Keep the public repeat behavior unchanged while resolving the variance question left by the
-registered [repeated CV-TMLE study](technical-reference/method-evidence/repeated-cross-fitting.md).
-That row established reduced fold-draw spread and found no median advantage in its declared stress
-law. It did not establish that the current averaged-influence-curve interval clears the stress
-coverage floor. The Chernozhukov/DML split-dispersion adjustment was conservative and failed the
-declared standard-error screen, so it is not a validated replacement.
-
-Audit first-hand repeated-split inference theory and maintained implementations for a variance
-rule that actually covers repeated stacked CV-TMLE. End this bounded item with one evidence
-decision: either identify an established applicable rule and predeclare a follow-up calibration
-study, establish that the current rule is covered by published theory and predeclare the missing
-stress evidence, or retain the current behavior with the unresolved limitation stated explicitly.
-Do not invent a variance method, tune the completed study, or change public behavior as part of
-this source-and-evidence decision.
-
-### V2. Clustered inference studies
+### V1. Clustered inference studies
 
 Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
 negative control must analyze the same rows as independent observations.
@@ -111,7 +93,7 @@ Three pinned implementations accept a cluster identifier. R `tmle` 2.1.1 and R `
 `id=`, and R `lmtp` 1.5.4 accepts a cluster identifier column. Choose the one whose data layout
 matches the study.
 
-### V3. Point-treatment weight studies
+### V2. Point-treatment weight studies
 
 Validate fixed probability weights against the tilted population law. The negative control must
 omit the weights and converge to a different parameter.
@@ -119,7 +101,7 @@ omit the weights and converge to a different parameter.
 R `tmle` 2.1.1 accepts `obsWeights=` for a biased sampling design. That package is pinned already,
 so this study needs no new container.
 
-### V4. Controlled direct-effect studies
+### V3. Controlled direct-effect studies
 
 Validate each declared intermediate level against its exact controlled parameter. The study must
 exercise the treatment and intermediate mechanism product with a nonzero control.
@@ -129,7 +111,7 @@ one fit for `Z = 0` and one fit for `Z = 1`, which are the two declared levels. 
 therefore carry a paired comparison rather than an empty equivalence artifact. The comparator is
 binary, so a further intermediate level stays outside the paired cells.
 
-### V5. Weighted longitudinal studies
+### V4. Weighted longitudinal studies
 
 Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
 negative control must omit the weights and miss the declared longitudinal parameter.
@@ -137,7 +119,7 @@ negative control must omit the weights and miss the declared longitudinal parame
 R `ltmle` 1.3-0 accepts `observation.weights=`, and R `lmtp` 1.5.4 accepts sampling `weights`. Both
 packages are pinned already.
 
-### V6. Fold-evaluated CV-TMLE comparator
+### V5. Fold-evaluated CV-TMLE comparator
 
 The published fold-evaluated row claims no comparator, and that claim holds for the pooled update.
 Python `zepid` ships the fold-targeted construction instead. It fits one coefficient inside each
@@ -151,7 +133,7 @@ names one reference, so do not move a comparator onto the published row. Two exc
 paired cells. The run must set the mean combination over one partition, because the median default
 is the aggregation this package refuses.
 
-### V7. Selector-based multi-arm C-TMLE comparator
+### V6. Selector-based multi-arm C-TMLE comparator
 
 The published selector row claims no comparator. R `ctmle` 0.1.2 documents its treatment as a
 binary indicator, and archived R `ctmle3` ships the outcome-adaptive specification alone. Julia
@@ -258,9 +240,10 @@ cluster aggregation, covariance, smooth contrasts, and simultaneous inference th
 infrastructure. Recompute stage scores and the complete influence-curve mean from stored arrays.
 Do not use an untargeted curve for a targeted estimate's standard error.
 
-Repeated splitting follows only after a single split is correct: average point estimates and
-rowwise curves across repeats before variance calculation, retain repeat IDs on artifacts, and
-reject equal-fold averaging with an unequal-fold-size test.
+Repeated splitting follows only after a single split is correct. Take marginal medians over
+repeats with the registered split-dispersion variance. Retain repeat IDs on artifacts. Refuse joint
+covariance where coordinatewise medians break identities. Reject equal-fold averaging with an
+unequal-fold-size test.
 
 #### Initial catalog and refusals
 

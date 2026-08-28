@@ -644,9 +644,9 @@ def correction_check(
 ) -> CorrectionCheck:
     """Recompute every arm's corrections from the state each draw returned.
 
-    Free: array arithmetic on what the fit already carries, refitting nothing.  Every draw,
-    never draw zero alone -- a repeated fit averages curves whose defects do not average
-    away, and the draw that clips is not usually the first.
+    Free: array arithmetic on what the fit already carries, refitting nothing. Every draw,
+    never draw zero alone -- a repeated fit combines marginal reports but a defect in any
+    draw still matters, and the draw that clips is not usually the first.
     """
     data = result.data
     weights = np.asarray(data.weights, dtype=float).reshape(-1)

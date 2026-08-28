@@ -35,19 +35,6 @@ PROPERTY_CELLS = {
     "interval_calibration": ("correctly_specified",),
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
-    "crossfit_overfitting": ("repeated_cvtmle", "in_sample_control"),
-    "fold_repeat_stability": (
-        "rowwise_three_draw_average",
-        "one_fixed_split",
-        "equal_fold_average",
-    ),
-    "repeat_aggregation": ("oracle_mean", "oracle_median", "stress_mean", "stress_median"),
-    "repeat_variance": (
-        "oracle_averaged_ic",
-        "oracle_dml_mean",
-        "stress_averaged_ic",
-        "stress_dml_mean",
-    ),
 }
 
 STUDY = StudyRecord(
@@ -67,7 +54,6 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/repeated_crossfit.py",
         "tests/studies/repeated_crossfit_properties.py",
-        "tests/conftest.py",
         "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_tmle.py",
         "tests/studies/canonical_properties.py",
@@ -95,19 +81,9 @@ CONFIGURATION = {
     "g_bounds": list(G_BOUNDS),
     "q_bounds": "sample outcome range",
     "repeat_aggregation": (
-        "mean point estimate and row-aligned influence curve; ratios average on the log scale"
+        "median point; median of within-draw variance plus squared split displacement; "
+        "ratios use the log scale"
     ),
-    "decision_study": {
-        "replicates": 400,
-        "n": 1000,
-        "n_folds": 5,
-        "repeats": 5,
-        "seed": 20260925,
-        "tail_probability": 0.04,
-        "tail_treatment_probability": 0.12,
-        "other_treatment_probability": 0.50,
-        "tail_effect_increment": 8.0,
-    },
 }
 
 

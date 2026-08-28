@@ -395,7 +395,7 @@ class CrossFitPlan:
         Seed for the split.  Not enough to reproduce it on its own; see
         :mod:`cleverly.provenance`.
     repeats : int
-        How many independent draws of the whole split the fit averaged over.  ``1`` is
+        How many independent draws of the whole split the fit combines by median. ``1`` is
         an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
         not a scheme of its own -- repeating a grouped split gives grouped splits.
     """
@@ -414,7 +414,7 @@ class CrossFitPlan:
 
     @property
     def repeated(self) -> bool:
-        """Whether more than one draw of the split was averaged over."""
+        """Whether more than one draw of the split was combined."""
         return self.repeats > 1
 
     def describe(self) -> str:
@@ -428,11 +428,11 @@ class CrossFitPlan:
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"
-        over = f", averaged over {self.repeats} draws" if self.repeated else ""
+        over = f", median over {self.repeats} draws" if self.repeated else ""
         return f"declared: {self.n_folds}-fold {self.scheme}{by}{over}"
 
     def seeds(self) -> tuple[int | None, ...]:
-        """One seed per repeat, for the fold draws to average over.
+        """One seed per repeat, for the fold draws to combine.
 
         Spawned from ``random_state`` rather than derived by addition, so the draws are
         independent rather than merely different, and a repeated fit stays reproducible

@@ -410,7 +410,7 @@ class DRTMLE(TMLE):
 
     ``repeats=`` is supported and varies exactly one thing here: the *primary* split.  Each
     draw fits its own reduced regressions against its own folds and runs its own
-    alternation, and the report is the mean of the draws with the curves averaged
+    alternation, and the report is the median of the draws with split dispersion included
     elementwise.  ``_fit_reduced`` is deliberately unseeded so that a refit matches its fit
     -- see its docstring -- which is what leaves the primary split as the only source of
     draw-to-draw variation.  Two things to know.  ``result.extra["drtmle"]`` describes
@@ -419,7 +419,7 @@ class DRTMLE(TMLE):
     ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`` records: on
     roughly a quarter of splits the reported curve is not centred while all three
     fluctuation rows report their scores solved.  That is a property of a *draw* and not of
-    the averaging, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
+      the aggregation, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
 
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions
@@ -852,7 +852,7 @@ class DRTMLE(TMLE):
         Deliberately **not** threaded with a draw's seed, unlike the primary nuisances.  The
         initial fit and every refit inside the alternation go through here, and a seed that
         moved between them would make a ``retarget`` of a fit disagree with the fit itself --
-        which is the contract the sensitivity analyses rest on.  What ``repeats=`` averages
+        which is the contract the sensitivity analyses rest on. What ``repeats=`` takes a median
         over is the primary nuisances' splits, which do redraw.
         """
         regression = self._resolve_learner(

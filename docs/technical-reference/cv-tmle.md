@@ -76,7 +76,7 @@ and
 | `cross_fit=False` | one fold, no splitting. This is ordinary TMLE | **yes**. See [point-treatment TMLE](point-treatment-tmle.md) |
 | `n_folds=` | the outer split count. Default 10 | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5 | no |
-| `repeats=` | repeats the outer split, runs a complete estimator per draw, averages the estimates, and aggregates the influence curves elementwise | no. It is the same estimator over several draws |
+| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
 | `targeting_scheme="fold"` | one coefficient fitted inside each validation fold | **yes**. It is a package extension. It removes cross-fold coupling through the coefficient, and a row still contributes to the coefficient used on its own fold. Only the common update is attributed to the cited literature |
@@ -86,16 +86,27 @@ and
 gradient. Until a common targeting score for it is implemented, `rr`, `or`, and MSM coefficients
 are refused rather than given an interval whose reported curve has a nonzero score.
 
-**The repeat rule is fixed, not claimed optimal.** Chernozhukov et al. (2018), Definition 3.3,
-explicitly allow mean and median aggregation across a fixed number of partitions and establish
-fixed-repeat first-order validity. `cleverly` currently exposes the mean with a row-aligned averaged
-influence curve. It does not expose the median because a point-only switch would leave its matched
-inference rule unspecified. The paper's finite-sample mean variance adds within-partition variance
-and squared between-partition point deviation; that is not the shipped averaged-curve rule. The
-[repeat study](method-evidence/repeated-cross-fitting.md) compares both choices on identical fits
-and reports a red stress decision rather than claiming either rule is optimal. A cross-validated
-variance of the across-draw average curve remains refused because, at equal fold sizes, it
-collapses to the pooled uncentred second moment for every partition.
+**The repeat rule is median-only.** For draw-specific points $\hat\psi_r$ and variances
+$\hat\sigma_r^2$, `cleverly` reports
+
+$$
+\widetilde\psi = \operatorname{median}_r(\hat\psi_r), \qquad
+\widetilde\sigma^2 = \operatorname{median}_r\left\{
+\hat\sigma_r^2 + (\hat\psi_r - \widetilde\psi)^2
+\right\}.
+$$
+
+Risk ratios and odds ratios apply both operations on the log scale. This is the median rule in
+Chernozhukov et al. (2018), equation (3.13), and the same calculation used by zEpid's repeated
+cross-fit TMLE aggregator. zEpid corroborates this reporting layer, but it is not a full-estimator
+comparator. It trains each nuisance on one partition and targets separately inside validation
+partitions. `cleverly` retains its validated complement-trained, stacked pooled update. There is no
+mean option.
+
+Coordinatewise medians do not preserve identities among several estimands. Repeated fits therefore
+refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
+multiplier construction would use the retained central-draw curve. That curve supports marginal
+diagnostics; the split-adjusted variance above supplies the pointwise interval.
 
 ## Validation issues special to this method
 
@@ -121,7 +132,7 @@ finite samples. Each has its own row.
 | --- | --- |
 | [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
-| [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeat-specific paired evidence; the stability result is green and the robust aggregation and stress variance decisions are red |
+| [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
 | [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked

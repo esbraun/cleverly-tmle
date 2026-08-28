@@ -496,10 +496,8 @@ class TestWhichVarianceIsTheInferentialOne:
 class TestRepeatedDraws:
     """The original fold-evaluated construction over several split draws.
 
-    ``repeats=R`` averages ``R`` fold-evaluated CV-TMLEs, and the one thing that cannot follow
-    the influence curve is the variance: the cross-validated one is defined by a fold
-    partition, and the averaged curve belongs to none of the ``R``.  What is reported is
-    the mean of the draws' cross-validated variances instead.  The arithmetic of that is
+    ``repeats=R`` median-combines ``R`` fold-evaluated CV-TMLEs. Each draw contributes
+    its cross-validated variance to the within-plus-between aggregation. The arithmetic is
     pinned in ``tests/unit/test_repeated_crossfit.py``; what is checked here is that the
     *estimator* the setting names is still the one that ran.
     """
@@ -518,23 +516,16 @@ class TestRepeatedDraws:
         assert repeated.config.estimator_name == "fold-evaluated CV-TMLE"
         assert repeated.cv_targeting.repeats == 3
 
-    def test_the_averaged_curve_belongs_to_none_of_the_draws_partitions(self, repeated) -> None:
-        # Each draw has its own fold-specific curve and partition.  Averaging the curves
-        # does not create a curve belonging to any one of those partitions, so its
-        # within-fold means remain visibly nonzero under every draw's split.
-        for repeat in repeated.repeats:
-            folds = [test for _, test in repeat.nuisance.folds]
-            worst = max(
-                abs(float(np.mean(repeated[name].influence_curve[index])))
-                for name in repeated.estimates
-                for index in folds
+    def test_the_median_variance_is_not_rebuilt_from_one_curve(self, repeated) -> None:
+        for estimate in repeated.estimates.values():
+            assert estimate.variance != pytest.approx(
+                influence_variance(estimate.influence_curve), rel=1e-6
             )
-            assert worst > 1e-6
 
     def test_the_linear_estimands_still_agree_with_the_pooled_report(self, repeated) -> None:
-        # Averaging over draws cannot change *which* estimands the two evaluations agree
+        # Taking medians over draws cannot change *which* estimands the two evaluations agree
         # on: `ate`, `ey1` and `ey0` are linear in the targeted predictions in every draw,
-        # so they stay equal after averaging, and the rest stay apart.
+        # so they stay equal after aggregation, and the rest stay apart.
         detail = repeated.cv_targeting
         for name in LINEAR:
             assert detail.canonical[name].psi == pytest.approx(detail.pooled[name].psi, rel=1e-9)

@@ -225,9 +225,6 @@ PROPERTIES: dict[str, str] = {
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
-    "fold_repeat_stability": (
-        "rowwise averaging reduces sensitivity to the realized cross-fitting partition"
-    ),
     "corrected_mar_inference": (
         "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
         "regression or observation mechanism is correct"
@@ -268,12 +265,6 @@ PROPERTIES: dict[str, str] = {
     "projection_necessity": (
         "the declared projection measure determines the coefficient rather than an implicit "
         "uniform measure"
-    ),
-    "repeat_aggregation": (
-        "mean and median repeat aggregation answer differently when one split is unstable"
-    ),
-    "repeat_variance": (
-        "repeat-aware intervals account for ordinary sampling and split instability"
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
     "robustness_contract": (
@@ -363,53 +354,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("crossfit_overfitting", "cross_fitted_competing_ltmle"): (
         "five-fold horizon-two competing-risk LTMLE with a fully grown outcome tree",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
-    ),
-    ("fold_repeat_stability", "rowwise_three_draw_average"): (
-        "three row-aligned fold draws averaged on one fixed nonlinear sample",
-        "both paired spread-ratio upper bounds stay below the declared ceiling",
-    ),
-    ("fold_repeat_stability", "one_fixed_split"): (
-        "one pooled split on the same sample and fold seed",
-        "the paired spread ratio against equal-fold evaluation stays above the ceiling",
-    ),
-    ("fold_repeat_stability", "equal_fold_average"): (
-        "one equal-fold evaluation on the same sample and fold seed",
-        "the paired spread ratio against whole-sample evaluation stays above the ceiling",
-    ),
-    ("repeat_aggregation", "oracle_mean"): (
-        "the five-draw mean with a correctly specified, near-oracle outcome learner that "
-        "re-estimates its affine scale in each training fold, and an exact treatment mechanism",
-        "RMSE is non-inferior to the median under the declared ratio",
-    ),
-    ("repeat_aggregation", "oracle_median"): (
-        "the five-draw median on the identical correctly specified-outcome and exact-treatment fits",
-        "the paired specificity comparison meets the declared ratio",
-    ),
-    ("repeat_aggregation", "stress_mean"): (
-        "the five-draw mean with a fully grown outcome tree on the rare-stratum law",
-        "the paired stress comparison detects the median's declared RMSE improvement",
-    ),
-    ("repeat_aggregation", "stress_median"): (
-        "the five-draw median on the identical rare-stratum fits",
-        "RMSE improves over the mean by the declared ratio",
-    ),
-    ("repeat_variance", "oracle_averaged_ic"): (
-        "the averaged-curve interval with the fold-refitted near-oracle outcome learner and "
-        "exact treatment mechanism",
-        "coverage clears the floor and the SE-ratio interval stays inside the sanity band",
-    ),
-    ("repeat_variance", "oracle_dml_mean"): (
-        "the split-adjusted mean interval on the identical fold-refitted outcome and "
-        "exact-treatment fits",
-        "coverage clears the floor and the SE-ratio interval stays inside the sanity band",
-    ),
-    ("repeat_variance", "stress_averaged_ic"): (
-        "the averaged-curve interval on the rare-stratum tree fits",
-        "coverage or the SE-ratio interval must resolve below its validity threshold",
-    ),
-    ("repeat_variance", "stress_dml_mean"): (
-        "the split-adjusted mean interval on the identical rare-stratum tree fits",
-        "coverage clears the floor and the SE-ratio interval stays inside the sanity band",
     ),
     ("double_robust_contraction", "outcome_correct"): (
         "only the outcome regression is correctly specified",

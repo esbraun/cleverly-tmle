@@ -25,7 +25,7 @@ OVERFIT_REPLICATES = 400
 OVERFIT_N = 500
 
 
-def cells(variant: str) -> tuple[PropertyCell, ...]:
+def cells(variant: str, *, include_overfitting: bool = True) -> tuple[PropertyCell, ...]:
     """The ordinary TMLE claims plus the overfitting experiment CV-TMLE exists for."""
     inherited = tuple(replace(cell) for cell in canonical_properties.cells())
     dgp = nonlinear_dgp()
@@ -55,7 +55,7 @@ def cells(variant: str) -> tuple[PropertyCell, ...]:
             role="control",
         ),
     )
-    return (*inherited, *overfit)
+    return (*inherited, *overfit) if include_overfitting else inherited
 
 
 def estimator(
@@ -88,10 +88,11 @@ def generate(
     *,
     repeats: int = 1,
     n_folds: int = 10,
+    include_overfitting: bool = True,
     n_jobs: int = STUDY_JOBS,
 ) -> pd.DataFrame:
     return run_cells(
-        cells(variant),
+        cells(variant, include_overfitting=include_overfitting),
         estimator(record, variant, repeats=repeats, n_folds=n_folds),
         n_jobs=n_jobs,
     )
@@ -125,15 +126,17 @@ def summarize(
     variant: str,
     *,
     extra_columns: Sequence[str] = (),
+    include_overfitting: bool = True,
     return_parts: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, Any]]]:
-    """Summarize the shared cells and make the overfitting control load-bearing."""
+    """Summarize the shared cells, optionally making the overfitting control load-bearing."""
     summary, rates = apply_shared_verdicts(
         rows,
         record,
         extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper", *extra_columns),
     )
 
-    crossfit_overfitting_verdicts(summary, rows, record, positive_cell=f"{variant}_cvtmle")
+    if include_overfitting:
+        crossfit_overfitting_verdicts(summary, rows, record, positive_cell=f"{variant}_cvtmle")
 
     return (summary, rates) if return_parts else finish(summary, rates)

@@ -256,11 +256,11 @@ class TestCrossFitPlan:
         assert "no cross-fitting" in CrossFitPlan(n_folds=1).describe()
 
     def test_describe_names_the_repeat_count_only_when_there_is_one(self) -> None:
-        # An ordinary fit's line must not grow a clause saying "averaged over 1 draw":
+        # An ordinary fit's line must not grow a clause saying "median over 1 draw":
         # a line that always appears is a line nobody reads.
         assert "draws" not in CrossFitPlan(n_folds=5, scheme="vfold").describe()
         assert CrossFitPlan(n_folds=5, scheme="vfold", repeats=4).describe() == (
-            "declared: 5-fold vfold, averaged over 4 draws"
+            "declared: 5-fold vfold, median over 4 draws"
         )
 
     def test_one_repeat_passes_the_seed_straight_through(self) -> None:

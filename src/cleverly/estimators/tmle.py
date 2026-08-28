@@ -119,8 +119,8 @@ from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
     ParameterEstimate,
-    average_estimates,
     make_estimate,
+    median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
 )
@@ -248,33 +248,32 @@ class TMLE:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
     repeats:
-        How many independent draws of the whole cross-fitting split to average the
-        estimate over.  ``1`` (default) is an ordinary fit, and is bit-for-bit an
+        How many independent draws of the whole cross-fitting split to combine. ``1``
+        (default) is an ordinary fit, and is bit-for-bit an
         ordinary fit rather than an equivalent one.
 
         A single split is one draw from a randomised procedure, and on a moderate sample
         two seeds can move ``psi`` by an appreciable fraction of its standard error.
-        Repeating the split and averaging removes that component of the variability
-        without touching the estimand.  Every row is out of fold in every draw, so
+        Repeating the split and taking the median reduces sensitivity to an extreme
+        partition. The point estimate is
 
-        .. math:: \\bar\\psi = \\tfrac{1}{R}\\sum_r \\psi_r
+        .. math:: \\widetilde\\psi = \\operatorname{median}_r(\\psi_r).
 
-        is the same functional of the same data, with influence curve
-        :math:`\\tfrac{1}{R}\\sum_r \\mathrm{IC}_r` -- which keeps the variance, the delta
-        method, the cluster-robust standard error and the simultaneous bands coherent,
-        because all of them are computed from the curve.  Costs ``R`` times a fit.
+        Ratios use the log scale. The variance is the median of each draw's variance plus
+        its squared displacement from the median point. This is the repeated-splitting
+        rule in Chernozhukov et al. (2018, equation 3.13) and zEpid's cross-fit TMLE.
+        It costs ``R`` times a fit.
 
         A draw redraws *every* split, not only the outer one: the inner cross-validation
         that scores the Super Learner's candidates, and C-TMLE's selection folds, are
         drawn from the draw's own seed.  Holding those fixed would average over one stage
         of a randomised procedure while pinning the rest.
 
-        The aggregation is the **mean**, and only the mean.  The median-of-estimates
-        aggregation common in the double-machine-learning literature (Chernozhukov et al.
-        2018) is deliberately not offered: the median of the ``psi_r`` is not the
-        estimator whose influence curve is the median of the ``IC_r``, so its variance,
-        its delta method and its bands would every one of them be describing a different
-        quantity than the point estimate they were attached to.
+        The aggregation is the **median**, and only the median. There is no aggregation
+        setting and no arithmetic-mean compatibility path. The marginal interval follows
+        the established within-plus-between rule. Joint covariance, post-fit contrasts,
+        and simultaneous bands are refused. The retained central-draw curve does not
+        represent the split-adjusted median estimator that a multiplier band would need.
 
         ``result.repeats`` holds the per-draw nuisance fits, fluctuations and point
         estimates, and ``result.repeat_spread()`` reports how far the draws moved --
@@ -282,15 +281,8 @@ class TMLE:
         analysis that produces a number follows all ``R``; the diagnostics that describe
         a fitted *mechanism* report the first draw and say so.
 
-        With ``cv_evaluation=True`` the point estimate is the mean of the ``R``
-        fold-evaluated
-        CV-TMLE estimates, but the standard error cannot come from the averaged curve: the
-        cross-validated variance is defined by a fold partition and the average belongs to
-        none of the ``R``.  Reported instead is the mean of the ``R`` cross-validated
-        variances, each computed on its own draw's partition.  That is consistent for the
-        same limit and errs conservative in finite samples; the derivation, and why a
-        cross-validated variance *of the averaged curve* would be vacuous rather than
-        merely arbitrary, are in :func:`_with_cross_validated_variance`.
+        With ``cv_evaluation=True``, each draw contributes its fold-evaluated point and
+        cross-validated variance to the same median combination rule.
     stratify_folds:
         What the outer folds are balanced on.  ``"treatment"``, the default, balances the
         arms so no fold is left without one and the propensity model is fittable
@@ -554,9 +546,9 @@ class TMLE:
             raise ValueError(f"repeats must be at least 1; got {self.repeats}")
         if self.repeats > 1 and not self.cross_fit:
             raise ValueError(
-                "repeats= averages the estimate over independent draws of the "
+                "repeats= takes the median estimate over independent draws of the "
                 "cross-fitting split, and cross_fit=False makes no split to draw. There "
-                "is no fold noise to average away when every nuisance is fitted in "
+                "is no fold noise to reduce when every nuisance is fitted in "
                 "sample. Set cross_fit=True, or leave repeats at 1."
             )
 
@@ -786,16 +778,13 @@ class TMLE:
         intermediate; only the targeting step then runs per level.
 
         With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
-        runs ``R`` times and the reports are averaged.  The loop sits here, around
+        runs ``R`` times and the reports are combined by their median. The loop sits here, around
         :meth:`_nuisances` rather than inside it, which is what makes it free for the
         variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
         selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
-        exist.  The bootstrap and the simultaneous bands sit *after* the loop and read the
-        averaged estimates, so they need no change either.
-
-        The one report that cannot be assembled by averaging alone is the fold-evaluated
-        CV-TMLE variance, which belongs to a fold partition rather than to a curve; see
-        :func:`_with_cross_validated_variance` and :meth:`_cv_detail`.
+        exist. Bootstrap inference repeats the same complete procedure. Simultaneous
+        inference is refused because its multiplier draws would use the retained
+        central-draw curve rather than the split-adjusted median estimator.
         """
         self._check_shifts(data)
         self._check_incremental(data)
@@ -807,6 +796,12 @@ class TMLE:
                 "inside every validation fold; use the default pooled targeting scheme"
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        if self.repeats > 1 and self.simultaneous:
+            raise ValueError(
+                "simultaneous=True is not defined for median-combined repeats. The "
+                "multiplier construction would use a central draw's curve rather than "
+                "the split-adjusted median estimator. Set simultaneous=False or fit one split."
+            )
         population_intervention = {"ey_obs", "par", "paf"}.intersection(estimands)
         if (
             population_intervention
@@ -893,7 +888,7 @@ class TMLE:
             )
             details.append(detail)
 
-        estimates = average_estimates(per_repeat, cluster=data.cluster)
+        estimates = median_estimates(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
             raise RuntimeError(
@@ -901,11 +896,6 @@ class TMLE:
                 "the requested split collapsed to one. Use fewer-stratified data, or "
                 "fit without fold-evaluated CV-TMLE."
             )
-        if self.cv_evaluation and cv_detail is not None:
-            estimates = _with_cross_validated_variance(
-                estimates, [detail.variance for detail in cast("list[CVTargeting]", details)]
-            )
-
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -946,13 +936,13 @@ class TMLE:
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
     ) -> CVTargeting | None:
-        """One fold-level report for the whole fit, however many draws it averaged.
+        """One fold-level report for the whole fit, however many draws it combines.
 
         The fields split by what they *are*.  ``pooled``, ``canonical`` and ``variance``
         are estimates, so they follow every draw exactly as the headline report does.
         ``n_folds``, ``fold_sizes``, ``fold_estimates`` and ``fold_epsilon`` are indexed
         by fold, and fold 3 of one draw is not fold 3 of another -- there is no
-        correspondence to average along -- so they describe the first draw and
+        correspondence to combine along -- so they describe the first draw and
         :class:`~cleverly.CVTargeting` says which.
 
         A draw that produced no fold detail at all while others did would mean the draws
@@ -966,21 +956,18 @@ class TMLE:
             raise RuntimeError(
                 f"{len(details) - len(present)} of {len(details)} cross-fitting draws "
                 "produced no validation folds to evaluate within while the others did, so "
-                "cv_evaluation=True would be averaging fold-wise estimates from some draws "
+                "cv_evaluation=True would combine fold-wise estimates from some draws "
                 "with pooled ones from the rest under a single name. Re-run with fewer "
                 "n_folds, or with repeats=1."
             )
         first = present[0]
         if len(present) == 1:
             return first
-        canonical = _with_cross_validated_variance(
-            average_estimates([detail.canonical for detail in present], cluster=cluster),
-            [detail.variance for detail in present],
-        )
+        canonical = median_estimates([detail.canonical for detail in present])
         return replace(
             first,
             repeats=len(present),
-            pooled=average_estimates([detail.pooled for detail in present], cluster=cluster),
+            pooled=median_estimates([detail.pooled for detail in present]),
             canonical=canonical,
             variance={name: value.variance for name, value in canonical.items()},
         )
@@ -1151,7 +1138,7 @@ class TMLE:
         ``seed`` is the draw's, under the same convention :meth:`_folds` uses: ``None``
         means "the estimator's own ``random_state``".  It reaches the Super Learner's
         *inner* split, so a repeat redraws the whole nested cross-validation rather than
-        only the outer one -- which is what makes ``repeats=R`` an average over the
+        only the outer one -- which is what makes ``repeats=R`` a median over the
         randomised procedure instead of over one stage of it.
         """
         return resolve_learner(
@@ -2510,9 +2497,9 @@ class TMLE:
 
         A replicate repeats the cross-fitting draws for the same reason, which is why the
         loop is here rather than around the caller: the bootstrap has to resample the
-        estimator that was reported, and under ``repeats=R`` that estimator is the average
-        of ``R`` draws, whose fold noise is already averaged down.  Bootstrapping a single
-        draw instead would attribute variability to ``psi_bar`` that ``psi_bar`` does not
+        estimator that was reported, and under ``repeats=R`` that estimator is the median
+        of ``R`` draws, whose fold noise is already reduced. Bootstrapping a single
+        draw instead would attribute variability to the report that it does not
         have.  It costs ``B * R`` fits, which is the honest price of the two settings
         together.
         """
@@ -2533,8 +2520,8 @@ class TMLE:
                 intermediate_value=intermediate_value,
             )
             per_repeat.append(estimates)
-        averaged = average_estimates(per_repeat, cluster=data.cluster)
-        return {name: estimate.psi for name, estimate in averaged.items()}
+        combined = median_estimates(per_repeat)
+        return {name: estimate.psi for name, estimate in combined.items()}
 
 
 def reported_mechanism(
@@ -2725,60 +2712,6 @@ def _average_over_folds(
             stacklevel=3,
         )
     return out
-
-
-def _with_cross_validated_variance(
-    averaged: Mapping[str, ParameterEstimate],
-    per_repeat_variance: Sequence[Mapping[str, float]],
-) -> dict[str, ParameterEstimate]:
-    r"""Give an averaged fold-evaluated report its draws' mean CV variance.
-
-    Repeated cross-fitting reports :math:`\bar\psi = \frac1R\sum_r \psi_r` with influence
-    curve :math:`\frac1R\sum_r \mathrm{IC}_r`, and everywhere else in this library the
-    variance is then taken *from that curve*.  Under ``cv_evaluation`` it cannot be: the
-    cross-validated variance of Zheng & van der Laan is defined by a fold partition, and
-    the averaged curve belongs to none of the ``R`` partitions that made it.  What is
-    reported instead is the mean of the ``R`` cross-validated variances, each computed on
-    its own draw's partition from that draw's own fold-specific curve:
-
-    .. math:: \bar\sigma^2 = \frac1R \sum_r \hat\sigma^2_{CV,r}.
-
-    Two things make that the right quantity rather than merely an available one.  Each
-    :math:`\hat\sigma^2_{CV,r}` is consistent for :math:`\mathrm{Var}(D^*)/n`, which is
-    also what :math:`\mathrm{Var}(\bar\psi)` converges to, so nothing is given up
-    asymptotically.  And in finite samples it errs *conservative*, never the other way:
-    :math:`\mathrm{Var}(\bar\psi) = R^{-2}\sum_r\sum_s \mathrm{Cov}(\psi_r, \psi_s) \le
-    \big(\frac1R\sum_r \mathrm{sd}(\psi_r)\big)^2 \le \frac1R\sum_r
-    \mathrm{Var}(\psi_r)`, by Cauchy-Schwarz and then Jensen.  Erring that way is the
-    whole reason to have asked for the cross-validated variance in the first place.  At
-    ``R = 1`` the mean of one number is that number, so the construction is unchanged.
-
-    The alternative that looks more natural -- hand the *averaged* curve to
-    :func:`~cleverly.inference.cross_validated_variance` under one draw's partition -- is
-    not merely arbitrary in its choice of partition, it is vacuous.  At equal fold sizes
-    :math:`\frac1V\sum_v \frac{1}{n_v}\sum_{i \in \mathcal V_v} \mathrm{IC}_i^2 =
-    \frac1n\sum_i \mathrm{IC}_i^2` for *every* partition, so the fold structure
-    contributes nothing at all and the result is the pooled uncentred second moment
-    wearing a cross-validated name.  ``tests/unit/test_repeated_crossfit.py`` keeps that
-    identity as a negative control.
-
-    Only names present in every draw's variance mapping are touched.  A targeting group
-    that produced no folds is reported pooled and keeps its from-curve variance; a name
-    :func:`~cleverly.inference.average_estimates` already dropped never arrives here.
-    """
-    if not per_repeat_variance:
-        return dict(averaged)
-    return {
-        name: (
-            replace(
-                value,
-                variance=float(np.mean([draw[name] for draw in per_repeat_variance])),
-            )
-            if all(name in draw for draw in per_repeat_variance)
-            else value
-        )
-        for name, value in averaged.items()
-    }
 
 
 def tmle(

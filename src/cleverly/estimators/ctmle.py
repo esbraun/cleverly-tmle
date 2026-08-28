@@ -641,7 +641,7 @@ class CTMLE(TMLE):
         The draw's ``seed`` reaches the selection folds as well as the nuisance fits, so
         a repeat redraws the split the *selection* was scored against too.  Holding that
         one fixed would leave every draw choosing its stopping point against the same
-        partition, which is the noise ``repeats=`` exists to average away.
+        partition, which is the noise ``repeats=`` exists to reduce.
         """
         if self.incremental:
             raise ValueError(

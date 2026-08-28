@@ -526,7 +526,7 @@ class RepeatFit:
 
     A fit with ``repeats=R`` runs the whole construction ``R`` times over independent
     fold draws and averages the estimates (see
-    :func:`~cleverly.inference.average_estimates`).  The four things a draw produces --
+    :func:`~cleverly.inference.median_estimates`). The four things a draw produces --
     its folds, its nuisance predictions, the ``epsilon`` its targeting step solved, and
     the targeted ``Qbar`` that came out -- are *not* interchangeable between draws, so
     they are held together here rather than in parallel tuples on the result.  The pairing
