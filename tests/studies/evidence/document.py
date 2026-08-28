@@ -298,6 +298,7 @@ def _has_exact_efficiency(row: Any) -> bool:
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.
 _BIAS_GATED = frozenset(
     {
+        "categorical_probability_necessity",
         "double_robustness",
         "mechanism_requirement",
         "cap_necessity",

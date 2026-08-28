@@ -1,9 +1,7 @@
 """Canonical cross-fitted end-of-study longitudinal TMLE evidence study.
 
-The registered row has no numeric comparator because the pinned ``lmtp`` audit failed its
-truth-coverage gates. Statistical properties are checked independently in
-``tests.studies.ltmle_crossfit_properties`` against the finite-support longitudinal law. The
-retained R runner receives the same panels and exact fold assignment for source audits.
+The registered row compares with pinned ``lmtp`` on identical panels, exact mechanisms, and
+rowwise folds. Statistical properties are checked independently against the finite-support law.
 """
 
 from __future__ import annotations
@@ -120,11 +118,7 @@ STUDY = StudyRecord(
 
 #: Provenance of the comparator, for the manifest's ``generated_with.reference`` block.
 #:
-#: Inert while :attr:`StudyRecord.reference` is ``None`` -- ``write_manifest`` writes that
-#: block only for a study that declares a comparator, so nothing reads this today.  It is kept
-#: rather than deleted because restoring the comparator is the open work this row is waiting
-#: on, and because :data:`CONFIGURATION` records the same pin under ``audited_comparator``
-#: meanwhile, so the manifest is not silent about which ``lmtp`` was audited.
+#: ``write_manifest`` records this block for the declared ``lmtp`` comparator.
 REFERENCE_METADATA = {
     "lmtp_version": LMTP_VERSION,
     "lmtp_source_commit": LMTP_SOURCE_COMMIT,
@@ -146,8 +140,7 @@ CONFIGURATION = {
     "g_bounds": list(G_BOUNDS),
     "regimens": list(REGIMENS),
     # The sequential regressions both sides run, written as designs rather than in any one
-    # package's formula language.  This carried R ``ltmle``'s ``Q.kplus1`` syntax while being
-    # copied from the ordinary study, which named a comparator this row does not use.
+    # package's formula language.
     "outcome_designs": [["W1", "W2"], ["W1", "W2", "L2"]],
     # The mechanism is supplied to both implementations rather than estimated by each, which
     # is what makes the paired verdict a statement about the recursion.  Letting each side

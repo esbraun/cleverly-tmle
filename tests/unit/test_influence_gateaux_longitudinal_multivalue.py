@@ -53,7 +53,7 @@ def test_the_second_order_remainder_is_nonzero_and_quadratic() -> None:
     direction = np.zeros_like(law.PROBS)
     # A cell on the rule's assigned A1 arm moves both its history distribution and a
     # later conditional mean, making the product-of-errors remainder visible.
-    direction[12] = 1.0
+    direction[8] = 1.0
     direction -= law.PROBS
 
     def remainder(epsilon: float) -> float:
@@ -71,11 +71,13 @@ def test_the_second_order_remainder_is_nonzero_and_quadratic() -> None:
 
 
 def test_assigned_arm_probability_is_not_a_binary_complement(fit: object) -> None:
-    """Mutation witness: arm 2 must select its own column, not ``1 - P(A=1)``."""
+    """Mutation witness: the high arm selects its own column, not a binary complement."""
     high = fit.fits["high"]  # type: ignore[attr-defined]
     first = high.cumulative[:, 0]
     w = np.asarray(law.frame()["W"], dtype=int)
-    expected = law.G1[w, 2]
-    binary_complement = 1.0 - law.G1[w, 1]
+    high_code = law.ARM_LABELS.index("high")
+    standard_code = law.ARM_LABELS.index("standard")
+    expected = law.G1[w, high_code]
+    binary_complement = 1.0 - law.G1[w, standard_code]
     np.testing.assert_allclose(first, expected, atol=1e-15, rtol=0)
     assert np.max(np.abs(first - binary_complement)) >= 0.25

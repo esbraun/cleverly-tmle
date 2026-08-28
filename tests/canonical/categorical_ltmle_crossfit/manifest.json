@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "cross-fitted categorical longitudinal TMLE",
+  "slug": "canonical-categorical-ltmle-crossfit",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-cross-fitted-categorical-ltmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "50b808f4c9bff7f3cf4b4a24585111abc07a9ef2",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 4000,
+    "n": 2000,
+    "seed": 20260828,
+    "resampling_seed": 2026082801,
+    "publication_policy": "gated",
+    "scenarios": {
+      "categorical_end_of_study": [
+        "ey_regimen[low]",
+        "ey_regimen[standard]",
+        "ey_regimen[high]",
+        "ey_regimen[step_down]",
+        "ey_regimen[respond]",
+        "ate_regimen[standard vs low]",
+        "ate_regimen[high vs low]",
+        "ate_regimen[step_down vs low]",
+        "ate_regimen[respond vs low]"
+      ]
+    },
+    "construction": "cross_fitted",
+    "outcome_kind": "end_of_study",
+    "cross_fit": true,
+    "n_folds": 5,
+    "learner_folds": 2,
+    "fold_evaluation": "training-fold recursion evaluated on its held-out rows",
+    "treatment_levels": [
+      "high",
+      "low",
+      "standard"
+    ],
+    "regimens": [
+      "low",
+      "standard",
+      "high",
+      "step_down",
+      "respond"
+    ],
+    "reference": "low",
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_categorical_ltmle_crossfit.py": "8aa6eebc8cb5118a439a0c96ec8e498fdde7f2aa371ee71cc79c13f39c772460",
+    "tests/studies/categorical_ltmle_crossfit_properties.py": "630db070d14b78d8317b5f57eefb5b0dcc4b6d491ef168c7bf6957edada039dd",
+    "tests/studies/categorical_longitudinal_properties.py": "fecaead311754640df61aadbfce39bc6b0d805e3c0e2bc20923ed3bde8a48397",
+    "tests/studies/categorical_longitudinal_common.py": "72251ef40221a1852dcfcd94356c30e3f69dc4ddf922b8d43035714ccd6a35c3",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
+    "tests/studies/evidence/property_verdicts.py": "d1b0ad34922c5cd0b4aedcd8ecf2d3e6a5ff87569b897633ffca227923cea635",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit_adapter.R": "9ec0c76f9ed1ee41276b73071d51baaacae8537662e2f61994ac49cc4493b71f",
+    "tests/canonical/categorical_ltmle_runner.R": "5543f4a9005534124f33928a455196028d2341f7c8accca8cdfa28a75f5a6cce"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/categorical_ltmle_runner.R": "5543f4a9005534124f33928a455196028d2341f7c8accca8cdfa28a75f5a6cce",
+    "tests/canonical/lmtp_crossfit_adapter.R": "9ec0c76f9ed1ee41276b73071d51baaacae8537662e2f61994ac49cc4493b71f",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "f4ad6e70f76de3aa204a76aaa2c846097fea598a736d2dcc11065405a9bfa2d2",
+    "summary.csv": "19dd35b2117e95e84be8f381227a235515fa72b2c2e52e8bcda84b88163996c5",
+    "equivalence.csv": "cb0fb75bbacedadbdf8d37a45c88304c2459670dd0a82c91303b29255269b13b",
+    "performance-tests.csv": "76ac1ef7b7aeb12ed705d3bdaa88506ed606ee27a3164afe809e57100d895ffa",
+    "property-replicates.csv.gz": "3393e8a1461641fec662a5cfb9449502f9a6c2fa5f4c53bfc792d16b54131eef",
+    "properties.csv": "51e2f1faa164af93f6ae2b1c0747a8c178b7061c3d30b10381ace359f85bdf71"
+  }
+}

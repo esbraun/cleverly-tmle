@@ -115,9 +115,10 @@ previous reader had is not a citation; a page number is.
   studies with multi-valued treatments: an evaluation of antipsychotic drug treatment safety*,
   DOI [10.1002/sim.10003](https://doi.org/10.1002/sim.10003). The accompanying public
   [`jvpoulos/multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) repository contains
-  longitudinal simulation code, but the paper's identified parameter and estimator are for one
-  multi-valued treatment assignment. It is point-treatment evidence, not the derivation used for
-  categorical treatment over time.
+  longitudinal multi-valued simulation code. The paper's identified parameter and estimator are
+  for one multi-valued treatment assignment. The repository is supporting implementation
+  provenance for the estimator family. It is a simulation repository, so it gives no versioned
+  package entry point for a paired study.
 - Source audit snapshots (2026-08-16): R `ltmle` at
   [`338c029`](https://github.com/joshuaschwab/ltmle/tree/338c029dae9692ef20714125773da7037688993b)
   (`FixedTimeTMLE`, `CalcCumG`, `UpdateQ`) remains binary implementation provenance; `tmle3` at
@@ -138,6 +139,18 @@ previous reader had is not a citation; a page number is.
   `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
+- Categorical longitudinal audit (2026-08-27): the same `lmtp` snapshot accepts categorical
+  treatment at multiple nodes for static and dynamic plans. The ordinary study supplies one
+  all-row fold. The cross-fitted study supplies the exact five-fold assignment.
+- The audit rejects [`npcausal`](https://rdrr.io/github/ehkennedy/npcausal/man/) for this row.
+  Its public functions cover point effects, continuous-treatment curves, counterfactual
+  densities, instrumental variables, and incremental interventions. They do not expose a
+  deterministic categorical longitudinal regimen estimator.
+- [`stremr`](https://github.com/romainkp/stremr) supports categorical longitudinal exposures and
+  longitudinal TMLE. It requires long-form input, so it adds a data representation that the
+  paired study does not need. The pinned `lmtp` path is the primary comparator.
+- The audit also read the Poulos `multi-ltmle` companion. The Poulos entry in the sources above
+  records that verdict.
 - Competing-risk audit of the same snapshot: its survival path accepts a competing-event column
   through `compete=`. The returned estimate is one minus the cause-specific cumulative incidence.
   That value is not a survival probability. It counts a unit that had the competing event. The

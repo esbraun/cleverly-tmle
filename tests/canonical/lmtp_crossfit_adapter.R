@@ -18,7 +18,7 @@ fold_list <- function(assignment) {
   }
   lapply(labels, function(label) {
     validation <- which(assignment == label)
-    training <- which(assignment != label)
+    training <- if (length(labels) == 1L) validation else which(assignment != label)
     if (!length(validation) || !length(training)) stop("every fold needs training and validation rows")
     list(training_set = training, validation_set = validation)
   })
