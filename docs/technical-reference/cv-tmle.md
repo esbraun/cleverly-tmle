@@ -114,9 +114,10 @@ its own row.
 | where to read the evidence | what is there |
 | --- | --- |
 | [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
-| [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no canonical comparator exists, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
+| [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
 | [the implementation validation grid](method-evidence/validation-grid.md) | both rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked
-R CV-TMLE. No maintained package ships this construction, and a study that had no comparator says
-so in its own cell rather than borrowing a surrogate.
+R CV-TMLE. No maintained package pairs a pooled update with fold evaluation. A study that had no
+comparator says so in its own cell rather than borrowing a surrogate. Python `zepid` targets
+inside each fold and then evaluates by fold, which is the `targeting_scheme="fold"` variant above.

@@ -16,6 +16,8 @@ not block another track unless its dependency says so.
 | Validation | V3 | Point-treatment weight studies | source audit | V2 ordering only | [V3](#v3-point-treatment-weight-studies) |
 | Validation | V4 | Controlled direct-effect studies | source audit | V3 ordering only | [V4](#v4-controlled-direct-effect-studies) |
 | Validation | V5 | Weighted longitudinal studies | source audit | V4 establishes the fixed-weight study design | [V5](#v5-weighted-longitudinal-studies) |
+| Validation | V6 | Fold-evaluated CV-TMLE comparator | source audit | V5 ordering only | [V6](#v6-fold-evaluated-cv-tmle-comparator) |
+| Validation | V7 | Selector-based multi-arm C-TMLE comparator | source audit | V6 ordering only | [V7](#v7-selector-based-multi-arm-c-tmle-comparator) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -31,6 +33,10 @@ not block another track unless its dependency says so.
 | Later candidates | C1 | Replicate-weight designs | source audit | weighted-law variance construction | [C1](#c1-replicate-weight-designs) |
 | Later candidates | C2 | MNAR and incremental-intermediate extensions | waiting on published theory | composition-specific identification and influence function | [C2](#c2-mnar-and-incremental-intermediate-extensions) |
 | Later candidates | C3 | HAL and undersmoothed HAL learners | published support; source audit | profiling evidence before a native implementation | [C3](#c3-hal-and-undersmoothed-hal-learners) |
+| Later candidates | C4 | Sequential doubly robust longitudinal estimation | published support; pending source read | C3 ordering only | [C4](#c4-sequential-doubly-robust-longitudinal-estimation) |
+| Later candidates | C5 | Natural and interventional mediation effects | published support; pending source read | C4 ordering only | [C5](#c5-natural-and-interventional-mediation-effects) |
+| Later candidates | C6 | Continuous-time survival and competing risks | published support; pending source read | C5 ordering only | [C6](#c6-continuous-time-survival-and-competing-risks) |
+| Later candidates | C7 | Two-phase and outcome-dependent sampling | published support; pending source read | C6 ordering only | [C7](#c7-two-phase-and-outcome-dependent-sampling) |
 
 ## Eligibility
 
@@ -84,25 +90,72 @@ artifacts.
 Validate rowwise averaging across independent fold draws. The study must distinguish repeated
 cross-fitting from one fixed split and from equal-fold averaging.
 
+`cleverly` averages the repeat estimates, and it aggregates the curves elementwise. No shipped
+implementation matches that rule. Python `zepid` and R `DoubleML` both take the median across
+repeats, and both add the squared deviation from that median to the variance. This package refuses
+the median. Record that survey, and publish a zero-row equivalence artifact.
+
 ### V2. Clustered inference studies
 
 Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
 negative control must analyze the same rows as independent observations.
+
+Three pinned implementations accept a cluster identifier. R `tmle` 2.1.1 and R `ltmle` 1.3-0 accept
+`id=`, and R `lmtp` 1.5.4 accepts a cluster identifier column. Choose the one whose data layout
+matches the study.
 
 ### V3. Point-treatment weight studies
 
 Validate fixed probability weights against the tilted population law. The negative control must
 omit the weights and converge to a different parameter.
 
+R `tmle` 2.1.1 accepts `obsWeights=` for a biased sampling design. That package is pinned already,
+so this study needs no new container.
+
 ### V4. Controlled direct-effect studies
 
 Validate each declared intermediate level against its exact controlled parameter. The study must
 exercise the treatment and intermediate mechanism product with a nonzero control.
 
+R `tmle` 2.1.1 estimates a controlled direct effect when `Z` is a binary intermediate. It returns
+one fit for `Z = 0` and one fit for `Z = 1`, which are the two declared levels. This study can
+therefore carry a paired comparison rather than an empty equivalence artifact. The comparator is
+binary, so a further intermediate level stays outside the paired cells.
+
 ### V5. Weighted longitudinal studies
 
 Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
 negative control must omit the weights and miss the declared longitudinal parameter.
+
+R `ltmle` 1.3-0 accepts `observation.weights=`, and R `lmtp` 1.5.4 accepts sampling `weights`. Both
+packages are pinned already.
+
+### V6. Fold-evaluated CV-TMLE comparator
+
+The published fold-evaluated row claims no comparator, and that claim holds for the pooled update.
+Python `zepid` ships the fold-targeted construction instead. It fits one coefficient inside each
+split, and it averages the fold plug-ins by split size. Its variance is the mean of the
+within-split influence-curve variances over the total sample size. That equals this package's
+cross-validated variance at equal fold sizes.
+
+Register a second study for `targeting_scheme="fold"` with `cv_evaluation=True`. A study record
+names one reference, so do not move a comparator onto the published row. Two exclusions follow.
+`zepid` reports the ATE, the risk ratio, and the odds ratio, so `att` and `atc` stay outside the
+paired cells. The run must set the mean combination over one partition, because the median default
+is the aggregation this package refuses.
+
+### V7. Selector-based multi-arm C-TMLE comparator
+
+The published selector row claims no comparator. R `ctmle` 0.1.2 documents its treatment as a
+binary indicator, and archived R `ctmle3` ships the outcome-adaptive specification alone. Julia
+`TMLE.jl` ships a greedy strategy and a pre-ordered adaptive-correlation strategy. It accepts
+categorical treatment levels, it stratifies folds by treatment, and it selects a candidate on a
+cross-validated loss. It composes the risk ratio and the odds ratio by the delta method over a
+joint estimand.
+
+Two consequences follow. `TMLE.jl` has no discrete ladder, so the greedy and ordered scenarios need
+a separate record from the discrete scenario. This is the first comparator outside R, so it needs a
+pinned Julia image beside the existing R images.
 
 ## Extensibility track
 
@@ -402,6 +455,53 @@ wait for identification and influence-function results covering those exact comp
 Match published loss, basis, optimization, and undersmoothing criteria. Consider a native
 implementation only after profiling shows that package-owned HAL work materially dominates
 end-to-end time.
+
+The four items below add methods rather than studies. Each one names the maintained implementation
+that a paired study would use. A named comparator is provenance for the construction. It is not the
+derivation, and it is not the acceptance gate.
+
+### C4. Sequential doubly robust longitudinal estimation
+
+`lmtp_sdr` implements the sequentially doubly robust estimator of Díaz, Williams, Hoffman and
+Schenck (2023). That estimator is consistent when either the outcome regression or the treatment
+mechanism is consistent at each time point. It is a second estimator over registered longitudinal
+targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 that the longitudinal
+rows already use, and no new container is needed. Read the rate conditions its interval claims
+first, because they differ from the sequential regression conditions.
+
+### C5. Natural and interventional mediation effects
+
+`cleverly` reports controlled direct effects only. Natural and interventional direct and indirect
+effects are separate estimands, and each carries its own identification assumptions. Díaz, Hejazi,
+Rudolph and van der Laan (2021) derive the interventional effects and their efficient influence
+function under an intermediate confounder. R `medoutcon` implements a cross-fitted one-step
+estimator and a cross-validated TMLE for them, and it pins by commit. Read the identification, the
+influence function, the targeting construction, and the interval conditions first-hand. Add each
+accepted target to the oracle registry and the evidence gates in both directions.
+
+### C6. Continuous-time survival and competing risks
+
+The shipped survival and competing-risk estimators use discrete time nodes. Rytgaard, Gerds and van
+der Laan (2022) derive the continuous-time construction, which changes the intensity model, the
+targeting step, and the remainder. CRAN `concrete` 1.0.5 is the comparator, and it implements the
+one-step form of Rytgaard, Eriksson and van der Laan (2023).
+
+That comparator takes a binary baseline treatment under a static or dynamic intervention, which
+bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
+continuous-time interval, so the existing longitudinal rows do not transfer.
+
+### C7. Two-phase and outcome-dependent sampling
+
+A two-phase design measures some variables on a subsample only. An outcome-dependent design samples
+on the outcome itself. Each design changes the observed-data likelihood, so each needs its own
+influence-function correction.
+
+Hejazi, van der Laan, Janes, Gilbert and Benkeser (2021) derive the
+two-phase correction, and R `txshift` 0.3.8 implements it. Van der Laan (2008) derives case-control
+weighting under a known prevalence, and Julia `TMLE.jl` implements it. Fixed observation weights do
+not replace either correction. The comparator survey rejects `txshift` as a second opinion on
+continuous shifts. That verdict does not carry here, because the two-phase correction is a
+different feature.
 
 ## Reading a gap correctly
 
