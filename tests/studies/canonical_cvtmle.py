@@ -148,7 +148,8 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     )
 
 
-def _rows_from_result(
+def rows_from_result(
+    record: StudyRecord,
     result: Any,
     truth: Mapping[str, float],
     scenario: str,
@@ -165,7 +166,7 @@ def _rows_from_result(
         )
         rows.append(
             {
-                "implementation": STUDY.implementation,
+                "implementation": record.implementation,
                 "scenario": scenario,
                 "replicate": replicate,
                 "n": result.n,
@@ -190,7 +191,7 @@ def cleverly_rows(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
-    return _rows_from_result(fit_cleverly(frame), truth, scenario, replicate)
+    return rows_from_result(STUDY, fit_cleverly(frame), truth, scenario, replicate)
 
 
 def _replicate(
@@ -208,7 +209,7 @@ def _replicate(
         "replicate": replicate,
         **{f"truth_{name}": value for name, value in truth.items()},
     }
-    return payload_frame, truth_row, _rows_from_result(result, truth, scenario, replicate)
+    return payload_frame, truth_row, rows_from_result(STUDY, result, truth, scenario, replicate)
 
 
 def draw_and_fit(

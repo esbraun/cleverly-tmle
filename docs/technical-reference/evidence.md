@@ -92,6 +92,13 @@ addition. Its source audit maps the pinned R `cvFolds` path to
 Primary and reduced predictions are out of fold. One global alternation follows, then a
 whole-sample plug-in mean, then `cov(IC) / n` from the rowwise corrected curve.
 
+Repeated stacked point-treatment CV-TMLE likewise has a separate registered
+[reporting-policy study](method-evidence/repeated-cross-fitting.md). It reuses the shared CV-TMLE
+laws and structural checks, then adds a fixed-sample fold-seed experiment and identical-fit mean,
+median, averaged-curve, and split-dispersion comparisons. The repeat-stability claim passes. The
+robust aggregation and stress variance decisions are red, so the record is evidence about the
+limits of the current rule rather than a claim that mean aggregation or its variance is optimal.
+
 `tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
 on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
 variance are nonzero mutations there. The same module's training-row and longhand cell-mean tests

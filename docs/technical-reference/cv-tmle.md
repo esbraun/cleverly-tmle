@@ -86,10 +86,16 @@ and
 gradient. Until a common targeting score for it is implemented, `rr`, `or`, and MSM coefficients
 are refused rather than given an interval whose reported curve has a nonzero score.
 
-**Two refusals for aggregation over `repeats=`.** Median-of-estimates aggregation is refused,
-because the median of the estimates is not the estimator whose curve is the median of the curves. A
-cross-validated variance of the across-draw average curve is refused, because at equal fold sizes
-it collapses to the pooled uncentred second moment for every partition.
+**The repeat rule is fixed, not claimed optimal.** Chernozhukov et al. (2018), Definition 3.3,
+explicitly allow mean and median aggregation across a fixed number of partitions and establish
+fixed-repeat first-order validity. `cleverly` currently exposes the mean with a row-aligned averaged
+influence curve. It does not expose the median because a point-only switch would leave its matched
+inference rule unspecified. The paper's finite-sample mean variance adds within-partition variance
+and squared between-partition point deviation; that is not the shipped averaged-curve rule. The
+[repeat study](method-evidence/repeated-cross-fitting.md) compares both choices on identical fits
+and reports a red stress decision rather than claiming either rule is optimal. A cross-validated
+variance of the across-draw average curve remains refused because, at equal fold sizes, it
+collapses to the pooled uncentred second moment for every partition.
 
 ## Validation issues special to this method
 
@@ -107,15 +113,16 @@ exactly the direction the cluster role was declared to prevent.
 `tests/unit/test_parallel_invariance.py` pins that, because a fold-parallel implementation that
 reseeds per worker would give a different answer at a different `n_jobs`.
 
-**Three registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
-CV-TMLE, and fold-evaluated CV-TMLE may share a limit while differing in finite samples. Each has
-its own row.
+**Four registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
+CV-TMLE, fold-evaluated CV-TMLE, and repeated stacked CV-TMLE may share a limit while differing in
+finite samples. Each has its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
 | [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
-| [the implementation validation grid](method-evidence/validation-grid.md) | both rows, with their declared limits |
+| [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeat-specific paired evidence; the stability result is green and the robust aggregation and stress variance decisions are red |
+| [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked
 R CV-TMLE. No maintained package pairs a pooled update with fold evaluation. A study that had no

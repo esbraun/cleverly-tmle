@@ -278,6 +278,36 @@ def _measured(row: Any) -> str:
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":
         return f"maximum paired difference {render(float(row.maximum_identity_difference))}"
+    if family == "fold_repeat_stability":
+        intervals = []
+        if pd.notna(getattr(row, "spread_ratio_one_split_ci_lower", None)):
+            intervals.append(
+                "to one split "
+                + _interval(
+                    row.spread_ratio_one_split_ci_lower,
+                    row.spread_ratio_one_split_ci_upper,
+                )
+            )
+        if pd.notna(getattr(row, "spread_ratio_equal_fold_ci_lower", None)):
+            intervals.append(
+                "to equal-fold "
+                + _interval(
+                    row.spread_ratio_equal_fold_ci_lower,
+                    row.spread_ratio_equal_fold_ci_upper,
+                )
+            )
+        return ", ".join(intervals)
+    if family == "repeat_aggregation":
+        return (
+            f"RMSE ratio {_interval(row.rmse_ratio_ci_lower, row.rmse_ratio_ci_upper)}, "
+            "90th-percentile error ratio "
+            f"{_interval(row.p90_error_ratio_ci_lower, row.p90_error_ratio_ci_upper)}"
+        )
+    if family == "repeat_variance":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 

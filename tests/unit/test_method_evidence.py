@@ -595,6 +595,62 @@ class TestPublishedVerdicts:
             assert design["property_passed"].nunique() == 1
             assert bool(design["property_passed"].iloc[0]) is bool(design["passed"].all())
 
+        stability = published.loc[published["property"] == "fold_repeat_stability"]
+        if not stability.empty:
+            threshold = property_verdicts.FOLD_REPEAT_SPREAD_RATIO
+            for row in stability.itertuples():
+                if row.cell == "rowwise_three_draw_average":
+                    expected = (
+                        row.spread_ratio_one_split_ci_upper <= threshold
+                        and row.spread_ratio_equal_fold_ci_upper <= threshold
+                    )
+                elif row.cell == "one_fixed_split":
+                    expected = row.spread_ratio_equal_fold_ci_lower > threshold
+                else:
+                    expected = row.spread_ratio_one_split_ci_lower > threshold
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own spread endpoint"
+                )
+            assert stability["property_passed"].nunique() == 1
+            assert bool(stability["property_passed"].iloc[0]) is bool(stability["passed"].all())
+
+        aggregation = published.loc[published["property"] == "repeat_aggregation"]
+        if not aggregation.empty:
+            for row in aggregation.itertuples():
+                threshold = (
+                    property_verdicts.REPEAT_MEAN_RMSE_RATIO
+                    if row.cell.startswith("oracle_")
+                    else property_verdicts.REPEAT_MEDIAN_RMSE_RATIO
+                )
+                assert bool(row.passed) is bool(row.rmse_ratio_ci_upper <= threshold), (
+                    f"{row.cell} publishes passed={row.passed} against its paired RMSE endpoint"
+                )
+            assert aggregation["property_passed"].nunique() == 1
+            assert bool(aggregation["property_passed"].iloc[0]) is bool(aggregation["passed"].all())
+
+        repeat_variance = published.loc[published["property"] == "repeat_variance"]
+        if not repeat_variance.empty:
+            margins = study.margins
+            for row in repeat_variance.itertuples():
+                valid = (
+                    row.coverage_ci_lower >= margins.coverage_floor
+                    and row.se_ratio_ci_lower >= margins.se_ratio_sanity[0]
+                    and row.se_ratio_ci_upper <= margins.se_ratio_sanity[1]
+                )
+                expected = (
+                    row.coverage_ci_upper < 1.0 - margins.alpha
+                    or row.se_ratio_ci_upper < margins.se_ratio_sanity[0]
+                    if row.role == "control"
+                    else valid
+                )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its interval endpoint"
+                )
+            assert repeat_variance["property_passed"].nunique() == 1
+            assert bool(repeat_variance["property_passed"].iloc[0]) is bool(
+                repeat_variance["passed"].all()
+            )
+
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
             pytest.skip("study declares no cross-fit overfitting cells")
@@ -660,11 +716,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # gap in place rather than merely missing it.
         "double_robustness",
         "generated_design",
+        "fold_repeat_stability",
         "interval_calibration",
         "natural_course_identity",
         "power",
         "root_n_and_efficiency",
         "root_n_rate",
+        "repeat_aggregation",
+        "repeat_variance",
         "static_reduction",
         "treatment_score_necessity",
         "type_i_error",
@@ -798,6 +857,63 @@ class TestNegativeControls:
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
         )
+
+    def test_destroying_repeat_averaging_moves_only_its_stability_verdict(
+        self, study: StudyRecord
+    ) -> None:
+        if "fold_repeat_stability" not in study.property_cells:
+            pytest.skip("the study declares no fold-repeat stability cells")
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        mutated = rows.copy()
+        mask = (mutated["property"] == "fold_repeat_stability") & (
+            mutated["cell"] == "rowwise_three_draw_average"
+        )
+        centre = float(mutated.loc[mask, "estimate"].mean())
+        mutated.loc[mask, "estimate"] = centre + 10.0 * (mutated.loc[mask, "estimate"] - centre)
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        changed = list(published.loc[["fold_repeat_stability"]].index)
+        assert not summary.loc[("fold_repeat_stability", "rowwise_three_draw_average"), "passed"]
+        assert not summary.loc[changed, "property_passed"].any()
+        untouched = summary.index.drop(changed)
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
+
+    def test_destabilizing_oracle_mean_moves_only_its_aggregation_verdict(
+        self, study: StudyRecord
+    ) -> None:
+        if "repeat_aggregation" not in study.property_cells:
+            pytest.skip("the study declares no repeat-aggregation cells")
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        mutated = rows.copy()
+        oracle = (mutated["property"] == "repeat_aggregation") & (mutated["cell"] == "oracle_mean")
+        mutated.loc[oracle, "estimate"] = mutated.loc[oracle, "truth"] + 2.0 * (
+            mutated.loc[oracle, "estimate"] - mutated.loc[oracle, "truth"]
+        )
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        changed = list(published.loc[["repeat_aggregation"]].index)
+        assert not summary.loc[("repeat_aggregation", "oracle_mean"), "passed"]
+        assert not summary.loc[("repeat_aggregation", "oracle_median"), "passed"]
+        untouched = summary.index.drop(changed)
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
+
+    def test_inflating_adjusted_repeat_error_moves_only_its_variance_verdict(
+        self, study: StudyRecord
+    ) -> None:
+        if "repeat_variance" not in study.property_cells:
+            pytest.skip("the study declares no repeat-variance cells")
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        mutated = rows.copy()
+        oracle_dml = (mutated["property"] == "repeat_variance") & (
+            mutated["cell"] == "oracle_dml_mean"
+        )
+        mutated.loc[oracle_dml, "std_error"] *= 2.0
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        changed = list(published.loc[["repeat_variance"]].index)
+        assert not summary.loc[("repeat_variance", "oracle_dml_mean"), "passed"]
+        untouched = summary.index.drop(changed)
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
 
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
         self, study: StudyRecord, cell: pd.DataFrame

@@ -200,6 +200,15 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:overfit_coverage_gain": property_verdicts.OVERFIT_COVERAGE_GAIN,
             }
         )
+    if "fold_repeat_stability" in record.property_cells:
+        declared["margin:fold_repeat_spread_ratio"] = property_verdicts.FOLD_REPEAT_SPREAD_RATIO
+    if "repeat_aggregation" in record.property_cells:
+        declared.update(
+            {
+                "margin:repeat_mean_rmse_ratio": property_verdicts.REPEAT_MEAN_RMSE_RATIO,
+                "margin:repeat_median_rmse_ratio": property_verdicts.REPEAT_MEDIAN_RMSE_RATIO,
+            }
+        )
     if "double_robustness" in record.property_cells:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         declared["margin:union_model_se_lower"] = low

@@ -1,0 +1,120 @@
+{
+  "schema_version": 2,
+  "study": "repeated point-treatment cross-fitted TMLE",
+  "slug": "repeated-crossfit-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-repeated-cvtmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "62bc1c4b4ac90c6985a2dabd0af5a6adb79b8900",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 1000,
+    "seed": 20260924,
+    "resampling_seed": 20261025,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "binary": [
+        "ey1",
+        "ey0",
+        "ate",
+        "att",
+        "atc",
+        "ey_obs",
+        "par",
+        "paf",
+        "rr",
+        "or"
+      ],
+      "continuous": [
+        "ey1",
+        "ey0",
+        "ate",
+        "att",
+        "atc",
+        "ey_obs",
+        "par"
+      ]
+    },
+    "cross_fit": true,
+    "n_folds": 5,
+    "repeats": 3,
+    "targeting_scheme": "pooled",
+    "cv_evaluation": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.025,
+      0.975
+    ],
+    "q_bounds": "sample outcome range",
+    "repeat_aggregation": "mean point estimate and row-aligned influence curve; ratios average on the log scale",
+    "decision_study": {
+      "replicates": 400,
+      "n": 1000,
+      "n_folds": 5,
+      "repeats": 5,
+      "seed": 20260925,
+      "tail_probability": 0.04,
+      "tail_treatment_probability": 0.12,
+      "other_treatment_probability": 0.5,
+      "tail_effect_increment": 8.0
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/repeated_crossfit.py": "2f24c44f16f63e8c98321b977ebc2abed5a1a3f33cbc94a8a15d205bf8d44bdd",
+    "tests/studies/repeated_crossfit_properties.py": "eb142e500081e14cd85edc00bad35f0d2b3e87089e14c146da52a9ea45b30b95",
+    "tests/studies/canonical_cvtmle.py": "2ccb15b88c089e5cf7f08d8db2bf7e164ce8de8ae463af87fd1788e95dbbc68d",
+    "tests/studies/canonical_tmle.py": "eea9d910a22fc138d74c4e8abcdc6f568f58ffea21bd0f3d2ceba71454c35e09",
+    "tests/studies/canonical_properties.py": "6ccf61032a3e466803df59e2531ccf80a8882045aad8376d3708de2c97b04caa",
+    "tests/studies/cvtmle_properties.py": "71991e62eaa1813ded98eab0476d2a4ca555d3d5d845de47c04ebbfa0ba95004",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "7e9c468a28b3ad7271ddeb479510f9746180c43d21bdeb818eea61e0b3b40913",
+    "tests/studies/evidence/property_verdicts.py": "d9f90fd5d99acc09d9d02f80979cf8482ad191e00b7f18c7efcbad1177f55d53",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "2a0d35c8e97bec3c863c7df130543eb2b47b522aba828d82c4d3bf80537de7ce",
+    "summary.csv": "f43c3bcb3a6a6c17f47fa15b29c1998c5bc83f33325bc3c0b50e28e6d1fb2947",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "228f4bfea262eaecb96cc32dc4e448e53625910e0bae3cc41f58a5bea2767f8f",
+    "property-replicates.csv.gz": "596eee30c27bd97a3a6794294e2c2e5637a9eef06bde842240c8fffa25900e88",
+    "properties.csv": "438ada712b6fe719a1358bd1fd860871dbf1ef01327dbf7739a0b16b7c5d6a33"
+  }
+}
