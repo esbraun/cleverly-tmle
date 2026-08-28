@@ -87,13 +87,100 @@ artifacts.
 
 ### V1. Fold-repeat studies
 
-Validate rowwise averaging across independent fold draws. The study must distinguish repeated
-cross-fitting from one fixed split and from equal-fold averaging.
+Register one repeated point-treatment cross-fitted TMLE row. Name it
+`repeated point-treatment cross-fitted TMLE`, with slug `repeated-crossfit-tmle`.
 
-`cleverly` averages the repeat estimates, and it aggregates the curves elementwise. No shipped
-implementation matches that rule. Python `zepid` and R `DoubleML` both take the median across
-repeats, and both add the squared deviation from that median to the variance. This package refuses
-the median. Record that survey, and publish a zero-row equivalence artifact.
+The row uses pooled stacked targeting and whole-sample plug-in evaluation. It uses five outer
+folds and three independent fold draws. It averages repeat estimates and rowwise influence curves
+before inference. It averages risk ratios and odds ratios on their log scales. It reports
+pointwise 95% intervals.
+
+Reuse the binary and bounded-continuous laws from the ordinary point-treatment study. Include each
+applicable point-treatment estimand. Run 800 replications per law at a sample size of 1,000. Use
+fixed GLM nuisance families, fixed propensity bounds, and a new study seed. Retain every
+replication, and reject each failed fit.
+
+Reuse the shared CV-TMLE property laws, cells, seeds, summaries, and verdicts. Positive cells use
+three repeats. Cover double robustness, root-n convergence, interval calibration, type-I error,
+power, and flexible-tree cross-fitting. Keep the existing both-wrong, invalid-inference,
+nonzero-effect, and in-sample controls.
+
+Add one repeat-specific paired property family on a fixed nonlinear sample. Use ATT so whole-sample
+and equal-fold evaluation differ. Fix the sample size at 600, and vary only the fold seed across
+200 paired replications.
+
+| cell | role | construction |
+| --- | --- | --- |
+| `rowwise_three_draw_average` | positive | pooled CV-TMLE with three independent fold draws |
+| `one_fixed_split` | control | the same estimator with one fold draw |
+| `equal_fold_average` | control | one fold draw with fold plug-in evaluation |
+
+Gate the positive cell with 99% paired-bootstrap upper bounds. Require each spread ratio below
+0.80. Compare the repeated estimate's standard deviation with each control's standard deviation.
+Both controls must fail the same bound near a ratio of one. The independent-draw reference is
+`1 / sqrt(3)`, while the declared bound allows fold correlation and Monte Carlo error.
+
+Add a decision study for mean and median repeat aggregation. Fit five identical fold draws for
+both rules. Run 400 replications at a sample size of 1,000. The specificity control uses correct
+oracle outcome and treatment nuisances on the stress law. Require the mean-to-median RMSE upper
+bound below 1.10.
+
+Use a natural split-instability law for the stress regime. A tail stratum has about 4% probability,
+a treatment probability of 0.12, and strong treatment-effect modification. Other rows have a
+treatment probability near 0.50. Fit a fully grown outcome tree and the exact treatment mechanism.
+Require the median-to-mean RMSE upper bound below 0.95. Also report their paired 90th-percentile
+absolute-error ratio without adding a second acceptance margin.
+
+Compare two variance rules on the ordinary and stressed means. The current rule uses the variance
+of the row-aligned averaged influence curve. The DML mean rule averages each draw's squared
+standard error plus its squared distance from the aggregated estimate. Both rules use the same
+samples, folds, point estimates, and nominal 95% interval.
+
+Require both specificity-control intervals to clear the 0.90 coverage floor and the 0.80 to 1.20
+SE screen. Require the adjusted stress interval to meet those rules. The unadjusted stress control must
+resolve below nominal coverage or below the SE screen. Publish red results under reporting policy
+rather than moving the law, mutation, budgets, or margins.
+
+Keep the shared 99% Monte Carlo confidence level and the existing CV-TMLE margins. The
+standardized-bias margin is 0.25. The coverage floor is 0.90. The SE sanity band is 0.80 to 1.20.
+The calibration SE band is 0.93 to 1.07. The calibration coverage band is 0.92 to 0.98.
+
+The type-I ceiling is 0.10, and minimum power is 0.80.
+
+The root-n slope band is -0.625 to -0.375, and it excludes -0.25.
+
+No maintained implementation matches the complete declared repeat rule. Chernozhukov et al.
+(2018) define mean and median aggregation across fixed repeated partitions. Their mean variance
+adds within-partition variance and between-partition squared deviation. `cleverly` instead uses
+the variance of its row-aligned averaged influence curve.
+
+R `tmle3`, `drtmle`, and `lmtp` use one split or one pooled split. Current `DoubleML` uses a median
+and a between-partition adjustment. R `Crossfit` uses a median under double cross-fitting. Python
+`zepid` defaults to a median for a different fold-targeted construction. Record these exclusions,
+set the reference to null, and publish a zero-row equivalence artifact.
+
+Keep the implementation DRY. Parameterize the shared CV-TMLE property runner by repeat count.
+Extract shared point-treatment result conversion where needed. Put the paired spread and RMSE ratio
+intervals and their verdicts in the generic evidence machinery. Reuse the fitted draw reports for
+both aggregation and variance rules. Do not copy inference-scale, truth, interval, resampling,
+schema, or publication code.
+
+Publish the registered row, its method-evidence page, generated grid tables, and all seven required
+artifacts. State that the row does not validate clustering, observation weights, missing outcomes,
+longitudinal data, or an external implementation. Document the rejected comparator candidates in
+the benchmarking survey.
+
+Run disposable primary and fixed-sample probes before the declared run. Use them only to confirm
+schema integrity, successful fitting, and nonzero fold noise. Do not move a declared margin after
+the full run. Regenerate the registered artifacts and generated documentation once.
+
+Verify the artifact hashes, registered verdicts, generated prose, and the named slow re-execution.
+Run the targeted evidence tests, Ruff checks, mypy, the prose report, the complete fast tier, and
+the warning-as-error documentation build.
+
+After the row passes, remove this completed proposal and promote the remaining validation items.
+Change the uncovered-family count from five to four. Remove only the replaced fold-repeat legacy
+study, and update the legacy count. Keep unrelated legacy studies and existing artifacts intact.
 
 ### V2. Clustered inference studies
 
