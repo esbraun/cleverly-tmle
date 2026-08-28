@@ -9,7 +9,7 @@ whole-sample plug-in evaluation.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -120,24 +120,42 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     return canonical_tmle_draw_from_seed(scenario, n, seed)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
-    """The public stacked-validation construction matched to R ``cvtmle=TRUE``."""
-    binary = set(frame["Y"].dropna().unique()).issubset({0, 1})
+def cv_fit(
+    frame: pd.DataFrame,
+    *,
+    binary: bool,
+    estimands: Sequence[str],
+    n_folds: int,
+    repeats: int = 1,
+    cv_evaluation: bool,
+) -> Any:
+    """The cross-fitted point-treatment construction the three CV studies share.
+
+    Every argument that separates the three rows is a keyword this takes, and every
+    argument they agree on is written once here.  ``repeats=1`` is the estimator's own
+    default (``tmle.py:375``, assigned plainly at ``:423``), so the two studies that leave
+    it out build the identical estimator they built before.
+
+    Each caller passes its *own* ``n_folds`` and ``estimands``.  Those two names collide
+    across the callers and disagree in value: ``N_FOLDS`` is 10 in this module and 5 in
+    ``repeated_crossfit``, and the estimand lists differ between ``SCENARIO_ESTIMANDS``
+    and ``SUPPORTED``.  Resolving either by import would silently move a published row.
+    """
     outcome = (
         LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs") if binary else LinearRegression()
     )
     treatment = LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
-    scenario = "binary" if binary else "continuous"
     covariates = [column for column in frame.columns if column.startswith("W")]
     return (
         TMLE(
             outcome_learner=outcome,
             treatment_learner=treatment,
             cross_fit=True,
-            n_folds=N_FOLDS,
+            n_folds=n_folds,
+            repeats=repeats,
             targeting_scheme="pooled",
-            cv_evaluation=False,
-            estimands=SCENARIO_ESTIMANDS[scenario],
+            cv_evaluation=cv_evaluation,
+            estimands=estimands,
             simultaneous=False,
             g_bounds=G_BOUNDS,
             max_iter=100,
@@ -146,6 +164,23 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         )
         .fit(frame, outcome="Y", treatment="A", covariates=covariates)
         .single()
+    )
+
+
+def fit_cleverly(frame: pd.DataFrame) -> Any:
+    """The public stacked-validation construction matched to R ``cvtmle=TRUE``.
+
+    This study sniffs the outcome type from the frame rather than taking a scenario, which
+    is what the R side does with the same payload.
+    """
+    binary = set(frame["Y"].dropna().unique()).issubset({0, 1})
+    scenario = "binary" if binary else "continuous"
+    return cv_fit(
+        frame,
+        binary=binary,
+        estimands=SCENARIO_ESTIMANDS[scenario],
+        n_folds=N_FOLDS,
+        cv_evaluation=False,
     )
 
 

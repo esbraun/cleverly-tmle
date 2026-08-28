@@ -6,12 +6,10 @@ from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_cvtmle import G_BOUNDS, rows_from_result
+from tests.studies.canonical_cvtmle import G_BOUNDS, cv_fit, rows_from_result
 from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -99,32 +97,18 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
-    """Fit the declared five-fold, three-draw stacked CV-TMLE."""
-    outcome = (
-        LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
-        if scenario == "binary"
-        else LinearRegression()
-    )
-    treatment = LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
-    covariates = [column for column in frame.columns if column.startswith("W")]
-    return (
-        TMLE(
-            outcome_learner=outcome,
-            treatment_learner=treatment,
-            cross_fit=True,
-            n_folds=N_FOLDS,
-            repeats=REPEATS,
-            targeting_scheme="pooled",
-            cv_evaluation=False,
-            estimands=SCENARIO_ESTIMANDS[scenario],
-            simultaneous=False,
-            g_bounds=G_BOUNDS,
-            max_iter=100,
-            tol=1e-10,
-            random_state=0,
-        )
-        .fit(frame, outcome="Y", treatment="A", covariates=covariates)
-        .single()
+    """Fit the declared five-fold, three-draw stacked CV-TMLE.
+
+    ``N_FOLDS`` here is this module's own 5, not the 10 that ``canonical_cvtmle`` declares
+    under the same name.
+    """
+    return cv_fit(
+        frame,
+        binary=scenario == "binary",
+        estimands=SCENARIO_ESTIMANDS[scenario],
+        n_folds=N_FOLDS,
+        repeats=REPEATS,
+        cv_evaluation=False,
     )
 
 
