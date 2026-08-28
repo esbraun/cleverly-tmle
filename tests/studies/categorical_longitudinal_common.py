@@ -33,6 +33,13 @@ STATIC_NAME = "ate_regimen[standard vs low]"
 DYNAMIC_NAME = "ate_regimen[respond vs low]"
 CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 
+#: The ``rule_necessity`` control: the declared dynamic rule with its two history-specific arms
+#: exchanged.  It disagrees with the declared rule on *both* strata rather than on one, which is
+#: the deliberate choice and not an approximation to a narrower control.  A rule the estimator
+#: reads off the wrong stratum is exactly this mutation, and the committed cell measures it at a
+#: displacement of 6.86 against a declared floor of 0.10, with the control's bias interval at
+#: -0.3159 to -0.3084 outside a margin of 0.0125.  A one-stratum variant would be a second
+#: control with a smaller displacement, not a correction to this one.
 MUTATED_REGIMENS = {
     **REGIMENS,
     "respond": (
