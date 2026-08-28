@@ -70,7 +70,34 @@ likelihood and the comparator boundary.
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
-Two limits of the framework shape this table. A study record names one `reference`, so a second
+The cross-fitting survey is separate because the question is how an implementation aggregates over
+folds, not which parameter it reaches. Every candidate below describes itself as cross-fitted or
+cross-validated, and the candidates do not agree on what that means. Read the aggregation line in
+the source before you accept one.
+
+| candidate | how it aggregates over folds | verdict |
+| --- | --- | --- |
+| R `tmle3` at `ed72f8a` | stacks the validation rows, targets once, and evaluates on the whole sample | Used by the stacked CV-TMLE row. It is not the fold-evaluated construction. |
+| R `drtmle` 1.1.2 | pools the out-of-fold predictions and forms one estimate on the whole sample | Rejected for the fold-evaluated row. |
+| R `lmtp` 1.5.4 | takes `weighted.mean` of the pooled shifted regression column | Rejected for the fold-evaluated row. Used elsewhere for its intervention family. |
+| R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |
+| R `npcausal` at `56a5ac1` | averages the influence-function values over all rows | Rejected. It is a one-step AIPW estimator, and its aggregation is pooled. |
+| Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. Retained for the multi-arm selector survey below. |
+| Python `zepid` `SingleCrossfitTMLE` | fits one coefficient per split, averages the fold plug-ins by split size, and averages the within-split influence-curve variances | The one shipped fold-evaluated construction. It matches the fold-targeted variant, not the pooled update. Its default median combination over partitions is the aggregation this package refuses. |
+| R `Crossfit` at `momenulhaque/Crossfit` | takes the median of the split estimates under a double cross-fit | Rejected. Double cross-fitting fits each nuisance on a separate split, which is a different estimator. |
+| R and Python `DoubleML` 1.0.2 | takes the median across repeated partitions, and the R variance adds the squared deviation from that median | Rejected as a fold-repeat comparator. It is also a double machine learning estimator rather than a TMLE. |
+
+The multi-arm collaborative survey is separate because the selector, not the parameter, is what a
+comparator has to reach.
+
+| candidate | selector it reaches | verdict |
+| --- | --- | --- |
+| R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
+| R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
+| archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
+| Julia `TMLE.jl` v0.20.4 | `GreedyStrategy` and `AdaptiveCorrelationStrategy` | Candidate for the greedy and ordered scenarios. It takes categorical treatment levels, stratifies folds by treatment, selects on a cross-validated loss, and composes ratios by the delta method. It has no discrete ladder. |
+
+Two limits of the framework shape these tables. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes
 the specification the subject must match.
 

@@ -258,3 +258,31 @@ registered study asks those questions separately. The inspected source is pinned
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.
+
+## Proposed methods on the roadmap
+
+These sources locate the derivations that [roadmap](roadmap.md#later-candidate-track) items C5 to
+C7 wait on. Nobody has read one first-hand yet, and none supports a shipped claim. The
+readiness label on each item says so.
+
+- Díaz, Hejazi, Rudolph & van der Laan (2021), [*Non-parametric efficient causal mediation with
+  intermediate confounders*](https://doi.org/10.1093/biomet/asaa085), *Biometrika* 108(3):627–641,
+  DOI 10.1093/biomet/asaa085. A correction follows at *Biometrika* 111(2):723–726, DOI
+  [10.1093/biomet/asae009](https://doi.org/10.1093/biomet/asae009). Read the correction with the
+  paper. Cited by roadmap item C5.
+- Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
+  of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item C6.
+- Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
+  continuously distributed time-to-event outcomes by targeted maximum likelihood
+  estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI
+  10.1111/biom.13856. This is the construction the `concrete` package implements. Cited by roadmap
+  item C6.
+- Hejazi, van der Laan, Janes, Gilbert & Benkeser (2021), [*Efficient nonparametric inference on
+  the effects of stochastic interventions under two-phase sampling, with applications to vaccine
+  efficacy trials*](https://doi.org/10.1111/biom.13375), *Biometrics* 77(4):1241–1253, DOI
+  10.1111/biom.13375. Cited by roadmap item C7.
+- van der Laan (2008), [*Estimation Based on Case-Control Designs with Known Prevalence
+  Probability*](https://doi.org/10.2202/1557-4679.1114), *International Journal of Biostatistics*
+  4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item C7 for the case-control
+  weighting that `TMLE.jl` implements.
