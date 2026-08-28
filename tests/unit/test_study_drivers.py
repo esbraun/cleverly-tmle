@@ -2,8 +2,10 @@
 
 ``draw_and_fit`` is the entry point ``tests/canonical/regenerate.py`` calls to produce a
 study's published replication file, and it is the only caller. Nothing in either test tier
-touched it, so a driver that returned the wrong columns, dropped a scenario, or joined a
-truth to the wrong row would first show up the next time somebody regenerated a study. The
+touched it, so a driver that returned the wrong columns, dropped a scenario, or reported an
+interval its coverage flag contradicts would first show up the next time somebody
+regenerated a study. A truth that is wrong for every row stays invisible here, because
+``covered`` is rebuilt from the same joined truth. The
 cross-fitted drivers are about to share one implementation, which is why they need a gate
 before they share it and not after.
 
@@ -47,8 +49,9 @@ def _check_rows(rows: pd.DataFrame, record: StudyRecord) -> None:
     assert np.isfinite(rows[["estimate", "inference_estimate", "std_error"]].to_numpy()).all()
     assert (rows["std_error"] > 0.0).all()
     assert (rows["ci_lower"] <= rows["ci_upper"]).all()
-    # The coverage indicator has to agree with the interval it came from.  A truth joined
-    # to the wrong row leaves every other column arithmetically self-consistent.
+    # The coverage indicator has to agree with the interval it came from.  This catches a
+    # truth misjoined for some rows and not others.  It cannot catch one that is wrong
+    # everywhere, because ``covered`` comes from the same joined truth.
     recomputed = (rows["ci_lower"] <= rows["truth"]) & (rows["truth"] <= rows["ci_upper"])
     assert (recomputed.astype(int) == rows["covered"]).all()
     assert set(rows["inference_scale"]) <= INFERENCE_SCALES
@@ -58,6 +61,17 @@ def _check_rows(rows: pd.DataFrame, record: StudyRecord) -> None:
 def test_a_scenario_fitted_driver_returns_the_replication_contract(runner: object) -> None:
     rows = runner.draw_and_fit(replicates=1, n=200, n_jobs=1)  # type: ignore[attr-defined]
     _check_rows(rows, runner.STUDY)  # type: ignore[attr-defined]
+
+
+def test_the_shared_driver_gives_one_answer_on_one_job_or_two() -> None:
+    """``n_jobs=1`` takes the sequential branch of ``map_parallel`` and never pickles.
+
+    Regeneration runs the drivers on ``STUDY_JOBS``, so the nested call the shared driver
+    passes to the pool has to survive being sent to a worker.
+    """
+    one = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    two = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=2)
+    pd.testing.assert_frame_equal(one, two)
 
 
 def test_the_stacked_driver_returns_its_samples_truths_and_rows() -> None:

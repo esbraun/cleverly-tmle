@@ -533,6 +533,20 @@ class TestARefutationInheritsTheFitsSeed:
     def test_an_explicit_seed_overrides_the_fit(self, seeded) -> None:
         assert self._placebo(seeded, random_state=3) != self._placebo(seeded)
 
+    def test_a_zero_seed_still_overrides_the_fit(self) -> None:
+        """``random_state=0`` is falsy, so the fallback has to read ``is None``.
+
+        The other tests in this class hold under a truthiness test as well, because the
+        fit they use carries seed 0 itself.  This one fails under it.
+        """
+        frame, _ = make_linear_ate(n=500, seed=86)
+        fit = (
+            fast_tmle(estimands=("ate",), random_state=21)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert self._placebo(fit, random_state=0) != self._placebo(fit)
+
     def test_an_unseeded_fit_still_draws_from_entropy(self) -> None:
         """The guarantee is conditional on the fit carrying a seed, and says so."""
         frame, _ = make_linear_ate(n=500, seed=87)

@@ -66,8 +66,8 @@ ones:
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
 ```
 
-`run_all` passes no seed, so `refute()` draws from the seed of the fit. Seed the fit if you need
-the same refutation twice.
+`run_all` passes no seed, so `refute()` draws from the seed of the fit. Give the fit a seed if
+you need the same refutation twice.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against

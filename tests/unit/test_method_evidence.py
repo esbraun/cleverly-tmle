@@ -859,8 +859,10 @@ class TestTheStudyStillMeasuresTheCode:
             # gate used to compare neither.  A shared row builder that unified either one --
             # ``len(frame)`` against ``result.n``, or a plug-in against ``math.nan`` -- would
             # have moved a published number with nothing anywhere to notice.  ``nan_ok``
-            # because ``canonical_tmle`` and ``canonical_cvtmle`` write ``math.nan`` into
-            # ``initial_estimate`` deliberately: they report no plug-in.
+            # because ``canonical_tmle``, ``canonical_cvtmle``, ``canonical_ctmle_oat`` and
+            # ``canonical_ctmle_selector`` write ``math.nan`` into ``initial_estimate``
+            # deliberately: they report no plug-in.  Six published rows carry it, because
+            # the two fold-evaluated and repeated rows read the cross-fitted builder.
             for column in (
                 "n",
                 "estimate",

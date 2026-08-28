@@ -269,12 +269,6 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     )
 
 
-def draw_for(
-    record: StudyRecord, scenario: str, n: int, replicate: int
-) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
-
-
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
