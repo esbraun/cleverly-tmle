@@ -623,6 +623,7 @@ class TestPublishedVerdicts:
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
     {
+        "categorical_probability_necessity",
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",

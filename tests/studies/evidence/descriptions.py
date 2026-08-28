@@ -36,6 +36,7 @@ ARMS: dict[str, str] = {
     "ate": "average treatment effect",
     "static": "static plan",
     "dynamic": "dynamic plan",
+    "third_arm": "third-arm static plan",
     "static_t1": "static plan at horizon one",
     "static_t2": "static plan at horizon two",
     "dynamic_t2": "dynamic plan at horizon two",
@@ -88,6 +89,8 @@ _TERM = re.compile(
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
+    "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
+    "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
@@ -125,6 +128,7 @@ SCENARIOS: dict[str, str] = {
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
     "censored_end_of_study": "two-time-point law with monotone censoring",
+    "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
@@ -171,7 +175,12 @@ ESTIMANDS: dict[str, str] = {
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
     "continue_if_l2": "treat first, then continue if L2 equals one",
+    "high": "assign the high arm at both times",
+    "low": "assign the low arm at both times",
     "never": "treat at neither time",
+    "respond": "assign standard first, then high if L2 equals one and low otherwise",
+    "standard": "assign the standard arm at both times",
+    "step_down": "assign high first, then standard",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
     "+0.25": "shift dose by 0.25",
     "+0.5 capped": "shift dose by 0.5 subject to the declared cap",
@@ -209,6 +218,9 @@ PARAMETERISED: dict[str, str] = {
 
 PROPERTIES: dict[str, str] = {
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
+    "categorical_probability_necessity": (
+        "the assigned categorical arm selects its own mechanism probability"
+    ),
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
@@ -324,6 +336,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("crossfit_overfitting", "cross_fitted_ltmle"): (
         "five-fold end-of-study LTMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "cross_fitted_categorical_ltmle"): (
+        "five-fold categorical LTMLE with a fully grown outcome tree",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("crossfit_overfitting", "cross_fitted_survival_ltmle"): (
@@ -466,6 +482,22 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("rule_necessity", "static_control"): (
         "the same fit replaces the rule with an always-treated static plan",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("rule_necessity", "declared_rule"): (
+        "the declared categorical rule selects its second-node arm from the history",
+        "bias interval inside the equivalence margin",
+    ),
+    ("rule_necessity", "reversed_rule"): (
+        "the same fit reverses the rule's two history-specific arm assignments",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("categorical_probability_necessity", "assigned_probability"): (
+        "the clever covariate selects the assigned third arm's own probability",
+        "bias interval inside the equivalence margin",
+    ),
+    ("categorical_probability_necessity", "binary_complement"): (
+        "the same fit replaces the third arm's probability with a binary complement",
         "bias interval must fall entirely outside the margin",
     ),
     ("density_necessity", "declared"): (

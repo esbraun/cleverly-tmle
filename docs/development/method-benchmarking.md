@@ -55,8 +55,10 @@ This survey covers the intervention family. Each verdict names the evidence behi
 
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
-| R `lmtp` 1.5.4 | deterministic regimes, known stochastic regimes, modified treatment policies | Used by three studies. The point adapter supplies the analytic density ratio, so a regime that ignores the natural treatment value is expressible. |
-| R `npcausal` at `56a5ac1` | incremental propensity-score interventions | Used by the incremental study. Kennedy (2019) publishes it, and its influence values carry the derivative through the treatment mechanism. |
+| R `lmtp` 1.5.4 | deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply the analytic density ratio and the exact rowwise folds. |
+| R `npcausal` at `56a5ac1` | point-treatment effects, counterfactual densities, continuous-treatment curves, and incremental propensity-score interventions | Used by the incremental study. Its public estimator list has no deterministic categorical longitudinal regimen. |
+| R `stremr` | static, dynamic, and stochastic longitudinal regimes with categorical exposures | Not used for categorical parity. Its required long-form data introduces a second representation, while pinned `lmtp` accepts the study's node columns directly. |
+| Poulos `multi-ltmle` companion | simulation code for longitudinal multi-valued treatment | Retained as supporting source provenance. It is a simulation repository, not a versioned package entry point for rowwise paired studies. |
 | R `imtp` 0.1.0 at `d4b5204` | incremental odds curve | Rejected. Its influence curve omits that derivative, so it witnesses the point curve and cannot gate inference. |
 | R `ltmle` 1.3-0 | deterministic point-treatment regimes | Available and not used. `abar` accepts a single treatment node, which `ltmle_regimen_adapter.R` already reaches at `horizon = 1`. One comparator per study is the framework limit today. |
 | R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |

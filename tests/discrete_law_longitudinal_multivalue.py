@@ -17,7 +17,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 
 N = 2 * 4**4
-ARM_LABELS = ("low", "standard", "high")
+#: Raw law columns in a deliberately non-semantic order. The data layer sorts these labels as
+#: ``("high", "low", "standard")``, so neither the raw support code nor the estimator's dense
+#: code can be mistaken for the clinical order low -> standard -> high.
+ARM_LABELS = ("standard", "high", "low")
 P_W = np.array([0.5, 0.5])
 G1 = np.array([[0.25, 0.25, 0.50], [0.50, 0.25, 0.25]])
 P_L2 = np.array([[0.25, 0.50, 0.75], [0.75, 0.25, 0.50]])
@@ -51,13 +54,15 @@ Q = np.array(
 )
 
 REGIMEN_ARMS: dict[str, tuple[Any, Any]] = {
-    "low": (0, 0),
-    "high": (2, 2),
-    "step_down": (2, 1),
-    "respond": (1, np.array([0, 2])),
+    "low": (2, 2),
+    "standard": (0, 0),
+    "high": (1, 1),
+    "step_down": (1, 0),
+    "respond": (0, np.array([2, 1])),
 }
 REGIMEN_SPEC: dict[str, Any] = {
     "low": "low",
+    "standard": "standard",
     "high": "high",
     "step_down": ("high", "standard"),
     "respond": ("standard", lambda h: np.where(h["L2"] == 1, "high", "low")),
@@ -71,19 +76,23 @@ def _arm(node: Any, l2: int | None = None) -> int:
     return int(node) if np.ndim(node) == 0 else int(node[l2])
 
 
-def _mass_of(point: tuple[int, ...]) -> float:
+def _mass_of(point: tuple[int, ...], outcome: Any = None) -> float:
     w, a1, l2, a2, y = point
+    q = Q if outcome is None else np.asarray(outcome)
     mass = P_W[w] * G1[w, a1]
     mass *= P_L2[w, a1] if l2 else 1.0 - P_L2[w, a1]
     mass *= G2[w, a1, l2, a2]
-    return float(mass * (Q[w, a1, l2, a2] if y else 1.0 - Q[w, a1, l2, a2]))
+    return float(mass * (q[w, a1, l2, a2] if y else 1.0 - q[w, a1, l2, a2]))
 
 
-COUNTS = np.rint(np.array([_mass_of(point) * N for point in SUPPORT])).astype(int)
-if (
-    COUNTS.sum() != N
-    or np.max(np.abs(COUNTS - np.array([_mass_of(point) * N for point in SUPPORT]))) > 1e-10
-):  # pragma: no cover - guards the exact-law constants
+def probabilities(outcome: Any = None) -> np.ndarray:
+    """Cell probabilities, optionally replacing only the outcome regression."""
+    return np.array([_mass_of(point, outcome) for point in SUPPORT], dtype=float)
+
+
+PROBS = probabilities()
+COUNTS = np.rint(PROBS * N).astype(int)
+if COUNTS.sum() != N or np.max(np.abs(COUNTS - PROBS * N)) > 1e-10:
     raise AssertionError("the declared categorical law is not exactly realisable at N=512")
 PROBS = COUNTS / N
 
@@ -157,6 +166,25 @@ def frame() -> pd.DataFrame:
             "Y": points[:, 4].astype(float),
         }
     )
+
+
+def sample(probs: np.ndarray, n: int, seed: int, *, noise: bool = False) -> pd.DataFrame:
+    """Draw ``n`` rows from a declared cell law, optionally with irrelevant continuous noise."""
+    rng = np.random.default_rng(seed)
+    cells = rng.choice(len(SUPPORT), size=n, p=np.asarray(probs, dtype=float))
+    points = np.asarray(SUPPORT, dtype=int)[cells]
+    result = pd.DataFrame(
+        {
+            "W": points[:, 0].astype(float),
+            "A1": np.asarray(ARM_LABELS, dtype=object)[points[:, 1]],
+            "L2": points[:, 2].astype(float),
+            "A2": np.asarray(ARM_LABELS, dtype=object)[points[:, 3]],
+            "Y": points[:, 4].astype(float),
+        }
+    )
+    if noise:
+        result.insert(1, "U", rng.normal(size=n))
+    return result
 
 
 def first_row_of() -> np.ndarray:

@@ -11,12 +11,11 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Categorical longitudinal studies | source audit complete; pinned R `lmtp` comparator | registered multi-arm helpers | [V1](#v1-categorical-longitudinal-studies) |
-| Validation | V2 | Fold-repeat studies | source audit | V1 ordering only | [V2](#v2-fold-repeat-studies) |
-| Validation | V3 | Clustered inference studies | source audit | V2 ordering only | [V3](#v3-clustered-inference-studies) |
-| Validation | V4 | Point-treatment weight studies | source audit | V3 ordering only | [V4](#v4-point-treatment-weight-studies) |
-| Validation | V5 | Controlled direct-effect studies | source audit | V4 ordering only | [V5](#v5-controlled-direct-effect-studies) |
-| Validation | V6 | Weighted longitudinal studies | source audit | V5 establishes the fixed-weight study design | [V6](#v6-weighted-longitudinal-studies) |
+| Validation | V1 | Fold-repeat studies | source audit | none | [V1](#v1-fold-repeat-studies) |
+| Validation | V2 | Clustered inference studies | source audit | V1 ordering only | [V2](#v2-clustered-inference-studies) |
+| Validation | V3 | Point-treatment weight studies | source audit | V2 ordering only | [V3](#v3-point-treatment-weight-studies) |
+| Validation | V4 | Controlled direct-effect studies | source audit | V3 ordering only | [V4](#v4-controlled-direct-effect-studies) |
+| Validation | V5 | Weighted longitudinal studies | source audit | V4 establishes the fixed-weight study design | [V5](#v5-weighted-longitudinal-studies) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -80,125 +79,27 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V1. Categorical longitudinal studies
-
-Add ordinary and cross-fitted rows for categorical treatment nodes under static and dynamic plans.
-The source audit identifies pinned R `lmtp` 1.5.4 as the canonical comparison. It supports
-categorical treatment nodes in longitudinal static and dynamic plans.
-
-#### Shared law and parameter scope
-
-Use one two-time-point law with three labelled treatment levels at both nodes. The label order must
-differ from the semantic treatment order. The first treatment must change the intermediate
-covariate, and the second treatment mechanism and outcome must depend on that covariate.
-
-Report static plans that use the reference and third arms. Report a mixed static plan and a dynamic
-plan that selects two different second-node arms from the observed history. Include every regimen
-mean and each non-reference contrast in the known-truth study.
-
-Share the law, exact g-formula oracle, sampler, nuisance fixtures, plan-to-arm mapping, fit adapter,
-and result-row conversion across the two rows. Keep each study's record, seed stream, fitting mode,
-property adapter, and artifacts separate. Extend the existing categorical longitudinal exact law
-instead of creating a second distribution with the same scientific role.
-
-#### Canonical comparisons
-
-Compare both rows with R `lmtp` 1.5.4 at pinned commit `f04a2b4`. Give both implementations the
-same realized samples, labelled treatment columns, exact treatment mechanism, nuisance regression
-family, plans, folds, and intervals. Run `lmtp` with one all-row fold for the ordinary study. Give
-it the exact rowwise five-fold assignment for the cross-fitted study.
-
-The source audit rejects R `npcausal` because its public estimators do not include deterministic
-categorical treatment plans over time. It also rejects R `stremr` as the primary comparison because
-its long-form data interface introduces a second representation. Keep the Poulos companion code as
-supporting evidence for longitudinal multi-valued treatment, but do not use its simulation scripts
-as the canonical implementation witness.
-
-Do not split one categorical regimen into separate binary fits. Do not compare with a point-
-treatment estimator or reuse the binary longitudinal rows. Keep every source-audit snapshot in the
-references as comparator provenance.
-
-#### Ordinary categorical LTMLE
-
-Fit the shared law without cross-fitting. Give both primary implementations the same
-quasibinomial outcome-regression family and the exact treatment mechanism. Use saturated cell
-learners for the exact-law property instruments. Validate every reported mean and contrast against
-its exact g-formula truth with pointwise 95% Wald intervals.
-
-Give R `lmtp` one fold whose training and validation sets contain every row. Verify its categorical
-density ratios against the exact law before the comparison runs.
-
-The property study must test both halves of sequential double robustness and a both-wrong control.
-It must test bias, coverage, standard-error calibration, and root-n behavior at three sizes for one
-static and one dynamic contrast. Add a sharp-null size cell and a nonzero-effect power control.
-
-Add a nonzero targeting control. Add a third-arm control that substitutes a binary complement for
-the assigned probability. Add a dynamic-rule control that changes the second-node arm on one
-history stratum. Each mutation must fail the same instrument that its positive cell passes.
-
-#### Cross-fitted categorical LTMLE
-
-Fit one declared five-fold split and preserve the rowwise fold assignment. Fit and target each
-training recursion before evaluation on its held-out rows. Do not inherit the ordinary row's
-finite-sample result merely because both estimators have the same limit.
-
-Give R `lmtp` the same rowwise fold assignment and exact categorical density ratios. Keep the
-fold-specific nuisance and targeting recursion inside each training and validation pair.
-
-Repeat the ordinary row's double-robustness, three-size, calibration, null, power, targeting, third-
-arm, and dynamic-rule instruments under cross-fitting. Add a flexible-learner overfitting pair that
-compares the cross-fitted estimator with the same in-sample learner and the same realized samples.
-
-Structural tests must prove that each training fold contains all three treatment levels at both
-nodes. They must also prove that held-out predictions come only from the matching training
-complement. A common random seed or fold count is not enough evidence for those conditions.
-
-#### Registration and publication
-
-Use 99% confidence bounds for every statistical verdict. Size each replication budget against the
-binding endpoint before the final run. Run disposable ordinary and cross-fitted smoke studies before
-the declared studies.
-
-Treat missing rows, failed fits, non-finite results, active undeclared bounds, incomplete treatment
-support, and fold leakage as hard errors. Run Python and R smoke comparisons before the declared
-studies. Commit the six standard CSV artifacts and a hash-complete manifest for each row. The
-seventh standard file is each manifest itself. Generate every measured table from those artifacts.
-
-Update the validation grid, study index, evidence manifest, longitudinal method page, testing
-strategy, and applicable examples. Add plain-English descriptions for every new scenario,
-implementation, estimand, property family, and cell. Retire a legacy repeated-sampling check only
-when one exists and both replacement rows cover its claim.
-
-Remove V1 after both rows and every documentation gate pass. Promote and renumber the remaining
-validation items so the roadmap contains only proposed work. Update their ordering dependencies at
-the same time.
-
-Each limits section must state the complete-outcome design, two-node and three-level scope,
-learner class, fitting scheme, interval type, and deterministic-plan boundary. It must name excluded
-censoring, missingness, stochastic categorical policies, continuous doses, survival and competing
-risks, weights, clusters, fold repeats, simultaneous bands, and flexible primary learners.
-
-### V2. Fold-repeat studies
+### V1. Fold-repeat studies
 
 Validate rowwise averaging across independent fold draws. The study must distinguish repeated
 cross-fitting from one fixed split and from equal-fold averaging.
 
-### V3. Clustered inference studies
+### V2. Clustered inference studies
 
 Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
 negative control must analyze the same rows as independent observations.
 
-### V4. Point-treatment weight studies
+### V3. Point-treatment weight studies
 
 Validate fixed probability weights against the tilted population law. The negative control must
 omit the weights and converge to a different parameter.
 
-### V5. Controlled direct-effect studies
+### V4. Controlled direct-effect studies
 
 Validate each declared intermediate level against its exact controlled parameter. The study must
 exercise the treatment and intermediate mechanism product with a nonzero control.
 
-### V6. Weighted longitudinal studies
+### V5. Weighted longitudinal studies
 
 Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
 negative control must omit the weights and miss the declared longitudinal parameter.

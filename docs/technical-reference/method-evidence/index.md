@@ -10,9 +10,9 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | all twenty-four studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | all twenty-six studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
-| the twenty-four study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the twenty-six study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -40,8 +40,10 @@ stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
+ordinary-categorical-longitudinal-tmle
 ordinary-longitudinal-msm-projection
 cross-fitted-end-of-study-longitudinal-tmle
+cross-fitted-categorical-longitudinal-tmle
 ordinary-survival-curve-longitudinal-tmle
 cross-fitted-survival-curve-longitudinal-tmle
 ordinary-competing-risk-longitudinal-tmle
