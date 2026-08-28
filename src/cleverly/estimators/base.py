@@ -17,7 +17,7 @@ import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError
+from ..exceptions import refuse_after_repeats
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.influence import ParameterEstimate, Scale
@@ -647,13 +647,15 @@ class TMLEResult:
         ndarray
             Covariance matrix in the requested order.
         """
-        if self.n_repeats > 1:
-            raise CapabilityError(
-                "covariance() is not defined for median-combined repeats. The marginal "
-                "variance includes between-draw displacement, but no established joint "
-                "aggregation rule supplies its cross-estimand covariance. Fit one split "
-                "or inspect each entry in result.repeats."
-            )
+        refuse_after_repeats(
+            self.n_repeats,
+            operation="covariance()",
+            reason=(
+                "The marginal variance includes between-draw displacement, but no "
+                "established joint aggregation rule supplies its cross-estimand "
+                "covariance. Fit one split or inspect each entry in result.repeats."
+            ),
+        )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -698,12 +700,15 @@ class TMLEResult:
         ParameterEstimate
             Derived estimate with influence-curve inference.
         """
-        if self.n_repeats > 1:
-            raise CapabilityError(
-                "contrast() is not defined after median aggregation because medians do "
-                "not preserve algebraic identities across estimands. Request the contrast "
-                "as an estimand before fitting, or fit one split."
-            )
+        refuse_after_repeats(
+            self.n_repeats,
+            operation="contrast()",
+            reason=(
+                "A coordinatewise median does not preserve algebraic identities across "
+                "estimands. Request the contrast as an estimand before fitting, or fit "
+                "one split."
+            ),
+        )
         return smooth_contrast(
             self.estimates,
             function,
@@ -1001,6 +1006,15 @@ class TMLEResult:
 
         parts = [*header, *facts, "", table]
         if self.n_repeats > 1:
+            # Printed under the table rather than left to the scope document, because a
+            # reader who subtracts two rows of that table gets a third number the fit
+            # never reported.  contrast() refuses for this reason; the table cannot.
+            parts.append("")
+            parts.append(
+                "the report above is coordinatewise: each row is the median of its own "
+                "draws, so algebraic identities among the rows (ate versus ey1 - ey0, "
+                "say) do not hold."
+            )
             # Beside the standard error rather than in a separate report, because the
             # comparison is the whole content of the number: on its own "0.0065" says
             # nothing about whether the split mattered.

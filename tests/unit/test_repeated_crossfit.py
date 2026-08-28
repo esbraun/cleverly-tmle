@@ -12,8 +12,9 @@ be checked *exactly*, which is nearly all of it:
 * the refused combinations, and why.
 
 The one claim that is *not* here is that repeats reduce the across-seed spread of ``psi``.
-That is a statement about repeated sampling, so it belongs in the slow tier beside the
-coverage studies, not in a fast test that would be a coin flip on a lucky seed.
+That is a statement about repeated sampling, and no test or study makes it: the registered
+repeated row validates the median report at three draws and declares the gap, and
+``docs/roadmap.md`` *V7* holds the property cell that would close it.
 """
 
 from __future__ import annotations
@@ -179,14 +180,51 @@ class TestTheMedianRule:
         assert combined.variance == pytest.approx(float(expected))
 
     def test_a_ratio_uses_the_median_on_the_log_scale(self) -> None:
+        # Deliberately not a geometric triple.  On (2, 8, 32) the median of the logs, the
+        # mean of the logs and the median of the raw points all return 8, so that triple
+        # cannot see the rule at all.  Here the mean of the logs returns 4.16 instead.
         reports = [
             {"rr": self._estimate("rr", psi, np.zeros(4), scale="ratio")}
-            for psi in (2.0, 8.0, 32.0)
+            for psi in (2.0, 3.0, 12.0)
         ]
         combined = median_estimates(reports)["rr"]
-        assert combined.psi == pytest.approx(8.0)
+        assert combined.psi == pytest.approx(3.0)
         assert combined.log_psi is not None
+        assert combined.log_psi == pytest.approx(float(np.log(3.0)))
         assert combined.psi == pytest.approx(float(np.exp(combined.log_psi)))
+
+    def test_a_ratio_displaces_its_variance_on_the_log_scale_too(self) -> None:
+        """The one place the reporting scale of a ratio is observable.
+
+        The *point* cannot show it.  For an odd draw count the median commutes with the
+        log, so ``exp(median(log psi_r))`` and ``median(psi_r)`` agree for every input.
+        The displacement term is where the two scales come apart, and nothing else in this
+        file reads a ratio's ``.variance``: the existing within-plus-between test builds
+        difference-scale estimates only.
+
+        Curves are nonzero and unequal so each draw carries its own within-draw variance,
+        which pins the pairing as well as the rule.
+        """
+        curves = (
+            np.array([2.0, -2.0, 1.0, -1.0]),
+            np.array([1.0, -1.0, 0.5, -0.5]),
+            np.array([3.0, -3.0, 1.5, -1.5]),
+        )
+        reports = [
+            {"rr": self._estimate("rr", psi, curve, scale="ratio")}
+            for psi, curve in zip((2.0, 3.0, 12.0), curves, strict=True)
+        ]
+        combined = median_estimates(reports)["rr"]
+        expected = np.median(
+            [
+                report["rr"].variance + (np.log(report["rr"].psi) - np.log(3.0)) ** 2
+                for report in reports
+            ]
+        )
+        assert combined.variance == pytest.approx(float(expected))
+        # The witness, written out: a mean of the logs gives 1.3698 and a raw-scale
+        # displacement gives 1.8333, so neither can pass this line by accident.
+        assert combined.variance == pytest.approx(0.997735, abs=1e-6)
 
     def test_an_estimand_missing_from_a_draw_is_dropped_loudly(self) -> None:
         reports = [
@@ -315,7 +353,6 @@ def _per_draw_detail(result: Any) -> list[Any]:
 class TestRepeatedCanonicalCVTMLE:
     """``repeats=R`` with ``cv_evaluation=True``: median-combine fold-evaluated fits.
 
-    The combination used to be refused, on the ground that the cross-validated variance is
     Each draw contributes its canonical point and cross-validated variance. The repeated
     report applies the same median within-plus-between rule as the stacked path.
     """
@@ -527,6 +564,14 @@ class TestWhatTheResultExposes:
         assert "median over 3 independent draws" in repeated.summary()
         assert "independent draws" not in once.summary()
 
+    def test_the_summary_says_the_report_is_coordinatewise(self, repeated: Any, once: Any) -> None:
+        # ``contrast()`` refuses because a coordinatewise median breaks the identities
+        # between rows.  A reader who subtracts two rows of the printed table performs the
+        # same operation by hand, so the table has to say so.
+        assert "the report above is coordinatewise" in repeated.summary()
+        assert "ate versus ey1 - ey0" in repeated.summary()
+        assert "coordinatewise" not in once.summary()
+
     def test_the_declared_plan_records_the_count(self, repeated: Any) -> None:
         assert repeated.config.crossfit.repeats == REPEATS
         assert repeated.config.crossfit.repeated
@@ -552,15 +597,27 @@ class TestRefusedCombinations:
             fast_tmle(repeats=3, cv_evaluation=True, cross_fit=False)
 
     def test_multiplier_bands_do_not_represent_the_median_estimator(self, frame: Any) -> None:
-        with pytest.raises(ValueError, match="simultaneous=True is not defined"):
-            fast_tmle(repeats=3, simultaneous=True, estimands=["ate"]).fit(frame, **COLUMNS)
+        with pytest.raises(CapabilityError, match="simultaneous=True is not defined"):
+            fast_tmle(repeats=3, simultaneous=True, estimands=["ey1", "ey0"]).fit(frame, **COLUMNS)
+
+    def test_one_estimand_builds_no_band_so_there_is_nothing_to_refuse(self, frame: Any) -> None:
+        # ``simultaneous`` defaults to True and a band needs two estimates, so refusing on
+        # the flag alone killed every single-estimand repeated fit over a band the fit
+        # would never have built.
+        result = (
+            fast_tmle(repeats=2, simultaneous=True, estimands=["ate"])
+            .fit(frame, **COLUMNS)
+            .single()
+        )
+        assert result.n_repeats == 2
+        assert result.simultaneous is None
 
     def test_post_fit_covariance_is_refused(self, repeated: Any) -> None:
         with pytest.raises(CapabilityError, match="median-combined repeats"):
             repeated.covariance()
 
     def test_post_fit_contrasts_are_refused(self, repeated: Any) -> None:
-        with pytest.raises(CapabilityError, match="medians do not preserve"):
+        with pytest.raises(CapabilityError, match="does not preserve algebraic identities"):
             repeated.contrast(lambda point: point[0] - point[1], ["ey1", "ey0"])
 
 

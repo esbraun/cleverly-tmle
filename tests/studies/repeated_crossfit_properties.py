@@ -22,14 +22,11 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    parts = summarize(
+    summary, rates = summarize(
         rows,
         STUDY,
         "repeated",
         include_overfitting=False,
         return_parts=True,
     )
-    if not isinstance(parts, tuple):
-        raise RuntimeError("the shared CV-TMLE summary did not return its parts")
-    summary, rates = parts
     return finish(summary, rates)

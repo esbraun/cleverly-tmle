@@ -130,8 +130,9 @@ cross-validated variance at equal fold sizes.
 Register a second study for `targeting_scheme="fold"` with `cv_evaluation=True`. A study record
 names one reference, so do not move a comparator onto the published row. Two exclusions follow.
 `zepid` reports the ATE, the risk ratio, and the odds ratio, so `att` and `atc` stay outside the
-paired cells. The run must set the mean combination over one partition, because the median default
-is the aggregation this package refuses.
+paired cells. The run must fit one partition. Both packages now report the median over several
+partitions, so a repeated run would measure the fold-targeting question and the repeat aggregation
+together.
 
 ### V6. Selector-based multi-arm C-TMLE comparator
 
@@ -145,6 +146,21 @@ joint estimand.
 Two consequences follow. `TMLE.jl` has no discrete ladder, so the greedy and ordered scenarios need
 a separate record from the discrete scenario. This is the first comparator outside R, so it needs a
 pinned Julia image beside the existing R images.
+
+### V7. Repeat stability property cell
+
+The published
+[repeated row](technical-reference/method-evidence/repeated-cross-fitting.md) validates the median
+report at three fold draws. It does not measure the reason a reader repeats a split. No cell
+compares the spread of `psi` across fold seeds at one draw against three draws, so the
+spread-reduction rationale in `TMLE(repeats=)` rests on the source alone.
+
+Add a `repeat_stability` property cell to that study. Fit the same law at `repeats=1` and at
+`repeats=3` over a shared set of fold seeds, and report a paired bootstrap interval for the ratio
+of the two across-seed standard deviations. The `repeats=1` arm is the control, and it must show
+the larger spread. Two constraints follow. The cell needs its own seed stream, because the
+statistic is a function of the fold seed rather than of the sample. The cell also changes the
+study's declared cells, so it is a regeneration rather than a documentation edit.
 
 ## Extensibility track
 

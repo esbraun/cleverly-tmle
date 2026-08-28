@@ -52,7 +52,7 @@ from scipy import optimize, stats
 
 from .._typing import FloatArray
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, refuse_after_repeats
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
@@ -139,12 +139,14 @@ def sensitivity_elements(
         doubly robust form wherever the functional's :math:`m(W, \alpha)` has a closed
         form, which is all of :data:`LINEAR_ESTIMANDS`.
     """
-    if result.n_repeats > 1:
-        raise CapabilityError(
-            "omitted-variable sensitivity is not defined for median-combined repeats. "
+    refuse_after_repeats(
+        result.n_repeats,
+        operation="omitted-variable sensitivity",
+        reason=(
             "A coordinatewise median of the bound's influence terms would not be the "
             "influence function of the median bound. Fit one split for this analysis."
-        )
+        ),
+    )
     parameter = resolve_parameter(result, estimand)
     return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
 

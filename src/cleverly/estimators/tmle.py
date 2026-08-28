@@ -104,6 +104,7 @@ from ..exceptions import (
     DataError,
     PositivityWarning,
     WeightingWarning,
+    refuse_after_repeats,
 )
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
@@ -170,6 +171,15 @@ DEFAULT_NUISANCE_BOUND = 0.01
 #: Warn when this fraction of the sample has a propensity outside the truncation
 #: bounds -- at that point the estimate rests on extrapolation, not on data.
 _TRUNCATION_WARN_FRACTION = 0.05
+
+#: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
+#: is raised twice: cheaply from the requested estimands before the fit, and again at the
+#: construction site, which is the only place the eventual number of estimates is known.
+_REPEATED_BANDS_REASON = (
+    "The multiplier construction would use a central draw's curve rather than the "
+    "split-adjusted median estimator. Set simultaneous=False, report one estimate, "
+    "or fit one split."
+)
 
 
 class TMLE:
@@ -254,8 +264,12 @@ class TMLE:
 
         A single split is one draw from a randomised procedure, and on a moderate sample
         two seeds can move ``psi`` by an appreciable fraction of its standard error.
-        Repeating the split and taking the median reduces sensitivity to an extreme
-        partition. The point estimate is
+        Repeating the split and taking the median is the reporting rule the source below
+        gives for that situation. No study here measures how much the across-seed spread
+        falls: the registered repeated row validates the median report at three draws and
+        declares that gap, and ``docs/roadmap.md`` *V7* holds the cell that would close it.
+        Read :meth:`~cleverly.estimators.TMLEResult.repeat_spread` on your own fit.
+        The point estimate is
 
         .. math:: \\widetilde\\psi = \\operatorname{median}_r(\\psi_r).
 
@@ -782,9 +796,11 @@ class TMLE:
         :meth:`_nuisances` rather than inside it, which is what makes it free for the
         variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
         selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
-        exist. Bootstrap inference repeats the same complete procedure. Simultaneous
-        inference is refused because its multiplier draws would use the retained
-        central-draw curve rather than the split-adjusted median estimator.
+        exist. Bootstrap inference repeats the same complete procedure. A simultaneous band
+        is refused, because its multiplier draws would use the retained central-draw curve
+        rather than the split-adjusted median estimator. The refusal needs two or more
+        estimates, which is what a band needs. A repeated fit that reports one estimate
+        builds no band, so it is allowed.
         """
         self._check_shifts(data)
         self._check_incremental(data)
@@ -796,11 +812,14 @@ class TMLE:
                 "inside every validation fold; use the default pooled targeting scheme"
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
-        if self.repeats > 1 and self.simultaneous:
-            raise ValueError(
-                "simultaneous=True is not defined for median-combined repeats. The "
-                "multiplier construction would use a central draw's curve rather than "
-                "the split-adjusted median estimator. Set simultaneous=False or fit one split."
+        if self.simultaneous and len(estimands) > 1:
+            # Guarded by the band's own construction condition, not by ``simultaneous``
+            # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
+            # refusing on the flag would refuse every single-estimand repeated fit over a
+            # band the fit would never build.  One estimand can still expand into several
+            # estimates, so the construction site refuses again once the count is known.
+            refuse_after_repeats(
+                self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
         population_intervention = {"ey_obs", "par", "paf"}.intersection(estimands)
         if (
@@ -910,6 +929,9 @@ class TMLE:
         )
 
         if self.simultaneous and len(estimates) > 1:
+            refuse_after_repeats(
+                self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
+            )
             bands = simultaneous_bands(
                 estimates,
                 alpha=self.alpha_sig,

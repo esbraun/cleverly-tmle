@@ -525,7 +525,7 @@ class RepeatFit:
     """One draw of the cross-fitting split, with everything that draw produced.
 
     A fit with ``repeats=R`` runs the whole construction ``R`` times over independent
-    fold draws and averages the estimates (see
+    fold draws and reports the median of the estimates (see
     :func:`~cleverly.inference.median_estimates`). The four things a draw produces --
     its folds, its nuisance predictions, the ``epsilon`` its targeting step solved, and
     the targeted ``Qbar`` that came out -- are *not* interchangeable between draws, so

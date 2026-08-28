@@ -105,6 +105,7 @@ def summarize(
     variant: str,
     *,
     extra_columns: Sequence[str] = (),
+    include_overfitting: bool = True,
     return_parts: Literal[False] = False,
 ) -> pd.DataFrame: ...
 
@@ -116,6 +117,7 @@ def summarize(
     variant: str,
     *,
     extra_columns: Sequence[str] = (),
+    include_overfitting: bool = True,
     return_parts: Literal[True],
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]: ...
 

@@ -133,7 +133,9 @@ from the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
+| The row publishes under the reporting policy, not gated | Every declared cell is green. The `reporting` policy does not assert that, so the fast tier recomputes each verdict and does not fail on a red one |
 | There is no full-method cross-implementation evidence | zEpid corroborates the aggregation formula, not the complement-trained stacked pooled estimator |
+| The study does not measure spread reduction | No cell compares the spread of the point estimate across fold seeds at one draw against three draws. The row validates the median report. It does not validate the reason to prefer that report |
 | The study does not claim median superiority | Median is the source-backed reporting standard, not an option chosen because this law makes it beat a mean alternative |
 | The repeat budget is fixed | Primary evidence covers three fold draws; it does not establish behavior for arbitrary repeat counts |
 | Inference is marginal | Coordinatewise medians do not supply joint covariance or post-fit contrasts; the central-draw curve does not support simultaneous bands for the split-adjusted estimator |

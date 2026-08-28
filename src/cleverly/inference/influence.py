@@ -354,13 +354,17 @@ def median_estimates(
         parts = [report[name] for report in per_repeat]
         scale = parts[0].scale
         if scale == "ratio":
+            # ``points`` and ``median_point`` are on the reporting scale, which for a
+            # ratio is the log scale.  The displacement term below reads them, so a ratio
+            # gets its between-draw spread in log units and not in ratio units.
             points = np.asarray([part.log_psi for part in parts], dtype=float)
-            median_log = float(np.median(points))
-            log_psi: float | None = median_log
-            psi = float(np.exp(median_log))
+            median_point = float(np.median(points))
+            log_psi: float | None = median_point
+            psi = float(np.exp(median_point))
         else:
             points = np.asarray([part.psi for part in parts], dtype=float)
-            psi = float(np.median(points))
+            median_point = float(np.median(points))
+            psi = median_point
             log_psi = None
 
         order = np.argsort(points, kind="stable")
@@ -370,7 +374,6 @@ def median_estimates(
             [np.asarray(parts[int(index)].influence_curve, dtype=float) for index in central],
             axis=0,
         )
-        median_point = float(np.median(points))
         variance = float(
             np.median(
                 [

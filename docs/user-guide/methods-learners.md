@@ -101,7 +101,8 @@ model. `cleverly` validates learner task compatibility and sample-weight support
   fit that predicts it. Default 10.
 - `learner_folds` defines internal model-selection folds for learners such as a Super Learner.
   Default 5.
-- `repeats` repeats the outer split and aggregates estimates. Default 1.
+- `repeats` repeats the outer split and reports the median of the draws. Default 1. A repeated fit
+  reports no simultaneous band, because the band needs a single draw's joint influence curves.
 - `cross_fit=False` explicitly sets a one-fold, no-cross-fit analysis.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library

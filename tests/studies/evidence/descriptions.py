@@ -331,10 +331,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "stacked CV-TMLE with a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
-    ("crossfit_overfitting", "repeated_cvtmle"): (
-        "three-draw stacked CV-TMLE with a flexible learner",
-        "SE ratio clears the overfitting floor and stays inside the sanity band",
-    ),
     ("crossfit_overfitting", "in_sample_control"): (
         "the same flexible learner fitted in sample, with no cross-fitting",
         "SE ratio must fall below the overfitting ceiling",

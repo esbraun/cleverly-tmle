@@ -23,7 +23,10 @@ statement about repeated sampling, and no single fit can show it.  These compare
 configurations on the same processes rather than asserting an absolute level, because the
 claims themselves are comparative -- C-TMLE pays less variance than TMLE for an
 instrument; cross-fitting keeps the standard error honest where in-sample fitting does
-not; repeated folds shrink the spread across fold draws.
+not.  Repeated fold draws are the exception that is *not* covered here or anywhere: the
+registered repeated row validates the median report at three draws, and no cell measures
+whether three draws shrink the spread of ``psi`` across fold seeds.  ``docs/roadmap.md``,
+*V7. Repeat stability property cell*, holds the replacement.
 
 **Designs with no registered study row.** Clustered and weighted inference, controlled direct
 effects, and the remaining uncovered compositions below. Each carries its own coverage and root-n
