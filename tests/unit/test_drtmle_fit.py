@@ -89,11 +89,11 @@ def repeated():
 
     ``repeats=`` costs one full fit per draw and a fit here is ~25s, so this fixture is the
     most expensive thing in the module after ``fit``. Two rather than three deliberately:
-    the averaging *rule* -- mean of the estimates, elementwise mean of the curves, variance
-    recomputed from the average -- is already pinned on a plain TMLE in
+    the median *rule* -- median points with within-plus-between variance -- is already
+    pinned on a plain TMLE in
     ``tests/unit/test_repeated_crossfit.py``, and a third draw would re-pay for the same
-    claim. What is new here is that the doubly-robust *construction* survives being
-    averaged over draws, and two independent sets of three equations is what that needs.
+    claim. What is new here is that the doubly-robust *construction* survives combination
+    over draws, and two independent sets of three equations is what that needs.
     """
     return DRTMLE(**SETTINGS, repeats=2).fit(frame(), outcome="Y", treatment="A").single()
 
@@ -1042,9 +1042,9 @@ def _plain_curve(fit, data, fluctuation):
 
 
 class TestEachDrawSolvesItsOwnEquations:
-    r"""``repeats=`` on a doubly-robust fit, which averages more than a plain one does.
+    r"""``repeats=`` on a doubly-robust fit, which combines more than a plain one does.
 
-    Averaging influence curves over split draws is ordinary for a cross-fitted estimator.
+    Combining reports over split draws is ordinary for a cross-fitted estimator.
     What is not ordinary is that both of this variant's additions are split-dependent: each
     draw fits its *own* reduced regressions against its own folds and runs its own
     alternation.  ``_fit_reduced`` is deliberately unseeded so that a refit matches its fit,
@@ -1055,8 +1055,8 @@ class TestEachDrawSolvesItsOwnEquations:
     is not about ``repeats=``.
 
     Note the obvious mutation for this row, and why it is not used:
-    "drop a repeat and watch the averaged curve decentre" cannot fail.  A centred curve
-    carries its own :math:`-\psi_r`, so the mean of *any* subset of centred curves is
+    "drop a repeat and watch the combined curve decentre" cannot fail. A centred curve
+    carries its own :math:`-\psi_r`, so the central draw or pair remains
     centred.  What a dropped draw moves is ``psi`` and the row count of the score check,
     and that is what the tests below bite on.
     """
@@ -1076,7 +1076,7 @@ class TestEachDrawSolvesItsOwnEquations:
         """``repeats=`` varies the reductions, not only the primary folds.
 
         A draw's reduced regressions are fitted against *that* draw's folds, so two draws
-        hold two different ``Qr``. If they did not, the average would be over fits that
+        hold two different ``Qr``. If they did not, the combination would use fits that
         differed in the primary nuisances alone and the extra equations would be along for
         the ride rather than being redrawn with everything else.
         """
@@ -1089,15 +1089,15 @@ class TestEachDrawSolvesItsOwnEquations:
             repeated.repeats[1].nuisance.folds.assignment,
         )
 
-    def test_the_report_is_the_mean_of_the_draws(self, repeated) -> None:
-        """And the mean is load-bearing: the two draws do not agree to begin with."""
+    def test_the_report_is_the_median_of_the_draws(self, repeated) -> None:
+        """And the median is load-bearing: the two draws do not agree to begin with."""
         for name in ESTIMANDS:
             per_draw = [repeat.psi[name] for repeat in repeated.repeats]
             assert per_draw[0] != per_draw[1]
-            assert repeated.estimates[name].psi == pytest.approx(float(np.mean(per_draw)))
+            assert repeated.estimates[name].psi == pytest.approx(float(np.median(per_draw)))
 
     def test_no_draw_is_silently_dropped(self, repeated) -> None:
-        """``average_estimates`` warns and drops a name missing from some draws.
+        """``median_estimates`` warns and drops a name missing from some draws.
 
         That path is pinned on hand-built estimates in
         ``tests/unit/test_repeated_crossfit.py``; what is checked here is that this
@@ -1243,8 +1243,8 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     def test_the_curve_is_still_the_arms_own(self, repeated) -> None:
         r"""Which arm contributes what, and on one outcome scale.
 
-        The reported curve's mean is minus the mean of the corrections it subtracts,
-        averaged over the draws.  It was written when both sides were large enough to see;
+        The reported curve's mean is minus the mean of the central draws' corrections.
+        It was written when both sides were large enough to see;
         it is an *identity* rather than a statement about a defect, so it holds now that
         both sides are ``1e-10`` -- and it is still what fails if the rows are reported on
         the fitting scale instead of the outcome's.
@@ -1261,7 +1261,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
             -(per_arm[1.0] - per_arm[0.0]), abs=1e-9
         )
 
-    def test_the_averaged_curve_is_centred_and_agrees_with_the_fluctuation_rows(
+    def test_the_combined_curve_is_centred_and_agrees_with_the_fluctuation_rows(
         self, repeated
     ) -> None:
         """The two numbers that used to disagree by five orders, now on the same side.

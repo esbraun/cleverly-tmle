@@ -50,5 +50,10 @@ before you change scientific code, documentation prose, or a docstring.
 
 ## License
 
-`cleverly` is under the [GNU General Public License v3.0](LICENSE). Your contribution is licensed
+`cleverly` is under the [MIT License](LICENSE). Your contribution to the project is licensed
 under the same terms.
+
+One directory differs. `tests/canonical/` is under the
+[GNU General Public License v3.0](tests/canonical/LICENSE), because its R runners call
+reference packages in the same process. A contribution to that directory is licensed under
+the GPL. No published distribution carries it.

@@ -113,7 +113,7 @@ count.
 ```python
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
-from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
+from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 boosted = ModelSpec(
     outcome_learner=HistGradientBoostingRegressor(random_state=34),
@@ -298,6 +298,7 @@ repeated = effect.estimate(
     method=TMLEMethod(
         models=boosted,
         cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=3),
+        inference=Inference(simultaneous=False),
         runtime=Runtime(random_state=34, n_jobs=1),
     )
 )
@@ -305,9 +306,10 @@ show("three fold draws", repeated, truth["ate"])
 print(repeated.repeat_spread())
 ```
 
-`repeats=` is the same estimator over several draws rather than a new estimator. `repeat_spread()`
-reports how much the answer moved between draws. A large spread says the fold draw is doing work
-that the sample size should be doing.
+`repeats=` is the same estimator over several draws rather than a new estimator. It reports the
+median point and includes split displacement in the variance. `repeat_spread()` reports how much
+the answer moved between draws. A large spread says the fold draw is doing work that the sample
+size should be doing.
 
 Three things constrain what this page establishes.
 

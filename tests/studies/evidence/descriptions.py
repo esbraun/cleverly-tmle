@@ -98,6 +98,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
+    "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
     "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
@@ -328,6 +329,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("crossfit_overfitting", "stacked_cvtmle"): (
         "stacked CV-TMLE with a flexible learner",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "repeated_cvtmle"): (
+        "three-draw stacked CV-TMLE with a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("crossfit_overfitting", "in_sample_control"): (

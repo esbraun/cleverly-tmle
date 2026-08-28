@@ -92,6 +92,13 @@ addition. Its source audit maps the pinned R `cvFolds` path to
 Primary and reduced predictions are out of fold. One global alternation follows, then a
 whole-sample plug-in mean, then `cov(IC) / n` from the rowwise corrected curve.
 
+Repeated stacked point-treatment CV-TMLE likewise has a separate registered
+[reporting-policy study](method-evidence/repeated-cross-fitting.md). It reuses the shared CV-TMLE
+laws and structural checks under the median report. The point estimate is the median over complete
+fold draws. Its variance is the median of each draw's variance plus squared displacement from that
+point. zEpid independently implements the same aggregation formula. Its fold training and targeting
+construct a different estimator, so the registered full-method equivalence artifact remains empty.
+
 `tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
 on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
 variance are nonzero mutations there. The same module's training-row and longhand cell-mean tests

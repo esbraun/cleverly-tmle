@@ -51,8 +51,8 @@ can see whether it is built correctly and why the tests for this module hand it 
 that are wrong on purpose.  :math:`g_{r,1}` is the exception and the trap: it is a
 probability, it does not vanish, and it sits in a denominator whose numerator does.  The R
 source names it ``grn2`` where the paper calls it ``gr1``, and ``grn1`` where the paper
-calls it ``gr2`` -- a formula transcribed from one and checked against the other is
-inverted and still plausible.
+calls it ``gr2``.  So an *equation* read out of one and checked against the other is
+inverted and still plausible.  The names here follow the paper.
 """
 
 from __future__ import annotations

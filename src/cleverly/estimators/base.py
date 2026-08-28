@@ -17,6 +17,7 @@ import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.influence import ParameterEstimate, Scale
@@ -175,16 +176,9 @@ class TMLEConfig:
                 # repeated fit reports a different estimator from an ordinary one, and a
                 # reader who cannot tell them apart cannot compare two summaries.
                 lines.append(
-                    f"  (averaged over {self.crossfit.repeats} independent draws of the "
-                    "split; the influence curve is the mean of theirs)"
+                    f"  (median over {self.crossfit.repeats} independent draws of the "
+                    "split; variance includes within-draw uncertainty and split dispersion)"
                 )
-                if self.cv_evaluation:
-                    # Which variance rule produced the interval is not recoverable from
-                    # the number, and here it is not the one the line above implies.
-                    lines.append(
-                        "  (the standard error is the mean of the draws' cross-validated "
-                        "variances, not the variance of that curve)"
-                    )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         if self.cross_fit and self.crossfit.n_folds != self.n_folds:
@@ -255,10 +249,10 @@ class CVTargeting:
 
     Under ``repeats=R`` the fields divide by what they are.  The three that are
     *estimates* -- :attr:`pooled`, :attr:`canonical` and :attr:`variance` -- follow every
-    draw, exactly as the headline report does.  The four that are indexed *by fold* --
+    draw, exactly as the headline report does. The four that are indexed *by fold* --
     :attr:`n_folds`, :attr:`fold_sizes`, :attr:`fold_estimates`, :attr:`fold_epsilon` --
     describe the first draw alone, because fold 3 of one draw is not fold 3 of another
-    and there is no correspondence along which to average them.  :attr:`repeats` says how
+    and there is no correspondence along which to combine them. :attr:`repeats` says how
     many draws the first three cover.
 
     Attributes
@@ -268,10 +262,9 @@ class CVTargeting:
         second moment of the fold-specific influence curves -- per estimand.  This is the
         standard error attached to :attr:`canonical`; the pooled report carries the
         ordinary influence-curve one.  The two agree when the folds are balanced and the
-        score equation is solved, so a gap between them is itself informative.  Over
-        ``R`` draws it is the mean of their ``R`` cross-validated variances; see
-        ``cleverly.estimators.tmle._with_cross_validated_variance`` for why that, and not
-        a cross-validated variance of the averaged curve, is the reported quantity.
+        score equation is solved, so a gap between them is itself informative. Over
+        ``R`` draws, the median aggregation adds each point's squared displacement before
+        taking the median across draws.
     fold_estimates:
         Per-estimand tuple of fold-specific plug-in estimates, from the first draw.
         Estimands that some fold could not evaluate (no units in the conditioning arm, a
@@ -284,10 +277,10 @@ class CVTargeting:
         Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
         first draw. Empty for common pooled-validation targeting.
     pooled, canonical:
-        The two reports, per estimand, averaged over every draw.
+        The two reports, per estimand, combined by their median over every draw.
     repeats:
         How many cross-fitting draws :attr:`pooled`, :attr:`canonical` and
-        :attr:`variance` were averaged over.
+        :attr:`variance` cover.
     """
 
     n_folds: int
@@ -369,8 +362,8 @@ class CVTargeting:
         ]
         if self.repeats > 1:
             header.append(
-                f"both reports and the cv std_err average {self.repeats} draws of the "
-                "split; the fold columns describe the first."
+                f"both reports and the cv std_err combine {self.repeats} draws by their "
+                "median and split dispersion; the fold columns describe the first."
             )
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
@@ -532,7 +525,7 @@ class TMLEResult:
 
     @property
     def n_repeats(self) -> int:
-        """How many draws of the cross-fitting split this fit averaged over."""
+        """How many draws of the cross-fitting split this fit combined."""
         return len(self.repeats)
 
     def repeat_spread(self) -> dict[str, float]:
@@ -541,16 +534,14 @@ class TMLEResult:
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
         arbitrary fold assignment moved the answer: the ``R`` draws differ in nothing but
         the split, so :math:`\mathrm{sd}(\psi_r)` is the size of the fold noise a single
-        fit carries silently, and :math:`\mathrm{sd}(\psi_r)/\sqrt{R}` is roughly what
-        survives of it in the reported average.  Read against
+        fit carries silently. Read against
         :attr:`~cleverly.ParameterEstimate.std_error`: a spread that is an appreciable
         fraction of the standard error means the split mattered, and one near zero means
         the nuisance fits were stable enough that repeating bought little.
 
         What it must not be used for is inference.  It says nothing about the *sampling*
-        variability of the estimand, so it is neither an alternative to the influence-curve
-        standard error nor something to add to it -- the reported interval already covers
-        the estimator that was reported, which is the average.
+        variability of the estimand, so it is not an alternative to the reported standard
+        error. The median variance rule already includes between-draw displacement.
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
@@ -656,6 +647,13 @@ class TMLEResult:
         ndarray
             Covariance matrix in the requested order.
         """
+        if self.n_repeats > 1:
+            raise CapabilityError(
+                "covariance() is not defined for median-combined repeats. The marginal "
+                "variance includes between-draw displacement, but no established joint "
+                "aggregation rule supplies its cross-estimand covariance. Fit one split "
+                "or inspect each entry in result.repeats."
+            )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -700,6 +698,12 @@ class TMLEResult:
         ParameterEstimate
             Derived estimate with influence-curve inference.
         """
+        if self.n_repeats > 1:
+            raise CapabilityError(
+                "contrast() is not defined after median aggregation because medians do "
+                "not preserve algebraic identities across estimands. Request the contrast "
+                "as an estimand before fitting, or fit one split."
+            )
         return smooth_contrast(
             self.estimates,
             function,

@@ -1,10 +1,10 @@
-"""Shared repeated-sampling claims for the two literature-backed CV-TMLE reports."""
+"""Shared repeated-sampling claims for point-treatment CV-TMLE reports."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, Literal, overload
 
 import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
@@ -25,7 +25,7 @@ OVERFIT_REPLICATES = 400
 OVERFIT_N = 500
 
 
-def cells(variant: str) -> tuple[PropertyCell, ...]:
+def cells(variant: str, *, include_overfitting: bool = True) -> tuple[PropertyCell, ...]:
     """The ordinary TMLE claims plus the overfitting experiment CV-TMLE exists for."""
     inherited = tuple(replace(cell) for cell in canonical_properties.cells())
     dgp = nonlinear_dgp()
@@ -55,17 +55,20 @@ def cells(variant: str) -> tuple[PropertyCell, ...]:
             role="control",
         ),
     )
-    return (*inherited, *overfit)
+    return (*inherited, *overfit) if include_overfitting else inherited
 
 
-def estimator(record: StudyRecord, variant: str) -> Callable[[PropertyCell], Callable[[], Any]]:
+def estimator(
+    record: StudyRecord, variant: str, *, repeats: int = 1, n_folds: int = 10
+) -> Callable[[PropertyCell], Callable[[], Any]]:
     def factory(cell: PropertyCell) -> Callable[[], Any]:
         control = cell.property == "crossfit_overfitting" and cell.cell == "in_sample_control"
         return lambda: TMLE(
             outcome_learner=cell.outcome_learner(),
             treatment_learner=cell.treatment_learner(),
             cross_fit=not control,
-            n_folds=10,
+            n_folds=n_folds,
+            repeats=repeats if not control else 1,
             targeting_scheme="pooled",
             cv_evaluation=variant == "fold_evaluated" and not control,
             estimands=cell.estimand,
@@ -79,18 +82,61 @@ def estimator(record: StudyRecord, variant: str) -> Callable[[PropertyCell], Cal
     return factory
 
 
-def generate(record: StudyRecord, variant: str, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return run_cells(cells(variant), estimator(record, variant), n_jobs=n_jobs)
+def generate(
+    record: StudyRecord,
+    variant: str,
+    *,
+    repeats: int = 1,
+    n_folds: int = 10,
+    include_overfitting: bool = True,
+    n_jobs: int = STUDY_JOBS,
+) -> pd.DataFrame:
+    return run_cells(
+        cells(variant, include_overfitting=include_overfitting),
+        estimator(record, variant, repeats=repeats, n_folds=n_folds),
+        n_jobs=n_jobs,
+    )
 
 
-def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataFrame:
-    """Summarize the shared cells and make the overfitting control load-bearing."""
+@overload
+def summarize(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    variant: str,
+    *,
+    extra_columns: Sequence[str] = (),
+    return_parts: Literal[False] = False,
+) -> pd.DataFrame: ...
+
+
+@overload
+def summarize(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    variant: str,
+    *,
+    extra_columns: Sequence[str] = (),
+    return_parts: Literal[True],
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]: ...
+
+
+def summarize(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    variant: str,
+    *,
+    extra_columns: Sequence[str] = (),
+    include_overfitting: bool = True,
+    return_parts: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Summarize the shared cells, optionally making the overfitting control load-bearing."""
     summary, rates = apply_shared_verdicts(
         rows,
         record,
-        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper", *extra_columns),
     )
 
-    crossfit_overfitting_verdicts(summary, rows, record, positive_cell=f"{variant}_cvtmle")
+    if include_overfitting:
+        crossfit_overfitting_verdicts(summary, rows, record, positive_cell=f"{variant}_cvtmle")
 
-    return finish(summary, rates)
+    return (summary, rates) if return_parts else finish(summary, rates)

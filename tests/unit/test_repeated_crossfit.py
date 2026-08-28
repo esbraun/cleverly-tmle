@@ -1,16 +1,14 @@
-"""Repeated cross-fitting: averaging away the fold draw.
+"""Repeated cross-fitting: robust aggregation over fold draws.
 
 ``repeats=R`` runs the whole construction over ``R`` independent splits and reports
-``mean_r psi_r`` with influence curve ``mean_r IC_r``.  What is checked here is what can
+``median_r psi_r`` with within-plus-between variance. What is checked here is what can
 be checked *exactly*, which is nearly all of it:
 
 * ``repeats=1`` is bit-for-bit an ordinary fit -- the regression guard;
-* the averaging rule itself, on hand-built estimates, including the log scale for ratios;
+* the median rule itself, on hand-built estimates, including the log scale for ratios;
 * the draws differ at *every* stage of the split, and are reproducible given a seed;
-* the reported variance is the variance of the reported curve, so the delta method and
-  the score diagnostic still hold after averaging;
-* under ``cv_evaluation`` it is instead the mean of the draws' cross-validated variances,
-  together with the identity that makes the alternative rule vacuous;
+* the reported variance includes within-draw uncertainty and between-draw displacement;
+* under ``cv_evaluation`` the same rule reads each draw's cross-validated variance;
 * the refused combinations, and why.
 
 The one claim that is *not* here is that repeats reduce the across-seed spread of ``psi``.
@@ -29,8 +27,9 @@ import pytest
 
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
 from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
-from cleverly.inference.influence import ParameterEstimate, average_estimates, make_estimate
+from cleverly.inference.influence import ParameterEstimate, make_estimate, median_estimates
 from cleverly.provenance import fingerprint_array
 from cleverly.sensitivity import missingness_tilt, positivity_report, truncation_curve
 from cleverly.targets import parameter_stem
@@ -41,7 +40,7 @@ COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": "A", "covariates": ["W1"
 
 #: Small and parametric: every assertion below is exact or structural, so the sample only
 #: has to be large enough to fit five folds of a GLM.  Three repeats rather than two, so a
-#: mean is distinguishable from a first-or-last.
+#: median is distinguishable from a first-or-last.
 N = 400
 REPEATS = 3
 
@@ -116,8 +115,8 @@ class TestOneRepeatIsAnOrdinaryFit:
         assert once.repeats[0].fluctuations is once.fluctuations
 
 
-class TestTheAveragingRule:
-    """``average_estimates`` on hand-built inputs, where the right answer is arithmetic."""
+class TestTheMedianRule:
+    """``median_estimates`` on hand-built inputs, where the right answer is arithmetic."""
 
     @staticmethod
     def _estimate(name: str, psi: float, ic: Any, scale: str = "difference") -> ParameterEstimate:
@@ -133,43 +132,61 @@ class TestTheAveragingRule:
 
     def test_one_repeat_returns_its_input_untouched(self) -> None:
         report = {"ate": self._estimate("ate", 1.0, [0.5, -0.5, 1.0, -1.0])}
-        assert average_estimates([report]) is not None
-        assert average_estimates([report])["ate"] is report["ate"]
+        assert median_estimates([report]) is not None
+        assert median_estimates([report])["ate"] is report["ate"]
 
-    def test_the_point_estimate_is_the_mean(self) -> None:
+    def test_the_point_estimate_is_the_median(self) -> None:
         reports = [
             {"ate": self._estimate("ate", psi, np.full(6, psi - 2.0))} for psi in (1.0, 2.0, 6.0)
         ]
-        assert average_estimates(reports)["ate"].psi == pytest.approx(3.0)
+        assert median_estimates(reports)["ate"].psi == pytest.approx(2.0)
 
-    def test_the_influence_curve_is_the_elementwise_mean(self) -> None:
-        curves = [np.array([1.0, -1.0, 0.0]), np.array([3.0, 1.0, 2.0])]
-        reports = [{"ate": self._estimate("ate", 1.0, curve)} for curve in curves]
-        np.testing.assert_allclose(
-            average_estimates(reports)["ate"].influence_curve, np.array([2.0, 0.0, 1.0])
+    def test_the_curve_comes_from_the_draw_at_the_median_point(self) -> None:
+        curves = [np.full(4, value) for value in (1.0, 2.0, 3.0)]
+        reports = [
+            {"ate": self._estimate("ate", point, curve)}
+            for point, curve in zip((1.0, 5.0, 2.0), curves, strict=True)
+        ]
+        np.testing.assert_array_equal(median_estimates(reports)["ate"].influence_curve, curves[2])
+
+    def test_even_repeats_average_the_two_central_curves(self) -> None:
+        curves = [np.full(4, value) for value in (1.0, 3.0)]
+        reports = [
+            {"ate": self._estimate("ate", point, curve)}
+            for point, curve in zip((1.0, 3.0), curves, strict=True)
+        ]
+        np.testing.assert_array_equal(
+            median_estimates(reports)["ate"].influence_curve, np.full(4, 2.0)
         )
 
-    def test_the_variance_comes_from_the_averaged_curve(self) -> None:
-        # The whole coherence claim: not a pooled per-draw variance, but the variance of
-        # the curve that is actually reported. Averaging independent-ish curves shrinks
-        # them, and the reported variance has to follow.
-        curves = [np.array([2.0, -2.0, 1.0, -1.0]), np.array([-2.0, 2.0, -1.0, 1.0])]
-        reports = [{"ate": self._estimate("ate", 1.0, curve)} for curve in curves]
-        averaged = average_estimates(reports)["ate"]
-        expected = make_estimate("ate", 1.0, np.mean(curves, axis=0), n=4)
-        assert averaged.variance == pytest.approx(expected.variance)
-        assert averaged.variance == pytest.approx(0.0)
-
-    def test_a_ratio_is_averaged_on_the_log_scale(self) -> None:
+    def test_the_variance_is_the_median_within_plus_between_quantity(self) -> None:
         reports = [
-            {"rr": self._estimate("rr", psi, np.zeros(4), scale="ratio")} for psi in (2.0, 8.0)
+            {"ate": self._estimate("ate", point, curve)}
+            for point, curve in zip(
+                (1.0, 2.0, 6.0),
+                (
+                    np.array([2.0, -2.0, 1.0, -1.0]),
+                    np.array([1.0, -1.0, 0.5, -0.5]),
+                    np.array([3.0, -3.0, 1.5, -1.5]),
+                ),
+                strict=True,
+            )
         ]
-        averaged = average_estimates(reports)["rr"]
-        # The geometric mean, which is where the influence curve and the Wald interval
-        # live -- not (2 + 8) / 2.
-        assert averaged.psi == pytest.approx(4.0)
-        assert averaged.log_psi is not None
-        assert averaged.psi == pytest.approx(float(np.exp(averaged.log_psi)))
+        combined = median_estimates(reports)["ate"]
+        expected = np.median(
+            [report["ate"].variance + (report["ate"].psi - 2.0) ** 2 for report in reports]
+        )
+        assert combined.variance == pytest.approx(float(expected))
+
+    def test_a_ratio_uses_the_median_on_the_log_scale(self) -> None:
+        reports = [
+            {"rr": self._estimate("rr", psi, np.zeros(4), scale="ratio")}
+            for psi in (2.0, 8.0, 32.0)
+        ]
+        combined = median_estimates(reports)["rr"]
+        assert combined.psi == pytest.approx(8.0)
+        assert combined.log_psi is not None
+        assert combined.psi == pytest.approx(float(np.exp(combined.log_psi)))
 
     def test_an_estimand_missing_from_a_draw_is_dropped_loudly(self) -> None:
         reports = [
@@ -180,13 +197,13 @@ class TestTheAveragingRule:
             {"ate": self._estimate("ate", 3.0, np.zeros(4))},
         ]
         with pytest.warns(UserWarning, match="some cross-fitting repeats but not"):
-            averaged = average_estimates(reports)
-        assert "att" not in averaged
-        assert averaged["ate"].psi == pytest.approx(2.0)
+            combined = median_estimates(reports)
+        assert "att" not in combined
+        assert combined["ate"].psi == pytest.approx(2.0)
 
     def test_no_repeats_is_an_error_rather_than_an_empty_report(self) -> None:
         with pytest.raises(ValueError, match="at least one repeat"):
-            average_estimates([])
+            median_estimates([])
 
 
 class TestTheDrawsAreDistinctAndReproducible:
@@ -221,10 +238,10 @@ class TestTheDrawsAreDistinctAndReproducible:
         assert repeated.provenance.fold_fingerprint != fingerprint_array(assignments[0])
 
 
-class TestTheAveragedReportStaysCoherent:
-    """What averaging the curve buys: everything computed *from* the curve still holds."""
+class TestTheMedianReportStaysCoherent:
+    """The median point, adjusted variance, and per-draw score checks agree."""
 
-    def test_the_reported_estimate_is_the_mean_of_the_draws(
+    def test_the_reported_estimate_is_the_median_of_the_draws(
         self, frame: Any, repeated: Any
     ) -> None:
         estimator = fast_tmle(repeats=REPEATS)
@@ -238,24 +255,25 @@ class TestTheAveragedReportStaysCoherent:
             )[0]["ate"].psi
             for repeat in repeated.repeats
         ]
-        assert repeated.psi("ate") == pytest.approx(float(np.mean(per_draw)))
+        assert repeated.psi("ate") == pytest.approx(float(np.median(per_draw)))
 
-    def test_the_delta_method_identity_survives_averaging(self, repeated: Any) -> None:
-        # IC_ate == IC_ey1 - IC_ey0 holds per draw and is linear, so it must hold after
-        # averaging. Exact, and it is what would break if the curves were pooled by some
-        # other rule than the mean.
-        np.testing.assert_allclose(
-            repeated["ate"].influence_curve,
-            repeated["ey1"].influence_curve - repeated["ey0"].influence_curve,
-            rtol=0,
-            atol=1e-12,
+    def test_the_variance_uses_every_draw(self, repeated: Any) -> None:
+        reports = []
+        for repeat in repeated.repeats:
+            reports.append(
+                repeated.estimator.retarget(
+                    repeated.data,
+                    repeat.nuisance,
+                    estimands=("ate",),
+                    g_bounds=repeated.config.g_bounds,
+                    g_bounds_conditional=repeated.config.g_bounds_conditional,
+                )[0]["ate"]
+            )
+        centre = float(np.median([report.psi for report in reports]))
+        expected = float(
+            np.median([report.variance + (report.psi - centre) ** 2 for report in reports])
         )
-
-    def test_the_variance_is_the_variance_of_the_reported_curve(self, repeated: Any) -> None:
-        rebuilt = make_estimate(
-            "ate", repeated.psi("ate"), repeated["ate"].influence_curve, n=repeated.n
-        )
-        assert repeated["ate"].variance == pytest.approx(rebuilt.variance)
+        assert repeated["ate"].variance == pytest.approx(expected)
 
     def test_the_score_equation_is_still_solved(self, repeated: Any) -> None:
         check = score_check(repeated)
@@ -277,7 +295,7 @@ def _per_draw_detail(result: Any) -> list[Any]:
     """Each draw's own ``CVTargeting``, re-solved from its cached nuisance fits.
 
     Cheap -- ``_retarget_detailed`` re-runs the targeting step only -- and it is the only
-    way to get at what the averaged report is supposed to be the average *of*, since the
+    way to recover the per-draw reports behind the median result, since the
     result keeps the fold-level detail of the first draw alone.
     """
     estimands = tuple(dict.fromkeys(parameter_stem(name) for name in result.estimates))
@@ -295,15 +313,11 @@ def _per_draw_detail(result: Any) -> list[Any]:
 
 
 class TestRepeatedCanonicalCVTMLE:
-    """``repeats=R`` with ``cv_evaluation=True``: average ``R`` fold-evaluated fits.
+    """``repeats=R`` with ``cv_evaluation=True``: median-combine fold-evaluated fits.
 
     The combination used to be refused, on the ground that the cross-validated variance is
-    defined by a fold partition and an across-draw average curve belongs to none of them.
-    That is true, and it rules out one construction rather than the combination: what is
-    reported is the mean of the ``R`` cross-validated variances, each computed on its own
-    draw's partition.  These pin both halves of that -- the point estimate is the mean of
-    the draws' *canonical* estimates, and the variance is the mean of their *canonical*
-    variances rather than anything rebuilt from the averaged curve.
+    Each draw contributes its canonical point and cross-validated variance. The repeated
+    report applies the same median within-plus-between rule as the stacked path.
     """
 
     def test_one_repeat_is_bit_for_bit_an_ordinary_canonical_fit(self, binary_frame: Any) -> None:
@@ -318,37 +332,38 @@ class TestRepeatedCanonicalCVTMLE:
                 explicit[name].influence_curve, plain[name].influence_curve
             )
 
-    def test_the_estimate_is_the_mean_of_the_draws_canonical_estimates(
+    def test_the_estimate_is_the_median_of_the_draws_canonical_estimates(
         self, canonical: Any
     ) -> None:
         details = _per_draw_detail(canonical)
         for name, estimate in canonical.estimates.items():
             parts = [detail.canonical[name] for detail in details]
             expected = (
-                float(np.exp(np.mean([part.log_psi for part in parts])))
+                float(np.exp(np.median([part.log_psi for part in parts])))
                 if estimate.scale == "ratio"
-                else float(np.mean([part.psi for part in parts]))
+                else float(np.median([part.psi for part in parts]))
             )
             assert estimate.psi == pytest.approx(expected, rel=1e-12)
 
-    def test_the_variance_is_the_mean_of_the_draws_cross_validated_ones(
-        self, canonical: Any
-    ) -> None:
+    def test_the_variance_is_the_median_within_plus_between_quantity(self, canonical: Any) -> None:
         details = _per_draw_detail(canonical)
         for name, estimate in canonical.estimates.items():
-            expected = float(np.mean([detail.variance[name] for detail in details]))
-            # Exact rather than approximate: the reported number *is* that mean, not a
-            # quantity that happens to agree with it.
-            assert estimate.variance == expected
+            points = np.asarray([detail.canonical[name].psi for detail in details])
+            centre = float(np.median(points))
+            expected = float(
+                np.median(
+                    [
+                        detail.variance[name] + (point - centre) ** 2
+                        for detail, point in zip(details, points, strict=True)
+                    ]
+                )
+            )
+            assert estimate.variance == pytest.approx(expected)
 
-    def test_it_is_not_the_variance_of_the_averaged_curve(self, canonical: Any) -> None:
-        # The two rules give different numbers, so "the mean of the R cross-validated
-        # variances" is a claim with content rather than a description of the default.
-        # The sign is not an accident either: a variance is a convex function of the
-        # curve, so averaging the curves cannot raise it above the mean of the parts.
+    def test_it_is_not_the_variance_of_the_median_draw_curve(self, canonical: Any) -> None:
         for name, estimate in canonical.estimates.items():
             from_curve = influence_variance(estimate.influence_curve)
-            assert estimate.variance > from_curve, name
+            assert estimate.variance != pytest.approx(from_curve, rel=1e-6), name
 
     def test_the_canonical_report_is_the_one_the_fit_headlines(self, canonical: Any) -> None:
         detail = canonical.cv_targeting
@@ -363,15 +378,13 @@ class TestRepeatedCanonicalCVTMLE:
         # ``detail.pooled`` changes only the evaluation of the fold-evaluated fit; it
         # deliberately does not rerun Levy's default row-weighted targeting loss. The
         # standalone default below is therefore close under balanced folds, but need not
-        # be identical. Both pooled reports use ordinary from-curve inference.
+        # be identical. Both pooled reports use the median within-plus-between rule.
         settings = {**CANONICAL, "cv_evaluation": False}
         levy = fast_tmle(repeats=REPEATS, **settings).fit(binary_frame, **COLUMNS).single()
         differs = []
         for name, estimate in levy.estimates.items():
             comparison = canonical.cv_targeting.pooled[name]
-            assert comparison.variance == pytest.approx(
-                influence_variance(comparison.influence_curve), rel=1e-12
-            )
+            assert np.isfinite(comparison.variance)
             assert abs(comparison.psi - estimate.psi) < 0.1 * estimate.std_error
             differs.append(comparison.psi != estimate.psi)
         assert any(differs)
@@ -399,11 +412,11 @@ class TestRepeatedCanonicalCVTMLE:
         summary = canonical.summary()
         assert "fold-evaluated CV-TMLE" in summary
         assert "independent draws" in summary
-        assert "mean of the draws' cross-validated variances" in summary
+        assert "split dispersion" in summary
 
 
 class TestTheRejectedVarianceRule:
-    """Why the averaged curve gets no cross-validated variance of its own.
+    """Why a combined curve gets no cross-validated variance of its own.
 
     Not merely that the partition would be an arbitrary pick among the ``R``: with equal
     fold sizes the partition makes no difference at all, so the number would be the pooled
@@ -484,9 +497,9 @@ class TestTheSpreadAcrossDraws:
         for name, value in spread.items():
             per_draw = [repeat.psi[name] for repeat in repeated.repeats]
             assert value == pytest.approx(float(np.std(per_draw, ddof=1)))
-        # And the draws it is the spread of are the ones the report is the mean of.
+        # And the draws it is the spread of are the ones the report takes the median of.
         assert repeated.psi("ate") == pytest.approx(
-            float(np.mean([repeat.psi["ate"] for repeat in repeated.repeats]))
+            float(np.median([repeat.psi["ate"] for repeat in repeated.repeats]))
         )
 
     def test_one_draw_has_no_spread_to_report(self, once: Any) -> None:
@@ -511,13 +524,13 @@ class TestWhatTheResultExposes:
         assert repeated.n_repeats == REPEATS
 
     def test_the_summary_says_the_fit_was_repeated(self, repeated: Any, once: Any) -> None:
-        assert "averaged over 3 independent draws" in repeated.summary()
+        assert "median over 3 independent draws" in repeated.summary()
         assert "independent draws" not in once.summary()
 
     def test_the_declared_plan_records_the_count(self, repeated: Any) -> None:
         assert repeated.config.crossfit.repeats == REPEATS
         assert repeated.config.crossfit.repeated
-        assert "averaged over 3 draws" in repeated.config.crossfit.describe()
+        assert "median over 3 draws" in repeated.config.crossfit.describe()
 
 
 class TestRefusedCombinations:
@@ -538,11 +551,23 @@ class TestRefusedCombinations:
         with pytest.raises(ValueError, match="cross_fit=True"):
             fast_tmle(repeats=3, cv_evaluation=True, cross_fit=False)
 
+    def test_multiplier_bands_do_not_represent_the_median_estimator(self, frame: Any) -> None:
+        with pytest.raises(ValueError, match="simultaneous=True is not defined"):
+            fast_tmle(repeats=3, simultaneous=True, estimands=["ate"]).fit(frame, **COLUMNS)
+
+    def test_post_fit_covariance_is_refused(self, repeated: Any) -> None:
+        with pytest.raises(CapabilityError, match="median-combined repeats"):
+            repeated.covariance()
+
+    def test_post_fit_contrasts_are_refused(self, repeated: Any) -> None:
+        with pytest.raises(CapabilityError, match="medians do not preserve"):
+            repeated.contrast(lambda point: point[0] - point[1], ["ey1", "ey0"])
+
 
 class TestTheSensitivityLayerFollowsTheDraws:
-    def test_the_truncation_curve_averages_over_them(self, repeated: Any) -> None:
+    def test_the_truncation_curve_combines_all_draws(self, repeated: Any) -> None:
         # At the bound the fit used, the swept estimate must reproduce the reported one.
-        # It does only if the sweep averages the same way the fit did.
+        # It does only if the sweep combines the same way the fit did.
         curve = truncation_curve(repeated, bounds=[repeated.config.g_bounds[0]], estimands=["ate"])
         assert float(curve["psi"][0]) == pytest.approx(repeated.psi("ate"), rel=1e-9)
 
@@ -585,36 +610,19 @@ class TestTheMnarTiltFollowsTheDraws:
         assert float(tilt["psi"][0]) != float(tilt["psi"][1])
 
 
-class TestTheOmittedVariableBoundFollowsTheDraws:
+class TestTheOmittedVariableBoundNeedsItsOwnMedianInfluenceFunction:
     @pytest.fixture(scope="class")
     def binary_fit(self) -> Any:
         frame, _ = make_binary_outcome(n=N, seed=17)
         return fast_tmle(repeats=2, estimands=["ate"]).fit(frame, **COLUMNS).single()
 
-    def test_the_bound_is_the_mean_of_the_draws(self, binary_fit: Any) -> None:
-        from cleverly.sensitivity.omitted_variable import (
-            _elements_for,
-            resolve_parameter,
-            sensitivity_elements,
-        )
+    def test_the_bound_is_refused_instead_of_combining_influence_terms(
+        self, binary_fit: Any
+    ) -> None:
+        from cleverly.sensitivity.omitted_variable import sensitivity_elements
 
-        averaged = sensitivity_elements(binary_fit, "ate")
-        parameter = resolve_parameter(binary_fit, "ate")
-        per_draw = [
-            _elements_for(binary_fit, repeat, parameter, "auto").max_bias
-            for repeat in binary_fit.repeats
-        ]
-        assert averaged.max_bias == pytest.approx(float(np.mean(per_draw)))
-
-    def test_it_reads_each_draws_own_regression_and_mechanism(self, binary_fit: Any) -> None:
-        # Crossing them would still produce a number; this pins that the pairing is the
-        # one RepeatFit holds rather than an incidental zip.
-        from cleverly.sensitivity.omitted_variable import _elements_for, resolve_parameter
-
-        parameter = resolve_parameter(binary_fit, "ate")
-        first = _elements_for(binary_fit, binary_fit.repeats[0], parameter, "auto")
-        second = _elements_for(binary_fit, binary_fit.repeats[1], parameter, "auto")
-        assert first.sigma2 != second.sigma2
+        with pytest.raises(CapabilityError, match="median-combined repeats"):
+            sensitivity_elements(binary_fit, "ate")
 
 
 class TestSerialization:
@@ -658,7 +666,7 @@ class TestVariantsInheritRepeats:
         assert np.isfinite(result["ate"].std_error)
 
     def test_the_bootstrap_repeats_the_draws(self, frame: Any) -> None:
-        # A replicate must resample the estimator that was reported -- the average of R
+        # A replicate must resample the estimator that was reported -- the median of R
         # draws -- rather than a single draw, whose fold noise the report does not carry.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

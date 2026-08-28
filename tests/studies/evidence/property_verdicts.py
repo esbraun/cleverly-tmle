@@ -77,7 +77,6 @@ OVERFIT_SE_FLOOR = 0.85
 OVERFIT_SE_CONTROL_CEILING = 0.75
 OVERFIT_COVERAGE_GAIN = 0.15
 
-
 #: Columns every study family's property summary carries, whatever else it adds.
 SHARED_COLUMNS = (
     "rate_sizes",

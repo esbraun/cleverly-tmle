@@ -468,6 +468,84 @@ def se_ratio_deficit_interval(
     return percentile_interval(subject_ratio - reference_ratio, confidence_level=confidence_level)
 
 
+def paired_spread_ratio_interval(
+    numerator: pd.DataFrame,
+    denominator: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> Interval:
+    """Paired-bootstrap interval for a ratio of across-replication spreads.
+
+    The two cells must carry the same replication keys. Resampling their paired estimates
+    with one index draw retains the covariance created by fitting both configurations to
+    the same samples or fold seeds.
+    """
+    merged = numerator[["replicate", "estimate"]].merge(
+        denominator[["replicate", "estimate"]],
+        on="replicate",
+        suffixes=("_numerator", "_denominator"),
+    )
+    if len(merged) != len(numerator) or len(merged) != len(denominator):
+        raise ValueError("the two spread-ratio cells are not paired on replication")
+    values = merged[["estimate_numerator", "estimate_denominator"]].to_numpy(dtype=float)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(values), size=(replicates, len(values)))
+    draws = values[picks]
+    numerator_spread = draws[:, :, 0].std(axis=1, ddof=1)
+    denominator_spread = draws[:, :, 1].std(axis=1, ddof=1)
+    if np.any(denominator_spread <= 0.0):
+        raise ValueError("a spread-ratio bootstrap draw has zero denominator spread")
+    return percentile_interval(
+        numerator_spread / denominator_spread,
+        confidence_level=confidence_level,
+    )
+
+
+def paired_error_ratio_interval(
+    numerator: pd.DataFrame,
+    denominator: pd.DataFrame,
+    *,
+    statistic: str,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> Interval:
+    """Paired-bootstrap interval for an RMSE or tail-error ratio."""
+    merged = numerator[["replicate", "truth", "estimate"]].merge(
+        denominator[["replicate", "truth", "estimate"]],
+        on="replicate",
+        suffixes=("_numerator", "_denominator"),
+    )
+    if len(merged) != len(numerator) or len(merged) != len(denominator):
+        raise ValueError("the two error-ratio cells are not paired on replication")
+    if not np.allclose(merged["truth_numerator"], merged["truth_denominator"], rtol=0, atol=0):
+        raise ValueError("the two error-ratio cells do not carry identical truths")
+    errors = np.column_stack(
+        [
+            merged["estimate_numerator"] - merged["truth_numerator"],
+            merged["estimate_denominator"] - merged["truth_denominator"],
+        ]
+    )
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(errors), size=(replicates, len(errors)))
+    draws = np.abs(errors[picks])
+    if statistic == "rmse":
+        values = np.sqrt(np.mean(draws[:, :, 0] ** 2, axis=1)) / np.sqrt(
+            np.mean(draws[:, :, 1] ** 2, axis=1)
+        )
+    elif statistic == "p90":
+        values = np.quantile(draws[:, :, 0], 0.90, axis=1) / np.quantile(
+            draws[:, :, 1], 0.90, axis=1
+        )
+    else:
+        raise ValueError(f"unknown error-ratio statistic {statistic!r}")
+    if not np.isfinite(values).all():
+        raise ValueError(f"the {statistic} error ratio is not finite")
+    return percentile_interval(values, confidence_level=confidence_level)
+
+
 @dataclass(frozen=True)
 class Rate:
     """A fitted ``log(quantity) ~ log(n)`` slope with a bootstrap interval."""

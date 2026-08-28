@@ -165,5 +165,9 @@ The project has no issue templates yet. Include these items in the issue.
 
 ## License
 
-`cleverly` is under the GNU General Public License v3.0. Your contribution is licensed under the
+`cleverly` is under the MIT License. Your contribution to the project is licensed under the
 same terms.
+
+One directory differs. `tests/canonical/` is under the GNU General Public License v3.0,
+because its R runners call reference packages in the same process. A contribution to that
+directory is licensed under the GPL. No published distribution carries it.
