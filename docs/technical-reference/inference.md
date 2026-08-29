@@ -97,5 +97,7 @@ Evidence for everything above:
 [`tests/unit/test_inference.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_inference.py)
 pins the exact covariance identities, the weighted effective sample size, cluster aggregation, the
 delta-method transformations, the multiplier critical value, and the simultaneous bands.
-Repeated-cross-fit covariance is pinned in
-[`tests/unit/test_repeated_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_repeated_crossfit.py).
+A repeated cross-fitted fit reports no covariance.
+[`tests/unit/test_repeated_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_repeated_crossfit.py)
+pins that refusal, and pins the median point and the split-adjusted median variance the fit reports
+instead.

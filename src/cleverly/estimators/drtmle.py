@@ -419,7 +419,7 @@ class DRTMLE(TMLE):
     ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`` records: on
     roughly a quarter of splits the reported curve is not centred while all three
     fluctuation rows report their scores solved.  That is a property of a *draw* and not of
-      the aggregation, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
+    the aggregation, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
 
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions

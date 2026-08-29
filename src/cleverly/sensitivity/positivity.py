@@ -138,7 +138,7 @@ class PositivityReport:
     n_repeats : int
         Cross-fitting draws the fit combined. Everything else here describes
         the **first** of them, because overlap is a property of one fitted
-        mechanism and averaging draws would describe one no estimate came from.
+        mechanism and a combination of draws would describe one no estimate came from.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     """
@@ -156,7 +156,7 @@ class PositivityReport:
     simplex_deviation: float = 0.0
     #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
-    #: of one fitted mechanism, and averaging ``R`` propensity vectors would produce a
+    #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
     #: perfectly good estimate of ``g`` that is nonetheless not the object any reported
     #: ``psi`` was computed from -- a different aggregation from the one the estimates use,
     #: under the same heading.  The draws share the data and differ only in the split, so

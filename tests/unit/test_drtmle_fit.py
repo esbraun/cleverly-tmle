@@ -1090,7 +1090,13 @@ class TestEachDrawSolvesItsOwnEquations:
         )
 
     def test_the_report_is_the_median_of_the_draws(self, repeated) -> None:
-        """And the median is load-bearing: the two draws do not agree to begin with."""
+        """The DR construction reaches the aggregation, on draws that disagree.
+
+        Two draws only, so the median and the mean coincide here and this cannot tell them
+        apart.  What it checks is that each DR draw produces its own point and that the
+        report combines them rather than returning draw 0.  The median rule itself is
+        pinned at three draws in ``tests/unit/test_repeated_crossfit.py``.
+        """
         for name in ESTIMANDS:
             per_draw = [repeat.psi[name] for repeat in repeated.repeats]
             assert per_draw[0] != per_draw[1]

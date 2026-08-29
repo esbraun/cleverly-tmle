@@ -291,7 +291,7 @@ The nuisance report is the one that matters most here. It is computed out of fol
 the models on patients they did not see. An in-sample version of the same report would flatter a
 gradient-boosted learner.
 
-Then the fold draw itself. One split is one draw, and a nervous analyst can average over several.
+Then the fold draw itself. One split is one draw. A nervous analyst can take the median of several.
 
 ```python
 repeated = effect.estimate(
@@ -311,6 +311,12 @@ median point and includes split displacement in the variance. `repeat_spread()` 
 the answer moved between draws. A large spread says the fold draw is doing work that the sample
 size should be doing.
 
+Two things follow from the median rule. The report is coordinatewise, so this call sets
+`simultaneous=False`. A repeated fit reports no simultaneous band. The registered study validates
+the median report at three draws. No cell measures whether three draws move the point estimate less
+across seeds than one draw does, so read the spread as a diagnostic rather than as a demonstrated
+gain.
+
 Three things constrain what this page establishes.
 
 | layer | establishes | does not establish |
@@ -324,11 +330,13 @@ learner reproduces a held-out row exactly if and only if a same-cluster row was 
 The assertions are array equality and array inequality, so leakage is not a matter of degree.
 
 The evidence rows are
-[stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md)
+[stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md),
+[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md),
 and
-[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md).
+[repeated point-treatment cross-fitted TMLE](../technical-reference/method-evidence/repeated-cross-fitting.md).
 The second has no canonical comparator, and its study says so in its own cell rather than borrowing
-a surrogate.
+a surrogate. The third covers the `repeats=3` call above, and it publishes under the reporting
+policy.
 
 ## Where to go next
 
