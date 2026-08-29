@@ -645,6 +645,9 @@ def alternative_target_necessity_verdicts(
         summary.loc[cell_mask, "alternative_bias_ci_upper"] = verdict.interval.high
         summary.loc[cell_mask, "alternative_bias_margin"] = verdict.margin
         summary.loc[cell_mask, "alternative_bias_equivalent"] = verdict.equivalent
+        summary.loc[cell_mask, "passed"] = bool(
+            summary.loc[cell_mask, "passed"].iloc[0] and verdict.equivalent
+        )
         alternative_passed.append(bool(verdict.equivalent))
         displacements.append(
             paired_displacement(

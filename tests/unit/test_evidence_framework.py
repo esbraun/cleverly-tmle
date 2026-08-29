@@ -137,6 +137,7 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
     )
     control = changed.loc[changed["role"] == "control"]
     assert not bool(control["alternative_bias_equivalent"].iloc[0])
+    assert not bool(control["passed"].iloc[0])
     assert not changed["property_passed"].any()
 
 
