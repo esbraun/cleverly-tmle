@@ -115,7 +115,17 @@ def _weighted_eif(name: str, *, step: float = 1e-30) -> np.ndarray:
     return curve
 
 
-def test_the_weighted_ate_curve_is_the_gateaux_derivative_of_the_tilted_parameter() -> None:
+@pytest.mark.parametrize(
+    ("name", "curve", "deviation"),
+    [
+        ("ate", law.weighted_ate_eif, law.weighted_ate_efficiency_sd),
+        ("logrr", law.weighted_logrr_eif, law.weighted_logrr_efficiency_sd),
+        ("logor", law.weighted_logor_eif, law.weighted_logor_efficiency_sd),
+    ],
+)
+def test_each_weighted_curve_is_the_gateaux_derivative_of_the_tilted_parameter(
+    name: str, curve: Any, deviation: Any
+) -> None:
     """The scale witness the two centring checks could not supply.
 
     A mean-zero check is blind to the outer density ratio's scale: writing
@@ -124,12 +134,16 @@ def test_the_weighted_ate_curve_is_the_gateaux_derivative_of_the_tilted_paramete
     moment against ``sqrt(p @ curve**2)`` restates its body line for line and cannot fail
     at all.  The derivative below is taken from the identification formula alone, so it
     fixes the scale as well as the shape.
+
+    The two ratio curves get the same treatment, because they are the bounds that decide
+    the study's one standard-error disagreement, and a delta-method factor written by hand
+    is exactly the kind of term an exact-law check cannot see.
     """
-    derived = _weighted_eif("ate")
-    np.testing.assert_allclose(derived, law.weighted_ate_eif(), rtol=0, atol=1e-12)
+    derived = _weighted_eif(name)
+    np.testing.assert_allclose(derived, curve(), rtol=0, atol=1e-12)
     probabilities = law.selected_probabilities().reshape(-1)
     assert float(probabilities @ derived) == pytest.approx(0.0, abs=1e-14)
-    assert law.weighted_ate_efficiency_sd() == pytest.approx(
+    assert deviation() == pytest.approx(
         float(np.sqrt(probabilities @ np.square(derived))), rel=1e-12
     )
 
@@ -152,6 +166,79 @@ def test_dropping_the_selection_rate_leaves_the_bound_outside_the_declared_band(
     low, high = properties.EFFICIENCY_RATIO_BAND
     assert low <= empirical_se / honest <= high
     assert not low <= empirical_se / mutated <= high
+
+
+#: How far a mean reported standard error may sit from the exact bound, as a share of it.
+#: Wide enough for 800 replications of Monte Carlo noise and the finite-sample term, and
+#: eight times narrower than the 4% departure the two implementations differ by on ``or``.
+BOUND_TOLERANCE = 0.005
+
+#: R ``tmle`` 2.1.1's mean marginal log-odds-ratio standard error, as a share of the exact
+#: bound.  Measured from the committed replications, not declared: the package reports 1.8%
+#: less than the efficient influence curve of the tilted law carries.
+R_LOGOR_BOUND_SHARE = 0.9818
+R_LOGOR_BOUND_SHARE_TOLERANCE = 0.0005
+
+
+def _scaled_standard_errors() -> pd.DataFrame:
+    """Each committed mean standard error, multiplied by the square root of the size."""
+    summary = pd.read_csv(study.STUDY.artifact("summary.csv"))
+    summary["bound_share"] = summary.apply(
+        lambda row: (
+            row["mean_std_error"]
+            * np.sqrt(row["n"])
+            / study.STUDY.efficiency_bounds[row["estimand"]]
+            if row["estimand"] in study.STUDY.efficiency_bounds
+            else np.nan
+        ),
+        axis=1,
+    )
+    return summary.set_index(["implementation", "estimand"])
+
+
+def test_cleverly_reports_the_exact_efficiency_bound_for_all_three_contrasts() -> None:
+    """The bound decides the study's one standard-error disagreement.
+
+    The two implementations agree to about 1e-11 on every point estimate and on the ``ate``,
+    ``ey0``, ``ey1`` and ``rr`` standard errors.  They disagree on ``or``, and the paired
+    comparison cannot say which is right: it asks whether two implementations are similar,
+    and both are inside the shared calibration margin.  The exact efficient influence curve
+    of the tilted law can say, so this reads it off the committed summary.
+    """
+    shares = _scaled_standard_errors()
+    for estimand in study.STUDY.efficiency_bounds:
+        share = float(shares.loc[(study.STUDY.implementation, estimand), "bound_share"])
+        assert share == pytest.approx(1.0, abs=BOUND_TOLERANCE), (
+            f"{estimand} reports {share:.6f} of its exact bound"
+        )
+
+
+def test_the_reference_under_reports_the_marginal_log_odds_ratio_standard_error() -> None:
+    """The departure this study records, and the margin that lets it publish `equivalent`.
+
+    R ``tmle`` 2.1.1 matches the bound on ``ate`` and ``rr`` and sits below it on ``or``.
+    The paired verdict stays `equivalent`, because the two SE ratios differ by less than the
+    shared `calibration_noninferiority` margin.  That is the margin working as declared, and
+    it is also why the disagreement needs recording here rather than in a verdict column.
+    """
+    shares = _scaled_standard_errors()
+    reference = study.STUDY.reference
+    assert reference is not None
+    for estimand in ("ate", "rr"):
+        share = float(shares.loc[(reference, estimand), "bound_share"])
+        assert share == pytest.approx(1.0, abs=BOUND_TOLERANCE)
+
+    logor = float(shares.loc[(reference, "or"), "bound_share"])
+    assert logor == pytest.approx(R_LOGOR_BOUND_SHARE, abs=R_LOGOR_BOUND_SHARE_TOLERANCE)
+    assert logor < 1.0 - BOUND_TOLERANCE
+
+    equivalence = pd.read_csv(study.STUDY.artifact("equivalence.csv")).set_index(
+        ["scenario", "estimand"]
+    )
+    row = equivalence.loc[(study.SCENARIO, "or")]
+    assert bool(row["se_comparable"])
+    assert row["comparison_conclusion"] == "equivalent"
+    assert 0.0 < float(row["se_ratio_difference"]) < study.STUDY.margins.calibration_noninferiority
 
 
 def test_primary_rows_preserve_native_ratio_inference_and_r_inputs() -> None:

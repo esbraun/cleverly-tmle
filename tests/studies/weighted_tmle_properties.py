@@ -33,7 +33,6 @@ from tests.studies.weighted_point_common import (
     Q,
     sample_selected,
     truth_for,
-    weighted_ate_efficiency_sd,
 )
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -67,7 +66,9 @@ NULL_Q = np.column_stack([Q[:, 0], Q[:, 0]])
 ALTERNATIVE_Q = np.column_stack([Q[:, 0], Q[:, 0] + ALTERNATIVE_EFFECT])
 TRUTH = float(truth_for(Q, P_W)[TARGET])
 SELECTED_TRUTH = float(truth_for(Q, SELECTED_P_W)[TARGET])
-EFFICIENCY_SD = weighted_ate_efficiency_sd(Q)
+#: The exact ATE bound, read off the record so one declaration feeds the calibration
+#: cell here and the ``bound:ate_standard_error`` the document quotes.
+EFFICIENCY_SD = STUDY.efficiency_bounds[TARGET]
 
 
 def _learners(configuration: str, q: np.ndarray) -> tuple[Any, Any]:

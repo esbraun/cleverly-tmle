@@ -106,24 +106,93 @@ def selected_probabilities(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarra
     return probabilities
 
 
-def weighted_ate_eif(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarray:
-    """Return the weighted ATE influence curve at each selected-law support point.
+def weighted_arm_eifs(q: np.ndarray = Q, *, g: np.ndarray = G) -> tuple[np.ndarray, np.ndarray]:
+    """Return the weighted ``ey0`` and ``ey1`` influence curves on :data:`SUPPORT`.
 
     The rows follow the selected law. Tilting them by ``1 / selection(W)`` recovers the
     population law, so the outer density ratio is ``selection_rate / selection(W)``.
+
+    Every contrast this study reports is a smooth function of the two arm means, so each
+    contrast's curve is a fixed linear combination of these two.  Writing the arms once is
+    what lets the log-risk-ratio and log-odds-ratio bounds below share one derivation with
+    the ATE bound rather than restate it twice.
+
+    Parameters
+    ----------
+    q : numpy.ndarray, optional
+        ``P(Y = 1 | A = a, W = w)``, indexed by level and then arm.
+    g : numpy.ndarray, optional
+        ``P(A = 1 | W = w)``, indexed by level.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The ``ey0`` curve and the ``ey1`` curve, in that order.
     """
-    truth = truth_for(q, P_W)["ate"]
-    curve = np.empty(len(SUPPORT), dtype=float)
+    truth = truth_for(q, P_W)
+    zero = np.empty(len(SUPPORT), dtype=float)
+    one = np.empty(len(SUPPORT), dtype=float)
     for index, (w, a, y) in enumerate(SUPPORT):
         residual = y - q[w, a]
-        clever = a / g[w] - (1.0 - a) / (1.0 - g[w])
-        population_eif = clever * residual + q[w, 1] - q[w, 0] - truth
-        curve[index] = SELECTION_RATE / SELECTION[w] * population_eif
-    return curve
+        ratio = SELECTION_RATE / SELECTION[w]
+        zero[index] = ratio * ((1.0 - a) / (1.0 - g[w]) * residual + q[w, 0] - truth["ey0"])
+        one[index] = ratio * (a / g[w] * residual + q[w, 1] - truth["ey1"])
+    return zero, one
+
+
+def weighted_ate_eif(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarray:
+    """Return the weighted ATE influence curve at each selected-law support point."""
+    zero, one = weighted_arm_eifs(q, g=g)
+    return one - zero
+
+
+def weighted_logrr_eif(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarray:
+    """Return the weighted log-risk-ratio influence curve, ``D1 / mu1 - D0 / mu0``."""
+    truth = truth_for(q, P_W)
+    zero, one = weighted_arm_eifs(q, g=g)
+    return one / truth["ey1"] - zero / truth["ey0"]
+
+
+def weighted_logor_eif(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarray:
+    """Return the weighted log-odds-ratio influence curve on :data:`SUPPORT`.
+
+    The delta-method factor of ``log(mu / (1 - mu))`` is ``1 / (mu (1 - mu))``, so the
+    curve is ``D1 / (mu1 (1 - mu1)) - D0 / (mu0 (1 - mu0))``.
+
+    Parameters
+    ----------
+    q : numpy.ndarray, optional
+        ``P(Y = 1 | A = a, W = w)``, indexed by level and then arm.
+    g : numpy.ndarray, optional
+        ``P(A = 1 | W = w)``, indexed by level.
+
+    Returns
+    -------
+    numpy.ndarray
+        The curve at each support point, in support order.
+    """
+    truth = truth_for(q, P_W)
+    zero, one = weighted_arm_eifs(q, g=g)
+    ey0, ey1 = truth["ey0"], truth["ey1"]
+    return one / (ey1 * (1.0 - ey1)) - zero / (ey0 * (1.0 - ey0))
+
+
+def _efficiency_sd(curve: np.ndarray, q: np.ndarray, g: np.ndarray) -> float:
+    """Return ``sqrt(E_selected[D*(O)^2])`` for one curve under the exact finite law."""
+    probabilities = selected_probabilities(q, g=g).reshape(-1)
+    return float(np.sqrt(np.sum(probabilities * np.square(curve))))
 
 
 def weighted_ate_efficiency_sd(q: np.ndarray = Q, *, g: np.ndarray = G) -> float:
-    """Return ``sqrt(E_selected[D*(O)^2])`` from the exact finite law."""
-    probabilities = selected_probabilities(q, g=g).reshape(-1)
-    curve = weighted_ate_eif(q, g=g)
-    return float(np.sqrt(np.sum(probabilities * np.square(curve))))
+    """Return the exact ATE efficiency bound, scaled by the square root of the size."""
+    return _efficiency_sd(weighted_ate_eif(q, g=g), q, g)
+
+
+def weighted_logrr_efficiency_sd(q: np.ndarray = Q, *, g: np.ndarray = G) -> float:
+    """Return the exact log-risk-ratio efficiency bound, on the reported inference scale."""
+    return _efficiency_sd(weighted_logrr_eif(q, g=g), q, g)
+
+
+def weighted_logor_efficiency_sd(q: np.ndarray = Q, *, g: np.ndarray = G) -> float:
+    """Return the exact log-odds-ratio efficiency bound, on the reported inference scale."""
+    return _efficiency_sd(weighted_logor_eif(q, g=g), q, g)

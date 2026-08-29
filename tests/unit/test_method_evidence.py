@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
@@ -1302,10 +1303,15 @@ def _exempt(name: str) -> bool:
     so it belongs to no artefact family by construction and must not be asked to count
     towards artefact coverage.  It is still gated: the quoted-value test resolves it like any
     other name, which is the whole point of naming a threshold instead of retyping it.
+
+    A ``bound:`` name is exempt for the same reason and gated the same way.  It is an exact
+    efficiency bound computed from the study's declared law, so no artefact produced it, and
+    a study that publishes one still has to quote it in its measured table.
     """
     return (
         name in _CONFIGURATION_QUANTITIES
         or name.startswith("margin:")
+        or name.startswith("bound:")
         or name.endswith("summary_cells")
         or "cells_with_" in name
     )
@@ -1576,6 +1582,8 @@ class TestTheQuantityVocabulary:
             assert declared["margin:efficiency_ratio_lower"] == low
             assert declared["margin:efficiency_ratio_upper"] == high
             assert declared["margin:shrunken_se_factor"] == efficiency.SHRUNKEN_SE_FACTOR
+        for estimand, deviation in study.efficiency_bounds.items():
+            assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected

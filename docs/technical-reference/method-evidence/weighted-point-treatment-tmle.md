@@ -53,6 +53,19 @@ probabilities, so their tilted law is exactly the declared population law.
 | binary-outcome law sampled with unequal selection probabilities | `rr` | marginal risk ratio, reported on the log scale | -6.396e-12 | 1.986e-10 | 1.0000 | 0 | 1.501e-11 vs 0.0500 | equivalent |
 <!-- /generated -->
 
+The two implementations return the same point estimate for every parameter. Their standard
+errors also agree for `ate`, `ey0`, `ey1` and `rr`, as the calibration-resolution column
+shows. They differ on `or`. The paired verdict stays `equivalent`, because that difference
+is inside the shared calibration margin.
+
+A paired comparison asks whether two implementations are similar. It cannot say which one
+is right. The exact efficient influence curve of the tilted law can, and the measured-values
+table gives that bound for `ate`, `rr` and `or` at n = 2,000. `cleverly` reports each bound.
+R `tmle` 2.1.1 reports less than the bound for the marginal log odds ratio, so this row
+rests on `cleverly` alone for `or` inference.
+`tests/unit/test_weighted_tmle_method_study.py` derives each bound from the finite law and
+gates both statements.
+
 ## Theory properties
 
 <!-- generated: properties -->
@@ -99,6 +112,12 @@ a valid estimator of another population from an arbitrary failure.
 | `max_standardized_bias` | 0.0375 | largest primary standardized bias |
 | `min_coverage` | 0.9400 | lowest primary coverage |
 | `max_margin_utilization` | 3.363e-10 | largest paired similarity-margin share |
+| `bound:ate_standard_error` | 0.0282173 | exact ATE efficiency bound at n = 2,000 |
+| `bound:rr_standard_error` | 0.0840901 | exact log-risk-ratio bound at n = 2,000 |
+| `bound:or_standard_error` | 0.1320439 | exact log-odds-ratio bound at n = 2,000 |
+| `summary[cleverly-weighted-tmle/binary_biased_sample/or]:mean_std_error` | 0.1320448 | `cleverly` mean log-odds-ratio standard error |
+| `summary[tmle-r-weighted/binary_biased_sample/or]:mean_std_error` | 0.1296447 | R `tmle` mean log-odds-ratio standard error |
+| `equivalence[binary_biased_sample/or]:se_ratio_difference` | 0.0183 | paired log-odds-ratio SE-ratio difference |
 | `properties[weight_necessity/ate__weighted]:necessity_displacement` | 6.8141 | paired weight-necessity displacement |
 | `properties[weight_necessity/ate__omitted_control]:alternative_truth` | 0.5222 | exact selected-population ATE |
 | `properties[weight_necessity/ate__omitted_control]:alternative_bias_ci_lower` | -0.0014 | lower bias endpoint against the selected target |

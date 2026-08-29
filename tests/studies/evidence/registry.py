@@ -172,6 +172,19 @@ class StudyRecord:
     properties_module: str = "tests.studies.canonical_properties"
     #: Property name -> the cells the committed property summary must contain.
     property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Estimand -> the exact standard deviation of that estimand's efficient influence curve
+    #: under this study's declared law, on the scale the study reports inference on.
+    #:
+    #: Declared here rather than read off the property module by name, for the reason the
+    #: ``margin:`` blocks in :mod:`tests.studies.evidence.claims` are keyed off the declared
+    #: cells: a duck-typed guard publishes a bound because a constant happens to be
+    #: importable, and it goes quiet the day the constant is renamed.  A study that can
+    #: compute an exact bound at all declares it, and :func:`claims.thresholds` publishes
+    #: each one as ``bound:<estimand>_standard_error`` at this study's own sample size.  A
+    #: reader can then compare the bound against the ``mean_std_error`` the artefacts record
+    #: for the same estimand, which is what decides a disagreement between two
+    #: implementations rather than merely reporting one.
+    efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
     #: ``"gated"`` refuses publication when a scientific verdict fails. ``"reporting"``
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.

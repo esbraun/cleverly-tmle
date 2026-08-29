@@ -25,6 +25,9 @@ from tests.studies.weighted_point_common import (
     Q,
     sample_selected,
     truth_for,
+    weighted_ate_efficiency_sd,
+    weighted_logor_efficiency_sd,
+    weighted_logrr_efficiency_sd,
 )
 
 TMLE_VERSION = "2.1.1"
@@ -87,6 +90,11 @@ STUDY = StudyRecord(
         "power": ("alternative",),
         "targeting_necessity": ("ate__targeted", "ate__untargeted"),
         "weight_necessity": ("ate__weighted", "ate__omitted_control"),
+    },
+    efficiency_bounds={
+        "ate": weighted_ate_efficiency_sd(Q),
+        "rr": weighted_logrr_efficiency_sd(Q),
+        "or": weighted_logor_efficiency_sd(Q),
     },
 )
 
