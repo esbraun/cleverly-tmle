@@ -90,10 +90,10 @@ _TERM = re.compile(
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
+    "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
-    "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
@@ -222,12 +222,12 @@ PARAMETERISED: dict[str, str] = {
 
 
 PROPERTIES: dict[str, str] = {
-    "clustered_inference": (
-        "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
-    ),
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
+    ),
+    "clustered_inference": (
+        "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
     ),
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"

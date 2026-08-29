@@ -18,7 +18,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
-from tests.studies.missing_outcome_study_helpers import initial_arm_estimates
+from tests.studies.missing_outcome_study_helpers import primary_rows
 
 LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
 IFE_VERSION = "0.2.3"
@@ -32,6 +32,7 @@ PROPERTY_REPLICATES = 2_400
 N_FOLDS = 5
 CLUSTER_SIZE = 10
 SEED = 20260929
+RESAMPLING_SEED = 20260930
 SCENARIO = "clustered_continuous"
 ESTIMANDS = ("ey0", "ey1", "ate")
 G_BOUNDS = (1e-9, 1.0 - 1e-9)
@@ -46,7 +47,7 @@ STUDY = StudyRecord(
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
-    resampling_seed=20260930,
+    resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly-clustered-cvtmle",
     reference="lmtp",
@@ -147,31 +148,14 @@ def rows_from_result(
     replicate: int,
 ) -> list[dict[str, Any]]:
     """Convert one fit to the shared primary-replication schema."""
-    initials = initial_arm_estimates(result)
-    rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
-        estimate = result[name]
-        low, high = estimate.ci
-        target = float(truth[name])
-        rows.append(
-            {
-                "implementation": STUDY.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": result.data.n,
-                "estimand": name,
-                "truth": target,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= target <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
+    return primary_rows(
+        result=result,
+        reference=truth,
+        implementation=STUDY.implementation,
+        scenario=scenario,
+        replicate=replicate,
+        estimands=ESTIMANDS,
+    )
 
 
 def cleverly_rows(

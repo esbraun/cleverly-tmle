@@ -598,7 +598,6 @@ class TestPublishedVerdicts:
         clustered = published.loc[published["property"] == "clustered_inference"]
         if not clustered.empty:
             margins = study.margins
-            properties = study.properties()
             for row in clustered.itertuples():
                 if row.cell == "cluster_robust":
                     expected = (
@@ -612,14 +611,17 @@ class TestPublishedVerdicts:
                         <= margins.calibration_coverage[1]
                     )
                 else:
-                    expected = row.se_ratio_ci_upper <= properties.CONTROL_SE_RATIO_CEILING
+                    expected = (
+                        row.se_ratio_ci_upper <= property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+                    )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its clustered-inference endpoints"
                 )
             assert clustered["property_passed"].nunique() == 1
             assert bool(clustered["property_passed"].iloc[0]) is bool(
                 clustered["passed"].all()
-                and clustered["coverage_gain_ci_lower"].iloc[0] >= properties.COVERAGE_GAIN
+                and clustered["coverage_gain_ci_lower"].iloc[0]
+                >= property_verdicts.CLUSTERED_COVERAGE_GAIN
             )
 
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
@@ -1506,6 +1508,18 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:overfit_control_ceiling"]
                 == property_verdicts.OVERFIT_SE_CONTROL_CEILING
+            )
+            assert (
+                declared["margin:overfit_coverage_gain"] == property_verdicts.OVERFIT_COVERAGE_GAIN
+            )
+        if "clustered_inference" in study.property_cells:
+            assert (
+                declared["margin:iid_control_se_ceiling"]
+                == property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+            )
+            assert (
+                declared["margin:clustered_coverage_gain"]
+                == property_verdicts.CLUSTERED_COVERAGE_GAIN
             )
         if "double_robustness" in study.property_cells:
             low, high = property_verdicts.UNION_MODEL_SE_BAND

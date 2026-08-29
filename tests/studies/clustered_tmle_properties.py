@@ -19,18 +19,21 @@ from tests.studies.canonical_clustered_tmle import (
     draw_from_seed,
     fit_cleverly,
 )
-from tests.studies.evidence.inference import Interval
-from tests.studies.evidence.properties import (
-    control_row,
-    coverage_gain_interval,
-    replicate_row,
-    se_ratio_interval,
+from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.property_verdicts import (
+    CLUSTER_ROBUST_CONTROL_SE_CEILING,
+    CLUSTERED_COVERAGE_GAIN,
+    apply_shared_verdicts,
+    clustered_inference_verdicts,
+    finish,
 )
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.seeds import stream_seed
 
-CONTROL_SE_RATIO_CEILING = 0.80
-COVERAGE_GAIN = 0.03
+#: Named here as well because the two thresholds are this study's declared margins, and
+#: ``test_the_registered_design_matches_the_declared_plan`` reads them off the study module.
+#: Bound to the shared declaration rather than retyped, so one literal states each number.
+CONTROL_SE_RATIO_CEILING = CLUSTER_ROBUST_CONTROL_SE_CEILING
+COVERAGE_GAIN = CLUSTERED_COVERAGE_GAIN
 TARGET = "ate"
 FAMILY = "clustered_inference"
 POSITIVE = "cluster_robust"
@@ -94,51 +97,5 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
         rate_labels=(),
     )
-    margins = STUDY.margins
-    selected = rows.loc[rows["property"] == FAMILY]
-    positive = selected.loc[selected["cell"] == POSITIVE]
-    control = selected.loc[selected["cell"] == CONTROL]
-    positive_se = se_ratio_interval(
-        positive,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, FAMILY, POSITIVE),
-    )
-    control_se = se_ratio_interval(
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, FAMILY, CONTROL),
-    )
-    gain = coverage_gain_interval(
-        positive,
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(STUDY, FAMILY, "coverage_gain"),
-    )
-
-    positive_row = summary.loc[
-        (summary["property"] == FAMILY) & (summary["cell"] == POSITIVE)
-    ].iloc[0]
-    coverage = Interval(
-        float(positive_row["coverage_ci_lower"]),
-        float(positive_row["coverage_ci_upper"]),
-    )
-    verdicts = {
-        POSITIVE: bool(
-            positive_se.within(*margins.calibration_se_ratio)
-            and coverage.within(*margins.calibration_coverage)
-        ),
-        CONTROL: bool(control_se.high <= CONTROL_SE_RATIO_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= COVERAGE_GAIN)
-    for cell, interval in ((POSITIVE, positive_se), (CONTROL, control_se)):
-        mask = (summary["property"] == FAMILY) & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
+    clustered_inference_verdicts(summary, rows, STUDY, positive_cell=POSITIVE, control_cell=CONTROL)
     return finish(summary, rates)

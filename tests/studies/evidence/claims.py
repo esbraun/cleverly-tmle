@@ -201,11 +201,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
             }
         )
     if "clustered_inference" in record.property_cells:
-        properties = record.properties()
         declared.update(
             {
-                "margin:iid_control_se_ceiling": properties.CONTROL_SE_RATIO_CEILING,
-                "margin:clustered_coverage_gain": properties.COVERAGE_GAIN,
+                "margin:iid_control_se_ceiling": (
+                    property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+                ),
+                "margin:clustered_coverage_gain": property_verdicts.CLUSTERED_COVERAGE_GAIN,
             }
         )
     if "double_robustness" in record.property_cells:

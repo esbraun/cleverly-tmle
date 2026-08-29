@@ -1,8 +1,9 @@
 # Clustered point-treatment CV-TMLE
 
 This study validates cluster-robust inference for cross-fitted point-treatment TMLE. It uses the
-existing continuous-outcome law with ten observations per cluster. A shared hidden effect modifies
-the treatment effect without changing treatment assignment. The population ATE is therefore one.
+existing continuous-outcome law with ten observations per cluster. Each replication draws 200
+clusters of that size. A shared hidden effect modifies the treatment effect without changing
+treatment assignment. The population ATE is therefore one.
 
 ## What was compared
 
@@ -12,12 +13,19 @@ the treatment effect without changing treatment assignment. The population ATE i
 | folds | five treatment-stratified grouped folds | the identical rowwise assignment |
 | treatment mechanism | exact propensity from the law | the identical exact density ratio |
 | outcome regression | linear regression | `SL.glm` for a continuous outcome |
-| independent unit | cluster identifier | the same identifier passed to `LmtpTask` and `ife` |
+| independent unit | cluster identifier, aggregated as cluster sums | the same identifier, aggregated by `ife` as cluster means |
 | ATE inference | joint difference influence curve | subtraction of the two `ife` arm objects |
 | intervals | pointwise 95% Wald | pointwise 95% Wald |
 
 Both runners reject a fold assignment that splits a cluster. The Python runner writes its realized
 assignment beside each sampled row. The R adapter retains that assignment without rebuilding it.
+
+The two implementations aggregate the influence curve differently. `cleverly` sums the rowwise
+values inside each cluster. Pinned `ife` takes the variance of the cluster means. The two
+formulas agree only when every cluster holds the same number of rows. This design fixes that
+number at ten. The
+[clustered inference audit](../../references.md#longitudinal-survival-and-marginal-structural-models)
+records the pinned `ife` behavior and the archive it pins.
 
 ## Accuracy against known truth
 
@@ -113,6 +121,8 @@ the committed artifacts. The documentation gate checks every printed value.
 | limitation | what it means for use |
 | --- | --- |
 | One cluster size and one dependence law | The row validates clusters of ten under shared effect modification. It does not cover informative cluster size |
+| Equal cluster sizes | `cleverly` aggregates cluster sums and pinned `ife` aggregates cluster means, as the clustered inference audit records. The two formulas agree only at equal sizes, so the row does not establish parity for unbalanced clusters |
+| 200 clusters and a normal reference | The intervals use a normal reference with no small-sample cluster correction. The row does not establish coverage at a small cluster count |
 | Continuous outcome and binary treatment | The row does not establish binary outcomes, multi-valued treatments, missing outcomes, or longitudinal treatment |
 | One five-fold split | The row does not establish repeated, fold-evaluated, or fold-specific targeting |
 | Exact treatment mechanism | The comparison isolates targeting and inference. It does not compare learned propensity models |

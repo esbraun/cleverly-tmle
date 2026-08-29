@@ -77,6 +77,21 @@ OVERFIT_SE_FLOOR = 0.85
 OVERFIT_SE_CONTROL_CEILING = 0.75
 OVERFIT_COVERAGE_GAIN = 0.15
 
+#: The two margins the ``clustered_inference`` family answers to.  Beside the overfitting
+#: block for the reason that block gives: both families make the same three statements about
+#: a positive cell, a deliberately wrong control, and the coverage the pair buys, so
+#: :func:`_paired_cell_verdicts` states the rule once and the margins it reads live in one
+#: module rather than inside a single study.
+#:
+#: The positive arm answers to :attr:`~Margins.calibration_se_ratio` and
+#: :attr:`~Margins.calibration_coverage`, the band every calibrated cell answers to, so this
+#: family declares no floor of its own.  ``CLUSTER_ROBUST_CONTROL_SE_CEILING`` is what the
+#: IID control must fall below for the control to be the failure it claims to be, and
+#: ``CLUSTERED_COVERAGE_GAIN`` is the coverage the cluster-robust variance has to buy over
+#: that control on the same draws.
+CLUSTER_ROBUST_CONTROL_SE_CEILING = 0.80
+CLUSTERED_COVERAGE_GAIN = 0.03
+
 #: Columns every study family's property summary carries, whatever else it adds.
 SHARED_COLUMNS = (
     "rate_sizes",
@@ -532,6 +547,125 @@ def necessity_verdicts(
     )
 
 
+def _paired_cell_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    family: str,
+    positive_cell: str,
+    control_cell: str,
+    positive_rule: Callable[[Interval, Interval, Margins], bool],
+    control_ceiling: float,
+    gain_floor: float,
+) -> None:
+    """One positive cell, one deliberately wrong control, and the gain the pair buys.
+
+    Three statements, and they do not all belong to the same row.  The positive arm claims a
+    standard error its own family calls honest.  The control claims the opposite, that a
+    deliberately wrong variance understates it by a wide margin.  The third is about the
+    *pair*: the positive arm has to buy coverage the control does not have, on the same
+    draws, which is why the two arms share a seed.
+
+    Each row therefore publishes its own verdict in ``passed`` and the paired clause in
+    ``property_passed``.  One scalar broadcast across the property published the positive
+    arm's rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a
+    reader could not tell which statement the "Pass" belonged to.
+
+    Only ``positive_rule`` differs between the families that call this.  Everything else --
+    the two resampled SE ratios, the paired coverage interval, the control's ceiling and the
+    six published columns -- is one statement written once, for the reason
+    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is: a statistic
+    written twice is a statistic that can be changed once.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes the two intervals, ``passed`` and
+        ``property_passed`` on.
+    rows : pandas.DataFrame
+        The replication rows both arms were emitted from, paired on ``replicate``.
+    record : StudyRecord
+        Supplies the margins and the resampling streams.
+    family : str
+        The property the two cells are filed under.
+    positive_cell : str
+        The cell the positive arm publishes under.
+    control_cell : str
+        The cell the control arm publishes under.
+    positive_rule : Callable[[Interval, Interval, Margins], bool]
+        The positive arm's own rule, read off its resampled SE ratio, its exact coverage
+        interval and the study's margins.
+    control_ceiling : float
+        What the control's SE ratio must fall below.
+    gain_floor : float
+        The coverage the positive arm must buy over the control.
+    """
+    margins = record.margins
+    selected = rows.loc[rows["property"] == family]
+    positive = selected.loc[selected["cell"] == positive_cell]
+    control = selected.loc[selected["cell"] == control_cell]
+    positive_se = se_ratio_interval(
+        positive,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, positive_cell),
+    )
+    control_se = se_ratio_interval(
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, control_cell),
+    )
+    gain = coverage_gain_interval(
+        positive,
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, "coverage_gain"),
+    )
+    positive_mask = (summary["property"] == family) & (summary["cell"] == positive_cell)
+    coverage = summary_interval(summary, summary.index[positive_mask.to_numpy()][0], "coverage")
+    verdicts = {
+        positive_cell: bool(positive_rule(positive_se, coverage, margins)),
+        control_cell: bool(control_se.high <= control_ceiling),
+    }
+    joint = bool(all(verdicts.values()) and gain[0] >= gain_floor)
+    for cell, interval in ((positive_cell, positive_se), (control_cell, control_se)):
+        mask = (summary["property"] == family) & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
+        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
+        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
+        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
+        summary.loc[mask, "passed"] = verdicts[cell]
+        summary.loc[mask, "property_passed"] = joint
+
+
+def _overfit_positive_rule(se_ratio: Interval, coverage: Interval, margins: Margins) -> bool:
+    """Neither understated nor outside the study's own sanity screen.
+
+    The floor is this family's, and the ceiling is the sanity band's *upper* limit, so the
+    cross-fit arm is held to the screen any other estimator answers to.  Coverage is not read:
+    the arm's claim is about the standard error it reports, and the pair's coverage clause is
+    published separately by :func:`_paired_cell_verdicts`.
+    """
+    return bool(se_ratio.low >= OVERFIT_SE_FLOOR and se_ratio.high <= margins.se_ratio_sanity[1])
+
+
+def _clustered_positive_rule(se_ratio: Interval, coverage: Interval, margins: Margins) -> bool:
+    """Two-sided on the SE ratio, and calibrated coverage beside it.
+
+    The same pair of statements :func:`apply_shared_verdicts` puts on an
+    ``interval_calibration`` cell, and needed for the same reason: a cluster-robust variance
+    inflated by a constant keeps coverage inside its band while failing the ratio, and one
+    that is right on average but wrong replication by replication does the reverse.
+    """
+    return bool(
+        se_ratio.within(*margins.calibration_se_ratio)
+        and coverage.within(*margins.calibration_coverage)
+    )
+
+
 def crossfit_overfitting_verdicts(
     summary: pd.DataFrame,
     rows: pd.DataFrame,
@@ -542,60 +676,64 @@ def crossfit_overfitting_verdicts(
 ) -> None:
     """Require honest cross-fitted inference and a deliberately optimistic control.
 
-    Three statements, and they do not all belong to the same row.  The cross-fit arm claims a
-    standard error that is neither understated nor outside the study's own sanity screen.  The
-    control claims the opposite -- that fitting the same flexible learner in sample understates
-    it by a wide margin.  The third is about the *pair*: cross-fitting has to buy coverage the
-    in-sample fit does not have, on the same draws, which is why the two arms share a seed.
+    The cross-fit arm claims a standard error that is neither understated nor outside the
+    study's own sanity screen.  The control claims the opposite, that fitting the same
+    flexible learner in sample understates it by a wide margin.  Cross-fitting then has to
+    buy coverage the in-sample fit does not have, on the same draws.
 
-    Each row therefore publishes its own verdict in ``passed`` and the paired clause in
-    ``property_passed``.  One scalar broadcast across the property published the positive arm's
-    rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a reader
-    could not tell which statement the "Pass" belonged to.
+    The rule itself lives in :func:`_paired_cell_verdicts`, which the clustered family also
+    states, for the reason
+    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is written once: a
+    statistic written twice is a statistic that can be changed once.  The study supplies only
+    the name of its positive arm.
 
-    Written once here rather than per study for the reason
-    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is: four families now
-    make this claim, and a statistic written four times is a statistic that can be changed
-    once.  The study supplies only the name of its positive arm.
+    See Also
+    --------
+    _paired_cell_verdicts : The shared rule this states the cross-fit arm's half of.
     """
-    margins = record.margins
-    selected = rows.loc[rows["property"] == "crossfit_overfitting"]
-    positive = selected.loc[selected["cell"] == positive_cell]
-    control = selected.loc[selected["cell"] == control_cell]
-    positive_se = se_ratio_interval(
-        positive,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", positive_cell),
+    _paired_cell_verdicts(
+        summary,
+        rows,
+        record,
+        family="crossfit_overfitting",
+        positive_cell=positive_cell,
+        control_cell=control_cell,
+        positive_rule=_overfit_positive_rule,
+        control_ceiling=OVERFIT_SE_CONTROL_CEILING,
+        gain_floor=OVERFIT_COVERAGE_GAIN,
     )
-    control_se = se_ratio_interval(
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", control_cell),
+
+
+def clustered_inference_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    positive_cell: str = "cluster_robust",
+    control_cell: str = "iid_control",
+) -> None:
+    """Require calibrated cluster-robust inference and a deliberately IID control.
+
+    The cluster-robust arm claims a calibrated standard error and calibrated coverage.  The
+    control claims the opposite, that treating correlated rows as independent understates the
+    standard error by a wide margin.  The cluster-robust variance then has to buy coverage the
+    IID variance does not have, on the same draws and from the same point estimate.
+
+    See Also
+    --------
+    _paired_cell_verdicts : The shared rule this states the cluster-robust arm's half of.
+    """
+    _paired_cell_verdicts(
+        summary,
+        rows,
+        record,
+        family="clustered_inference",
+        positive_cell=positive_cell,
+        control_cell=control_cell,
+        positive_rule=_clustered_positive_rule,
+        control_ceiling=CLUSTER_ROBUST_CONTROL_SE_CEILING,
+        gain_floor=CLUSTERED_COVERAGE_GAIN,
     )
-    gain = coverage_gain_interval(
-        positive,
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", "coverage_gain"),
-    )
-    verdicts = {
-        positive_cell: bool(
-            positive_se.low >= OVERFIT_SE_FLOOR and positive_se.high <= margins.se_ratio_sanity[1]
-        ),
-        control_cell: bool(control_se.high <= OVERFIT_SE_CONTROL_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= OVERFIT_COVERAGE_GAIN)
-    for cell, interval in ((positive_cell, positive_se), (control_cell, control_se)):
-        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
