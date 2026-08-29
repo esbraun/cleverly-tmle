@@ -30,6 +30,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
+from cleverly.sensitivity.omitted_variable import benchmark
 from cleverly.validation.refute import refute
 from tests.conftest import fast_tmle
 
@@ -214,6 +215,47 @@ class TestOmittedVariableBias:
         benchmark = result.sensitivity.benchmark(["noise"], estimand="ate")
         assert benchmark.cf_y < 0.02
         assert benchmark.cf_d < 0.05
+
+    def test_a_benchmark_repeats_from_the_seed_it_reports(self) -> None:
+        """A benchmark refits, so it carries the reproducibility question a refutation does.
+
+        The result is cached on the fit and survives ``save``, so a benchmark that named no
+        seed would persist a number nobody could recompute.  These call the free function,
+        because ``sensitivity.benchmark`` memoises and two facade calls return one object.
+        """
+        frame, _ = make_linear_ate(n=500, seed=88)
+        unseeded = (
+            fast_tmle(estimands=("ate",), random_state=None)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert unseeded.estimator.random_state is None
+        first = benchmark(unseeded, ["W1"], estimand="ate")
+        assert isinstance(first.random_state, int)
+        replay = benchmark(unseeded, ["W1"], estimand="ate", random_state=first.random_state)
+        assert replay.psi_short == first.psi_short
+        assert replay.cf_y == first.cf_y
+        # The seed applies to a copy, exactly as it does for a refutation.
+        assert unseeded.estimator.random_state is None
+
+    def test_a_benchmark_of_a_seeded_fit_reports_that_fits_seed(self) -> None:
+        frame, _ = make_linear_ate(n=500, seed=88)
+        seeded = (
+            fast_tmle(estimands=("ate",), random_state=11)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert benchmark(seeded, ["W1"], estimand="ate").random_state == 11
+
+    def test_a_zero_seed_still_overrides_the_fit_for_a_benchmark(self) -> None:
+        """``random_state=0`` is falsy, so the resolution has to read ``is None``."""
+        frame, _ = make_linear_ate(n=500, seed=88)
+        seeded = (
+            fast_tmle(estimands=("ate",), random_state=11)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert benchmark(seeded, ["W1"], estimand="ate", random_state=0).random_state == 0
 
     def test_the_contour_grid_is_monotone(self, good_overlap) -> None:
         grid = nw.from_native(good_overlap.sensitivity.contour("ate", grid_size=5), eager_only=True)
