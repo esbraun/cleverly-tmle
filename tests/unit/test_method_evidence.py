@@ -595,6 +595,33 @@ class TestPublishedVerdicts:
             assert design["property_passed"].nunique() == 1
             assert bool(design["property_passed"].iloc[0]) is bool(design["passed"].all())
 
+        clustered = published.loc[published["property"] == "clustered_inference"]
+        if not clustered.empty:
+            margins = study.margins
+            properties = study.properties()
+            for row in clustered.itertuples():
+                if row.cell == "cluster_robust":
+                    expected = (
+                        margins.calibration_se_ratio[0]
+                        <= row.se_ratio_ci_lower
+                        <= row.se_ratio_ci_upper
+                        <= margins.calibration_se_ratio[1]
+                        and margins.calibration_coverage[0]
+                        <= row.coverage_ci_lower
+                        <= row.coverage_ci_upper
+                        <= margins.calibration_coverage[1]
+                    )
+                else:
+                    expected = row.se_ratio_ci_upper <= properties.CONTROL_SE_RATIO_CEILING
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its clustered-inference endpoints"
+                )
+            assert clustered["property_passed"].nunique() == 1
+            assert bool(clustered["property_passed"].iloc[0]) is bool(
+                clustered["passed"].all()
+                and clustered["coverage_gain_ci_lower"].iloc[0] >= properties.COVERAGE_GAIN
+            )
+
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
             pytest.skip("study declares no cross-fit overfitting cells")
@@ -645,6 +672,7 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
         "correction_necessity",
@@ -731,18 +759,21 @@ class TestNegativeControls:
         """
         rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
         published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
-        calibration = published.loc[published.index.get_level_values(0) == "interval_calibration"]
+        family = (
+            "interval_calibration"
+            if "interval_calibration" in study.property_cells
+            else "clustered_inference"
+        )
+        calibration = published.loc[published.index.get_level_values(0) == family]
         positive_cells = set(
             calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
         )
         mutated = rows.copy()
-        mask = (mutated["property"] == "interval_calibration") & mutated["cell"].isin(
-            positive_cells
-        )
+        mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)
         assert mask.any(), "the study declares no calibration cell to corrupt"
         mutated.loc[mask, "std_error"] *= 0.90
         summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
-        changed = [("interval_calibration", cell) for cell in positive_cells]
+        changed = [(family, cell) for cell in positive_cells]
         assert not summary.loc[changed, "passed"].any()
         untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (

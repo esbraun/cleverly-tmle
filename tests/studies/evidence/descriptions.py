@@ -93,6 +93,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
+    "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
@@ -138,6 +139,9 @@ SCENARIOS: dict[str, str] = {
         "two-time-point law with monotone censoring and four projected treatment plans"
     ),
     "continuous": "bounded continuous-outcome law with effect modification",
+    "clustered_continuous": (
+        "continuous-outcome law with ten rows per cluster and shared effect modification"
+    ),
     "bounded_continuous_projection": (
         "bounded continuous-outcome law with an unsaturated working model"
     ),
@@ -218,6 +222,9 @@ PARAMETERISED: dict[str, str] = {
 
 
 PROPERTIES: dict[str, str] = {
+    "clustered_inference": (
+        "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
+    ),
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
@@ -295,6 +302,14 @@ PROPERTIES: dict[str, str] = {
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("clustered_inference", "cluster_robust"): (
+        "five-fold point-treatment TMLE with cluster-robust ATE inference",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control"): (
+        "the identical rows, point estimates, and influence curves treated as independent",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",
         "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",

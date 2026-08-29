@@ -55,13 +55,14 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 77 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 76 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Four design families now have no active repeated-sampling
-evidence: clustering, weights, controlled direct effects, and weighted longitudinal fits.
+**Read the consequence plainly.** Three design families now have no active repeated-sampling
+evidence: weights, controlled direct effects, and weighted longitudinal fits. Clustered
+point-treatment inference has a registered paired study.
 Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
 longitudinal treatment has separate ordinary and cross-fitted rows. Each uncovered family still

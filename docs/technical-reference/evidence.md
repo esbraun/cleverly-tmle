@@ -264,6 +264,11 @@ clustering*, because a shared additive residual reaches the influence curve only
 1.00. So each generator carries a nonzero within-cluster witness beside its identification
 test; without one, a correct-looking fix leaves the study measuring nothing.
 
+The registered [clustered point-treatment study](method-evidence/clustered-point-treatment-cv-tmle.md)
+adds repeated-sampling evidence for that witness. It compares five-fold clustered TMLE against
+pinned R `lmtp` with identical grouped folds and the exact treatment mechanism. Its IID control
+reuses the same rows, estimates, and influence curves. Only cluster aggregation changes.
+
 ## What this table says is missing
 
 Read down the **not covered** column and one thing recurs: the **theorem** column is empty

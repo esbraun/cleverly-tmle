@@ -200,6 +200,14 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:overfit_coverage_gain": property_verdicts.OVERFIT_COVERAGE_GAIN,
             }
         )
+    if "clustered_inference" in record.property_cells:
+        properties = record.properties()
+        declared.update(
+            {
+                "margin:iid_control_se_ceiling": properties.CONTROL_SE_RATIO_CEILING,
+                "margin:clustered_coverage_gain": properties.COVERAGE_GAIN,
+            }
+        )
     if "double_robustness" in record.property_cells:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         declared["margin:union_model_se_lower"] = low
