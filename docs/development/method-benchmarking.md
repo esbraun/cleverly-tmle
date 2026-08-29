@@ -55,7 +55,7 @@ This survey covers the intervention family. Each verdict names the evidence behi
 
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
-| R `lmtp` 1.5.4 | deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply the analytic density ratio and the exact rowwise folds. |
+| R `lmtp` 1.5.4 with R `ife` 0.2.3 | clustered point-treatment effects, deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply analytic density ratios and exact rowwise folds. The clustered study also supplies identifiers and forms contrasts from joint influence curves. |
 | R `npcausal` at `56a5ac1` | point-treatment effects, counterfactual densities, continuous-treatment curves, and incremental propensity-score interventions | Used by the incremental study. Its public estimator list has no deterministic categorical longitudinal regimen. |
 | R `stremr` | static, dynamic, and stochastic longitudinal regimes with categorical exposures | Not used for categorical parity. Its required long-form data introduces a second representation, while pinned `lmtp` accepts the study's node columns directly. |
 | Poulos `multi-ltmle` companion | simulation code for longitudinal multi-valued treatment | Retained as supporting source provenance. It is a simulation repository, not a versioned package entry point for rowwise paired studies. |

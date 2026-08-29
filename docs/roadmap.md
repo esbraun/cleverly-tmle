@@ -11,8 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Clustered inference studies | source audit | none | [V1](#v1-clustered-inference-studies) |
-| Validation | V2 | Point-treatment weight studies | source audit | V1 ordering only | [V2](#v2-point-treatment-weight-studies) |
+| Validation | V2 | Point-treatment weight studies | source audit | none | [V2](#v2-point-treatment-weight-studies) |
 | Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
 | Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
@@ -84,15 +83,6 @@ The [implementation validation grid](technical-reference/method-evidence/validat
 records completed studies. This track records the sequence for implementation families that the
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
-
-### V1. Clustered inference studies
-
-Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
-negative control must analyze the same rows as independent observations.
-
-Three pinned implementations accept a cluster identifier. R `tmle` 2.1.1 and R `ltmle` 1.3-0 accept
-`id=`, and R `lmtp` 1.5.4 accepts a cluster identifier column. Choose the one whose data layout
-matches the study.
 
 ### V2. Point-treatment weight studies
 

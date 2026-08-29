@@ -199,14 +199,14 @@ def control_row(
     critical: float,
     role: str = "control",
 ) -> dict[str, Any]:
-    """The same row for an arm that has no interval of its own.
+    """Build a control row from an explicit point estimate and standard error.
 
     An unfluctuated plug-in and a survivor-only recursion are numbers, not fits: neither has
     an influence curve to report, and inventing one would make the control a claim about
-    inference where it is a claim about bias.  ``standard_error`` is therefore the *paired*
-    positive arm's, and the families that use this row are gated on their bias endpoints
-    alone.  The coverage and rejection columns exist so the row satisfies the shared schema
-    and so a reader can see how far off the point estimate sits in the table's own units.
+    inference where it is a claim about bias. Those callers supply the paired positive arm's
+    standard error, and their families gate on bias alone. An inference control can instead
+    supply a second variance calculation for the same point estimate and gate the resulting
+    coverage and standard-error ratio.
 
     ``role`` is here because a family may read one statistic at two points and gate on the
     pair, rather than pairing a fit against a control.  ``correction_necessity`` reads the
@@ -214,11 +214,10 @@ def control_row(
     one; without the argument its caller patched the returned dictionary, which put the
     schema's meaning in the caller rather than here.
 
-    Such a caller has no scale to supply either, and passes a unit placeholder.  The
+    A bias-only caller has no scale to supply either, and passes a unit placeholder.  The
     consequence is on the record rather than hidden: ``mean_std_error``, ``se_ratio``,
     ``coverage`` and ``rejection_rate`` are then arithmetic on that placeholder and mean
-    nothing.  Renderers select on the family, so no published table quotes them, and the
-    family's verdict reads the bias endpoints alone.
+    nothing. Renderers and verdicts select on the family, so they do not publish those values.
     """
     half = critical * standard_error
     return {

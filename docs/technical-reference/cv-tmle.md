@@ -124,13 +124,14 @@ exactly the direction the cluster role was declared to prevent.
 `tests/unit/test_parallel_invariance.py` pins that, because a fold-parallel implementation that
 reseeds per worker would give a different answer at a different `n_jobs`.
 
-**Four registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
-CV-TMLE, fold-evaluated CV-TMLE, and repeated stacked CV-TMLE may share a limit while differing in
-finite samples. Each has its own row.
+**Five registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
+CV-TMLE, clustered CV-TMLE, fold-evaluated CV-TMLE, and repeated stacked CV-TMLE may share a limit
+while differing in finite samples. Each has its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
 | [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
+| [clustered point-treatment CV-TMLE](method-evidence/clustered-point-treatment-cv-tmle.md) | paired against pinned R `lmtp` and `ife` on identical grouped folds, with cluster-calibration evidence and an IID variance control |
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
 | [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
 | [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |

@@ -28,9 +28,9 @@ registered repeated row validates the median report at three draws, and no cell 
 whether three draws shrink the spread of ``psi`` across fold seeds.  ``docs/roadmap.md``,
 *V7. Repeat stability property cell*, holds the replacement.
 
-**Designs with no registered study row.** Clustered and weighted inference, controlled direct
-effects, and the remaining uncovered compositions below. Each carries its own coverage and root-n
-checks because no registered property cell covers it.
+**Designs with no registered study row.** Weighted inference, controlled direct effects, and the
+remaining uncovered compositions below. Each carries its own coverage and root-n checks because
+no registered property cell covers it.
 
 These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
 are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather
@@ -694,23 +694,6 @@ class TestMultiArmSelectorRatioCoverage:
         assert 0.5 <= summary.se_ratio <= 2.0, summary
         assert summary.coverage > 0.60, summary
         assert summary.coverage >= plain.coverage - 3.0 * summary.coverage_se, (plain, summary)
-
-
-class TestClusteredInference:
-    def test_cluster_robust_intervals_cover_when_plain_ones_do_not(self) -> None:
-        from cleverly.datasets import clustered_dgp
-
-        dgp = clustered_dgp(cluster_size=10)
-        columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
-        ignoring = _study(dgp, n=1000, reps=200, fit_kwargs=columns)["ate"]
-        clustered = _study(dgp, n=1000, reps=200, fit_kwargs={**columns, "id": "cluster"})["ate"]
-        # The DGP shares an unobserved latent within clusters, as an effect modifier rather
-        # than a confounder, so the ATE stays identified from W1 and W2 while the influence
-        # curves stay correlated. Ignoring that correlation understates the variance and
-        # coverage collapses; accounting for it restores calibration.
-        assert ignoring.coverage < 0.90
-        assert clustered.coverage > ignoring.coverage + 0.03
-        assert clustered.se_ratio > ignoring.se_ratio
 
 
 class TestWeightedInference:

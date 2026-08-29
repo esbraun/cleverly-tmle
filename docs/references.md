@@ -139,6 +139,12 @@ previous reader had is not a citation; a page number is.
   `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
+- Clustered inference audit (2026-08-29): the same `lmtp` snapshot passes its task identifier to
+  `ife::ife`. Pinned [`ife` 0.2.3](https://cran.r-project.org/src/contrib/Archive/ife/ife_0.2.3.tar.gz)
+  requires equal identifiers before it subtracts arm objects. That subtraction uses the joint
+  rowwise influence curve. Its cluster standard error uses the variance of cluster means, so the
+  registered study fixes every cluster at ten rows. The fixture pins the source archive by
+  SHA-256.
 - Categorical longitudinal audit (2026-08-27): the same `lmtp` snapshot accepts categorical
   treatment at multiple nodes for static and dynamic plans. The ordinary study supplies one
   all-row fold. The cross-fitted study supplies the exact five-fold assignment.

@@ -266,6 +266,13 @@ def _measured(row: Any) -> str:
                 f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
             )
         return measured
+    if family == "clustered_inference":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            "paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+        )
     if family == "corrected_mar_inference":
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
