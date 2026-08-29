@@ -247,7 +247,16 @@ says what that buys and what it does not.
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
 
-A refuter is non-deterministic and expensive. `run_all(include_refits=True)` is what runs it.
+A refuter refits the nuisance models once for each replication. The default is five
+replications of each of three refuters, so `refute()` costs about 15 fits.
+`run_all(include_refits=True)` runs it. `refute()` draws its randomization from the seed of the
+fit, unless the caller passes `random_state`. A fit that carries a seed gives the same refutation
+on every call. A fit that carries no seed gives a different refutation on every call.
+
+The report records the seed under `random_state`. Pass that value back to `refute()` to obtain
+the report again. The seed governs the perturbations and the refits they feed, so it repeats
+the report of a fit that carries no seed of its own. The seed applies to a copy of the
+estimator, so a refutation never changes the fit it examines.
 
 A negative-control outcome must have no causal path from treatment. It must also share the relevant
 confounding structure with the primary outcome. A non-null result flags residual bias or a bad

@@ -6,16 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_cvtmle import G_BOUNDS, N_FOLDS, rows_from_result
-from tests.studies.canonical_tmle import draw_for
+from tests.studies.canonical_cvtmle import G_BOUNDS, N_FOLDS, cv_fit, fitted_rows, rows_from_result
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 1000
@@ -89,7 +85,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     The laws come from the ordinary-TMLE study; the samples do not.  This row is separate
     evidence, and it would not be if it re-used another study's draws.
     """
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -102,29 +98,13 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
-    binary = scenario == "binary"
-    outcome = (
-        LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs") if binary else LinearRegression()
-    )
-    treatment = LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
-    covariates = [column for column in frame.columns if column.startswith("W")]
-    return (
-        TMLE(
-            outcome_learner=outcome,
-            treatment_learner=treatment,
-            cross_fit=True,
-            n_folds=N_FOLDS,
-            targeting_scheme="pooled",
-            cv_evaluation=True,
-            estimands=SUPPORTED,
-            simultaneous=False,
-            g_bounds=G_BOUNDS,
-            max_iter=100,
-            tol=1e-10,
-            random_state=0,
-        )
-        .fit(frame, outcome="Y", treatment="A", covariates=covariates)
-        .single()
+    """The fold-evaluated construction: the shared build, with ``cv_evaluation=True``."""
+    return cv_fit(
+        frame,
+        binary=scenario == "binary",
+        estimands=SUPPORTED,
+        n_folds=N_FOLDS,
+        cv_evaluation=True,
     )
 
 
@@ -137,18 +117,8 @@ def cleverly_rows(
     return rows_from_result(STUDY, fit_cleverly(frame, scenario), truth, scenario, replicate)
 
 
-def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
-    return cleverly_rows(frame, truth, scenario, replicate)
-
-
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    payloads = [
-        ((scenario, replicate, n),)
-        for scenario in STUDY.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for records in outcomes for row in records])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    """Draw and fit every declared primary replication."""
+    return fitted_rows(
+        STUDY, draw_scenario, cleverly_rows, replicates=replicates, n=n, n_jobs=n_jobs
+    )

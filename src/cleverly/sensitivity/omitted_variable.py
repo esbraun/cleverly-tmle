@@ -637,6 +637,9 @@ class BenchmarkResult:
         Riesz second moment with them adjusted for.
     nu2_short : float
         Riesz second moment with them dropped.
+    random_state : int or None
+        Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
+        benchmark again.  ``None`` only on a result saved before this field existed.
     """
 
     estimand: str
@@ -651,6 +654,11 @@ class BenchmarkResult:
     sigma2_short: float
     nu2_long: float
     nu2_short: float
+    #: Seed the short refit ran under, resolved rather than requested: an explicit seed,
+    #: else the fit's own, else one drawn here.  A benchmark refits, so an estimator
+    #: carrying no seed would otherwise give a different answer to the same question and
+    #: cache the first one.
+    random_state: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
@@ -707,6 +715,7 @@ def benchmark(
     *,
     estimand: str = "ate",
     nu2_estimator: str = "auto",
+    random_state: int | None = None,
 ) -> BenchmarkResult:
     """Calibrate ``cf_y`` and ``cf_d`` against observed covariates.
 
@@ -727,6 +736,10 @@ def benchmark(
         Alias to benchmark.
     nu2_estimator : {"auto", "analytic", "riesz"}
         Which estimator of the Riesz second moment to use.
+    random_state : int or None
+        Seed for the short refit.  ``None`` uses the seed the fit was run with.  A fit
+        with no seed draws one.  Either way the result records it under ``random_state``,
+        and passing that value back repeats the benchmark.
 
     Returns
     -------
@@ -739,9 +752,22 @@ def benchmark(
         raise CapabilityError("benchmark needs the fitted estimator that produced the result")
     names = tuple([covariates] if isinstance(covariates, str) else covariates)
 
+    # The short model is a refit, so it carries the same reproducibility question a
+    # refutation does: an estimator with no ``random_state`` redraws its folds every time,
+    # and the result is cached on the fit and survives ``save``.  Resolve one seed, run the
+    # refit under it, and report it.  Same convention as ``cleverly.validation.refute``.
+    if random_state is not None:
+        seed = random_state
+    elif estimator.random_state is not None:
+        seed = estimator.random_state
+    else:
+        seed = int(np.random.SeedSequence().generate_state(1)[0])
+
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     short_data = result.data.without_covariates(names)
-    short_result = estimator.refit(short_data, intermediate_value=result.intermediate_value)
+    short_result = estimator.refit(
+        short_data, intermediate_value=result.intermediate_value, random_state=seed
+    )
     short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))
@@ -775,6 +801,7 @@ def benchmark(
         sigma2_short=short_elements.sigma2,
         nu2_long=long_elements.nu2,
         nu2_short=short_elements.nu2,
+        random_state=seed,
     )
 
 

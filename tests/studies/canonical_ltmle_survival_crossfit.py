@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal_survival, rule_arm_at_node_two
@@ -19,7 +18,11 @@ from cleverly.datasets.longitudinal import survival_truth
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, QuasiBinomialGLM
+from tests.studies.canonical_ltmle import (
+    KnownLongitudinalMechanism,
+    QuasiBinomialGLM,
+    regimen_rows,
+)
 from tests.studies.canonical_ltmle_crossfit import (
     G_BOUNDS,
     LMTP_SOURCE_COMMIT,
@@ -27,10 +30,10 @@ from tests.studies.canonical_ltmle_crossfit import (
     LMTP_VERSION,
     R_BASE_IMAGE,
 )
-from tests.studies.canonical_ltmle_survival import dynamic_survival_truth
+from tests.studies.canonical_ltmle_survival import dynamic_survival_truth, horizon_initials
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
@@ -195,7 +198,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -227,25 +230,6 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     )
 
 
-def _initials(result: Any) -> dict[str, float]:
-    means: dict[str, float] = {}
-    for name in MEAN_NAMES:
-        inner = name[len("risk_regimen[") : -1]
-        label, horizon_text = inner.rsplit(" @ t=", 1)
-        fit = result.fits[f"{label} @ t={int(horizon_text)}"]
-        means[name] = float(np.mean(fit.steps[0].initial))
-    for name in CONTRAST_NAMES:
-        inner = name[len("ate_regimen[") : -1]
-        comparison, horizon_text = inner.rsplit(" @ t=", 1)
-        left, right = comparison.split(" vs ")
-        horizon = int(horizon_text)
-        means[name] = (
-            means[f"risk_regimen[{left} @ t={horizon}]"]
-            - means[f"risk_regimen[{right} @ t={horizon}]"]
-        )
-    return means
-
-
 def cleverly_rows(
     frame: pd.DataFrame,
     truth: Mapping[str, float],
@@ -263,31 +247,17 @@ def _rows_from_result(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
-    initials = _initials(result)
-    rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
-        estimate = result[name]
-        low, high = estimate.ci
-        reference = float(truth[name])
-        rows.append(
-            {
-                "implementation": STUDY.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": result.n,
-                "estimand": name,
-                "truth": reference,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= reference <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
+    """This study publishes ``result.n``, not ``len(frame)``, which the ordinary one writes."""
+    return regimen_rows(
+        STUDY,
+        result,
+        truth,
+        horizon_initials(result, MEAN_NAMES, CONTRAST_NAMES),
+        ESTIMANDS,
+        scenario,
+        replicate,
+        n=result.n,
+    )
 
 
 def _replicate(

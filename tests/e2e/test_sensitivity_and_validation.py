@@ -30,6 +30,8 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
+from cleverly.sensitivity.omitted_variable import benchmark
+from cleverly.validation.refute import refute
 from tests.conftest import fast_tmle
 
 
@@ -213,6 +215,47 @@ class TestOmittedVariableBias:
         benchmark = result.sensitivity.benchmark(["noise"], estimand="ate")
         assert benchmark.cf_y < 0.02
         assert benchmark.cf_d < 0.05
+
+    def test_a_benchmark_repeats_from_the_seed_it_reports(self) -> None:
+        """A benchmark refits, so it carries the reproducibility question a refutation does.
+
+        The result is cached on the fit and survives ``save``, so a benchmark that named no
+        seed would persist a number nobody could recompute.  These call the free function,
+        because ``sensitivity.benchmark`` memoises and two facade calls return one object.
+        """
+        frame, _ = make_linear_ate(n=500, seed=88)
+        unseeded = (
+            fast_tmle(estimands=("ate",), random_state=None)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert unseeded.estimator.random_state is None
+        first = benchmark(unseeded, ["W1"], estimand="ate")
+        assert isinstance(first.random_state, int)
+        replay = benchmark(unseeded, ["W1"], estimand="ate", random_state=first.random_state)
+        assert replay.psi_short == first.psi_short
+        assert replay.cf_y == first.cf_y
+        # The seed applies to a copy, exactly as it does for a refutation.
+        assert unseeded.estimator.random_state is None
+
+    def test_a_benchmark_of_a_seeded_fit_reports_that_fits_seed(self) -> None:
+        frame, _ = make_linear_ate(n=500, seed=88)
+        seeded = (
+            fast_tmle(estimands=("ate",), random_state=11)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert benchmark(seeded, ["W1"], estimand="ate").random_state == 11
+
+    def test_a_zero_seed_still_overrides_the_fit_for_a_benchmark(self) -> None:
+        """``random_state=0`` is falsy, so the resolution has to read ``is None``."""
+        frame, _ = make_linear_ate(n=500, seed=88)
+        seeded = (
+            fast_tmle(estimands=("ate",), random_state=11)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert benchmark(seeded, ["W1"], estimand="ate", random_state=0).random_state == 0
 
     def test_the_contour_grid_is_monotone(self, good_overlap) -> None:
         grid = nw.from_native(good_overlap.sensitivity.contour("ate", grid_size=5), eager_only=True)
@@ -497,6 +540,123 @@ class TestRefutation:
     def test_an_unknown_test_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="unknown refutation test"):
             good_overlap.diagnostics.refute(tests=["magic"])
+
+
+class TestARefutationInheritsTheFitsSeed:
+    """``refute()`` used to draw from OS entropy whenever the caller named no seed.
+
+    It was the only public stochastic operation in the package that did.  Every one of
+    these tests calls the module function rather than ``result.diagnostics.refute``,
+    because the facade memoises through ``_cached``: two facade calls with the same
+    keywords return the *same object*, so an equality assertion written through the facade
+    compares one object with itself and holds whatever the function does.
+    """
+
+    @staticmethod
+    def _placebo(result: object, **kwargs: object) -> tuple[float, ...]:
+        report = refute(result, n_replicates=1, tests=["placebo"], **kwargs)  # type: ignore[arg-type]
+        return report["placebo"].values
+
+    @pytest.fixture(scope="class")
+    def seeded(self) -> object:
+        frame, _ = make_linear_ate(n=500, seed=86)
+        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+
+    def test_two_refutations_of_one_seeded_fit_agree(self, seeded) -> None:
+        assert self._placebo(seeded) == self._placebo(seeded)
+
+    def test_the_inherited_seed_is_the_fit_own(self, seeded) -> None:
+        """Not merely repeatable: repeatable *from the seed the fit records*."""
+        assert seeded.estimator.random_state == 0
+        assert self._placebo(seeded) == self._placebo(
+            seeded, random_state=seeded.estimator.random_state
+        )
+
+    def test_an_explicit_seed_overrides_the_fit(self, seeded) -> None:
+        assert self._placebo(seeded, random_state=3) != self._placebo(seeded)
+
+    def test_a_zero_seed_still_overrides_the_fit(self) -> None:
+        """``random_state=0`` is falsy, so the fallback has to read ``is None``.
+
+        The other tests in this class hold under a truthiness test as well, because the
+        fit they use carries seed 0 itself.  This one fails under it.
+        """
+        frame, _ = make_linear_ate(n=500, seed=86)
+        fit = (
+            fast_tmle(estimands=("ate",), random_state=21)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert self._placebo(fit, random_state=0) != self._placebo(fit)
+
+    def test_an_unseeded_fit_still_draws_from_entropy(self) -> None:
+        """The guarantee is conditional on the fit carrying a seed, and says so."""
+        unseeded = self._unseeded_fit()
+        assert unseeded.estimator.random_state is None
+        assert self._placebo(unseeded) != self._placebo(unseeded)
+
+    @staticmethod
+    def _unseeded_fit() -> object:
+        frame, _ = make_linear_ate(n=500, seed=87)
+        return (
+            fast_tmle(estimands=("ate",), random_state=None)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+    def test_the_report_records_the_seed_it_resolved(self, seeded) -> None:
+        """Every branch of the resolution, so the field cannot drift from the generator."""
+        assert refute(seeded, n_replicates=1, tests=["placebo"]).random_state == 0
+        assert refute(seeded, n_replicates=1, tests=["placebo"], random_state=3).random_state == 3
+
+    def test_replaying_a_recorded_seed_repeats_a_seeded_fits_report(self, seeded) -> None:
+        """What the recorded seed is for: the report says how to obtain itself again."""
+        report = refute(seeded, n_replicates=1, tests=["placebo"])
+        replay = refute(seeded, n_replicates=1, tests=["placebo"], random_state=report.random_state)
+        assert replay["placebo"].values == report["placebo"].values
+
+    def test_replaying_a_recorded_seed_repeats_an_unseeded_fits_report(self) -> None:
+        """The case the recorded seed exists for, and the one that needed the refit seeded.
+
+        A perturbation is half of a refutation.  ``refit`` re-learns the nuisances, and an
+        estimator carrying no ``random_state`` redraws its folds every time, so seeding the
+        draws alone left this report unrepeatable.  The report is cached on the result and
+        survives ``save``, so an unrepeatable one is a number nobody can check.
+        """
+        unseeded = self._unseeded_fit()
+        report = refute(unseeded, n_replicates=1, tests=["placebo"])
+        assert isinstance(report.random_state, int)
+        replay = refute(
+            unseeded, n_replicates=1, tests=["placebo"], random_state=report.random_state
+        )
+        assert replay["placebo"].values == report["placebo"].values
+
+    def test_a_seeded_refit_leaves_the_estimator_alone(self) -> None:
+        """The seed applies to a copy.  A refutation may not silently seed the fit itself."""
+        unseeded = self._unseeded_fit()
+        refute(unseeded, n_replicates=1, tests=["placebo"])
+        assert unseeded.estimator.random_state is None
+
+    def test_a_seeded_refit_matches_a_fit_that_carried_that_seed(self) -> None:
+        """``refit(random_state=s)`` is the fit the estimator would have run at ``s``."""
+        frame, _ = make_linear_ate(n=500, seed=87)
+        unseeded = self._unseeded_fit()
+        genuine = (
+            fast_tmle(estimands=("ate",), random_state=4242)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        borrowed = unseeded.estimator.refit(
+            unseeded.data,
+            intermediate_value=unseeded.intermediate_value,
+            random_state=4242,
+        )
+        assert (
+            borrowed["ate"].psi
+            == genuine.estimator.refit(genuine.data, intermediate_value=genuine.intermediate_value)[
+                "ate"
+            ].psi
+        )
 
 
 class TestTheDefaultEstimandOfTheOmittedVariableBound:

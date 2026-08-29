@@ -11,10 +11,16 @@ what lets a fast test refit committed replications and compare.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
+from typing import TypeVar
 
 import numpy as np
 
 from tests.studies.evidence.registry import StudyRecord
+
+#: What a runner's ``draw_from_seed`` returns.  A type variable rather than a concrete
+#: annotation, so this module needs no dataframe import and every runner keeps its own.
+Sample = TypeVar("Sample")
 
 
 def replicate_seed(record: StudyRecord, scenario: str, replicate: int) -> int:
@@ -28,6 +34,24 @@ def replicate_seed(record: StudyRecord, scenario: str, replicate: int) -> int:
         entropy=record.seed, spawn_key=(scenarios.index(scenario), replicate)
     )
     return int(sequence.generate_state(1)[0])
+
+
+def draw_replicate(
+    record: StudyRecord,
+    sampler: Callable[[str, int, int], Sample],
+    scenario: str,
+    n: int,
+    replicate: int,
+) -> Sample:
+    """Replication ``replicate`` of ``scenario``, from ``record``'s own seed stream.
+
+    Both ``record`` and ``sampler`` are required arguments, and neither has a default.  A
+    helper that closed over a module-level ``STUDY`` would hand every adopting study the
+    seed of whichever module defined the helper, while each published its own in
+    ``manifest.json``, which is the failure ``canonical_tmle.draw_for`` already describes
+    and ``test_each_study_draws_from_the_seed_it_publishes`` already catches.
+    """
+    return sampler(scenario, n, replicate_seed(record, scenario, replicate))
 
 
 def stream_seed(record: StudyRecord, *labels: str | int) -> int:

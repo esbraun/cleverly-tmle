@@ -855,11 +855,26 @@ class TestTheStudyStillMeasuresTheCode:
             ]
             merged = published.merge(refitted, on="estimand", suffixes=("_published", "_refitted"))
             assert len(merged) == len(published) == len(study.scenarios[scenario])
-            for column in ("estimate", "std_error", "ci_lower", "ci_upper"):
+            # ``n`` and ``initial_estimate`` are published columns like any other, and this
+            # gate used to compare neither.  A shared row builder that unified either one --
+            # ``len(frame)`` against ``result.n``, or a plug-in against ``math.nan`` -- would
+            # have moved a published number with nothing anywhere to notice.  ``nan_ok``
+            # because ``canonical_tmle``, ``canonical_cvtmle``, ``canonical_ctmle_oat`` and
+            # ``canonical_ctmle_selector`` write ``math.nan`` into ``initial_estimate``
+            # deliberately: they report no plug-in.  Six published rows carry it, because
+            # the two fold-evaluated and repeated rows read the cross-fitted builder.
+            for column in (
+                "n",
+                "estimate",
+                "std_error",
+                "ci_lower",
+                "ci_upper",
+                "initial_estimate",
+            ):
                 # Four orders of magnitude tighter than the narrowest margin any verdict
                 # uses, and loose enough for the last bits of a different BLAS.
                 assert merged[f"{column}_refitted"].to_numpy() == pytest.approx(
-                    merged[f"{column}_published"].to_numpy(), rel=1e-6, abs=1e-9
+                    merged[f"{column}_published"].to_numpy(), rel=1e-6, abs=1e-9, nan_ok=True
                 ), f"{scenario} replicate {replicate} no longer reproduces its {column}"
 
     def test_each_study_draws_from_the_seed_it_publishes(self, study: StudyRecord) -> None:

@@ -25,7 +25,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 #: The pinned reference.  Recorded in the manifest and reproduced by the fixture container.
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
@@ -203,7 +203,7 @@ def draw_for(
     ready-made ``draw_scenario`` would silently inherit the seed of whichever module defined
     it, publish its own in ``manifest.json``, and be reproducible from neither.
     """
-    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -224,7 +224,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``: a fixed sample, whatever the study's size."""
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:

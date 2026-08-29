@@ -76,6 +76,7 @@ Example
 
 from __future__ import annotations
 
+import copy
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -693,7 +694,13 @@ class TMLE:
             )
         return scaler, tuple(draws)
 
-    def refit(self, data: CausalData, *, intermediate_value: float | None = None) -> TMLEResult:
+    def refit(
+        self,
+        data: CausalData,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+    ) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
 
         This is the expensive counterpart to :meth:`retarget`, and the distinction
@@ -706,8 +713,20 @@ class TMLE:
 
         Pass ``intermediate_value`` when the data carries an intermediate variable, so
         the refit targets the same controlled direct effect as the original.
+
+        ``random_state`` runs the refit under a seed of the caller's choosing, on the
+        package convention that ``None`` means this estimator's own.  A refit re-learns
+        the nuisances, so an estimator carrying no seed redraws its folds every time and
+        gives a different answer to the same question.  A caller that has to repeat a
+        refit -- :mod:`cleverly.validation.refute` reports the seed it used, so that a
+        reader can -- supplies one here.  The estimator is not modified: the seed applies
+        to a copy, and this instance keeps the ``random_state`` it was built with.
         """
-        return self._fit_single(data, intermediate_value=intermediate_value)
+        if random_state is None or random_state == self.random_state:
+            return self._fit_single(data, intermediate_value=intermediate_value)
+        seeded = copy.copy(self)
+        seeded.random_state = random_state
+        return seeded._fit_single(data, intermediate_value=intermediate_value)
 
     def _prepare(
         self,
