@@ -225,7 +225,9 @@ class TestWeightsAndClusters:
         and 1.5.  With ``w = 1 / P(S = 1 | W1)`` the tilted law is the population law, so
         the weighted fit targets the first and the unweighted fit the second.  This is a
         bias-direction check on a single fit, not a coverage claim; the coverage claim is
-        in ``tests/e2e/test_coverage_slow.py``, where it can be averaged over replications.
+        the registered weighted point-treatment row, whose ``interval_calibration`` and
+        ``weight_necessity`` cells average over replications.  Its section is
+        ``docs/technical-reference/method-evidence/weighted-point-treatment-tmle.md``.
         """
         from cleverly.datasets import make_biased_sample
 

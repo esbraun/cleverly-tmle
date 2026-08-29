@@ -69,6 +69,12 @@ longitudinal treatment has separate ordinary and cross-fitted rows. Each uncover
 runs its exact-law, Gateaux, remainder and mutation tests in the fast tier. Those tests check the
 parameter and the influence curve.
 
+Weights are a partial case. The registered
+[weighted row](../technical-reference/method-evidence/weighted-point-treatment-tmle.md) supplies
+exact nuisance predictions at every fit. It therefore does not reach learned or cross-fitted
+weighted nuisances, which the deleted `TestWeightedInference` reached with a GLM on two continuous
+covariates. `docs/roadmap.md` *V2* holds the study that would restore that claim.
+
 Fold repeats are a partial case. The registered
 [repeated row](../technical-reference/method-evidence/repeated-cross-fitting.md) covers the median
 reporting rule at three draws. It does not cover the spread-reduction rationale, which the deleted
