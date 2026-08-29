@@ -573,14 +573,13 @@ class TestARefutationInheritsTheFitsSeed:
         replay = refute(seeded, n_replicates=1, tests=["placebo"], random_state=report.random_state)
         assert replay["placebo"].values == report["placebo"].values
 
-    def test_an_unseeded_fits_report_names_a_seed_that_does_not_repeat_it(self) -> None:
-        """The recorded seed pins the perturbations, and only the perturbations.
+    def test_replaying_a_recorded_seed_repeats_an_unseeded_fits_report(self) -> None:
+        """The case the recorded seed exists for, and the one that needed the refit seeded.
 
-        ``refit`` re-learns the nuisances, and an estimator carrying no ``random_state``
-        redraws its folds every time, so the seed is necessary and not sufficient.  This is
-        pinned rather than left to a reader, because the field would otherwise look like a
-        reproducibility guarantee it does not give.  Closing the gap means seeding the refit
-        or refusing to cache the report, and neither is decided here.
+        A perturbation is half of a refutation.  ``refit`` re-learns the nuisances, and an
+        estimator carrying no ``random_state`` redraws its folds every time, so seeding the
+        draws alone left this report unrepeatable.  The report is cached on the result and
+        survives ``save``, so an unrepeatable one is a number nobody can check.
         """
         unseeded = self._unseeded_fit()
         report = refute(unseeded, n_replicates=1, tests=["placebo"])
@@ -588,7 +587,34 @@ class TestARefutationInheritsTheFitsSeed:
         replay = refute(
             unseeded, n_replicates=1, tests=["placebo"], random_state=report.random_state
         )
-        assert replay["placebo"].values != report["placebo"].values
+        assert replay["placebo"].values == report["placebo"].values
+
+    def test_a_seeded_refit_leaves_the_estimator_alone(self) -> None:
+        """The seed applies to a copy.  A refutation may not silently seed the fit itself."""
+        unseeded = self._unseeded_fit()
+        refute(unseeded, n_replicates=1, tests=["placebo"])
+        assert unseeded.estimator.random_state is None
+
+    def test_a_seeded_refit_matches_a_fit_that_carried_that_seed(self) -> None:
+        """``refit(random_state=s)`` is the fit the estimator would have run at ``s``."""
+        frame, _ = make_linear_ate(n=500, seed=87)
+        unseeded = self._unseeded_fit()
+        genuine = (
+            fast_tmle(estimands=("ate",), random_state=4242)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        borrowed = unseeded.estimator.refit(
+            unseeded.data,
+            intermediate_value=unseeded.intermediate_value,
+            random_state=4242,
+        )
+        assert (
+            borrowed["ate"].psi
+            == genuine.estimator.refit(genuine.data, intermediate_value=genuine.intermediate_value)[
+                "ate"
+            ].psi
+        )
 
 
 class TestTheDefaultEstimandOfTheOmittedVariableBound:

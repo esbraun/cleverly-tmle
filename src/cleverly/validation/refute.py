@@ -127,10 +127,9 @@ class RefutationResult:
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     random_state : int or None
-        Seed the perturbations drew from.  Pass it back to :func:`refute` to repeat this
-        report, when the fit carries a seed of its own.  A fit with no seed redraws its
-        folds on every refit, so replaying this seed does not repeat that report.
-        ``None`` only on a report saved before this field existed.
+        Seed this report ran under.  Pass it back to :func:`refute` to obtain the report
+        again, whether or not the fit carries a seed of its own.  ``None`` only on a
+        report saved before this field existed.
     """
 
     tests: tuple[RefutationTest, ...]
@@ -139,10 +138,9 @@ class RefutationResult:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
-    #: Seed the perturbations drew from, resolved rather than requested: an explicit seed,
-    #: else the fit's own, else one drawn here.  It pins the permutation, the noise draw
-    #: and the subset draw.  It does not pin the refit those feed, which redraws its own
-    #: folds when the fit carries no seed.
+    #: Seed this report ran under, resolved rather than requested: an explicit seed, else
+    #: the fit's own, else one drawn here.  It pins the perturbations and the refits they
+    #: feed, so the report is enough to obtain the report again.
     random_state: int | None = None
 
     @property
@@ -253,8 +251,9 @@ def refute(
         An outcome the treatment cannot affect.  Required to run that test.
     random_state : int or None
         Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
-        seeded fit gives the same refutation every time.  An unseeded fit draws a seed.
-        Either way the report records it under ``random_state``.
+        seeded fit gives the same refutation every time.  An unseeded fit draws a seed, and
+        the refits run under it too.  Either way the report records it under
+        ``random_state``, and passing that value back repeats the report.
     tolerance : float
         How many standard errors a null test may deviate before failing.  The default of
         3 keeps the false-alarm rate low across several tests.
@@ -277,9 +276,10 @@ def refute(
     # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
     #
     # An unseeded fit draws one seed here rather than handing ``None`` to the generator, so
-    # the report can name it.  That pins the perturbations only.  ``refit`` re-learns the
-    # nuisances, and an estimator with no ``random_state`` redraws its folds each time, so
-    # a report from an unseeded fit still cannot be recomputed from this seed alone.
+    # the report can name it.  The seed then goes to the refits as well as to the draws
+    # below.  A perturbation is only half of a refutation: ``refit`` re-learns the
+    # nuisances, and an estimator with no ``random_state`` redraws its folds every time, so
+    # seeding the draws alone would leave the report unrepeatable.
     if random_state is not None:
         seed = random_state
     elif estimator.random_state is not None:
@@ -291,7 +291,11 @@ def refute(
     outcomes: list[RefutationTest] = []
 
     def refit(replacement: Any) -> float:
-        refitted = estimator.refit(replacement, intermediate_value=result.intermediate_value)
+        refitted = estimator.refit(
+            replacement,
+            intermediate_value=result.intermediate_value,
+            random_state=seed,
+        )
         return refitted[estimand].psi
 
     for name in tests:
@@ -389,7 +393,11 @@ def refute(
                 outcome=np.where(data.observed, control, 0.0),
                 family=infer_family(control, data.observed),
             )
-            refitted = estimator.refit(replacement, intermediate_value=result.intermediate_value)
+            refitted = estimator.refit(
+                replacement,
+                intermediate_value=result.intermediate_value,
+                random_state=seed,
+            )
             value = refitted[estimand].psi
             control_se = refitted[estimand].std_error
             passed = bool(abs(value) <= tolerance * control_se)

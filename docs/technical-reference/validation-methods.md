@@ -253,9 +253,10 @@ replications of each of three refuters, so `refute()` costs about 15 fits.
 fit, unless the caller passes `random_state`. A fit that carries a seed gives the same refutation
 on every call. A fit that carries no seed gives a different refutation on every call.
 
-The report records the seed under `random_state`. Pass that value back to `refute()` to repeat
-the report of a seeded fit. The seed pins the perturbations only. A fit with no seed also
-redraws its folds on each refit, so the seed does not repeat that report.
+The report records the seed under `random_state`. Pass that value back to `refute()` to obtain
+the report again. The seed governs the perturbations and the refits they feed, so it repeats
+the report of a fit that carries no seed of its own. The seed applies to a copy of the
+estimator, so a refutation never changes the fit it examines.
 
 A negative-control outcome must have no causal path from treatment. It must also share the relevant
 confounding structure with the primary outcome. A non-null result flags residual bias or a bad
