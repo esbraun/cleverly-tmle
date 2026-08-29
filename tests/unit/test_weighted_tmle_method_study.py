@@ -25,7 +25,7 @@ def test_the_registered_design_matches_the_declared_plan() -> None:
     assert properties.NULL_N == 1_000
     assert properties.NECESSITY_REPLICATES == 1_200
     assert properties.NECESSITY_N == 2_000
-    assert properties.NECESSITY_DISPLACEMENT == 0.50
+    assert properties.WEIGHT_DISPLACEMENT == 0.50
 
 
 def test_inverse_selection_weights_recover_the_population_law_exactly() -> None:
@@ -71,7 +71,7 @@ def test_primary_rows_preserve_native_ratio_inference_and_r_inputs() -> None:
 
 
 def test_the_omitted_weight_control_recovers_only_the_selected_target() -> None:
-    weighted, omitted = properties._fit_replication(
+    weighted, omitted = properties.fit_replication(
         ("weight_necessity", "weighted", 0, 4_000, 1, 641, "both_correct")
     )
     assert weighted["cell"] == "ate__weighted"
@@ -83,7 +83,7 @@ def test_the_omitted_weight_control_recovers_only_the_selected_target() -> None:
 
 
 def test_the_targeting_control_removes_only_the_fluctuation() -> None:
-    targeted, untargeted = properties._fit_replication(
+    targeted, untargeted = properties.fit_replication(
         ("targeting_necessity", "targeted", 0, 4_000, 1, 877, "treatment_correct")
     )
     assert targeted["cell"] == "ate__targeted"

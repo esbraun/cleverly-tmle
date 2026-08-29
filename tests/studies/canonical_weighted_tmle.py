@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -118,14 +118,50 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, *, use_weights: bool = True) -> Any:
-    """Fit the exact-nuisance estimator, optionally omitting only its weights."""
+def fit_cleverly(
+    frame: pd.DataFrame,
+    *,
+    estimands: Sequence[EstimandName] = ESTIMANDS,
+    outcome_learner: Any = None,
+    treatment_learner: Any = None,
+    use_weights: bool = True,
+) -> Any:
+    """Fit this study's estimator configuration on one sample.
+
+    The primary replications and every property cell fit the same estimator, so the
+    configuration is stated once here.  A property cell varies only what it declares: the
+    estimands it reports, the nuisance pair it deliberately misspecifies, and whether the
+    fixed weights reach the fit at all.  Everything a verdict depends on -- the targeting
+    controls, the propensity bounds, the seed, and the column roles -- is shared, so the
+    property cells and the published replications cannot come to describe two estimators.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        One drawn sample, carrying ``Y``, ``A``, ``W`` and ``obs_weight``.
+    estimands : Sequence[cleverly._typing.EstimandName], optional
+        The parameters to report.  Defaults to the five the study publishes.
+    outcome_learner : Any, optional
+        The outcome learner.  Defaults to the exact selected-law oracle.
+    treatment_learner : Any, optional
+        The treatment learner.  Defaults to the exact selected-law oracle.
+    use_weights : bool, optional
+        Whether to pass ``obs_weight`` to the fit.  ``False`` is the omitted-weight
+        control, which targets the selected population instead.
+
+    Returns
+    -------
+    Any
+        The single fitted result.
+    """
     law = FinitePointLaw()
     return (
         TMLE(
-            estimands=ESTIMANDS,
-            outcome_learner=OracleOutcome(law),
-            treatment_learner=OracleTreatment(law),
+            estimands=tuple(estimands),
+            outcome_learner=OracleOutcome(law) if outcome_learner is None else outcome_learner,
+            treatment_learner=(
+                OracleTreatment(law) if treatment_learner is None else treatment_learner
+            ),
             cross_fit=False,
             simultaneous=False,
             g_bounds=G_BOUNDS,

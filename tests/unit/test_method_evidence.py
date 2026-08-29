@@ -566,7 +566,7 @@ class TestPublishedVerdicts:
                 weighting["passed"].all()
                 and control["alternative_bias_equivalent"].all()
                 and weighting["necessity_displacement"].iloc[0]
-                >= study.properties().NECESSITY_DISPLACEMENT
+                >= study.properties().WEIGHT_DISPLACEMENT
             )
 
         recursion = published.loc[
@@ -1553,9 +1553,7 @@ class TestTheQuantityVocabulary:
                 == study.properties().TARGETING_DISPLACEMENT
             )
         if "weight_necessity" in study.property_cells:
-            assert (
-                declared["margin:weight_displacement"] == study.properties().NECESSITY_DISPLACEMENT
-            )
+            assert declared["margin:weight_displacement"] == study.properties().WEIGHT_DISPLACEMENT
         if "projection_necessity" in study.property_cells:
             assert (
                 declared["margin:projection_displacement"]

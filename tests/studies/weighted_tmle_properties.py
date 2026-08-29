@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -9,11 +10,10 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly._typing import EstimandName
-from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_weighted_tmle import G_BOUNDS, STUDY
+from tests.studies.canonical_weighted_tmle import STUDY, fit_cleverly
 from tests.studies.evidence.properties import control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
@@ -43,12 +43,17 @@ CALIBRATION_REPLICATES = 2_400
 CALIBRATION_N = 2_000
 NULL_REPLICATES = 800
 NULL_N = 1_000
+#: The power cell is a paired size for the type-I cell, so it is sized identically.  Bound
+#: to those constants rather than retyped, and named separately so the cell that reads a
+#: budget reads a constant that names it.
+POWER_REPLICATES = NULL_REPLICATES
+POWER_N = NULL_N
 NECESSITY_REPLICATES = 1_200
 NECESSITY_N = 2_000
 SHRUNKEN_SE_FACTOR = 0.70
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 TARGETING_DISPLACEMENT = 0.25
-NECESSITY_DISPLACEMENT = 0.50
+WEIGHT_DISPLACEMENT = 0.50
 ALTERNATIVE_EFFECT = 0.50
 TARGET: EstimandName = "ate"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -73,38 +78,6 @@ def _learners(configuration: str, q: np.ndarray) -> tuple[Any, Any]:
     )
 
 
-def _fit(
-    frame: pd.DataFrame,
-    configuration: str,
-    q: np.ndarray,
-    *,
-    use_weights: bool = True,
-) -> Any:
-    """Fit one ATE with the property cell's nuisance configuration."""
-    outcome, treatment = _learners(configuration, q)
-    return (
-        TMLE(
-            estimands=(TARGET,),
-            outcome_learner=outcome,
-            treatment_learner=treatment,
-            cross_fit=False,
-            simultaneous=False,
-            g_bounds=G_BOUNDS,
-            max_iter=100,
-            tol=1e-10,
-            random_state=0,
-        )
-        .fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
-            weights="obs_weight" if use_weights else None,
-        )
-        .single()
-    )
-
-
 def _law_for(property_name: str) -> np.ndarray:
     if property_name == "type_i_error":
         return NULL_Q
@@ -113,12 +86,36 @@ def _law_for(property_name: str) -> np.ndarray:
     return Q
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
+def fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
+    """Run one property replication and return the rows its cell publishes.
+
+    Public because two fast-tier controls call it directly.  Each fits one declared
+    payload and checks that the paired arms separate in the direction the study claims,
+    which is a statement about this function rather than about a private helper.
+
+    Parameters
+    ----------
+    payload : tuple
+        The property name, cell, replicate index, sample size, requested replication
+        count, seed, and nuisance configuration, in that order.
+
+    Returns
+    -------
+    list of dict
+        One row for the cell, plus the paired control row where the family declares one.
+    """
     property_name, cell, replicate, n, requested, seed, configuration = payload
     q = _law_for(property_name)
     frame = sample_selected(q, n, seed)
     truth = float(population_truth(q)[TARGET])
-    result = _fit(frame, configuration, q)
+    outcome, treatment = _learners(configuration, q)
+    fit = partial(
+        fit_cleverly,
+        estimands=(TARGET,),
+        outcome_learner=outcome,
+        treatment_learner=treatment,
+    )
+    result = fit(frame)
     role = "control" if cell == "both_wrong" else "positive"
     rows = [
         replicate_row(
@@ -150,7 +147,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
         )
     if property_name == "weight_necessity":
         rows[0]["cell"] = "ate__weighted"
-        omitted = _fit(frame, configuration, q, use_weights=False)
+        omitted = fit(frame, use_weights=False)
         rows.append(
             control_row(
                 property_name=property_name,
@@ -204,8 +201,8 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             (
                 "power",
                 "alternative",
-                NULL_N,
-                NULL_REPLICATES,
+                POWER_N,
+                POWER_REPLICATES,
                 "both_correct",
                 "alternative",
             ),
@@ -243,7 +240,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Run the declared cells and derive paired calibration controls from the same draws."""
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = map_parallel(fit_replication, _payloads(), n_jobs=n_jobs)
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     controls = calibration_controls(
         rows,
@@ -296,6 +293,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         arms=("weighted", "omitted_control"),
         alternative_truths={TARGET: SELECTED_TRUTH},
         column="necessity_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
+        threshold=WEIGHT_DISPLACEMENT,
     )
     return finish(summary, rates)
