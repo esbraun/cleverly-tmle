@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -67,13 +69,89 @@ def test_the_sampler_draws_the_requested_size_directly_from_the_selected_law() -
     assert set(frame.columns) == {"Y", "A", "W", "obs_weight"}
 
 
-def test_the_exact_weighted_eif_is_centered_under_the_sampling_law() -> None:
+#: The observation weight of each support point, which depends on ``W`` alone.
+CELL_WEIGHTS = law.OBSERVATION_WEIGHTS[:, None, None]
+
+
+def _parameters(probs: Any) -> dict[str, Any]:
+    """Every published parameter of a finite point law, written out from cell masses.
+
+    Kept analytic in ``probs`` -- ratios and logarithms of linear functions -- so
+    :func:`_weighted_eif` can differentiate through it by a complex step.  Nothing here
+    reads :mod:`tests.studies.weighted_point_common`: this is the identification formula
+    written a second time, which is what makes the comparison a check rather than an echo.
+    """
+    p_w = probs.sum(axis=(1, 2))
+    q = probs[:, :, 1] / probs.sum(axis=2)
+    ey0, ey1 = p_w @ q
+    return {
+        "ate": ey1 - ey0,
+        "logrr": np.log(ey1) - np.log(ey0),
+        "logor": np.log(ey1 / (1.0 - ey1)) - np.log(ey0 / (1.0 - ey0)),
+    }
+
+
+def _weighted_eif(name: str, *, step: float = 1e-30) -> np.ndarray:
+    r"""The influence curve of :math:`P \mapsto \Psi(P_w)` at every selected-law point.
+
+    The contamination is of the *selected* law, the one the rows are drawn from, and the
+    parameter is read off the tilted law :math:`dP_w = w\,dP / E_P[w]`.  That is the whole
+    content of the check.  The weights belong to the sampling experiment, so the outer
+    density ratio has to fall out of differentiating through the normalisation rather than
+    being written in by hand, and an outer ratio of the wrong scale cannot survive it.
+
+    Differentiation is by complex step.  The parameter is a rational function of the
+    contamination weight, hence analytic, so the imaginary part carries the derivative to
+    full double precision with no subtractive cancellation.
+    """
+    base = law.selected_probabilities().astype(complex)
+    curve = np.empty(len(law.SUPPORT))
+    for index, point in enumerate(law.SUPPORT):
+        mass = np.zeros_like(base)
+        mass[point] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        tilted = perturbed * CELL_WEIGHTS
+        curve[index] = float(np.imag(_parameters(tilted / tilted.sum())[name]) / step)
+    return curve
+
+
+def test_the_weighted_ate_curve_is_the_gateaux_derivative_of_the_tilted_parameter() -> None:
+    """The scale witness the two centring checks could not supply.
+
+    A mean-zero check is blind to the outer density ratio's scale: writing
+    ``1 / SELECTION[w]`` where the curve needs ``SELECTION_RATE / SELECTION[w]`` multiplies
+    every value by 2.469 and leaves the curve mean zero.  Comparing the module's own second
+    moment against ``sqrt(p @ curve**2)`` restates its body line for line and cannot fail
+    at all.  The derivative below is taken from the identification formula alone, so it
+    fixes the scale as well as the shape.
+    """
+    derived = _weighted_eif("ate")
+    np.testing.assert_allclose(derived, law.weighted_ate_eif(), rtol=0, atol=1e-12)
     probabilities = law.selected_probabilities().reshape(-1)
-    curve = law.weighted_ate_eif()
-    assert float(probabilities @ curve) == pytest.approx(0.0, abs=1e-14)
+    assert float(probabilities @ derived) == pytest.approx(0.0, abs=1e-14)
     assert law.weighted_ate_efficiency_sd() == pytest.approx(
-        float(np.sqrt(probabilities @ np.square(curve)))
+        float(np.sqrt(probabilities @ np.square(derived))), rel=1e-12
     )
+
+
+def test_dropping_the_selection_rate_leaves_the_bound_outside_the_declared_band() -> None:
+    """The deliberate mutation the derivative above rules out, priced in the study's band.
+
+    ``SELECTION_RATE`` is what makes the outer ratio a density ratio rather than a raw
+    inverse probability.  Omitting it is the "normalize by ``sum(w)`` here and ``n`` there"
+    defect, and the cell that would have to catch it is ``interval_calibration``, whose
+    empirical efficiency ratio compares the committed sampling spread against the bound.
+    """
+    published = pd.read_csv(study.STUDY.artifact("properties.csv")).set_index(["property", "cell"])
+    cell = published.loc[("interval_calibration", "ate__correctly_specified")]
+    empirical_se = float(cell["empirical_se"])
+    n = int(cell["n"])
+
+    honest = law.weighted_ate_efficiency_sd() / np.sqrt(n)
+    mutated = honest / law.SELECTION_RATE
+    low, high = properties.EFFICIENCY_RATIO_BAND
+    assert low <= empirical_se / honest <= high
+    assert not low <= empirical_se / mutated <= high
 
 
 def test_primary_rows_preserve_native_ratio_inference_and_r_inputs() -> None:
