@@ -18,11 +18,11 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.missing_outcome_study_helpers import (
-    primary_rows,
     probabilities,
     sample_discrete,
     truths,
 )
+from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
@@ -167,13 +167,15 @@ def cleverly_rows(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
+    result = fit_cleverly(frame)
     return primary_rows(
-        result=fit_cleverly(frame),
-        reference=reference,
+        result=result,
+        truth=reference,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,
         estimands=ESTIMANDS,
+        initials=initial_estimates(result, ESTIMANDS),
     )
 
 

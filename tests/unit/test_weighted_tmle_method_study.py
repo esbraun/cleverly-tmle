@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,55 @@ import pytest
 from tests.studies import canonical_weighted_tmle as study
 from tests.studies import weighted_point_common as law
 from tests.studies import weighted_tmle_properties as properties
+from tests.studies.point_study_helpers import initial_estimates
+
+
+def _stub_result(zero: Any, one: Any, weights: Any) -> Any:
+    """The three attributes :func:`initial_estimates` reads, and nothing else."""
+    arms = {0.0: np.asarray(zero, dtype=float), 1.0: np.asarray(one, dtype=float)}
+    return SimpleNamespace(
+        data=SimpleNamespace(weights=np.asarray(weights, dtype=float), arm_codes=(0.0, 1.0)),
+        nuisance=SimpleNamespace(
+            scaler=SimpleNamespace(unscale_levels=lambda values: values),
+            outcome=SimpleNamespace(arms=arms),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("zero", "one", "weights"),
+    [
+        ([0.2, 0.3], [0.4, 1.0], [1.0, 1.0]),
+        ([0.0, 0.3], [0.4, 0.5], [1.0, 1.0]),
+        ([0.2, np.nan], [0.4, 0.5], [1.0, 1.0]),
+        ([0.2, 0.3], [0.4, 0.5], [1.0, 0.0]),
+    ],
+)
+def test_the_ratio_transcription_refuses_what_the_r_adapter_refuses(
+    zero: Any, one: Any, weights: Any
+) -> None:
+    """``tmle_point_adapter.R`` refuses these rows before it forms the same two ratios.
+
+    It requires finite predictions strictly inside the unit interval and finite, strictly
+    positive weights.  The Python side divided by ``ey0`` and by ``1 - ey1`` with no guard,
+    so the same row that stops the R runner would have published an infinity.
+    """
+    with pytest.raises(AssertionError):
+        initial_estimates(_stub_result(zero, one, weights), ("ey0", "ey1", "ate", "rr", "or"))
+
+
+def test_the_ratio_guard_does_not_reach_a_study_that_reports_no_ratio() -> None:
+    """A continuous outcome has arm means outside the unit interval and reports no ratio.
+
+    The guard, and the two ratios themselves, belong to the estimand list rather than to
+    the helper.  The clustered study is exactly this case: it publishes ``ey0``, ``ey1`` and
+    ``ate`` on a continuous outcome, and the shared transcription used to divide by
+    ``1 - ey1`` for it anyway.
+    """
+    initials = initial_estimates(_stub_result([2.0, 3.0], [5.0, 7.0], [1.0, 1.0]), ("ate",))
+    assert set(initials) == {"ey0", "ey1", "ate"}
+    assert initials["ate"] == pytest.approx(3.5)
+
 
 #: Each property family, and the sample size and replication budget its cells were run at.
 #: ``root_n_rate`` is derived from the three ``root_n_and_efficiency`` cells rather than run,

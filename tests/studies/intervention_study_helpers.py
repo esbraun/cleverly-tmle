@@ -140,43 +140,6 @@ def incremental_estimates(
     return out
 
 
-def primary_rows(
-    *,
-    result: Any,
-    reference: Mapping[str, float],
-    implementation: str,
-    scenario: str,
-    replicate: int,
-    initials: Mapping[str, float],
-    estimands: Sequence[str],
-) -> list[dict[str, Any]]:
-    """Convert one fit to the registered primary-replication schema."""
-    rows: list[dict[str, Any]] = []
-    for name in estimands:
-        estimate = result[name]
-        low, high = estimate.ci
-        truth = float(reference[name])
-        rows.append(
-            {
-                "implementation": implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": result.data.n,
-                "estimand": name,
-                "truth": truth,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= truth <= high),
-                "initial_estimate": float(initials[name]),
-            }
-        )
-    return rows
-
-
 def efficiency_sd(probs: np.ndarray, estimand: str) -> float:
     """Standard deviation of the oracle influence curve on the finite law."""
     base = np.asarray(probs, dtype=complex)

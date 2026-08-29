@@ -18,7 +18,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
-from tests.studies.missing_outcome_study_helpers import primary_rows
+from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
 IFE_VERSION = "0.2.3"
@@ -150,11 +150,12 @@ def rows_from_result(
     """Convert one fit to the shared primary-replication schema."""
     return primary_rows(
         result=result,
-        reference=truth,
+        truth=truth,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,
         estimands=ESTIMANDS,
+        initials=initial_estimates(result, ESTIMANDS),
     )
 
 

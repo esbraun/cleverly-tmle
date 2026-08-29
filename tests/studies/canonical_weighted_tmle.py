@@ -16,7 +16,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
-from tests.studies.point_study_helpers import primary_rows
+from tests.studies.point_study_helpers import initial_estimates, primary_rows
 from tests.studies.weighted_point_common import (
     OBSERVATION_WEIGHTS,
     P_W,
@@ -196,13 +196,15 @@ def cleverly_rows(
     replicate: int,
 ) -> list[dict[str, Any]]:
     """Fit and convert one primary replication to the shared schema."""
+    result = fit_cleverly(frame)
     return primary_rows(
-        result=fit_cleverly(frame),
+        result=result,
         truth=truth,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,
         estimands=ESTIMANDS,
+        initials=initial_estimates(result, ESTIMANDS),
     )
 
 
