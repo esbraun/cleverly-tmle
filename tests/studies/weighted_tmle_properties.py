@@ -26,12 +26,13 @@ from tests.studies.evidence.property_verdicts import (
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import initial_estimates
 from tests.studies.weighted_point_common import (
+    P_W,
+    SELECTED_P_W,
     FinitePointLaw,
     G,
     Q,
-    population_truth,
     sample_selected,
-    selected_truth,
+    truth_for,
     weighted_ate_efficiency_sd,
 )
 
@@ -64,8 +65,8 @@ WRONG_Q = np.array([[0.55, 0.65], [0.45, 0.35], [0.55, 0.25]])
 WRONG_G = np.array([0.70, 0.30, 0.70])
 NULL_Q = np.column_stack([Q[:, 0], Q[:, 0]])
 ALTERNATIVE_Q = np.column_stack([Q[:, 0], Q[:, 0] + ALTERNATIVE_EFFECT])
-TRUTH = float(population_truth(Q)[TARGET])
-SELECTED_TRUTH = float(selected_truth(Q)[TARGET])
+TRUTH = float(truth_for(Q, P_W)[TARGET])
+SELECTED_TRUTH = float(truth_for(Q, SELECTED_P_W)[TARGET])
 EFFICIENCY_SD = weighted_ate_efficiency_sd(Q)
 
 
@@ -73,8 +74,9 @@ def _learners(configuration: str, q: np.ndarray) -> tuple[Any, Any]:
     """Return the declared exact or deliberately wrong nuisance pair."""
     outcome_q = q if configuration in {"both_correct", "outcome_correct"} else WRONG_Q
     treatment_g = G if configuration in {"both_correct", "treatment_correct"} else WRONG_G
-    return OracleOutcome(FinitePointLaw(q=outcome_q)), OracleTreatment(
-        FinitePointLaw(q=q, g=treatment_g)
+    return (
+        OracleOutcome(FinitePointLaw(q=outcome_q)),
+        OracleTreatment(FinitePointLaw(g=treatment_g)),
     )
 
 
@@ -107,7 +109,7 @@ def fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[d
     property_name, cell, replicate, n, requested, seed, configuration = payload
     q = _law_for(property_name)
     frame = sample_selected(q, n, seed)
-    truth = float(population_truth(q)[TARGET])
+    truth = float(truth_for(q, P_W)[TARGET])
     outcome, treatment = _learners(configuration, q)
     fit = partial(
         fit_cleverly,

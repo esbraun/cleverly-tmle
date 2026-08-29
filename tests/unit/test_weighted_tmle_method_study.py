@@ -3,38 +3,60 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tests.studies import canonical_weighted_tmle as study
 from tests.studies import weighted_point_common as law
 from tests.studies import weighted_tmle_properties as properties
 
+#: Each property family, and the sample size and replication budget its cells were run at.
+#: ``root_n_rate`` is derived from the three ``root_n_and_efficiency`` cells rather than run,
+#: so it declares no budget of its own and is absent here.
+DECLARED_BUDGETS: dict[str, tuple[int, int]] = {
+    "double_robustness": (properties.DOUBLE_ROBUST_N, properties.DOUBLE_ROBUST_REPLICATES),
+    "interval_calibration": (properties.CALIBRATION_N, properties.CALIBRATION_REPLICATES),
+    "type_i_error": (properties.NULL_N, properties.NULL_REPLICATES),
+    "power": (properties.POWER_N, properties.POWER_REPLICATES),
+    "targeting_necessity": (properties.NECESSITY_N, properties.NECESSITY_REPLICATES),
+    "weight_necessity": (properties.NECESSITY_N, properties.NECESSITY_REPLICATES),
+}
 
-def test_the_registered_design_matches_the_declared_plan() -> None:
-    assert study.STUDY.replicates == 800
-    assert study.STUDY.n == 2_000
-    assert study.STUDY.scenarios == {study.SCENARIO: ("ey0", "ey1", "ate", "rr", "or")}
-    assert study.STUDY.reference == "tmle-r-weighted"
-    assert properties.DOUBLE_ROBUST_REPLICATES == 1_200
-    assert properties.DOUBLE_ROBUST_N == 2_000
-    assert properties.RATE_REPLICATES == 800
-    assert properties.RATE_SIZES == (500, 2_000, 8_000)
-    assert properties.CALIBRATION_REPLICATES == 2_400
-    assert properties.CALIBRATION_N == 2_000
-    assert properties.NULL_REPLICATES == 800
-    assert properties.NULL_N == 1_000
-    assert properties.NECESSITY_REPLICATES == 1_200
-    assert properties.NECESSITY_N == 2_000
-    assert properties.WEIGHT_DISPLACEMENT == 0.50
+
+def test_the_declared_budgets_are_the_ones_the_committed_cells_were_run_at() -> None:
+    """Each budget constant against the artifact it sized, not against its own literal.
+
+    This test used to assert eleven ``CONSTANT == literal`` pairs, which can only fail on
+    a deliberate edit and cannot fail on a stale one.  Every margin here is already gated
+    against the document's measured-values table by
+    ``test_method_evidence.py::TestTheQuantityVocabulary``, and ``replicates`` and ``n``
+    are gated against the manifest.  What nothing gated is the replication budget: moving
+    ``CALIBRATION_REPLICATES`` without regenerating left the module declaring one run and
+    the artifacts recording another, and the eleven literals would have moved with it.
+    """
+    published = pd.read_csv(study.STUDY.artifact("properties.csv"))
+    for family, (n, replicates) in DECLARED_BUDGETS.items():
+        cells = published.loc[published["property"] == family]
+        assert not cells.empty, f"the committed properties carry no {family} cell"
+        assert set(cells["n"]) == {n}, f"{family} was run at {sorted(set(cells['n']))}, not {n}"
+        assert set(cells["replicates"]) == {replicates}, (
+            f"{family} was run at {sorted(set(cells['replicates']))}, not {replicates}"
+        )
+
+    rate = published.loc[published["property"] == "root_n_and_efficiency"]
+    assert set(rate["n"]) == set(properties.RATE_SIZES)
+    assert set(rate["replicates"]) == {properties.RATE_REPLICATES}
 
 
 def test_inverse_selection_weights_recover_the_population_law_exactly() -> None:
     tilted = law.SELECTED_P_W * law.OBSERVATION_WEIGHTS
     tilted /= tilted.sum()
     np.testing.assert_allclose(tilted, law.P_W, rtol=0, atol=1e-15)
-    assert law.population_truth()["ate"] == pytest.approx(0.33)
-    assert law.selected_truth()["ate"] == pytest.approx(0.5222222222222223)
-    assert abs(law.population_truth()["ate"] - law.selected_truth()["ate"]) > 0.15
+    population = law.truth_for(law.Q, law.P_W)["ate"]
+    selected = law.truth_for(law.Q, law.SELECTED_P_W)["ate"]
+    assert population == pytest.approx(0.33)
+    assert selected == pytest.approx(0.5222222222222223)
+    assert abs(population - selected) > 0.15
 
 
 def test_the_sampler_draws_the_requested_size_directly_from_the_selected_law() -> None:

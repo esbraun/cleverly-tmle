@@ -19,11 +19,12 @@ from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.point_study_helpers import primary_rows
 from tests.studies.weighted_point_common import (
     OBSERVATION_WEIGHTS,
+    P_W,
     FinitePointLaw,
     G,
     Q,
-    population_truth,
     sample_selected,
+    truth_for,
 )
 
 TMLE_VERSION = "2.1.1"
@@ -110,7 +111,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     """Draw one exact-size biased sample from an explicit seed."""
     if scenario != SCENARIO:
         raise KeyError(scenario)
-    return sample_selected(Q, n, seed), population_truth(Q)
+    return sample_selected(Q, n, seed), truth_for(Q, P_W)
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:

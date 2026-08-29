@@ -47,8 +47,26 @@ class FinitePointLaw:
         return self.q[self._levels(covariates), int(arm)]
 
 
-def truth_for(q: np.ndarray = Q, *, p_w: np.ndarray = P_W) -> dict[str, float]:
-    """Evaluate all registered parameters directly under a supplied marginal law."""
+def truth_for(q: np.ndarray, p_w: np.ndarray) -> dict[str, float]:
+    """Evaluate all registered parameters directly under a supplied marginal law.
+
+    The study distinguishes two targets on the same outcome regression, so the marginal
+    law is an argument rather than a default.  Pass :data:`P_W` for the population target
+    the weights recover, and :data:`SELECTED_P_W` for the target the omitted-weight
+    control recovers instead.
+
+    Parameters
+    ----------
+    q : numpy.ndarray
+        ``P(Y = 1 | A = a, W = w)``, indexed by level and then arm.
+    p_w : numpy.ndarray
+        The marginal law of ``W`` to average the arms over.
+
+    Returns
+    -------
+    dict of str to float
+        Each registered parameter under that marginal law.
+    """
     means = np.asarray(p_w, dtype=float) @ np.asarray(q, dtype=float)
     ey0, ey1 = (float(means[0]), float(means[1]))
     return {
@@ -58,16 +76,6 @@ def truth_for(q: np.ndarray = Q, *, p_w: np.ndarray = P_W) -> dict[str, float]:
         "rr": ey1 / ey0,
         "or": (ey1 / (1.0 - ey1)) / (ey0 / (1.0 - ey0)),
     }
-
-
-def population_truth(q: np.ndarray = Q) -> dict[str, float]:
-    """Return the target recovered after inverse-selection weighting."""
-    return truth_for(q, p_w=P_W)
-
-
-def selected_truth(q: np.ndarray = Q) -> dict[str, float]:
-    """Return the target recovered when the inverse-selection weights are omitted."""
-    return truth_for(q, p_w=SELECTED_P_W)
 
 
 def sample_selected(q: np.ndarray, n: int, seed: int, *, g: np.ndarray = G) -> pd.DataFrame:
@@ -104,7 +112,7 @@ def weighted_ate_eif(q: np.ndarray = Q, *, g: np.ndarray = G) -> np.ndarray:
     The rows follow the selected law. Tilting them by ``1 / selection(W)`` recovers the
     population law, so the outer density ratio is ``selection_rate / selection(W)``.
     """
-    truth = population_truth(q)["ate"]
+    truth = truth_for(q, P_W)["ate"]
     curve = np.empty(len(SUPPORT), dtype=float)
     for index, (w, a, y) in enumerate(SUPPORT):
         residual = y - q[w, a]
