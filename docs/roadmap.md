@@ -11,7 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Clustered inference studies | source audit | none | [V1](#v1-clustered-inference-studies) |
+| Validation | V1 | Clustered inference studies | implementation-ready | none | [V1](#v1-clustered-inference-studies) |
 | Validation | V2 | Point-treatment weight studies | source audit | V1 ordering only | [V2](#v2-point-treatment-weight-studies) |
 | Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
 | Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
@@ -87,12 +87,26 @@ artifacts.
 
 ### V1. Clustered inference studies
 
-Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
-negative control must analyze the same rows as independent observations.
+Register one cross-fitted point-treatment TMLE study on the existing clustered law. The law uses
+2,000 rows in clusters of 10 and keeps the shared effect independent of treatment. The study uses
+800 paired replications for the implementation comparison and 2,400 replications for the
+inference property.
 
-Three pinned implementations accept a cluster identifier. R `tmle` 2.1.1 and R `ltmle` 1.3-0 accept
-`id=`, and R `lmtp` 1.5.4 accepts a cluster identifier column. Choose the one whose data layout
-matches the study.
+Compare `ey0`, `ey1`, and `ate` against pinned R `lmtp` 1.5.4. Both implementations receive the
+same realized samples, the exact treatment mechanism, and the same five grouped outer folds. The
+Python and R runners must reject a fold assignment that splits a cluster. The R runner must form
+the ATE from the joint clustered influence curves, because subtracting arm standard errors drops
+their covariance.
+
+Extend the shared `lmtp` cross-fit adapter with an optional cluster identifier. Existing studies
+keep `id = NULL`, so record that result-neutral change in the provenance revision ledger. Do not
+copy the adapter or the study harness.
+
+Pair the cluster-robust property cell with an independent-observation control on the identical
+rows, point estimates, and influence curves. Only the variance calculation changes. The positive
+cell must satisfy the existing 0.92 to 0.98 coverage band and 0.93 to 1.07 standard-error ratio
+band. The control's 99% standard-error ratio upper endpoint must not exceed 0.80. The paired 99%
+coverage-gain lower endpoint must clear 0.03.
 
 ### V2. Point-treatment weight studies
 
