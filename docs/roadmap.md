@@ -11,9 +11,9 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V2 | Point-treatment weight studies | source audit | none | [V2](#v2-point-treatment-weight-studies) |
+| Validation | V2 | Point-treatment weight studies | implementation-ready | none | [V2](#v2-point-treatment-weight-studies) |
 | Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
-| Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
+| Validation | V4 | Weighted longitudinal studies | source audit | V2 supplies the fixed-weight design; V3 ordering only | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
@@ -86,11 +86,36 @@ artifacts.
 
 ### V2. Point-treatment weight studies
 
-Validate fixed probability weights against the tilted population law. The negative control must
-omit the weights and converge to a different parameter.
+Register one ordinary point-treatment TMLE study on an exact-size biased sample. Use a finite
+binary law with a known population distribution and bounded selection probabilities. Draw 2,000
+rows directly from the selected law. The inverse selection weights must tilt that law back to the
+population law exactly.
 
-R `tmle` 2.1.1 accepts `obsWeights=` for a biased sampling design. That package is pinned already,
-so this study needs no new container.
+Report both arm means, their difference, the risk ratio, and the odds ratio. The population and
+selected ATEs must differ by a declared nonzero amount. Give both implementations the exact
+selected-law outcome and treatment mechanisms.
+
+Compare 800 paired replications against pinned R `tmle` 2.1.1. Pass `obsWeights=` and the same
+nuisance predictions to R. Preserve the native log inference scale for both ratios. Reuse the
+existing `tmle` image and the shared R harness. Extract a shared point-study row helper instead of
+copying result transcription.
+
+The property study must cover double robustness, three sample sizes, root-n rates, interval
+calibration, null size, power, targeting, and weight necessity. Reuse each draw for derived
+controls. Pair each calibration claim with invalid standard-error controls.
+
+The weight-necessity control omits only the weights. It must miss the population target and recover
+the exact selected-law target. Its paired displacement must clear 0.50 weighted-estimator standard
+deviations. All other cells use the registered default margins and 99% Monte Carlo confidence
+bounds.
+
+Share the alternative-target verdict so weighted longitudinal studies can reuse it. Register every
+property key and generated table through the common evidence framework. Delete the two deprecated
+weighted point-treatment checks only after the registered row and artifacts exist.
+
+The implementation commit must remove this completed item from the roadmap. It must make V3 the
+next validation item. V4 must continue to name the registered point-weight row as its fixed-weight
+design dependency.
 
 ### V3. Controlled direct-effect studies
 
