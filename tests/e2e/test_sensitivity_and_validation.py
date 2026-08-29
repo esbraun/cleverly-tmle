@@ -549,14 +549,46 @@ class TestARefutationInheritsTheFitsSeed:
 
     def test_an_unseeded_fit_still_draws_from_entropy(self) -> None:
         """The guarantee is conditional on the fit carrying a seed, and says so."""
+        unseeded = self._unseeded_fit()
+        assert unseeded.estimator.random_state is None
+        assert self._placebo(unseeded) != self._placebo(unseeded)
+
+    @staticmethod
+    def _unseeded_fit() -> object:
         frame, _ = make_linear_ate(n=500, seed=87)
-        unseeded = (
+        return (
             fast_tmle(estimands=("ate",), random_state=None)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        assert unseeded.estimator.random_state is None
-        assert self._placebo(unseeded) != self._placebo(unseeded)
+
+    def test_the_report_records_the_seed_it_resolved(self, seeded) -> None:
+        """Every branch of the resolution, so the field cannot drift from the generator."""
+        assert refute(seeded, n_replicates=1, tests=["placebo"]).random_state == 0
+        assert refute(seeded, n_replicates=1, tests=["placebo"], random_state=3).random_state == 3
+
+    def test_replaying_a_recorded_seed_repeats_a_seeded_fits_report(self, seeded) -> None:
+        """What the recorded seed is for: the report says how to obtain itself again."""
+        report = refute(seeded, n_replicates=1, tests=["placebo"])
+        replay = refute(seeded, n_replicates=1, tests=["placebo"], random_state=report.random_state)
+        assert replay["placebo"].values == report["placebo"].values
+
+    def test_an_unseeded_fits_report_names_a_seed_that_does_not_repeat_it(self) -> None:
+        """The recorded seed pins the perturbations, and only the perturbations.
+
+        ``refit`` re-learns the nuisances, and an estimator carrying no ``random_state``
+        redraws its folds every time, so the seed is necessary and not sufficient.  This is
+        pinned rather than left to a reader, because the field would otherwise look like a
+        reproducibility guarantee it does not give.  Closing the gap means seeding the refit
+        or refusing to cache the report, and neither is decided here.
+        """
+        unseeded = self._unseeded_fit()
+        report = refute(unseeded, n_replicates=1, tests=["placebo"])
+        assert isinstance(report.random_state, int)
+        replay = refute(
+            unseeded, n_replicates=1, tests=["placebo"], random_state=report.random_state
+        )
+        assert replay["placebo"].values != report["placebo"].values
 
 
 class TestTheDefaultEstimandOfTheOmittedVariableBound:
