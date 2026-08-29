@@ -566,9 +566,16 @@ def alternative_target_necessity_verdicts(
     wrong number. A population-target bias check proves the omission matters. It does not
     prove the control converges to the alternative target that explains the failure.
 
-    This helper adds that second direction to :func:`necessity_verdicts`. The positive arm
-    must recover the study truth. The control must miss that truth and recover its declared
-    alternative truth. The paired displacement must also clear the study's threshold.
+    This helper adds that second direction to :func:`necessity_verdicts`, and it *calls* that
+    function rather than restating it.  The displacement rule, the arm-to-role mapping and
+    the joint clause are written once, in the place the module's own docstrings say they
+    belong: a rule written twice is a rule that can be changed in one of them.  What is added
+    here is the second direction alone, ANDed into the verdicts the shared rule wrote.
+
+    Three claims therefore hold together.  The positive arm must recover the study truth.
+    The control must miss that truth and recover its declared alternative truth.  The paired
+    displacement must clear the study's threshold.  A control that misses its claimed
+    alternative target fails both its own displayed row and the joint property.
 
     Parameters
     ----------
@@ -618,14 +625,18 @@ def alternative_target_necessity_verdicts(
     if column not in summary:
         summary[column] = np.nan
 
-    positive_arm, control_arm = arms
-    positive = mask & (summary["role"] == "positive")
-    control = mask & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    necessity_verdicts(
+        summary,
+        rows,
+        family=family,
+        labels=labels,
+        arms=arms,
+        column=column,
+        threshold=threshold,
+    )
 
+    control_arm = arms[1]
     alternative_passed: list[bool] = []
-    displacements: list[float] = []
     for label in labels:
         control_cell = f"{label}__{control_arm}"
         group = rows.loc[(rows["property"] == family) & (rows["cell"] == control_cell)]
@@ -649,19 +660,13 @@ def alternative_target_necessity_verdicts(
             summary.loc[cell_mask, "passed"].iloc[0] and verdict.equivalent
         )
         alternative_passed.append(bool(verdict.equivalent))
-        displacements.append(
-            paired_displacement(
-                rows,
-                family,
-                f"{label}__{positive_arm}",
-                control_cell,
-            )
-        )
 
-    displacement = min(displacements)
-    summary.loc[mask, column] = displacement
+    # ANDed into what the shared rule already decided, rather than recomputed beside it.
+    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
+    # verdict; the only claim it cannot make is that the control reaches the target this
+    # study declares for it.
     summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "passed"].all() and all(alternative_passed) and displacement >= threshold
+        summary.loc[mask, "property_passed"].all() and all(alternative_passed)
     )
 
 
