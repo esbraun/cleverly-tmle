@@ -267,11 +267,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
         CANONICAL_TMLE,
+        CANONICAL_WEIGHTED_TMLE,
         CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_CVTMLE,
         CANONICAL_CLUSTERED_TMLE,

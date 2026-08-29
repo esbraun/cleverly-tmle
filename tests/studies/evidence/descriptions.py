@@ -107,6 +107,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-drtmle": "`cleverly` multi-arm DR-TMLE",
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
+    "cleverly-weighted-tmle": "`cleverly` weighted point-treatment TMLE",
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
@@ -121,6 +122,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
+    "tmle-r-weighted": "R `tmle` with observation weights",
 }
 
 
@@ -153,6 +155,7 @@ SCENARIOS: dict[str, str] = {
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
+    "binary_biased_sample": "binary-outcome law sampled with unequal selection probabilities",
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
     "multi_arm_binary": "three-arm binary-outcome law",
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
@@ -297,6 +300,9 @@ PROPERTIES: dict[str, str] = {
         "incremental inference includes the influence-curve derivative through the treatment mechanism"
     ),
     "type_i_error": "under a confounded sharp null the test rejects no more often than its nominal size",
+    "weight_necessity": (
+        "fixed inverse-selection weights recover the population target from the selected law"
+    ),
 }
 
 
@@ -309,6 +315,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("clustered_inference", "iid_control"): (
         "the identical rows, point estimates, and influence curves treated as independent",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("weight_necessity", "weighted"): (
+        "the selected sample analyzed with its fixed inverse-selection weights",
+        "population-target bias interval inside the equivalence margin",
+    ),
+    ("weight_necessity", "omitted_control"): (
+        "the identical selected rows analyzed without their inverse-selection weights",
+        "population-target bias outside its margin and selected-target bias inside its margin",
     ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",

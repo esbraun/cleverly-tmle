@@ -556,6 +556,19 @@ class TestPublishedVerdicts:
                 >= study.properties().PROJECTION_DISPLACEMENT
             )
 
+        weighting = published.loc[published["property"] == "weight_necessity"]
+        if not weighting.empty:
+            control = weighting.loc[weighting["role"] == "control"]
+            assert len(control) == 1
+            assert bool(control["alternative_bias_equivalent"].iloc[0])
+            assert weighting["property_passed"].nunique() == 1
+            assert bool(weighting["property_passed"].iloc[0]) is bool(
+                weighting["passed"].all()
+                and control["alternative_bias_equivalent"].all()
+                and weighting["necessity_displacement"].iloc[0]
+                >= study.properties().NECESSITY_DISPLACEMENT
+            )
+
         recursion = published.loc[
             published["property"].isin(
                 {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
@@ -663,6 +676,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "weight_necessity",
         "projection_necessity",
         "ratio_necessity",
         "rule_necessity",
@@ -1537,6 +1551,10 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
+            )
+        if "weight_necessity" in study.property_cells:
+            assert (
+                declared["margin:weight_displacement"] == study.properties().NECESSITY_DISPLACEMENT
             )
         if "projection_necessity" in study.property_cells:
             assert (

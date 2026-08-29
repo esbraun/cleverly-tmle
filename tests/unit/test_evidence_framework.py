@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,9 +31,13 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
-from tests.studies.evidence.properties import Rate, rate, require_complete
-from tests.studies.evidence.property_verdicts import ROOT_N_SLOPE_MARGIN, calibration_verdicts
-from tests.studies.evidence.registry import Margins, registered
+from tests.studies.evidence.properties import Rate, rate, require_complete, summarize_cells
+from tests.studies.evidence.property_verdicts import (
+    ROOT_N_SLOPE_MARGIN,
+    alternative_target_necessity_verdicts,
+    calibration_verdicts,
+)
+from tests.studies.evidence.registry import Margins, StudyRecord, registered
 from tests.studies.evidence.seeds import stream_seed
 
 CONFIDENCE = 0.99
@@ -58,6 +63,81 @@ def test_calibration_verdicts_refuse_an_unknown_control_kind() -> None:
 
     with pytest.raises(ValueError, match="unknown calibration cell kind 'unknown_control'"):
         calibration_verdicts(summary, margins=Margins(), efficiency_band=(0.9, 1.1))
+
+
+def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:
+    rng = np.random.default_rng(4)
+    noise = rng.normal(scale=0.1, size=200)
+    rows = pd.DataFrame.from_records(
+        [
+            {
+                "property": "weight_necessity",
+                "cell": f"ate__{cell}",
+                "role": role,
+                "replicate": replicate,
+                "n": 1000,
+                "requested_replicates": len(noise),
+                "failed_replicates": 0,
+                "truth": 0.0,
+                "estimate": float(value + (0.0 if role == "positive" else 1.0)),
+                "std_error": 0.1,
+                "covered": 1,
+                "rejected": 0,
+            }
+            for replicate, value in enumerate(noise)
+            for cell, role in (("weighted", "positive"), ("omitted_control", "control"))
+        ]
+    )
+    margins = Margins()
+    summary = summarize_cells(
+        rows,
+        margin=margins.standardized_bias,
+        confidence_level=margins.confidence_level,
+        alpha=margins.alpha,
+    )
+    summary["passed"] = False
+    summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
+    record = StudyRecord(
+        name="test",
+        slug="test",
+        artifacts=Path("."),
+        document="test.md",
+        anchor="test",
+        scenarios={"test": ("ate",)},
+        replicates=len(noise),
+        n=1000,
+        seed=0,
+    )
+
+    alternative_target_necessity_verdicts(
+        summary,
+        rows,
+        record,
+        family="weight_necessity",
+        labels=("ate",),
+        arms=("weighted", "omitted_control"),
+        alternative_truths={"ate": 1.0},
+        column="necessity_displacement",
+        threshold=0.5,
+    )
+    assert summary["passed"].all()
+    assert summary["property_passed"].all()
+
+    changed = summary.copy()
+    alternative_target_necessity_verdicts(
+        changed,
+        rows,
+        record,
+        family="weight_necessity",
+        labels=("ate",),
+        arms=("weighted", "omitted_control"),
+        alternative_truths={"ate": 0.5},
+        column="necessity_displacement",
+        threshold=0.5,
+    )
+    control = changed.loc[changed["role"] == "control"]
+    assert not bool(control["alternative_bias_equivalent"].iloc[0])
+    assert not changed["property_passed"].any()
 
 
 class TestInterval:

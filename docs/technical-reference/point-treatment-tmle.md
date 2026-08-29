@@ -119,6 +119,9 @@ Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome const
 
 Fixed observation weights define the tilted target law $dP_w=w\,dP/E_P(w)$. They are used in the
 nuisance losses, in targeting, in the plug-in average, and in the influence-curve covariance.
+The registered [weighted point-treatment study](method-evidence/weighted-point-treatment-tmle.md)
+checks that construction against R `tmle` and includes an omitted-weight control that recovers the
+exact selected-population target.
 `strata=` produces stratum-specific parameters. `cluster=` changes the independent unit for
 covariance and fold construction, and it does not change the estimand. See
 [how every method reports uncertainty](inference.md#clusters).
