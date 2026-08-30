@@ -11,7 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V3 | Controlled direct-effect studies | source audit | none | [V3](#v3-controlled-direct-effect-studies) |
+| Validation | V3 | Controlled direct-effect studies | implementation-ready | none | [V3](#v3-controlled-direct-effect-studies) |
 | Validation | V4 | Weighted longitudinal studies | source audit | the registered point-weight row supplies the fixed-weight design; V3 ordering only | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
@@ -85,13 +85,67 @@ artifacts.
 
 ### V3. Controlled direct-effect studies
 
-Validate each declared intermediate level against its exact controlled parameter. The study must
-exercise the treatment and intermediate mechanism product with a nonzero control.
+Register one ordinary controlled direct-effect TMLE study for a binary intermediate and MAR
+outcome observation. Keep cross-fitting disabled, because the R comparator implements ordinary
+fitting. Use the existing exact finite CDE law, which makes the two level-specific effects differ
+in sign.
 
-R `tmle` 2.1.1 estimates a controlled direct effect when `Z` is a binary intermediate. It returns
-one fit for `Z = 0` and one fit for `Z = 1`, which are the two declared levels. This study can
-therefore carry a paired comparison rather than an empty equivalence artifact. The comparator is
-binary, so a further intermediate level stays outside the paired cells.
+Compare 3,200 paired replications at `n = 2,000` against pinned R `tmle` 2.1.1. Report `EY0`, `EY1`,
+`ATE`, `RR`, and `OR` at `Z = 0` and `Z = 1`. Keep `ATT` and `ATC` outside the paired cells,
+because the R controlled direct-effect path does not report them.
+
+Supply both implementations with the exact outcome, treatment, intermediate, and observation
+nuisance predictions. The pinned R source builds its observed outcome offset from `Q` at both
+levels, so its native second result cannot consume exact `Q.Z1` predictions. Do not publish that
+known defect as a comparison.
+
+Recode each requested intermediate level as R level zero. Pass that level's predictions through
+`Q`, pass the other level through `Q.Z1`, and select the first result. Transform `pZ1` and the
+four `pDelta1` columns with the same recoding. Add a frozen regression that shows the native
+second-result defect and the adapted parity.
+
+Reuse the pinned `tmle` image, the shared point-row adapter, the study harness, and the common
+Python row transcription. Fit both intermediate levels from one Python sample, and reuse each
+realized row set for the two level-specific R fits. Add shared CDE study helpers only for the
+probability law, sampling, truths, efficiency bounds, and two-level row construction.
+
+The property study must cover both levels. It must test CDE robustness, three sample sizes, root-n
+rates, interval calibration, null size, power, and targeting necessity. Use 1,200 replications at
+`n = 2,000` for robustness and targeting necessity. Use 2,400 replications at sizes 500, 2,000,
+and 8,000 for the rate study.
+
+Use 12,000 replications at `n = 2,000` for calibration. Pair each calibrated interval with a
+shrunken-standard-error control and an added-noise control. Use 800 replications at `n = 4,000`
+for the sharp null and its nonzero-effect power control.
+
+The robustness study must declare three positive configurations. They are all nuisances correct,
+the outcome regression correct, and all three mechanisms correct. In the outcome-correct arm,
+make the treatment, intermediate, and observation mechanisms wrong.
+
+Declare three controls with the outcome regression wrong. Make only the treatment mechanism wrong
+in the first control. Make only the intermediate mechanism wrong in the second control. Make only
+the observation mechanism wrong in the third control. Each control must miss the exact controlled
+parameter by a nonzero margin.
+
+Use the registered default margins and 99% Monte Carlo confidence bounds. Use a standard-error
+shrinkage factor of 0.70 and an efficiency-ratio band of 0.90 to 1.10. Require a targeting
+displacement of at least 0.25 empirical standard deviations.
+
+Use an arm-equal outcome law for the sharp null. Keep its outcome regression dependent on the
+covariate and the intermediate. Keep the treatment, intermediate, and observation mechanisms
+nonconstant, so a zero effect cannot make the study inert.
+
+Run a disposable smoke study before the declared run. Register every scenario, estimand, property
+family, cell, artifact, and generated table through the common evidence framework. Add focused
+tests for R matrix ordering, level selection, duplicated observation columns, inactive bounds,
+control discrimination, and frozen R/Python parity.
+
+Use an independent property seed for the declared run after any disposable design probe. The rate
+and calibration budgets must resolve their fixed lower bounds with 99% exact binomial intervals.
+
+Remove the skipped legacy CDE coverage class after the registered artifacts replace its claim.
+The implementation commit must remove this completed item from the roadmap. It must make V4 the
+next validation item and remove the completed V3 ordering dependency.
 
 ### V4. Weighted longitudinal studies
 
