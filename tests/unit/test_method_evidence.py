@@ -27,14 +27,7 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import (
-    describe,
-    load,
-    matches,
-    quantities,
-    thresholds,
-    value,
-)
+from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -1230,18 +1223,36 @@ class TestTheMethodEvidenceGrid:
 class TestTheQuotedMeasurements:
     """Every number the study document prints, against the artefacts it printed them from."""
 
-    def test_every_quoted_value_is_the_rounding_of_the_computed_one(
-        self, study: StudyRecord
-    ) -> None:
+    def test_every_quoted_value_is_the_one_the_generator_writes(self, study: StudyRecord) -> None:
+        """Not merely *a* rounding of the computed value, but the one ``fill`` would write.
+
+        ``claims.matches`` accepts any correct rounding at the precision printed.  That is the
+        right rule for reading a published table and the wrong one for gating a generated one,
+        and the difference is not academic.  Seven digits typed into this study's bound rows
+        satisfied it while ``python -m tests.studies.evidence.document`` rewrote the same rows
+        to four.  The gate was green, the committed document was not what the generator
+        produces, and the next person to run the generator got a diff nobody asked for.
+        Precision is the generator's decision alone now, and a study whose claim needs a
+        longer one declares it in ``quoted_decimals`` rather than typing it into the table.
+        """
         data = load(study)
         wrong = []
+        quoted = set()
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
-            computed = value(study, name, data)
-            if not matches(row["value"], computed):
-                wrong.append(f"{name}: {describe(computed, row['value'])}")
+            quoted.add(name)
+            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            if row["value"] != written:
+                wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
-            "the document quotes values its own results do not produce:\n  " + "\n  ".join(wrong)
+            "the measured table is not what `python -m tests.studies.evidence.document` "
+            "writes:\n  " + "\n  ".join(wrong)
+        )
+        stale = sorted(set(study.quoted_decimals) - quoted)
+        assert stale == [], (
+            f"{study.slug} declares a quoted precision for {stale}, which its measured table "
+            f"does not quote. A renamed quantity would silently drop the precision its claim "
+            f"needs and leave this document passing"
         )
 
     def test_the_table_reaches_every_family_of_result(self, study: StudyRecord) -> None:

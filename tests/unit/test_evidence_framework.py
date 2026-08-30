@@ -569,6 +569,26 @@ class TestPrintedValues:
         assert render(0.0) == "0"
         assert render(4.448596227441203e-08) != render(0.0)
 
+    def test_a_declared_precision_shows_an_agreement_four_decimals_hides(self) -> None:
+        """The rule the four-decimal rung breaks, one rung up from the zero it printed.
+
+        ``render`` reads one value, so it cannot see a claim of agreement *between* two rows.
+        An exact efficiency bound and the standard error measured against it agree to seven
+        digits and print as the same four, which reads as a coincidence rather than as an
+        implementation attaining its bound.  A study declares the precision that claim needs.
+        """
+        bound, subject = 0.13204392, 0.13204485
+        assert render(bound) == render(subject)
+        assert render(bound, 7) != render(subject, 7)
+        assert render(bound, 7) == "0.1320439"
+
+    def test_a_declared_precision_widens_and_never_narrows(self) -> None:
+        """A declaration adds digits a claim needs.  It cannot take away digits a value earned."""
+        assert render(0.000_204_392, 4) == render(0.000_204_392) == "0.000204"
+        assert render(4.448596227441203e-08, 7) == "4.449e-08"
+        assert render(2000.0, 7) == "2000.0000000"
+        assert render(2000.0) == "2000"
+
     def test_a_student_interval_needs_more_than_one_value(self) -> None:
         with pytest.raises(ValueError, match="at least two"):
             student_interval(np.array([1.0]), confidence_level=CONFIDENCE)

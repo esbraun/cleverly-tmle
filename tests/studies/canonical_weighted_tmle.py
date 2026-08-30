@@ -40,6 +40,8 @@ PRIMARY_N = 2_000
 SEED = 20261001
 RESAMPLING_SEED = 20261102
 SCENARIO = "binary_biased_sample"
+IMPLEMENTATION = "cleverly-weighted-tmle"
+REFERENCE = "tmle-r-weighted"
 ESTIMANDS: tuple[EstimandName, ...] = ("ey0", "ey1", "ate", "rr", "or")
 G_BOUNDS = (0.01, 0.99)
 
@@ -55,8 +57,8 @@ STUDY = StudyRecord(
     seed=SEED,
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
-    implementation="cleverly-weighted-tmle",
-    reference="tmle-r-weighted",
+    implementation=IMPLEMENTATION,
+    reference=REFERENCE,
     modules=(
         "tests/studies/canonical_weighted_tmle.py",
         "tests/studies/weighted_point_common.py",
@@ -95,6 +97,21 @@ STUDY = StudyRecord(
         "ate": weighted_ate_efficiency_sd(Q),
         "rr": weighted_logrr_efficiency_sd(Q),
         "or": weighted_logor_efficiency_sd(Q),
+    },
+    # This study's headline claim is that `cleverly` attains the exact log-odds-ratio bound
+    # while R `tmle` 2.1.1 reports 1.8% less than it.  The three numbers are 0.13204392,
+    # 0.13204485 and 0.12964474.  Four decimals separate R `tmle` from the other two and
+    # collapse the other two onto each other, so the table would show the disagreement and
+    # lose the agreement that makes the disagreement mean something.  Seven decimals is where
+    # the subject and the bound stop being distinguishable, so it is the precision the claim
+    # needs.  The ATE and risk-ratio bounds carry the same precision, because three bounds
+    # printed to three precisions read as three different kinds of number.
+    quoted_decimals={
+        "bound:ate_standard_error": 7,
+        "bound:rr_standard_error": 7,
+        "bound:or_standard_error": 7,
+        f"summary[{IMPLEMENTATION}/{SCENARIO}/or]:mean_std_error": 7,
+        f"summary[{REFERENCE}/{SCENARIO}/or]:mean_std_error": 7,
     },
 )
 

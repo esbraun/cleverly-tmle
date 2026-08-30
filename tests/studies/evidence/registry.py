@@ -185,6 +185,20 @@ class StudyRecord:
     #: for the same estimand, which is what decides a disagreement between two
     #: implementations rather than merely reporting one.
     efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: Measured-table quantity -> the decimal places that quantity's claim needs.
+    #:
+    #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
+    #: alone, which is all it can see.  That is enough for a claim about one number and not
+    #: enough for a claim of *agreement between two rows*.  This study's exact log-odds-ratio
+    #: bound is 0.13204392 and the standard error measured against it is 0.13204485; at four
+    #: decimals both print as ``0.1320``, and the table then shows two numbers that happen to
+    #: look equal rather than an implementation attaining its bound.
+    #:
+    #: A study names the quantities whose claim is agreement, and the decimals that claim
+    #: needs.  Declaring nothing keeps the value-only precision for every row, so this widens
+    #: no table but the one that asked.  ``document.fill`` is what applies it, which keeps the
+    #: generator the source of the precision rather than the person editing the document.
+    quoted_decimals: Mapping[str, int] = field(default_factory=dict)
     #: ``"gated"`` refuses publication when a scientific verdict fails. ``"reporting"``
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.

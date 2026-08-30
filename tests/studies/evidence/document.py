@@ -73,8 +73,8 @@ _ROW = re.compile(
 )
 
 
-def render(computed: float) -> str:
-    """How precisely to quote a value, given nothing but the value.
+def render(computed: float, decimals: int | None = None) -> str:
+    """How precisely to quote a value, given the value and any precision its claim declares.
 
     Counts are counts.  Everything else gets four decimals, or six where four would round a real
     quantity to nothing -- a bound of 0.0002 printed as ``0.0000`` is a worse claim than a long one.
@@ -85,14 +85,35 @@ def render(computed: float) -> str:
     scientific notation instead, so the cell carries the magnitude rather than the absence of
     one.  ``claims.matches`` reads those to *significant* digits, which is the precision they
     were actually printed to.
+
+    Every rung above reads one value alone, which is the one thing this function can see.  A
+    claim of *agreement between two rows* is invisible here: an exact efficiency bound of
+    ``0.13204392`` and the standard error ``0.13204485`` measured against it both print as
+    ``0.1320``, and a reader cannot tell agreement to seven digits from a coincidence at four.
+    ``decimals`` is where the study says how much precision that claim needs, through
+    :attr:`~tests.studies.evidence.registry.StudyRecord.quoted_decimals`.  It widens the
+    fixed-point rungs and never narrows them, so a declaration cannot quote a value to less
+    precision than the value alone already earned.  A figure below the scientific-notation
+    floor stays in scientific notation, because decimal places cannot carry it at all.
+
+    Parameters
+    ----------
+    computed : float
+        The value to quote, as its artefacts produce it.
+    decimals : int or None, optional
+        The decimal places the claim on this value needs, or ``None`` for the value alone.
+
+    Returns
+    -------
+    str
+        The value, as a published table cell prints it.
     """
-    if computed == int(computed):
+    if decimals is None and computed == int(computed):
         return str(int(computed))
     if abs(computed) < 1e-6:
         return f"{computed:.3e}"
-    if abs(computed) < 0.001:
-        return f"{computed:.6f}"
-    return f"{computed:.4f}"
+    places = 6 if abs(computed) < 0.001 else 4
+    return f"{computed:.{places if decimals is None else max(places, decimals)}f}"
 
 
 def _verdict(passed: object) -> str:
@@ -425,7 +446,7 @@ def fill(record: StudyRecord) -> list[str]:
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered_value = render(value(record, quantity, data))
+        rendered_value = render(value(record, quantity, data), record.quoted_decimals.get(quantity))
         if rendered_value != match.group("value"):
             changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
         lines[index] = (
