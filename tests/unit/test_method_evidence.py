@@ -1556,6 +1556,92 @@ class TestThePublishedTestTables:
         )
 
 
+#: Every ``margin:`` name :func:`~tests.studies.evidence.claims.thresholds` can publish, mapped
+#: to the declaration it must equal.
+#:
+#: ``thresholds`` publishes a threshold under a name, and the study applies a constant.  The
+#: assertions in
+#: :meth:`TestTheQuantityVocabulary.test_every_declared_threshold_is_the_constant_the_study_applies`
+#: join fourteen of the forty-five names.  The other thirty-one reached a study document with
+#: nothing checking that the name and the constant were the same decision.  The gap is not
+#: visible from either side: adding a family means editing ``claims.py`` and this module, and
+#: forgetting the second edit publishes a margin nobody verifies rather than failing.
+#:
+#: A map rather than more branches, because the coverage test below reads it *both* ways.  A
+#: name ``thresholds`` publishes and this map omits fails as an unchecked publication, and an
+#: entry here that no study reaches fails as a dead resolver.  A new family therefore cannot be
+#: added silently in either direction.
+MARGIN_SOURCES: dict[str, Any] = {
+    "margin:confidence_level": lambda s: s.margins.confidence_level,
+    "margin:alpha": lambda s: s.margins.alpha,
+    "margin:nominal_coverage": lambda s: 1.0 - s.margins.alpha,
+    "margin:bootstrap_replicates": lambda s: float(s.margins.bootstrap_replicates),
+    "margin:standardized_bias": lambda s: s.margins.standardized_bias,
+    "margin:coverage_floor": lambda s: s.margins.coverage_floor,
+    "margin:over_coverage_ceiling": lambda s: s.margins.over_coverage_ceiling,
+    "margin:se_ratio_sanity_lower": lambda s: s.margins.se_ratio_sanity[0],
+    "margin:se_ratio_sanity_upper": lambda s: s.margins.se_ratio_sanity[1],
+    "margin:calibration_se_ratio_lower": lambda s: s.margins.calibration_se_ratio[0],
+    "margin:calibration_se_ratio_upper": lambda s: s.margins.calibration_se_ratio[1],
+    "margin:calibration_coverage_lower": lambda s: s.margins.calibration_coverage[0],
+    "margin:calibration_coverage_upper": lambda s: s.margins.calibration_coverage[1],
+    "margin:type_i_ceiling": lambda s: s.margins.alpha + s.margins.type_i_margin,
+    "margin:paired_difference": lambda s: s.margins.paired_difference,
+    "margin:rmse_noninferiority": lambda s: s.margins.rmse_noninferiority,
+    "margin:coverage_noninferiority": lambda s: s.margins.coverage_noninferiority,
+    "margin:calibration_noninferiority": lambda s: s.margins.calibration_noninferiority,
+    "margin:minimum_power": lambda s: property_verdicts.MINIMUM_POWER,
+    "margin:root_n_slope": lambda s: property_verdicts.ROOT_N_SLOPE,
+    "margin:root_n_slope_lower": lambda s: (
+        property_verdicts.ROOT_N_SLOPE - property_verdicts.ROOT_N_SLOPE_MARGIN
+    ),
+    "margin:root_n_slope_upper": lambda s: (
+        property_verdicts.ROOT_N_SLOPE + property_verdicts.ROOT_N_SLOPE_MARGIN
+    ),
+    "margin:excluded_slope": lambda s: property_verdicts.EXCLUDED_SLOPE,
+    "margin:overfit_se_floor": lambda s: property_verdicts.OVERFIT_SE_FLOOR,
+    "margin:overfit_control_ceiling": lambda s: property_verdicts.OVERFIT_SE_CONTROL_CEILING,
+    "margin:overfit_coverage_gain": lambda s: property_verdicts.OVERFIT_COVERAGE_GAIN,
+    "margin:iid_control_se_ceiling": (
+        lambda s: property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+    ),
+    "margin:clustered_coverage_gain": lambda s: property_verdicts.CLUSTERED_COVERAGE_GAIN,
+    "margin:union_model_se_lower": lambda s: property_verdicts.UNION_MODEL_SE_BAND[0],
+    "margin:union_model_se_upper": lambda s: property_verdicts.UNION_MODEL_SE_BAND[1],
+    "margin:generated_design_deficit": lambda s: s.properties().GENERATED_DESIGN_DEFICIT,
+    "margin:selector_rmse_ratio": lambda s: s.properties().SELECTOR_RMSE_RATIO,
+    "margin:shrunken_se_factor": lambda s: s.properties().SHRUNKEN_SE_FACTOR,
+    "margin:efficiency_ratio_lower": lambda s: s.properties().EFFICIENCY_RATIO_BAND[0],
+    "margin:efficiency_ratio_upper": lambda s: s.properties().EFFICIENCY_RATIO_BAND[1],
+    "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
+    "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
+    "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
+    "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
+    "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
+    "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
+    "margin:categorical_probability_displacement": (
+        lambda s: s.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
+    ),
+    "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
+    "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
+}
+
+
+def test_no_margin_resolver_outlives_the_studies_that_reach_it() -> None:
+    """Every entry in :data:`MARGIN_SOURCES` is exercised by a registered study.
+
+    The other direction of the coverage claim.  A resolver nobody reaches is a rule that has
+    left the register, and it would keep the map looking complete while checking nothing.
+    """
+    reached = {name for study in registered() for name in thresholds(study)}
+    orphans = sorted(set(MARGIN_SOURCES) - reached)
+    assert orphans == [], (
+        f"MARGIN_SOURCES resolves {orphans}, which no registered study publishes. "
+        f"Remove the entry, or restore the study that declared it"
+    )
+
+
 class TestTheQuantityVocabulary:
     """The name-to-artefact map, which one gate reads and nothing else checks."""
 
@@ -1570,6 +1656,42 @@ class TestTheQuantityVocabulary:
     )
     def test_a_longer_prefix_wins_over_a_shorter_one(self, name: str, expected: str) -> None:
         assert _family(name) == expected
+
+    def test_every_published_margin_resolves_to_the_declaration_it_names(
+        self, study: StudyRecord
+    ) -> None:
+        """No study publishes a threshold that nothing joins to the constant it names.
+
+        The named assertions below reach fourteen of the forty-five margins, chosen as each
+        family arrived.  This reaches all forty-five, by exhaustion rather than by another
+        branch per family.
+
+        What it catches is the wiring, in both directions.  ``margin:weight_displacement``
+        pointed at ``TARGETING_DISPLACEMENT`` fails, because the resolver names the constant
+        the key claims to publish.  A family added to ``claims.py`` with no entry in
+        :data:`MARGIN_SOURCES` fails as an unchecked publication, which is the half that used
+        to ship silently: adding one means editing two modules, and forgetting the second
+        published a margin to a reader with nothing verifying it.
+
+        What it does not catch is a constant *moving*, because both sides resolve it through
+        the same name rather than against a literal.  That is deliberate and is the rule the
+        ``selector_necessity`` comment in ``claims.py`` states: a literal on both sides is the
+        same literal twice, and it decides nothing.
+        """
+        declared = thresholds(study)
+        for name, published in sorted(declared.items()):
+            if not name.startswith("margin:"):
+                continue
+            resolve = MARGIN_SOURCES.get(name)
+            assert resolve is not None, (
+                f"{study.slug} publishes {name}, which no entry in MARGIN_SOURCES resolves. "
+                f"A margin a study document quotes with nothing joining it to the constant "
+                f"the study applied is a rule the reader cannot check. Add the resolver"
+            )
+            assert published == resolve(study), (
+                f"{study.slug} publishes {name} as {published}, but the declaration it names "
+                f"is {resolve(study)}. One of the two moved without the other"
+            )
 
     def test_every_declared_threshold_is_the_constant_the_study_applies(
         self, study: StudyRecord

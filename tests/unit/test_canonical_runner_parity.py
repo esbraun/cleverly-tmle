@@ -34,6 +34,7 @@ complete one.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -112,3 +113,154 @@ class TestTheSharedPublishedContract:
             f"mclapply returns a value rather than raising for a child that errored or was "
             f"killed, and rbind drops a non-frame silently"
         )
+
+
+#: A ``source()``d file's path, as the runner writes it, relative to ``tests/canonical``.
+_SOURCED_PATH = re.compile(r"""source\(["']/fixture/(?P<path>[^"']+)["']\)""")
+
+
+def sourced_files(runner: Path) -> tuple[Path, ...]:
+    """Every file one runner reads into its environment, in written order."""
+    root = ROOT / "tests" / "canonical"
+    return tuple(root / match.group("path") for match in _SOURCED_PATH.finditer(runner.read_text()))
+
+
+@pytest.mark.parametrize("runner", RUNNERS, ids=lambda path: path.parent.name)
+def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path) -> None:
+    """A shared adapter is half of a comparator, so the manifest has to record it.
+
+    ``test_method_evidence.py::test_the_manifest_hashes_every_published_result`` reads the
+    ledger and asserts every name in it still exists with the recorded bytes.  It cannot see
+    a file the ledger omits.  Sharing R between two studies is therefore a way to lose
+    provenance rather than to gain it: move a guard into a new common file, list it in
+    ``regenerate.py`` so the container mounts it, and the comparator now runs code no manifest
+    records.  ``regenerate.py`` is not hashed, so nothing else notices.
+
+    This closes that direction.  A file the runner sources must be named in
+    ``reference_sha256``, which makes adding one a deliberate act with a regeneration attached
+    rather than an edit that quietly drops a source out of the record.
+    """
+    manifest = json.loads((runner.parent / "manifest.json").read_text())
+    hashed = set(manifest["reference_sha256"])
+    for source in sourced_files(runner):
+        name = source.relative_to(ROOT).as_posix()
+        assert name in hashed, (
+            f"{runner.parent.name} sources {name}, which its manifest does not hash. The "
+            f"container runs that file, so the study's recorded provenance does not cover the "
+            f"code that produced its rows. Add it to Reference.extra_files and regenerate"
+        )
+
+
+#: The two point-treatment adapters, which restate one transcription.
+POINT_ADAPTERS = (
+    ROOT / "tests" / "canonical" / "tmle_point_adapter.R",
+    ROOT / "tests" / "canonical" / "tmle_continuous_point_adapter.R",
+)
+
+#: A refusal message, taken from the first string literal of each ``stop()``.
+_REFUSAL = re.compile(r"""stop\(\s*(?:sprintf\(\s*)?"(?P<message>[^"]*)\"""", re.S)
+
+#: What each point adapter refuses that the other must not be expected to, and why.
+#:
+#: Declared rather than derived, so the pair's *differences* are a stated fact and everything
+#: else is required to match.  Both entries are about the outcome type the adapter transcribes:
+#: only the binary one has probabilities to bound and ratio estimands to check a log scale on.
+DECLARED_ADAPTER_DIVERGENCES = {
+    "tmle_point_adapter.R": frozenset(
+        {
+            "binary-outcome nuisance predictions must be finite and strictly between zero and one",
+            "tmle returned inconsistent native log inference for %s",
+        }
+    ),
+    "tmle_continuous_point_adapter.R": frozenset(
+        {"continuous-outcome nuisance predictions must be finite"}
+    ),
+}
+
+#: What both adapters must refuse, whatever the outcome type.
+#:
+#: Named rather than counted.  Losing one of these leaves the pair still *agreeing*, so the
+#: symmetric-difference check below stays silent while both files drop a guard together.  That
+#: is the one drift the difference cannot see, and it is the one a shared refactor causes.
+SHARED_POINT_REFUSALS = (
+    "tmle fit omitted estimates: %s",
+    "qn must be an n by 2 matrix aligned with weights",
+    "observation weights must be finite and strictly positive",
+    "truth join found %d rows for %s/%s/%s",
+    "tmle returned an invalid %s result for %s/%s",
+    "tmle returned a reversed %s interval for %s/%s",
+)
+
+#: What both adapters must transcribe the same way, whatever the outcome type.
+#:
+#: Each is a quantity a published row carries, and each has a plausible wrong answer that no
+#: other check would see.  ``covered`` read off anything but the reported interval would
+#: publish a coverage the implementation did not report; ``initial_estimate`` taken as an
+#: unweighted mean would publish an untargeted plug-in against a different population than the
+#: estimand it sits beside; ``n`` taken from the frame rather than the aligned nuisance matrix
+#: would survive a misaligned join that the row count alone cannot show.
+SHARED_TRANSCRIPTION = (
+    "ey0 = stats::weighted.mean(qn[, 1], weights)",
+    "ey1 = stats::weighted.mean(qn[, 2], weights)",
+    "covered = as.integer(interval[[1]] <= truth && truth <= interval[[2]])",
+    "std_error = sqrt(variance)",
+    "n = nrow(qn)",
+)
+
+
+def refusals(adapter: Path) -> frozenset[str]:
+    """Every message one adapter refuses on, by the literal it names it with."""
+    return frozenset(_REFUSAL.findall(adapter.read_text(encoding="utf-8")))
+
+
+class TestTheTwoPointAdaptersStayOneTranscription:
+    """``tmle_point_adapter.R`` and ``tmle_continuous_point_adapter.R`` restate one contract.
+
+    About fifty-five of the continuous adapter's sixty-nine lines are the binary adapter's:
+    the nuisance and weight validation, the weighted initial means, the truth join and its
+    one-row refusal, the invalid and reversed-interval guards, and the published frame.  They
+    are two files because each is hashed by a different study's manifest, so collapsing them
+    is a regeneration rather than a refactor.
+
+    That leaves a fix applied to one and not the other, which nothing detected.  These checks
+    make the pair's agreement the default and its differences declared, so a guard added to
+    one fails until it is either added to the other or written down as a difference with a
+    reason.
+    """
+
+    def test_both_adapters_are_reached_by_a_registered_runner(self) -> None:
+        """Neither adapter is dead code, so the checks below are about a live comparator."""
+        sourced = {path for runner in RUNNERS for path in sourced_files(runner)}
+        for adapter in POINT_ADAPTERS:
+            assert adapter in sourced, f"{adapter.name} is sourced by no registered runner"
+
+    @pytest.mark.parametrize("message", SHARED_POINT_REFUSALS)
+    def test_both_adapters_keep_every_shared_refusal(self, message: str) -> None:
+        for adapter in POINT_ADAPTERS:
+            assert message in refusals(adapter), (
+                f"{adapter.name} no longer refuses on {message!r}. Both point adapters answer "
+                f"to this guard, so dropping it from one publishes a row the other would have "
+                f"stopped. Remove it from SHARED_POINT_REFUSALS only when neither needs it"
+            )
+
+    def test_a_guard_added_to_one_adapter_is_added_to_the_other(self) -> None:
+        """The only differences are the declared ones, so a new guard cannot land in one file."""
+        for adapter in POINT_ADAPTERS:
+            other = next(path for path in POINT_ADAPTERS if path != adapter)
+            only_here = refusals(adapter) - refusals(other)
+            declared = DECLARED_ADAPTER_DIVERGENCES[adapter.name]
+            assert only_here == declared, (
+                f"{adapter.name} refuses {sorted(only_here)} and {other.name} does not. The two "
+                f"adapters transcribe one contract, so either add the guard to {other.name}, or "
+                f"declare the difference in DECLARED_ADAPTER_DIVERGENCES with the reason it is "
+                f"one. Expected {sorted(declared)}"
+            )
+
+    @pytest.mark.parametrize("construct", SHARED_TRANSCRIPTION)
+    def test_both_adapters_build_the_shared_quantities_the_same_way(self, construct: str) -> None:
+        for adapter in POINT_ADAPTERS:
+            assert construct in adapter.read_text(encoding="utf-8"), (
+                f"{adapter.name} does not build its published row with `{construct}`. The two "
+                f"adapters feed the same schema, so a quantity computed two ways files two "
+                f"different numbers under one column name"
+            )
