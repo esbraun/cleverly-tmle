@@ -563,6 +563,19 @@ class TestPublishedVerdicts:
                 >= study.properties().WEIGHT_DISPLACEMENT
             )
 
+        learner_weighting = published.loc[published["property"] == "learner_weight_necessity"]
+        if not learner_weighting.empty:
+            control = learner_weighting.loc[learner_weighting["role"] == "control"]
+            assert len(control) == 1
+            assert bool(control["alternative_bias_equivalent"].iloc[0])
+            assert learner_weighting["property_passed"].nunique() == 1
+            assert bool(learner_weighting["property_passed"].iloc[0]) is bool(
+                learner_weighting["passed"].all()
+                and control["alternative_bias_equivalent"].all()
+                and learner_weighting["necessity_displacement"].iloc[0]
+                >= study.properties().WEIGHT_DISPLACEMENT
+            )
+
         recursion = published.loc[
             published["property"].isin(
                 {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
@@ -663,6 +676,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",
+        "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
         "robustness_contract",
@@ -1571,6 +1585,11 @@ class TestTheQuantityVocabulary:
             )
         if "weight_necessity" in study.property_cells:
             assert declared["margin:weight_displacement"] == study.properties().WEIGHT_DISPLACEMENT
+        if "learner_weight_necessity" in study.property_cells:
+            assert (
+                declared["margin:learner_weight_displacement"]
+                == study.properties().WEIGHT_DISPLACEMENT
+            )
         if "projection_necessity" in study.property_cells:
             assert (
                 declared["margin:projection_displacement"]
@@ -1589,10 +1608,11 @@ class TestTheQuantityVocabulary:
             for cell in study.property_cells.get("interval_calibration", ())
         ):
             efficiency = study.properties()
-            low, high = efficiency.EFFICIENCY_RATIO_BAND
-            assert declared["margin:efficiency_ratio_lower"] == low
-            assert declared["margin:efficiency_ratio_upper"] == high
             assert declared["margin:shrunken_se_factor"] == efficiency.SHRUNKEN_SE_FACTOR
+            if study.calibration_efficiency_ratio:
+                low, high = efficiency.EFFICIENCY_RATIO_BAND
+                assert declared["margin:efficiency_ratio_lower"] == low
+                assert declared["margin:efficiency_ratio_upper"] == high
         for estimand, deviation in study.efficiency_bounds.items():
             assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.

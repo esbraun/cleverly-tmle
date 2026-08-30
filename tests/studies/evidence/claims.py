@@ -233,14 +233,15 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         for cell in record.property_cells.get("interval_calibration", ())
     ):
         properties = record.properties()
-        low, high = properties.EFFICIENCY_RATIO_BAND
-        declared.update(
-            {
-                "margin:efficiency_ratio_lower": low,
-                "margin:efficiency_ratio_upper": high,
-                "margin:shrunken_se_factor": properties.SHRUNKEN_SE_FACTOR,
-            }
-        )
+        declared["margin:shrunken_se_factor"] = properties.SHRUNKEN_SE_FACTOR
+        if record.calibration_efficiency_ratio:
+            low, high = properties.EFFICIENCY_RATIO_BAND
+            declared.update(
+                {
+                    "margin:efficiency_ratio_lower": low,
+                    "margin:efficiency_ratio_upper": high,
+                }
+            )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     if "missingness_necessity" in record.property_cells:
@@ -262,6 +263,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
     if "weight_necessity" in record.property_cells:
         declared["margin:weight_displacement"] = record.properties().WEIGHT_DISPLACEMENT
+    if "learner_weight_necessity" in record.property_cells:
+        declared["margin:learner_weight_displacement"] = record.properties().WEIGHT_DISPLACEMENT
     if "categorical_probability_necessity" in record.property_cells:
         declared["margin:categorical_probability_displacement"] = (
             record.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
