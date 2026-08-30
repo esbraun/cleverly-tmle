@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import re
 
+from tests.studies.evidence.property_verdicts import (
+    UNION_MODEL_FAMILIES,
+    UNION_MODEL_SE_BAND,
+)
+
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
@@ -879,7 +884,12 @@ def claim(family: str) -> str:
 
 
 def cell(
-    family: str, key: str, *, exact_efficiency: bool = False, role: str | None = None
+    family: str,
+    key: str,
+    *,
+    exact_efficiency: bool = False,
+    role: str | None = None,
+    nuisance_count: int = 2,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -903,19 +913,22 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
-    if (
-        family == "interval_calibration"
-        and base == "correctly_specified"
-        and arm is not None
-        and arm.group("arm") in {"z0", "z1"}
-    ):
-        tested = "all required nuisance functions are correctly specified"
+    if family == "interval_calibration" and base == "correctly_specified":
+        if nuisance_count == 2:
+            tested = "both nuisances are correctly specified"
+        else:
+            words = {3: "three", 4: "four"}
+            count = words.get(nuisance_count, str(nuisance_count))
+            tested = f"all {count} required nuisance functions are correctly specified"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
     if family == "interval_calibration" and base == "noise_control" and not exact_efficiency:
         tested = "a declared scale of independent noise is added to each estimate"
         required = "the SE-ratio interval must fall below the calibration band"
+    if family in UNION_MODEL_FAMILIES and family != "double_robustness":
+        low, high = UNION_MODEL_SE_BAND
+        required += f", SE ratio must remain between {low} and {high}"
     if family == "targeting_necessity" and arm is not None:
         if arm.group("arm") == "mechanism":
             tested = (

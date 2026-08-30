@@ -38,14 +38,14 @@ intervals.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `interval_calibration` | `ate__correctly_specified` | positive | average treatment effect: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9334 to 0.9525, SE ratio 0.9574 to 1.0146, empirical efficiency ratio 0.9826 to 1.0413, reported efficiency ratio 0.9960 to 0.9982 | pass |
+| `interval_calibration` | `ate__correctly_specified` | positive | average treatment effect: all three required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9334 to 0.9525, SE ratio 0.9574 to 1.0146, empirical efficiency ratio 0.9826 to 1.0413, reported efficiency ratio 0.9960 to 0.9982 | pass |
 | `interval_calibration` | `ate__noise_control` | control | average treatment effect: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8147 to 0.8455, SE ratio 0.6824 to 0.7241, empirical efficiency ratio 1.3770 to 1.4608, reported efficiency ratio 0.9960 to 0.9982 | pass |
 | `interval_calibration` | `ate__shrunken_se_control` | control | average treatment effect: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8113 to 0.8424, SE ratio 0.6700 to 0.7098, empirical efficiency ratio 0.9834 to 1.0416, reported efficiency ratio 0.6972 to 0.6988 | pass |
-| `mar_robustness` | `both_correct` | positive | the outcome regression, treatment mechanism and observation mechanism are correct | bias interval inside the equivalence margin | bias -0.0026 to 0.0024, margin 0.0083 | pass |
-| `mar_robustness` | `mechanisms_correct` | positive | the treatment and observation mechanisms are correct and the outcome regression is not | bias interval inside the equivalence margin | bias -0.0039 to 0.0023, margin 0.0103 | pass |
-| `mar_robustness` | `observation_wrong` | control | only the treatment mechanism is correct | bias interval must fall entirely outside the margin | bias -0.4824 to -0.4783, margin 0.0069 | pass |
-| `mar_robustness` | `outcome_correct` | positive | only the outcome regression is correct | bias interval inside the equivalence margin | bias -0.000857 to 0.0023, margin 0.0053 | pass |
-| `mar_robustness` | `treatment_wrong` | control | only the observation mechanism is correct | bias interval must fall entirely outside the margin | bias -0.2110 to -0.2059, margin 0.0084 | pass |
+| `mar_robustness` | `both_correct` | positive | the outcome regression, treatment mechanism and observation mechanism are correct | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0026 to 0.0024, margin 0.0083, SE ratio 1.0011 | pass |
+| `mar_robustness` | `mechanisms_correct` | positive | the treatment and observation mechanisms are correct and the outcome regression is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0039 to 0.0023, margin 0.0103, SE ratio 0.9785 | pass |
+| `mar_robustness` | `observation_wrong` | control | only the treatment mechanism is correct | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.4824 to -0.4783, margin 0.0069, SE ratio 1.6716 | pass |
+| `mar_robustness` | `outcome_correct` | positive | only the outcome regression is correct | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.000857 to 0.0023, margin 0.0053, SE ratio 2.6184 | pass |
+| `mar_robustness` | `treatment_wrong` | control | only the observation mechanism is correct | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.2110 to -0.2059, margin 0.0084, SE ratio 1.5397 | pass |
 | `missingness_necessity` | `ate__complete_case_control` | control | average treatment effect: the identical estimator silently discards unobserved outcomes and ignores selection | bias interval must fall entirely outside the margin | bias -0.1229 to -0.1172, margin 0.0096 | pass |
 | `missingness_necessity` | `ate__declared` | positive | average treatment effect: the observation indicator is declared, so correct mechanisms carry a wrong outcome model | bias interval inside the equivalence margin | bias -0.0055 to 0.000397, margin 0.0099 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9934 to 1 | pass |
@@ -85,6 +85,8 @@ targeting, and the consequence of silently analyzing complete cases.
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
 | `margin:bootstrap_replicates` | 10000 | bootstrap replications |
 | `margin:standardized_bias` | 0.2500 | standardized-bias margin |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:coverage_floor` | 0.9000 | primary coverage floor |
 | `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
 | `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio lower screen |

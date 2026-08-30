@@ -1,0 +1,81 @@
+"""Focused contracts for shared finite-law and property-row helpers."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+from tests import discrete_law as point
+from tests import discrete_law_cde as cde
+from tests import discrete_law_mar as mar
+from tests.studies import canonical_cde_tmle
+from tests.studies.cde_study_helpers import sample_discrete as sample_cde
+from tests.studies.evidence import descriptions
+from tests.studies.evidence.properties import (
+    ReplicationSpec,
+    property_role,
+    replication_payloads,
+)
+from tests.studies.intervention_study_helpers import sample_discrete as sample_point
+from tests.studies.missing_outcome_study_helpers import sample_discrete as sample_mar
+
+
+def test_each_law_adapter_preserves_its_public_sample_schema() -> None:
+    point_frame = sample_point(point.PROBS, 20, 17)
+    mar_frame = sample_mar(mar.PROBS, 20, 17)
+    cde_frame = sample_cde(cde.PROBS, 20, 17)
+
+    assert list(point_frame) == ["W", "A", "Y"]
+    assert list(mar_frame) == ["W", "A", "Y", "Delta"]
+    assert list(cde_frame) == ["W", "A", "Z", "Y", "Delta"]
+    assert mar_frame["Y"].isna().equals(mar_frame["Delta"].eq(0.0))
+    assert cde_frame["Y"].isna().equals(cde_frame["Delta"].eq(0.0))
+
+
+def test_property_payloads_keep_seeded_tuple_shape_and_role_rules() -> None:
+    specs = [ReplicationSpec("family", "cell", 100, 2, "wrong")]
+    payloads = replication_payloads(canonical_cde_tmle.STUDY, specs)
+
+    assert len(payloads) == 2
+    assert [payload[0][2] for payload in payloads] == [0, 1]
+    assert payloads[0][0][:2] == ("family", "cell")
+    assert payloads[0][0][3:5] == (100, 2)
+    assert payloads[0][0][-1] == "wrong"
+    assert payloads[0][0][5] != payloads[1][0][5]
+    assert (
+        property_role(
+            "wrong",
+            controls={"wrong"},
+            property_name="family",
+            n=100,
+            rate_sizes=(100, 400),
+        )
+        == "control"
+    )
+    assert (
+        property_role(
+            "correct",
+            controls={"wrong"},
+            property_name="root_n_and_efficiency",
+            n=100,
+            rate_sizes=(100, 400),
+        )
+        == "control"
+    )
+
+
+def test_calibration_description_uses_declared_nuisance_count() -> None:
+    two = descriptions.cell("interval_calibration", "correctly_specified", nuisance_count=2)[0]
+    three = descriptions.cell("interval_calibration", "correctly_specified", nuisance_count=3)[0]
+    four = descriptions.cell("interval_calibration", "z0__correctly_specified", nuisance_count=4)[0]
+
+    assert two == "both nuisances are correctly specified"
+    assert three == "all three required nuisance functions are correctly specified"
+    assert four.endswith("all four required nuisance functions are correctly specified")
+
+
+def test_shared_sampler_keeps_the_declared_draw_deterministic() -> None:
+    first = sample_cde(cde.PROBS, 50, 81)
+    second = sample_cde(cde.PROBS, 50, 81)
+    pd.testing.assert_frame_equal(first, second)
+    assert np.isfinite(first[["W", "A", "Z", "Delta"]].to_numpy()).all()

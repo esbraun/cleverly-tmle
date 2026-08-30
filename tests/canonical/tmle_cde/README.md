@@ -24,3 +24,11 @@ rebuilds the committed `native-result2-defect.csv` artifact and deliberately sel
 second result. The manifest hashes the probe and its output. The registered runner instead recodes
 each requested level to result one because `tmle` 2.1.1 constructs the second result's observed
 outcome offset from `Q`, not `Q.Z1`.
+
+The source archive has SHA-256
+`5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133`. In that pinned source,
+`.initStage1` first assigns `QAW <- (1-A)*Q[,1] + A*Q[,2]`. It then appends the `Q.Z1`
+counterfactual columns without changing `QAW`. The controlled-effect loop uses
+`offset(Q$Q[b.rows,"QAW"])` for both results, while it selects counterfactual columns with
+`z*2+2` and `z*2+3`. These expressions isolate the native second-result offset mismatch that the
+probe records.

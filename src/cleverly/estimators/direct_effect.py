@@ -278,7 +278,8 @@ both levels against pinned R ``tmle`` on identical samples, checks the four-nuis
 contract with one control per mechanism, and measures root-n rate, exact-law efficiency,
 calibration, type-I error, power, and targeting necessity.  Its frozen R regression also records
 why the comparator recodes each requested level to the package's first result rather than using
-the native second result.
+the native second result.  ``tests/e2e/test_missing_and_cde.py`` separately checks consistency
+with learned nuisances under outcome misspecification.
 """
 
 from __future__ import annotations

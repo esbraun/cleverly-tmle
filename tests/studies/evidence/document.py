@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from tests.studies.evidence import descriptions
+from tests.studies.evidence import descriptions, property_verdicts
 from tests.studies.evidence.claims import load, value
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
@@ -215,6 +215,7 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             str(row.cell),
             exact_efficiency=_has_exact_efficiency(row),
             role=str(row.role),
+            nuisance_count=record.nuisance_count,
         )
         rows.append(
             (
@@ -248,7 +249,7 @@ def _measured(row: Any) -> str:
         # nuisance reports an error two orders of magnitude off its own spread and leaves the
         # bias interval looking like any other cell's, so the ratio the screen is read from
         # belongs in the column a reader reads.
-        if family == "double_robustness":
+        if family in property_verdicts.UNION_MODEL_FAMILIES:
             measured += f", SE ratio {render(float(row.se_ratio))}"
         if (
             family in {"weight_necessity", "learner_weight_necessity"}

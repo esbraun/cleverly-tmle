@@ -210,7 +210,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:clustered_coverage_gain": property_verdicts.CLUSTERED_COVERAGE_GAIN,
             }
         )
-    if "double_robustness" in record.property_cells:
+    if property_verdicts.UNION_MODEL_FAMILIES.intersection(record.property_cells):
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         declared["margin:union_model_se_lower"] = low
         declared["margin:union_model_se_upper"] = high

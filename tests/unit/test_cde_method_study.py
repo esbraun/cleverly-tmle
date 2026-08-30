@@ -33,13 +33,8 @@ def test_each_primary_scenario_selects_its_declared_level(
     effects = rows.loc[rows["estimand"] == "ate"].set_index("scenario")
     assert effects.loc[primary.SCENARIOS[0], "truth"] == pytest.approx(-0.1875)
     assert effects.loc[primary.SCENARIOS[1], "truth"] == pytest.approx(0.3125)
-    by_scenario = {
-        scenario: frame.drop(columns="scenario").reset_index(drop=True)
-        for scenario, frame in samples.groupby("scenario", sort=False)
-    }
-    pd.testing.assert_frame_equal(
-        by_scenario[primary.SCENARIOS[0]], by_scenario[primary.SCENARIOS[1]]
-    )
+    assert len(samples) == 500
+    assert "scenario" not in samples
     first, _ = primary.draw_scenario(primary.SCENARIOS[0], 500, 0)
     second, _ = primary.draw_scenario(primary.SCENARIOS[1], 500, 0)
     pd.testing.assert_frame_equal(first, second)
@@ -83,10 +78,8 @@ def test_each_single_mechanism_control_has_a_nonzero_exact_witness() -> None:
         for level in cde.LEVELS:
             estimate = result[float(level)][properties.TARGET]
             bias = abs(float(estimate.psi) - cde.TRUTH[level][properties.TARGET])
-            asymptotic_sd = float(estimate.std_error) * math.sqrt(cde.N)
             separations[(configuration, level)] = bias / float(estimate.std_error) * scale
             assert bias > 1e-3
-            assert asymptotic_sd > 0.0
     assert min(separations.values()) > properties.EXACT_SEPARATION_FLOOR, separations
 
 

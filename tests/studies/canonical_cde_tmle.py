@@ -37,7 +37,7 @@ SCENARIOS = {0: "binary_cde_z0_mar", 1: "binary_cde_z1_mar"}
 ESTIMANDS = ("ey0", "ey1", "ate", "rr", "or")
 G_BOUNDS = (0.01, 0.99)
 NUISANCE_BOUND = 0.01
-EFFICIENCY_SD = {f"z{level}": efficiency_sd(cde.PROBS, "ate", level) for level in cde.LEVELS}
+EFFICIENCY_SD = {f"z{level}": efficiency_sd("ate", level) for level in cde.LEVELS}
 
 STUDY = StudyRecord(
     name="ordinary controlled direct-effect TMLE",
@@ -49,6 +49,7 @@ STUDY = StudyRecord(
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
+    nuisance_count=4,
     scenario_seed_owners={SCENARIOS[1]: SCENARIOS[0]},
     resampling_seed=20261022,
     margins=Margins(),
@@ -206,14 +207,11 @@ def _replicate(
     base_sample["pin_a0"] = law.pi[w, 0]
     base_sample["pin_a1"] = law.pi[w, 1]
 
-    samples: list[pd.DataFrame] = []
+    sample = base_sample.copy()
+    sample.insert(0, "replicate", replicate)
     truth_rows: list[dict[str, Any]] = []
     estimate_rows: list[dict[str, Any]] = []
     for level, scenario in SCENARIOS.items():
-        sample = base_sample.copy()
-        sample.insert(0, "replicate", replicate)
-        sample.insert(0, "scenario", scenario)
-        samples.append(sample)
         reference = truths(cde.PROBS, ESTIMANDS, level)
         truth_rows.extend(
             {
@@ -225,7 +223,7 @@ def _replicate(
             for name, value in reference.items()
         )
         estimate_rows.extend(_cleverly_rows(fit, reference, scenario, replicate))
-    return pd.concat(samples, ignore_index=True), truth_rows, estimate_rows
+    return sample, truth_rows, estimate_rows
 
 
 def draw_and_fit(

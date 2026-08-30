@@ -8,7 +8,7 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +37,89 @@ REPLICATE_COLUMNS = (
     "covered",
     "rejected",
 )
+
+
+@dataclass(frozen=True)
+class ReplicationSpec:
+    """One repeated-sampling configuration before it expands into seeded replications."""
+
+    property: str
+    cell: str
+    n: int
+    replicates: int
+    configuration: str
+
+
+def finite_support_sample(
+    probs: np.ndarray,
+    support: Sequence[Sequence[float | int]],
+    n: int,
+    seed: int,
+    *,
+    columns: Sequence[str],
+    kind_axis: int | None = None,
+    unobserved: int | None = None,
+) -> pd.DataFrame:
+    """Draw rows from a finite law, with optional missing-outcome recoding."""
+    rng = np.random.default_rng(seed)
+    cells = rng.choice(len(support), size=n, p=np.asarray(probs).reshape(-1))
+    values = np.asarray(support, dtype=float)[cells]
+    if kind_axis is None:
+        return pd.DataFrame(values, columns=columns)
+    if unobserved is None:
+        raise ValueError("unobserved is required when kind_axis is set")
+    observed_axes = [axis for axis in range(values.shape[1]) if axis != kind_axis]
+    if len(columns) != len(observed_axes):
+        raise ValueError("columns must name every support axis except kind_axis")
+    frame = pd.DataFrame(values[:, observed_axes], columns=columns)
+    kind = values[:, kind_axis]
+    frame["Y"] = np.where(kind == unobserved, np.nan, kind)
+    frame["Delta"] = np.where(kind == unobserved, 0.0, 1.0)
+    return frame
+
+
+def property_role(
+    configuration: str,
+    *,
+    controls: Collection[str],
+    property_name: str,
+    n: int,
+    rate_sizes: Sequence[int],
+) -> str:
+    """Classify a property row from its nuisance configuration and rate rung."""
+    if property_name == "root_n_and_efficiency" and n == min(rate_sizes):
+        return "control"
+    return "control" if configuration in controls else "positive"
+
+
+def replication_payloads(
+    record: Any,
+    specs: Sequence[ReplicationSpec],
+) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+    """Expand property specifications into the tuple shape used by parallel workers."""
+    from tests.studies.evidence.seeds import stream_seed
+
+    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    for spec in specs:
+        for replicate in range(spec.replicates):
+            seed = stream_seed(
+                record,
+                "property_sample",
+                spec.property,
+                spec.cell,
+                replicate,
+            )
+            payload = (
+                spec.property,
+                spec.cell,
+                replicate,
+                spec.n,
+                spec.replicates,
+                seed,
+                spec.configuration,
+            )
+            out.append((payload,))
+    return out
 
 
 @dataclass(frozen=True)

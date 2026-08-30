@@ -64,6 +64,18 @@ MINIMUM_POWER = 0.80
 #: requires the verdict to move.
 UNION_MODEL_SE_BAND = (0.1, 10.0)
 
+#: Property families whose bias claims describe a union model.  Each family answers to the
+#: same reported-error scale screen even when its study uses a more specific public name.
+UNION_MODEL_FAMILIES = frozenset(
+    {
+        "double_robustness",
+        "cde_robustness",
+        "mar_robustness",
+        "robustness_contract",
+        "corrected_mar_inference",
+    }
+)
+
 #: The three margins the ``crossfit_overfitting`` family answers to.  Shared rather than owned
 #: by the study that first declared them: four families now make the same three statements
 #: about a paired cross-fit and in-sample arm, and a margin written four times is a margin
@@ -113,6 +125,18 @@ EFFICIENCY_COLUMNS = (
     "efficiency_reported_ci_lower",
     "efficiency_reported_ci_upper",
 )
+
+
+def robustness_verdicts(summary: pd.DataFrame, *, family: str) -> None:
+    """Apply the shared bias and reported-error rule to one union-model family."""
+    if family not in UNION_MODEL_FAMILIES:
+        raise ValueError(f"{family!r} is not a declared union-model property family")
+    robustness = summary["property"] == family
+    scaled = summary["se_ratio"].between(*UNION_MODEL_SE_BAND)
+    positive = robustness & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"] & scaled
+    control = robustness & (summary["role"] == "control")
+    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
 
 
 def apply_shared_verdicts(
@@ -169,20 +193,15 @@ def apply_shared_verdicts(
     # :func:`finish` resolves.
     summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
 
-    robustness = summary["property"] == "double_robustness"
+    robustness_verdicts(summary, family="double_robustness")
+
+    efficiency = summary["property"] == "root_n_and_efficiency"
     # Both roles answer to the same screen, and each keeps its own bias endpoint.  A positive
     # cell claims the bias is inside the margin and a control claims it is outside, but neither
     # is a claim about the union model unless the fit reported an error on the scale of its own
     # spread.  The control is where this was found: it is the arm whose bias endpoint a
     # collapsed nuisance cannot fail, so bias alone published a pass for a cell that reported
     # 87.6 times its empirical spread.
-    scaled = summary["se_ratio"].between(*UNION_MODEL_SE_BAND)
-    positive = robustness & (summary["role"] == "positive")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"] & scaled
-    control = robustness & (summary["role"] == "control")
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
-
-    efficiency = summary["property"] == "root_n_and_efficiency"
     sizes = efficiency & (summary["role"] == "positive")
     summary.loc[sizes, "passed"] = (
         (summary.loc[sizes, "coverage_ci_lower"] >= margins.coverage_floor)

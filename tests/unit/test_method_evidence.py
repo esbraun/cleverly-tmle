@@ -413,7 +413,7 @@ class TestPublishedVerdicts:
         # reported an error on the scale of its own spread -- otherwise the fit collapsed and
         # the bias beside it is evidence about the collapse, not about the union model.
         low, high = property_verdicts.UNION_MODEL_SE_BAND
-        union = published.loc[published["property"] == "double_robustness"]
+        union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
             endpoint = row.bias_discriminated if row.role == "control" else row.bias_equivalent
             expected = bool(endpoint) and low <= row.se_ratio <= high
@@ -715,14 +715,11 @@ class TestPublishedVerdicts:
 BIAS_GATED_PROPERTIES = frozenset(
     {
         "categorical_probability_necessity",
-        "cde_robustness",
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",
         "learner_weight_necessity",
-        "mar_robustness",
         "missingness_necessity",
-        "robustness_contract",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
@@ -754,6 +751,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # gate asserted ``passed == bias_discriminated`` exactly, so the framework held the
         # gap in place rather than merely missing it.
         "double_robustness",
+        "cde_robustness",
+        "mar_robustness",
+        "robustness_contract",
         "generated_design",
         "interval_calibration",
         "natural_course_identity",
@@ -859,7 +859,7 @@ class TestNegativeControls:
         is standardized by the *empirical* spread and never reads what the fit reported.
 
         :data:`~tests.studies.evidence.property_verdicts.UNION_MODEL_SE_BAND` is the screen,
-        and it binds on no committed cell -- the family spans 0.61 to 2.31, which is the union
+        and it binds on no committed cell -- the family spans 0.61 to 3.01, which is the union
         model behaving as the theory allows.  A rule nothing can fail reads exactly like a rule
         nothing has broken, so this mutation is what makes it load bearing.
 
@@ -868,21 +868,22 @@ class TestNegativeControls:
         estimates.  So the mutation isolates the clause, and the untouched assertion below
         shows it reaches no other verdict.
         """
-        if "double_robustness" not in study.property_cells:
+        families = property_verdicts.UNION_MODEL_FAMILIES.intersection(study.property_cells)
+        if not families:
             pytest.skip("the study declares no union-model cells")
         rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
         published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
-        union = published.loc[published.index.get_level_values(0) == "double_robustness"]
+        union = published.loc[published.index.get_level_values(0).isin(families)]
         # At least one, not all of them: two registered rows publish a red union-model cell
         # under reporting policy, and a mutation whose cells were already failing would show
         # nothing.
         assert union["passed"].any(), "no union-model cell currently passes, so nothing can flip"
 
         mutated = rows.copy()
-        mask = mutated["property"] == "double_robustness"
+        mask = mutated["property"].isin(families)
         # Two orders of magnitude, which is the scale the collapse actually reached.  Every
-        # committed cell sits below 2.31, so this clears the band's upper limit from every one
-        # of them without depending on where any single cell started.
+        # committed cell starts above 0.61, so this clears the band's upper limit from every
+        # one of them without depending on any study-specific value.
         mutated.loc[mask, "std_error"] *= 100.0
         summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
         changed = list(union.index)
@@ -1547,7 +1548,12 @@ class TestThePublishedTestTables:
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
             try:
-                descriptions.cell(family, cell, role=role)
+                descriptions.cell(
+                    family,
+                    cell,
+                    role=role,
+                    nuisance_count=study.nuisance_count,
+                )
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
         assert undescribed == [], (
@@ -1731,7 +1737,7 @@ class TestTheQuantityVocabulary:
                 declared["margin:clustered_coverage_gain"]
                 == property_verdicts.CLUSTERED_COVERAGE_GAIN
             )
-        if "double_robustness" in study.property_cells:
+        if property_verdicts.UNION_MODEL_FAMILIES.intersection(study.property_cells):
             low, high = property_verdicts.UNION_MODEL_SE_BAND
             assert declared["margin:union_model_se_lower"] == low
             assert declared["margin:union_model_se_upper"] == high

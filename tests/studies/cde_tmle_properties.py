@@ -25,15 +25,21 @@ from tests.studies.canonical_cde_tmle import (
     STUDY,
 )
 from tests.studies.cde_study_helpers import probabilities, sample_discrete, truths
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    ReplicationSpec,
+    control_row,
+    property_role,
+    replicate_row,
+    replication_payloads,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
     finish,
     necessity_verdicts,
+    robustness_verdicts,
 )
-from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import initial_estimates
 
 ROBUSTNESS_REPLICATES = 1_200
@@ -76,6 +82,8 @@ NULL_QBAR = np.array(
     ]
 )
 NULL_PROBS = probabilities(NULL_QBAR)
+BASE_TRUTHS = {level: truths(cde.PROBS, (TARGET,), level)[TARGET] for level in cde.LEVELS}
+NULL_TRUTHS = {level: truths(NULL_PROBS, (TARGET,), level)[TARGET] for level in cde.LEVELS}
 
 
 def _learners(configuration: str, probs: np.ndarray) -> tuple[Any, Any, Any, Any]:
@@ -141,14 +149,14 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     rows: list[dict[str, Any]] = []
     for level in cde.LEVELS:
         label = f"z{level}"
-        truth = truths(probs, (TARGET,), level)[TARGET]
-        role = (
-            "control"
-            if configuration in {"treatment_wrong", "intermediate_wrong", "observation_wrong"}
-            else "positive"
+        truth = (NULL_TRUTHS if property_name == "type_i_error" else BASE_TRUTHS)[level]
+        role = property_role(
+            configuration,
+            controls={"treatment_wrong", "intermediate_wrong", "observation_wrong"},
+            property_name=property_name,
+            n=n,
+            rate_sizes=RATE_SIZES,
         )
-        if property_name == "root_n_and_efficiency" and n == min(RATE_SIZES):
-            role = "control"
         estimate = result[float(level)][TARGET]
         row = replicate_row(
             property_name=property_name,
@@ -181,7 +189,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
 
 
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
-    specs: list[tuple[str, str, int, int, str]] = []
+    specs: list[ReplicationSpec] = []
     for configuration in (
         "all_correct",
         "outcome_correct",
@@ -191,22 +199,32 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
         "observation_wrong",
     ):
         specs.append(
-            ("cde_robustness", configuration, ROBUSTNESS_N, ROBUSTNESS_REPLICATES, configuration)
+            ReplicationSpec(
+                "cde_robustness",
+                configuration,
+                ROBUSTNESS_N,
+                ROBUSTNESS_REPLICATES,
+                configuration,
+            )
         )
     for size in RATE_SIZES:
-        specs.append(("root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, "all_correct"))
+        specs.append(
+            ReplicationSpec(
+                "root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, "all_correct"
+            )
+        )
     specs.extend(
         [
-            (
+            ReplicationSpec(
                 "interval_calibration",
                 "correctly_specified",
                 CALIBRATION_N,
                 CALIBRATION_REPLICATES,
                 "all_correct",
             ),
-            ("type_i_error", "sharp_null", NULL_N, NULL_REPLICATES, "all_correct"),
-            ("power", "alternative", NULL_N, NULL_REPLICATES, "all_correct"),
-            (
+            ReplicationSpec("type_i_error", "sharp_null", NULL_N, NULL_REPLICATES, "all_correct"),
+            ReplicationSpec("power", "alternative", NULL_N, NULL_REPLICATES, "all_correct"),
+            ReplicationSpec(
                 "targeting_necessity",
                 "targeted",
                 NECESSITY_N,
@@ -215,12 +233,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
-    for property_name, cell, n, replicates, configuration in specs:
-        for replicate in range(replicates):
-            seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
-            out.append(((property_name, cell, replicate, n, replicates, seed, configuration),))
-    return out
+    return replication_payloads(STUDY, specs)
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -246,11 +259,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         rate_labels=("z0", "z1"),
         efficiency_bounds=EFFICIENCY_SD,
     )
-    robustness = summary["property"] == "cde_robustness"
-    positive = robustness & (summary["role"] == "positive")
-    control = robustness & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    robustness_verdicts(summary, family="cde_robustness")
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     necessity_verdicts(
         summary,

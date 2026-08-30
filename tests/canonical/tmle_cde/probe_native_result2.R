@@ -6,7 +6,7 @@ options(digits = 17)
 args <- study_arguments("usage: probe_native_result2.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
 samples <- read.csv(gzfile(args$samples), stringsAsFactors = FALSE)
 truths <- read.csv(args$truths, stringsAsFactors = FALSE)
-frame <- subset(samples, scenario == "binary_cde_z1_mar" & replicate == 0L)
+frame <- subset(samples, replicate == 0L)
 
 q_z0 <- cbind(frame$qn_z0_a0, frame$qn_z0_a1)
 q_z1 <- cbind(frame$qn_z1_a0, frame$qn_z1_a1)

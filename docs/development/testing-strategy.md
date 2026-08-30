@@ -62,7 +62,10 @@ one.
 
 **Read the consequence plainly.** Weighted longitudinal fits remain the design family with no
 active repeated-sampling evidence. Controlled direct effects, weighted point-treatment inference,
-and clustered point-treatment inference each have a registered paired study.
+and clustered point-treatment inference each have a registered paired study. The controlled
+direct-effect row uses exact finite-support nuisances. The fast end-to-end test checks
+learned-nuisance bias, but no active study checks learned-nuisance interval coverage.
+
 Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
 longitudinal treatment has separate ordinary and cross-fitted rows. Each uncovered family still

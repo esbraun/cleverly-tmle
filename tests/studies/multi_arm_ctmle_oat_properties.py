@@ -16,7 +16,11 @@ from tests.studies.evidence.properties import (
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    finish,
+    robustness_verdicts,
+)
 from tests.studies.evidence.seeds import stream_seed
 
 GENERATED_DESIGN_DEFICIT = 0.01
@@ -64,11 +68,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         STUDY,
         extra_columns=("se_ratio_deficit_lower", "se_ratio_deficit_upper"),
     )
-    robustness = summary["property"] == "robustness_contract"
-    positive = robustness & (summary["role"] == "positive")
-    control = robustness & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    robustness_verdicts(summary, family="robustness_contract")
 
     generated = rows.loc[rows["property"] == "generated_design"]
     oracle = generated.loc[generated["cell"] == "oracle_design"].sort_values("replicate")

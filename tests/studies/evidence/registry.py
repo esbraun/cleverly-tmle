@@ -138,6 +138,8 @@ class StudyRecord:
     replicates: int
     n: int
     seed: int
+    #: Number of nuisance functions the study's correctly specified calibration cell fits.
+    nuisance_count: int = 2
     #: Scenario -> the scenario whose primary sample stream it owns.  This supports one
     #: observed law reported under several intervention levels: each exported scenario keeps
     #: its own rows, while all mapped scenarios draw the owner's realized sample.
@@ -222,6 +224,8 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
+        if self.nuisance_count < 1:
+            raise ValueError("nuisance_count must be positive")
         scenarios = set(self.scenarios)
         unknown = set(self.scenario_seed_owners) | set(self.scenario_seed_owners.values())
         unknown -= scenarios

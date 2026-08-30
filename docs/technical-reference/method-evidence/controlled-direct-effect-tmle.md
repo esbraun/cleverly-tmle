@@ -72,22 +72,22 @@ above validates the recoded result.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `cde_robustness` | `z0__all_correct` | positive | controlled direct effect at intermediate level zero: the outcome regression and all three mechanisms are correct | bias interval inside the equivalence margin | bias -0.0073 to 0.000619, margin 0.0133 | pass |
-| `cde_robustness` | `z0__intermediate_wrong` | control | controlled direct effect at intermediate level zero: only the intermediate mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias 0.1628 to 0.1717, margin 0.0149 | pass |
-| `cde_robustness` | `z0__mechanisms_correct` | positive | controlled direct effect at intermediate level zero: all three mechanisms are correct and the outcome regression is wrong | bias interval inside the equivalence margin | bias -0.0071 to 0.0014, margin 0.0143 | pass |
-| `cde_robustness` | `z0__observation_wrong` | control | controlled direct effect at intermediate level zero: only the observation mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias -0.1860 to -0.1784, margin 0.0127 | pass |
-| `cde_robustness` | `z0__outcome_correct` | positive | controlled direct effect at intermediate level zero: the outcome regression is correct and all three mechanisms are wrong | bias interval inside the equivalence margin | bias -0.0038 to 0.0011, margin 0.0082 | pass |
-| `cde_robustness` | `z0__treatment_wrong` | control | controlled direct effect at intermediate level zero: only the treatment mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias 0.2668 to 0.2753, margin 0.0142 | pass |
-| `cde_robustness` | `z1__all_correct` | positive | controlled direct effect at intermediate level one: the outcome regression and all three mechanisms are correct | bias interval inside the equivalence margin | bias -0.0031 to 0.0039, margin 0.0117 | pass |
-| `cde_robustness` | `z1__intermediate_wrong` | control | controlled direct effect at intermediate level one: only the intermediate mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias -0.1665 to -0.1581, margin 0.0140 | pass |
-| `cde_robustness` | `z1__mechanisms_correct` | positive | controlled direct effect at intermediate level one: all three mechanisms are correct and the outcome regression is wrong | bias interval inside the equivalence margin | bias 0.000193 to 0.0097, margin 0.0159 | pass |
-| `cde_robustness` | `z1__observation_wrong` | control | controlled direct effect at intermediate level one: only the observation mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias -0.1797 to -0.1727, margin 0.0118 | pass |
-| `cde_robustness` | `z1__outcome_correct` | positive | controlled direct effect at intermediate level one: the outcome regression is correct and all three mechanisms are wrong | bias interval inside the equivalence margin | bias -0.0025 to 0.0037, margin 0.0105 | pass |
-| `cde_robustness` | `z1__treatment_wrong` | control | controlled direct effect at intermediate level one: only the treatment mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin | bias 0.2137 to 0.2195, margin 0.0099 | pass |
-| `interval_calibration` | `z0__correctly_specified` | positive | controlled direct effect at intermediate level zero: all required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9363 to 0.9474, SE ratio 0.9726 to 1.0056, empirical efficiency ratio 0.9841 to 1.0167, reported efficiency ratio 0.9873 to 0.9910 | pass |
+| `cde_robustness` | `z0__all_correct` | positive | controlled direct effect at intermediate level zero: the outcome regression and all three mechanisms are correct | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0073 to 0.000619, margin 0.0133, SE ratio 0.9705 | pass |
+| `cde_robustness` | `z0__intermediate_wrong` | control | controlled direct effect at intermediate level zero: only the intermediate mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.1628 to 0.1717, margin 0.0149, SE ratio 1.2368 | pass |
+| `cde_robustness` | `z0__mechanisms_correct` | positive | controlled direct effect at intermediate level zero: all three mechanisms are correct and the outcome regression is wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0071 to 0.0014, margin 0.0143, SE ratio 0.9572 | pass |
+| `cde_robustness` | `z0__observation_wrong` | control | controlled direct effect at intermediate level zero: only the observation mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.1860 to -0.1784, margin 0.0127, SE ratio 1.3041 | pass |
+| `cde_robustness` | `z0__outcome_correct` | positive | controlled direct effect at intermediate level zero: the outcome regression is correct and all three mechanisms are wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0038 to 0.0011, margin 0.0082, SE ratio 3.0131 | pass |
+| `cde_robustness` | `z0__treatment_wrong` | control | controlled direct effect at intermediate level zero: only the treatment mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.2668 to 0.2753, margin 0.0142, SE ratio 1.2345 | pass |
+| `cde_robustness` | `z1__all_correct` | positive | controlled direct effect at intermediate level one: the outcome regression and all three mechanisms are correct | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0031 to 0.0039, margin 0.0117, SE ratio 0.9643 | pass |
+| `cde_robustness` | `z1__intermediate_wrong` | control | controlled direct effect at intermediate level one: only the intermediate mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.1665 to -0.1581, margin 0.0140, SE ratio 0.8776 | pass |
+| `cde_robustness` | `z1__mechanisms_correct` | positive | controlled direct effect at intermediate level one: all three mechanisms are correct and the outcome regression is wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias 0.000193 to 0.0097, margin 0.0159, SE ratio 0.9940 | pass |
+| `cde_robustness` | `z1__observation_wrong` | control | controlled direct effect at intermediate level one: only the observation mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.1797 to -0.1727, margin 0.0118, SE ratio 1.5008 | pass |
+| `cde_robustness` | `z1__outcome_correct` | positive | controlled direct effect at intermediate level one: the outcome regression is correct and all three mechanisms are wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0025 to 0.0037, margin 0.0105, SE ratio 1.1461 | pass |
+| `cde_robustness` | `z1__treatment_wrong` | control | controlled direct effect at intermediate level one: only the treatment mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.2137 to 0.2195, margin 0.0099, SE ratio 2.3230 | pass |
+| `interval_calibration` | `z0__correctly_specified` | positive | controlled direct effect at intermediate level zero: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9363 to 0.9474, SE ratio 0.9726 to 1.0056, empirical efficiency ratio 0.9841 to 1.0167, reported efficiency ratio 0.9873 to 0.9910 | pass |
 | `interval_calibration` | `z0__noise_control` | control | controlled direct effect at intermediate level zero: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8249 to 0.8425, SE ratio 0.6937 to 0.7174, empirical efficiency ratio 1.3788 to 1.4259, reported efficiency ratio 0.9873 to 0.9911 | pass |
 | `interval_calibration` | `z0__shrunken_se_control` | control | controlled direct effect at intermediate level zero: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8099 to 0.8281, SE ratio 0.6810 to 0.7039, empirical efficiency ratio 0.9839 to 1.0167, reported efficiency ratio 0.6911 to 0.6937 | pass |
-| `interval_calibration` | `z1__correctly_specified` | positive | controlled direct effect at intermediate level one: all required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9352 to 0.9463, SE ratio 0.9789 to 1.0133, empirical efficiency ratio 0.9767 to 1.0102, reported efficiency ratio 0.9876 to 0.9910 | pass |
+| `interval_calibration` | `z1__correctly_specified` | positive | controlled direct effect at intermediate level one: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9352 to 0.9463, SE ratio 0.9789 to 1.0133, empirical efficiency ratio 0.9767 to 1.0102, reported efficiency ratio 0.9876 to 0.9910 | pass |
 | `interval_calibration` | `z1__noise_control` | control | controlled direct effect at intermediate level one: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8212 to 0.8389, SE ratio 0.6913 to 0.7147, empirical efficiency ratio 1.3845 to 1.4311, reported efficiency ratio 0.9875 to 0.9910 | pass |
 | `interval_calibration` | `z1__shrunken_se_control` | control | controlled direct effect at intermediate level one: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8174 to 0.8353, SE ratio 0.6856 to 0.7098, empirical efficiency ratio 0.9759 to 1.0099, reported efficiency ratio 0.6913 to 0.6937 | pass |
 | `power` | `z0__alternative` | positive | controlled direct effect at intermediate level zero: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9988, 0.9907 to 1.0000 | pass |
@@ -117,6 +117,9 @@ make exactly one mechanism wrong. Further cells test root-n contraction, exact-l
 interval calibration and its two controls, type-I error and power, and whether targeting materially
 changes the plug-in.
 
+The level-one mechanisms-correct cell has a resolved finite-sample bias at `n = 2,000`. Its 99%
+bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 margin.
+
 ## Measured values and declared margins
 
 | quantity | value | source |
@@ -137,6 +140,8 @@ changes the plug-in.
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
 | `margin:bootstrap_replicates` | 10000 | bootstrap replications |
 | `margin:standardized_bias` | 0.2500 | standardized-bias margin |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:coverage_floor` | 0.9000 | primary coverage floor |
 | `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
 | `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio lower screen |
@@ -159,8 +164,8 @@ changes the plug-in.
 | `margin:efficiency_ratio_upper` | 1.1000 | efficiency-ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:targeting_displacement` | 0.2500 | minimum targeting displacement |
-| `bound:z0_standard_error` | 0.0524 | exact level-zero ATE efficiency SD |
-| `bound:z1_standard_error` | 0.0457 | exact level-one ATE efficiency SD |
+| `bound:z0_standard_error` | 0.0524 | exact level-zero ATE efficiency bound at n = 2,000 |
+| `bound:z1_standard_error` | 0.0457 | exact level-one ATE efficiency bound at n = 2,000 |
 
 ## Limits
 
@@ -169,6 +174,10 @@ changes the plug-in.
   treatment and the intermediate.
 - Exact finite-support nuisances isolate targeting and inference. The study does not validate
   flexible learner wrappers or cross-fitting.
+- The level-zero untreated mean has 0.9216 primary coverage at `n = 2,000`. This matches R
+  and is about six Monte Carlo standard errors below 0.95. The observed
+  `(A=0, Z=0, W=0, Delta=1)` stratum has expected count 31.25 and clever-covariate weight 32.
+  The shared 0.90 coverage floor treats this finite-sample undercoverage as acceptable.
 - The comparator requires level recoding because of the frozen native second-result defect in R
   `tmle` 2.1.1. The registered probe recreates the defect during standard regeneration. The study
   does not claim that the native result is valid with exact `Q.Z1` inputs.
