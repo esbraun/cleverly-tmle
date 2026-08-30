@@ -37,6 +37,7 @@ def _arguments(tmp_path: Any, *, primary_only: bool) -> argparse.Namespace:
         allow_failures=False,
         output=tmp_path,
         jobs=1,
+        r_jobs=1,
         skip_r=False,
         cache=None,
     )
@@ -168,6 +169,52 @@ def test_skip_r_refuses_to_synthesize_reference_diagnostics(
             here=tmp_path,
             reference=regenerate.Reference("image", "runner"),
         )
+
+
+def test_standard_regeneration_runs_the_declared_reference_artifact_hook(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    record = dataclasses.replace(
+        canonical_tmle.STUDY,
+        artifacts=tmp_path,
+        extra_artifacts=("probe.csv",),
+    )
+    calls: list[dict[str, Any]] = []
+
+    def reference_artifacts(**options: Any) -> dict[str, pd.DataFrame]:
+        calls.append(options)
+        return {"probe.csv": pd.DataFrame({"reproduced": [True]})}
+
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+        reference_artifacts=reference_artifacts,
+    )
+    _stub_primary(monkeypatch, tmp_path, record)
+    sample_path = tmp_path / "samples.csv.gz"
+    truth_path = tmp_path / "truth.csv"
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(
+            rows=_rows(record.implementation),
+            paths={"samples.csv.gz": sample_path, "truth.csv": truth_path},
+        ),
+    )
+    monkeypatch.setattr(
+        regenerate, "_reference_rows", lambda *args, **kwargs: _rows(str(record.reference))
+    )
+
+    reference = regenerate.Reference("image", "runner")
+    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+
+    assert len(calls) == 1
+    assert calls[0]["reference"] is reference
+    assert calls[0]["samples"] == sample_path
+    assert calls[0]["truths_path"] == truth_path
+    assert pd.read_csv(tmp_path / "probe.csv")["reproduced"].tolist() == [True]
 
 
 def test_reporting_policy_publishes_failed_scientific_verdicts(
@@ -374,4 +421,50 @@ def test_incompatible_cached_reference_phase_is_refused(tmp_path: Any) -> None:
             argparse.Namespace(replicates=2, n=50, skip_r=False),
             tmp_path,
             phase,
+        )
+
+
+def test_an_alternate_reference_runner_must_be_mounted_and_hashed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        regenerate.subprocess,
+        "run",
+        lambda command, **options: commands.append(command),
+    )
+    reference = regenerate.Reference(
+        image="image",
+        runner="runner.R",
+        mount_runner=True,
+        extra_files=("probe.R",),
+    )
+    reference.run(
+        tmp_path,
+        tmp_path / "samples.csv.gz",
+        tmp_path / "truth.csv",
+        tmp_path / "probe.csv",
+        cores=2,
+        runner="probe.R",
+    )
+    assert "/fixture/probe.R" in commands[-1]
+    assert "CLEVERLY_R_CORES=2" in commands[-1]
+
+    with pytest.raises(ValueError, match="not in extra_files"):
+        reference.run(
+            tmp_path,
+            tmp_path / "samples.csv.gz",
+            tmp_path / "truth.csv",
+            tmp_path / "probe.csv",
+            cores=1,
+            runner="unregistered.R",
+        )
+    with pytest.raises(ValueError, match="requires mount_runner"):
+        regenerate.Reference("image", "runner.R", extra_files=("probe.R",)).run(
+            tmp_path,
+            tmp_path / "samples.csv.gz",
+            tmp_path / "truth.csv",
+            tmp_path / "probe.csv",
+            cores=1,
+            runner="probe.R",
         )

@@ -12,6 +12,7 @@ from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures
 
 from tests import discrete_law as law
+from tests.studies.evidence.properties import finite_support_sample
 
 INTERVENTION_CALIBRATION_REPLICATES = 4_000
 
@@ -52,10 +53,13 @@ def saturated_discrete_outcome() -> Pipeline:
 
 def sample_discrete(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:
     """Draw ``n`` rows from a declared ``P(W, A, Y)`` array."""
-    rng = np.random.default_rng(seed)
-    cells = rng.choice(len(law.SUPPORT), size=n, p=np.asarray(probs).reshape(-1))
-    values = np.asarray(law.SUPPORT, dtype=float)[cells]
-    return pd.DataFrame({"W": values[:, 0], "A": values[:, 1], "Y": values[:, 2]})
+    return finite_support_sample(
+        probs,
+        law.SUPPORT,
+        n,
+        seed,
+        columns=("W", "A", "Y"),
+    )
 
 
 def truths(probs: np.ndarray, estimands: Sequence[str]) -> dict[str, float]:

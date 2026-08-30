@@ -3,7 +3,7 @@
 Deriving seeds from ``SeedSequence(seed).generate_state(2 * replicates)`` -- one flat draw
 sized by the total -- re-seeds every replication as soon as the total changes, so a short
 run shares no sample with the published one and cannot be used to re-execute it.  Spawning
-on ``(scenario, replicate)`` instead makes replication *k* of a scenario a fixed sample:
+on ``(scenario owner, replicate)`` instead makes replication *k* of a scenario a fixed sample:
 a two-replication probe redraws exactly the first two samples of the full study, which is
 what lets a fast test refit committed replications and compare.
 """
@@ -30,8 +30,9 @@ def replicate_seed(record: StudyRecord, scenario: str, replicate: int) -> int:
         raise KeyError(f"{record.slug} has no scenario {scenario!r}")
     if replicate < 0:
         raise ValueError(f"replicate must be non-negative; got {replicate}")
+    owner = record.scenario_seed_owners.get(scenario, scenario)
     sequence = np.random.SeedSequence(
-        entropy=record.seed, spawn_key=(scenarios.index(scenario), replicate)
+        entropy=record.seed, spawn_key=(scenarios.index(owner), replicate)
     )
     return int(sequence.generate_state(1)[0])
 

@@ -144,6 +144,14 @@ all armwise corrections are present and the score and correction gates pass. Thi
 the source's armwise extension; it does not rewrite van der Laan's binary theorem as a multi-arm
 one.
 
+Controlled direct effects now add registered repeated-sampling evidence to their exact-law,
+Gateaux, remainder, and mutation chain. The
+[controlled direct-effect study](method-evidence/controlled-direct-effect-tmle.md) fits both
+intermediate levels, distinguishes the outcome-regression half of robustness from the joint
+treatment-intermediate-observation mechanism half, and includes one nonzero control for each
+mechanism. Its pinned R comparison recodes each requested level to `tmle`'s first result; a frozen
+fixture separately records why the native second result is not a valid exact-nuisance comparator.
+
 The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
 registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
 Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps

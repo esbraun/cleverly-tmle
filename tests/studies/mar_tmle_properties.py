@@ -14,15 +14,21 @@ from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_mar_tmle import G_BOUNDS, NUISANCE_BOUND, STUDY
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    ReplicationSpec,
+    control_row,
+    property_role,
+    replicate_row,
+    replication_payloads,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
     finish,
     necessity_verdicts,
+    robustness_verdicts,
 )
-from tests.studies.evidence.seeds import stream_seed
 from tests.studies.missing_outcome_study_helpers import (
     efficiency_sd,
     probabilities,
@@ -114,9 +120,13 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     frame = sample_discrete(probs, n, seed)
     result = _fit(frame, configuration, probs)
     truth = NULL_TRUTH if property_name == "type_i_error" else TRUTH
-    role = "control" if cell in {"treatment_wrong", "observation_wrong"} else "positive"
-    if property_name == "root_n_and_efficiency" and n == min(RATE_SIZES):
-        role = "control"
+    role = property_role(
+        configuration,
+        controls={"treatment_wrong", "observation_wrong"},
+        property_name=property_name,
+        n=n,
+        rate_sizes=RATE_SIZES,
+    )
     rows = [
         replicate_row(
             property_name=property_name,
@@ -166,7 +176,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
 
 
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
-    specs: list[tuple[str, str, int, int, str]] = []
+    specs: list[ReplicationSpec] = []
     for configuration in (
         "both_correct",
         "outcome_correct",
@@ -175,7 +185,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
         "observation_wrong",
     ):
         specs.append(
-            (
+            ReplicationSpec(
                 "mar_robustness",
                 configuration,
                 DOUBLE_ROBUST_N,
@@ -184,26 +194,30 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             )
         )
     for size in RATE_SIZES:
-        specs.append(("root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, "both_correct"))
+        specs.append(
+            ReplicationSpec(
+                "root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, "both_correct"
+            )
+        )
     specs.extend(
         [
-            (
+            ReplicationSpec(
                 "interval_calibration",
                 "ate__correctly_specified",
                 CALIBRATION_N,
                 CALIBRATION_REPLICATES,
                 "both_correct",
             ),
-            ("type_i_error", "sharp_null", NULL_N, NULL_REPLICATES, "both_correct"),
-            ("power", "alternative", NULL_N, NULL_REPLICATES, "both_correct"),
-            (
+            ReplicationSpec("type_i_error", "sharp_null", NULL_N, NULL_REPLICATES, "both_correct"),
+            ReplicationSpec("power", "alternative", NULL_N, NULL_REPLICATES, "both_correct"),
+            ReplicationSpec(
                 "targeting_necessity",
                 "targeted",
                 NECESSITY_N,
                 NECESSITY_REPLICATES,
                 "mechanisms_correct",
             ),
-            (
+            ReplicationSpec(
                 "missingness_necessity",
                 "declared",
                 NECESSITY_N,
@@ -212,12 +226,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
-    for property_name, cell, n, replicates, configuration in specs:
-        for replicate in range(replicates):
-            seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
-            out.append(((property_name, cell, replicate, n, replicates, seed, configuration),))
-    return out
+    return replication_payloads(STUDY, specs)
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -242,11 +251,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("targeting_displacement", "missingness_displacement"),
         efficiency_bounds={"ate": EFFICIENCY_SD},
     )
-    robustness = summary["property"] == "mar_robustness"
-    positive = robustness & (summary["role"] == "positive")
-    control = robustness & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    robustness_verdicts(summary, family="mar_robustness")
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     necessity_verdicts(
         summary,

@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import re
 
+from tests.studies.evidence.property_verdicts import (
+    UNION_MODEL_FAMILIES,
+    UNION_MODEL_SE_BAND,
+)
+
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
@@ -55,6 +60,8 @@ ARMS: dict[str, str] = {
     "rule": "covariate-dependent rule",
     "shift": "capped modified treatment policy",
     "tilt": "known stochastic tilt",
+    "z0": "controlled direct effect at intermediate level zero",
+    "z1": "controlled direct effect at intermediate level one",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -90,6 +97,7 @@ _TERM = re.compile(
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
+    "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
@@ -125,6 +133,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
+    "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
 }
@@ -155,6 +164,8 @@ SCENARIOS: dict[str, str] = {
     "outcome_correct": "paper binary law, outcome regression correct",
     "treatment_correct": "paper binary law, treatment mechanism correct",
     "binary_biased_sample": "binary-outcome law sampled with unequal selection probabilities",
+    "binary_cde_z0_mar": "binary-outcome MAR observed law, intervention sets the intermediate to zero",
+    "binary_cde_z1_mar": "binary-outcome MAR observed law, intervention sets the intermediate to one",
     "binary_dynamic_rule": "binary-outcome law with a covariate-dependent deterministic rule",
     "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
@@ -235,6 +246,10 @@ PROPERTIES: dict[str, str] = {
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
+    ),
+    "cde_robustness": (
+        "controlled direct-effect TMLE stays consistent when the outcome regression is correct "
+        "or when all three mechanisms are correct"
     ),
     "clustered_inference": (
         "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
@@ -318,6 +333,30 @@ PROPERTIES: dict[str, str] = {
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("cde_robustness", "all_correct"): (
+        "the outcome regression and all three mechanisms are correct",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "outcome_correct"): (
+        "the outcome regression is correct and all three mechanisms are wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "mechanisms_correct"): (
+        "all three mechanisms are correct and the outcome regression is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "treatment_wrong"): (
+        "only the treatment mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "intermediate_wrong"): (
+        "only the intermediate mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "observation_wrong"): (
+        "only the observation mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("clustered_inference", "cluster_robust"): (
         "five-fold point-treatment TMLE with cluster-robust ATE inference",
         "SE-ratio and coverage intervals both stay inside their calibration bands",
@@ -845,7 +884,12 @@ def claim(family: str) -> str:
 
 
 def cell(
-    family: str, key: str, *, exact_efficiency: bool = False, role: str | None = None
+    family: str,
+    key: str,
+    *,
+    exact_efficiency: bool = False,
+    role: str | None = None,
+    nuisance_count: int = 2,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -869,12 +913,22 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
+    if family == "interval_calibration" and base == "correctly_specified":
+        if nuisance_count == 2:
+            tested = "both nuisances are correctly specified"
+        else:
+            words = {3: "three", 4: "four"}
+            count = words.get(nuisance_count, str(nuisance_count))
+            tested = f"all {count} required nuisance functions are correctly specified"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
     if family == "interval_calibration" and base == "noise_control" and not exact_efficiency:
         tested = "a declared scale of independent noise is added to each estimate"
         required = "the SE-ratio interval must fall below the calibration band"
+    if family in UNION_MODEL_FAMILIES and family != "double_robustness":
+        low, high = UNION_MODEL_SE_BAND
+        required += f", SE ratio must remain between {low} and {high}"
     if family == "targeting_necessity" and arm is not None:
         if arm.group("arm") == "mechanism":
             tested = (

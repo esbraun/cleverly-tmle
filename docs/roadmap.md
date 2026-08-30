@@ -11,8 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V3 | Controlled direct-effect studies | source audit | none | [V3](#v3-controlled-direct-effect-studies) |
-| Validation | V4 | Weighted longitudinal studies | source audit | the registered point-weight row supplies the fixed-weight design; V3 ordering only | [V4](#v4-weighted-longitudinal-studies) |
+| Validation | V4 | Weighted longitudinal studies | source audit | the registered point-weight row supplies the fixed-weight design | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
@@ -82,16 +81,6 @@ The [implementation validation grid](technical-reference/method-evidence/validat
 records completed studies. This track records the sequence for implementation families that the
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
-
-### V3. Controlled direct-effect studies
-
-Validate each declared intermediate level against its exact controlled parameter. The study must
-exercise the treatment and intermediate mechanism product with a nonzero control.
-
-R `tmle` 2.1.1 estimates a controlled direct effect when `Z` is a binary intermediate. It returns
-one fit for `Z = 0` and one fit for `Z = 1`, which are the two declared levels. This study can
-therefore carry a paired comparison rather than an empty equivalence artifact. The comparator is
-binary, so a further intermediate level stays outside the paired cells.
 
 ### V4. Weighted longitudinal studies
 

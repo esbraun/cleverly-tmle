@@ -10,9 +10,9 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | all thirty studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | all thirty-one studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
-| the thirty study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the thirty-one study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -37,6 +37,7 @@ outcome-adaptive-multi-arm-c-tmle
 canonical-dr-tmle
 multi-arm-dr-tmle
 ordinary-missing-outcome-tmle
+controlled-direct-effect-tmle
 randomized-missing-outcome-dr-tmle
 point-treatment-msm-projection
 deterministic-point-treatment-regimes

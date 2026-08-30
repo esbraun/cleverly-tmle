@@ -38,9 +38,40 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
 )
 from tests.studies.evidence.registry import Margins, StudyRecord, registered
-from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 CONFIDENCE = 0.99
+
+
+def _seed_record(**changes: object) -> StudyRecord:
+    values: dict[str, object] = {
+        "name": "seed test",
+        "slug": "seed-test",
+        "artifacts": Path("."),
+        "document": "test.md",
+        "anchor": "test",
+        "scenarios": {"z0": ("ate",), "z1": ("ate",)},
+        "replicates": 2,
+        "n": 50,
+        "seed": 17,
+    }
+    values.update(changes)
+    return StudyRecord(**values)  # type: ignore[arg-type]
+
+
+def test_scenario_seed_owners_share_only_the_declared_primary_stream() -> None:
+    independent = _seed_record()
+    shared = _seed_record(scenario_seed_owners={"z1": "z0"})
+    assert replicate_seed(independent, "z0", 1) != replicate_seed(independent, "z1", 1)
+    assert replicate_seed(shared, "z0", 1) == replicate_seed(shared, "z1", 1)
+    assert replicate_seed(shared, "z0", 0) != replicate_seed(shared, "z0", 1)
+
+
+def test_scenario_seed_owners_reject_unknown_or_chained_owners() -> None:
+    with pytest.raises(ValueError, match="unknown scenarios"):
+        _seed_record(scenario_seed_owners={"z1": "missing"})
+    with pytest.raises(ValueError, match="point directly"):
+        _seed_record(scenario_seed_owners={"z1": "z0", "z0": "z1"})
 
 
 def test_calibration_verdicts_refuse_an_unknown_control_kind() -> None:

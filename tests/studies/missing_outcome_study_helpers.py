@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tests import discrete_law_mar as mar
+from tests.studies.evidence.properties import finite_support_sample
 
 
 def probabilities(
@@ -35,17 +36,14 @@ def probabilities(
 
 def sample_discrete(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:
     """Draw ``n`` observed-data rows from a declared finite MAR law."""
-    rng = np.random.default_rng(seed)
-    cells = rng.choice(len(mar.SUPPORT), size=n, p=np.asarray(probs).reshape(-1))
-    values = np.asarray(mar.SUPPORT, dtype=float)[cells]
-    kind = values[:, 2]
-    return pd.DataFrame(
-        {
-            "W": values[:, 0],
-            "A": values[:, 1],
-            "Y": np.where(kind == mar.UNOBSERVED, np.nan, kind),
-            "Delta": np.where(kind == mar.UNOBSERVED, 0.0, 1.0),
-        }
+    return finite_support_sample(
+        probs,
+        mar.SUPPORT,
+        n,
+        seed,
+        columns=("W", "A"),
+        kind_axis=2,
+        unobserved=mar.UNOBSERVED,
     )
 
 

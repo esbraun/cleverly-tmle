@@ -49,6 +49,7 @@ STUDY = StudyRecord(
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
+    nuisance_count=3,
     resampling_seed=20260924,
     margins=Margins(),
     implementation="cleverly-mar-drtmle",
