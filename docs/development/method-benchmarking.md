@@ -72,6 +72,15 @@ likelihood and the comparator boundary.
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
+The fixed-weight survey is separate because observation weights change the target law and every
+estimation stage.
+
+| candidate | weighted construction it reaches | verdict |
+| --- | --- | --- |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE through `obsWeights=` | Used by the weighted point-treatment row. The runner supplies the same fixed weights and exact nuisance predictions to both implementations. Its marginal log-odds-ratio standard error sits below the exact efficiency bound of the tilted law, so that one comparison witnesses the point estimate rather than the inference. |
+| R `ltmle` 1.3-0 | ordinary weighted longitudinal TMLE through `observation.weights=` | Retained for the weighted longitudinal roadmap item. Its sequential data layout adds no witness to the point-treatment row. |
+| R `lmtp` 1.5.4 | cross-fitted weighted longitudinal TMLE through `weights` | Retained for the cross-fitted half of the weighted longitudinal roadmap item. It is not ordinary point-treatment TMLE. |
+
 The cross-fitting survey is separate because the question is how an implementation aggregates over
 folds, not which parameter it reaches. Every candidate below describes itself as cross-fitted or
 cross-validated, and the candidates do not agree on what that means. Read the aggregation line in

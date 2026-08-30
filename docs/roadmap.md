@@ -11,9 +11,9 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V2 | Point-treatment weight studies | source audit | none | [V2](#v2-point-treatment-weight-studies) |
+| Validation | V2 | Learned weighted point-treatment nuisances | theory-neutral | none | [V2](#v2-learned-weighted-point-treatment-nuisances) |
 | Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
-| Validation | V4 | Weighted longitudinal studies | source audit | V3 establishes the fixed-weight study design | [V4](#v4-weighted-longitudinal-studies) |
+| Validation | V4 | Weighted longitudinal studies | source audit | the registered point-weight row supplies the fixed-weight design; V3 ordering only | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
@@ -84,13 +84,17 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V2. Point-treatment weight studies
+### V2. Learned weighted point-treatment nuisances
 
-Validate fixed probability weights against the tilted population law. The negative control must
-omit the weights and converge to a different parameter.
+The registered
+[weighted point-treatment row](technical-reference/method-evidence/weighted-point-treatment-tmle.md)
+supplies exact nuisance predictions at every fit. It therefore isolates weighted targeting and
+weighted inference, and it reaches no weighted nuisance loss. A learner that receives the weights
+through `sample_weight` is a separate composition, and cross-fitting is a third.
 
-R `tmle` 2.1.1 accepts `obsWeights=` for a biased sampling design. That package is pinned already,
-so this study needs no new container.
+Register a study that fits a regression on continuous covariates and passes the weights to the
+learner. Pair it with a control that omits the weights from the learner alone. The comparator
+survey needs no new entry, because R `tmle` 2.1.1 already accepts `obsWeights=`.
 
 ### V3. Controlled direct-effect studies
 

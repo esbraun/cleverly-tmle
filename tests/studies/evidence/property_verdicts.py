@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from tests.studies.evidence.inference import Interval
+from tests.studies.evidence.inference import Interval, standardized_bias_verdict
 from tests.studies.evidence.properties import (
     Rate,
     coverage_gain_interval,
@@ -544,6 +544,129 @@ def necessity_verdicts(
     summary.loc[mask, column] = displacement
     summary.loc[mask, "property_passed"] = bool(
         summary.loc[mask, "passed"].all() and displacement >= threshold
+    )
+
+
+def alternative_target_necessity_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    family: str,
+    labels: Sequence[str],
+    arms: tuple[str, str],
+    alternative_truths: Mapping[str, float],
+    column: str,
+    threshold: float,
+) -> None:
+    """Require a declared analysis choice to select between two exact targets.
+
+    Some necessity controls estimate a different valid parameter. An omitted observation
+    weight, for example, targets the selected population instead of producing an arbitrary
+    wrong number. A population-target bias check proves the omission matters. It does not
+    prove the control converges to the alternative target that explains the failure.
+
+    This helper adds that second direction to :func:`necessity_verdicts`, and it *calls* that
+    function rather than restating it.  The displacement rule, the arm-to-role mapping and
+    the joint clause are written once, in the place the module's own docstrings say they
+    belong: a rule written twice is a rule that can be changed in one of them.  What is added
+    here is the second direction alone, ANDed into the verdicts the shared rule wrote.
+
+    Three claims therefore hold together.  The positive arm must recover the study truth.
+    The control must miss that truth and recover its declared alternative truth.  The paired
+    displacement must clear the study's threshold.  A control that misses its claimed
+    alternative target fails both its own displayed row and the joint property.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this function updates with both target verdicts.
+    rows : pandas.DataFrame
+        Paired replication rows for the positive and control arms.
+    record : StudyRecord
+        Supplies the standardized-bias margin and confidence level.
+    family : str
+        The property family that owns the paired cells.
+    labels : Sequence[str]
+        Parameter labels used as cell-name prefixes.
+    arms : tuple[str, str]
+        Positive and control cell suffixes, in that order.
+    alternative_truths : Mapping[str, float]
+        Exact control target for each label.
+    column : str
+        Summary column that publishes the minimum paired displacement.
+    threshold : float
+        Declared minimum displacement in positive-arm empirical standard deviations.
+    """
+    mask = summary["property"] == family
+    if not mask.any():
+        return
+    missing = sorted(set(labels) - set(alternative_truths))
+    if missing:
+        raise ValueError(f"{family} has no alternative truth for {missing}")
+
+    numeric = (
+        "alternative_truth",
+        "alternative_bias_ci_lower",
+        "alternative_bias_ci_upper",
+        "alternative_bias_margin",
+    )
+    for name in numeric:
+        if name not in summary:
+            summary[name] = np.nan
+    if "alternative_bias_equivalent" not in summary:
+        summary["alternative_bias_equivalent"] = pd.Series(
+            [None] * len(summary), dtype=object, index=summary.index
+        )
+    else:
+        summary["alternative_bias_equivalent"] = summary["alternative_bias_equivalent"].astype(
+            object
+        )
+    if column not in summary:
+        summary[column] = np.nan
+
+    necessity_verdicts(
+        summary,
+        rows,
+        family=family,
+        labels=labels,
+        arms=arms,
+        column=column,
+        threshold=threshold,
+    )
+
+    control_arm = arms[1]
+    alternative_passed: list[bool] = []
+    for label in labels:
+        control_cell = f"{label}__{control_arm}"
+        group = rows.loc[(rows["property"] == family) & (rows["cell"] == control_cell)]
+        if group.empty:
+            raise ValueError(f"{family} has no rows for {control_cell}")
+        truth = float(alternative_truths[label])
+        verdict = standardized_bias_verdict(
+            group["estimate"].to_numpy(dtype=float) - truth,
+            margin=record.margins.standardized_bias,
+            confidence_level=record.margins.confidence_level,
+        )
+        cell_mask = mask & (summary["cell"] == control_cell)
+        if int(cell_mask.sum()) != 1:
+            raise ValueError(f"{family} has {int(cell_mask.sum())} summary rows for {control_cell}")
+        summary.loc[cell_mask, "alternative_truth"] = truth
+        summary.loc[cell_mask, "alternative_bias_ci_lower"] = verdict.interval.low
+        summary.loc[cell_mask, "alternative_bias_ci_upper"] = verdict.interval.high
+        summary.loc[cell_mask, "alternative_bias_margin"] = verdict.margin
+        summary.loc[cell_mask, "alternative_bias_equivalent"] = verdict.equivalent
+        summary.loc[cell_mask, "passed"] = bool(
+            summary.loc[cell_mask, "passed"].iloc[0] and verdict.equivalent
+        )
+        alternative_passed.append(bool(verdict.equivalent))
+
+    # ANDed into what the shared rule already decided, rather than recomputed beside it.
+    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
+    # verdict; the only claim it cannot make is that the control reaches the target this
+    # study declares for it.
+    summary.loc[mask, "property_passed"] = bool(
+        summary.loc[mask, "property_passed"].all() and all(alternative_passed)
     )
 
 

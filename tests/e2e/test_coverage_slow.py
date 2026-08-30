@@ -28,9 +28,9 @@ registered repeated row validates the median report at three draws, and no cell 
 whether three draws shrink the spread of ``psi`` across fold seeds.  ``docs/roadmap.md``,
 *V7. Repeat stability property cell*, holds the replacement.
 
-**Designs with no registered study row.** Weighted inference, controlled direct effects, and the
-remaining uncovered compositions below. Each carries its own coverage and root-n checks because
-no registered property cell covers it.
+**Designs with no registered study row.** Controlled direct effects and the remaining uncovered
+compositions below. Each carries its own coverage and root-n checks because no registered property
+cell covers it. Weighted point-treatment inference has moved into its registered paired study.
 
 These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
 are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather
@@ -694,58 +694,6 @@ class TestMultiArmSelectorRatioCoverage:
         assert 0.5 <= summary.se_ratio <= 2.0, summary
         assert summary.coverage > 0.60, summary
         assert summary.coverage >= plain.coverage - 3.0 * summary.coverage_se, (plain, summary)
-
-
-class TestWeightedInference:
-    """The survey use case, end to end: does the weighted interval cover?
-
-    Everything the fast tier can check about weighting is exact -- the estimand, the
-    influence curve, the conventions.  What it cannot check is the claim a user actually
-    relies on: that with known, unequal selection probabilities the weighted interval
-    covers the *population* parameter at the nominal rate.  That is a statement about
-    repeated sampling from the population, so it needs repeated sampling from the
-    population.
-
-    :func:`~cleverly.datasets.make_biased_sample` supplies it, with selection depending
-    on ``W1`` and the treatment effect varying in ``W1``, so the selected sample's ATE is
-    a different number from the population's.  The unweighted study is run alongside as
-    the control: it is not a broken estimator, it is a correct estimator of the other
-    parameter, and seeing its coverage collapse is what shows the weighting is load
-    bearing rather than decorative.
-    """
-
-    def _study_weighted(self, *, weights: str | None, reps: int = 200) -> object:
-        from cleverly.datasets import make_biased_sample
-
-        columns: dict[str, object] = {
-            "outcome": "Y",
-            "treatment": "A",
-            "covariates": ["W1", "W2"],
-        }
-        if weights is not None:
-            columns["weights"] = weights
-        return _study(make_biased_sample, n=3000, reps=reps, fit_kwargs=columns)["ate"]
-
-    def test_weighted_intervals_cover_the_population_estimand(self) -> None:
-        summary = self._study_weighted(weights="sampling_weight")
-        # 200 replications put the Monte Carlo standard error of the coverage at about
-        # 1.5 percentage points, so a +/- 0.04 window is roughly 2.5 of them.
-        assert 0.91 <= summary.coverage <= 0.99, summary
-        assert abs(summary.bias) < 3.0 * summary.bias_se, summary
-        # The outcome model is a GLM and the effect is heterogeneous, so Qbar is
-        # misspecified while g is not. Double robustness keeps the estimate consistent,
-        # and the influence-curve standard error is then conservative rather than
-        # optimistic -- which is the safe direction, and worth asserting as such.
-        assert summary.se_ratio > 0.95, summary
-
-    def test_ignoring_the_weights_estimates_the_other_parameter(self) -> None:
-        summary = self._study_weighted(weights=None, reps=100)
-        # Not a defect of the unweighted fit: it is consistent for the ATE among the
-        # selected, which is roughly 0.5 away from the population ATE here. Coverage of
-        # the population value collapses, which is exactly why the estimand statement
-        # in cleverly.data.weighting has to be part of the reported output.
-        assert summary.coverage < 0.2, summary
-        assert summary.bias > 0.3, summary
 
 
 CDE_FIT_KWARGS: dict[str, object] = {

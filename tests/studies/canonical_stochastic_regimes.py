@@ -20,10 +20,10 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.intervention_study_helpers import (
     initial_regime_estimates,
-    primary_rows,
     sample_discrete,
     truths,
 )
+from tests.studies.point_study_helpers import primary_rows
 
 LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
 R_BASE_IMAGE = (
@@ -159,7 +159,7 @@ def cleverly_rows(
     result = fit_cleverly(frame)
     return primary_rows(
         result=result,
-        reference=reference,
+        truth=reference,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,

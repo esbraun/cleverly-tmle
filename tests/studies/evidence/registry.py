@@ -172,6 +172,33 @@ class StudyRecord:
     properties_module: str = "tests.studies.canonical_properties"
     #: Property name -> the cells the committed property summary must contain.
     property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Estimand -> the exact standard deviation of that estimand's efficient influence curve
+    #: under this study's declared law, on the scale the study reports inference on.
+    #:
+    #: Declared here rather than read off the property module by name, for the reason the
+    #: ``margin:`` blocks in :mod:`tests.studies.evidence.claims` are keyed off the declared
+    #: cells: a duck-typed guard publishes a bound because a constant happens to be
+    #: importable, and it goes quiet the day the constant is renamed.  A study that can
+    #: compute an exact bound at all declares it, and :func:`claims.thresholds` publishes
+    #: each one as ``bound:<estimand>_standard_error`` at this study's own sample size.  A
+    #: reader can then compare the bound against the ``mean_std_error`` the artefacts record
+    #: for the same estimand, which is what decides a disagreement between two
+    #: implementations rather than merely reporting one.
+    efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: Measured-table quantity -> the decimal places that quantity's claim needs.
+    #:
+    #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
+    #: alone, which is all it can see.  That is enough for a claim about one number and not
+    #: enough for a claim of *agreement between two rows*.  This study's exact log-odds-ratio
+    #: bound is 0.13204392 and the standard error measured against it is 0.13204485; at four
+    #: decimals both print as ``0.1320``, and the table then shows two numbers that happen to
+    #: look equal rather than an implementation attaining its bound.
+    #:
+    #: A study names the quantities whose claim is agreement, and the decimals that claim
+    #: needs.  Declaring nothing keeps the value-only precision for every row, so this widens
+    #: no table but the one that asked.  ``document.fill`` is what applies it, which keeps the
+    #: generator the source of the precision rather than the person editing the document.
+    quoted_decimals: Mapping[str, int] = field(default_factory=dict)
     #: ``"gated"`` refuses publication when a scientific verdict fails. ``"reporting"``
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.
@@ -267,11 +294,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
         CANONICAL_TMLE,
+        CANONICAL_WEIGHTED_TMLE,
         CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_CVTMLE,
         CANONICAL_CLUSTERED_TMLE,

@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
@@ -26,14 +27,7 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import (
-    describe,
-    load,
-    matches,
-    quantities,
-    thresholds,
-    value,
-)
+from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -556,6 +550,19 @@ class TestPublishedVerdicts:
                 >= study.properties().PROJECTION_DISPLACEMENT
             )
 
+        weighting = published.loc[published["property"] == "weight_necessity"]
+        if not weighting.empty:
+            control = weighting.loc[weighting["role"] == "control"]
+            assert len(control) == 1
+            assert bool(control["alternative_bias_equivalent"].iloc[0])
+            assert weighting["property_passed"].nunique() == 1
+            assert bool(weighting["property_passed"].iloc[0]) is bool(
+                weighting["passed"].all()
+                and control["alternative_bias_equivalent"].all()
+                and weighting["necessity_displacement"].iloc[0]
+                >= study.properties().WEIGHT_DISPLACEMENT
+            )
+
         recursion = published.loc[
             published["property"].isin(
                 {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
@@ -663,6 +670,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "weight_necessity",
         "projection_necessity",
         "ratio_necessity",
         "rule_necessity",
@@ -1215,18 +1223,36 @@ class TestTheMethodEvidenceGrid:
 class TestTheQuotedMeasurements:
     """Every number the study document prints, against the artefacts it printed them from."""
 
-    def test_every_quoted_value_is_the_rounding_of_the_computed_one(
-        self, study: StudyRecord
-    ) -> None:
+    def test_every_quoted_value_is_the_one_the_generator_writes(self, study: StudyRecord) -> None:
+        """Not merely *a* rounding of the computed value, but the one ``fill`` would write.
+
+        ``claims.matches`` accepts any correct rounding at the precision printed.  That is the
+        right rule for reading a published table and the wrong one for gating a generated one,
+        and the difference is not academic.  Seven digits typed into this study's bound rows
+        satisfied it while ``python -m tests.studies.evidence.document`` rewrote the same rows
+        to four.  The gate was green, the committed document was not what the generator
+        produces, and the next person to run the generator got a diff nobody asked for.
+        Precision is the generator's decision alone now, and a study whose claim needs a
+        longer one declares it in ``quoted_decimals`` rather than typing it into the table.
+        """
         data = load(study)
         wrong = []
+        quoted = set()
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
-            computed = value(study, name, data)
-            if not matches(row["value"], computed):
-                wrong.append(f"{name}: {describe(computed, row['value'])}")
+            quoted.add(name)
+            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            if row["value"] != written:
+                wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
-            "the document quotes values its own results do not produce:\n  " + "\n  ".join(wrong)
+            "the measured table is not what `python -m tests.studies.evidence.document` "
+            "writes:\n  " + "\n  ".join(wrong)
+        )
+        stale = sorted(set(study.quoted_decimals) - quoted)
+        assert stale == [], (
+            f"{study.slug} declares a quoted precision for {stale}, which its measured table "
+            f"does not quote. A renamed quantity would silently drop the precision its claim "
+            f"needs and leave this document passing"
         )
 
     def test_the_table_reaches_every_family_of_result(self, study: StudyRecord) -> None:
@@ -1288,10 +1314,15 @@ def _exempt(name: str) -> bool:
     so it belongs to no artefact family by construction and must not be asked to count
     towards artefact coverage.  It is still gated: the quoted-value test resolves it like any
     other name, which is the whole point of naming a threshold instead of retyping it.
+
+    A ``bound:`` name is exempt for the same reason and gated the same way.  It is an exact
+    efficiency bound computed from the study's declared law, so no artefact produced it, and
+    a study that publishes one still has to quote it in its measured table.
     """
     return (
         name in _CONFIGURATION_QUANTITIES
         or name.startswith("margin:")
+        or name.startswith("bound:")
         or name.endswith("summary_cells")
         or "cells_with_" in name
     )
@@ -1538,6 +1569,8 @@ class TestTheQuantityVocabulary:
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
             )
+        if "weight_necessity" in study.property_cells:
+            assert declared["margin:weight_displacement"] == study.properties().WEIGHT_DISPLACEMENT
         if "projection_necessity" in study.property_cells:
             assert (
                 declared["margin:projection_displacement"]
@@ -1560,6 +1593,8 @@ class TestTheQuantityVocabulary:
             assert declared["margin:efficiency_ratio_lower"] == low
             assert declared["margin:efficiency_ratio_upper"] == high
             assert declared["margin:shrunken_se_factor"] == efficiency.SHRUNKEN_SE_FACTOR
+        for estimand, deviation in study.efficiency_bounds.items():
+            assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected

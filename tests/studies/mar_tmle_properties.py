@@ -25,10 +25,10 @@ from tests.studies.evidence.property_verdicts import (
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.missing_outcome_study_helpers import (
     efficiency_sd,
-    initial_arm_estimates,
     probabilities,
     sample_discrete,
 )
+from tests.studies.point_study_helpers import initial_estimates
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -140,7 +140,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 n=n,
                 requested=requested,
                 truth=truth,
-                estimate=initial_arm_estimates(result)[TARGET],
+                estimate=initial_estimates(result)[TARGET],
                 standard_error=float(result[TARGET].std_error),
                 critical=CRITICAL,
             )

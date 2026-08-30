@@ -75,6 +75,11 @@ Those studies are summarised in the
 results are the [implementation validation studies](method-evidence/index.md). The two halves are
 different instruments and neither one substitutes for the other.
 
+Fixed observation weights are an estimator variant over the same registered point-treatment
+targets. Their registered [weighted point-treatment study](method-evidence/weighted-point-treatment-tmle.md)
+tests the tilted population target, exact weighted influence-curve efficiency, and the consequence
+of omitting the weights on identical selected samples.
+
 ## Estimator variants over registered targets
 
 `CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they

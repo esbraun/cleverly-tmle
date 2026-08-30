@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -53,58 +52,6 @@ def sample_discrete(probs: np.ndarray, n: int, seed: int) -> pd.DataFrame:
 def truths(probs: np.ndarray, estimands: Sequence[str]) -> dict[str, float]:
     """Evaluate the independent observed-data oracle for each estimand."""
     return {name: float(mar.functional(probs, name)) for name in estimands}
-
-
-def initial_arm_estimates(result: Any) -> dict[str, float]:
-    """Return the untargeted treatment-specific means and their difference."""
-    weights = np.asarray(result.data.weights, dtype=float)
-    means = {
-        arm: float(
-            np.average(
-                result.nuisance.scaler.unscale_levels(result.nuisance.outcome.arms[arm]),
-                weights=weights,
-            )
-        )
-        for arm in result.data.arm_codes
-    }
-    return {"ey0": means[0.0], "ey1": means[1.0], "ate": means[1.0] - means[0.0]}
-
-
-def primary_rows(
-    *,
-    result: Any,
-    reference: Mapping[str, float],
-    implementation: str,
-    scenario: str,
-    replicate: int,
-    estimands: Sequence[str],
-) -> list[dict[str, Any]]:
-    """Convert one missing-outcome fit to the registered primary schema."""
-    initials = initial_arm_estimates(result)
-    rows: list[dict[str, Any]] = []
-    for name in estimands:
-        estimate = result[name]
-        low, high = estimate.ci
-        truth = float(reference[name])
-        rows.append(
-            {
-                "implementation": implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": result.data.n,
-                "estimand": name,
-                "truth": truth,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= truth <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
 
 
 def efficiency_sd(probs: np.ndarray, estimand: str) -> float:

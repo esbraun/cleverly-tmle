@@ -10,6 +10,7 @@ what is printed is what resolves, at the precision it was printed to.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Callable, Mapping
 
@@ -259,6 +260,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "rule_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
+    if "weight_necessity" in record.property_cells:
+        declared["margin:weight_displacement"] = record.properties().WEIGHT_DISPLACEMENT
     if "categorical_probability_necessity" in record.property_cells:
         declared["margin:categorical_probability_displacement"] = (
             record.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
@@ -274,6 +277,14 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         or "competing_risk_recursion_necessity" in record.property_cells
     ):
         declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
+    # A ``bound:`` name is neither a margin nor a measurement.  It is the exact standard
+    # deviation of an estimand's efficient influence curve under the study's declared law,
+    # divided by the square root of the study's own size, so a section can print it beside
+    # the ``mean_std_error`` its artefacts record for the same estimand.  That comparison is
+    # what settles a disagreement between two implementations.  Two implementations
+    # reporting the same number establishes only that they agree.
+    for estimand, deviation in sorted(record.efficiency_bounds.items()):
+        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
     return declared
 
 

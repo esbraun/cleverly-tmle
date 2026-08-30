@@ -55,19 +55,25 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 76 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 74 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Three design families now have no active repeated-sampling
-evidence: weights, controlled direct effects, and weighted longitudinal fits. Clustered
-point-treatment inference has a registered paired study.
+**Read the consequence plainly.** Two design families now have no active repeated-sampling
+evidence: controlled direct effects and weighted longitudinal fits. Weighted and clustered
+point-treatment inference each have a registered paired study.
 Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
 longitudinal treatment has separate ordinary and cross-fitted rows. Each uncovered family still
 runs its exact-law, Gateaux, remainder and mutation tests in the fast tier. Those tests check the
 parameter and the influence curve.
+
+Weights are a partial case. The registered
+[weighted row](../technical-reference/method-evidence/weighted-point-treatment-tmle.md) supplies
+exact nuisance predictions at every fit. It therefore does not reach learned or cross-fitted
+weighted nuisances, which the deleted `TestWeightedInference` reached with a GLM on two continuous
+covariates. `docs/roadmap.md` *V2* holds the study that would restore that claim.
 
 Fold repeats are a partial case. The registered
 [repeated row](../technical-reference/method-evidence/repeated-cross-fitting.md) covers the median
