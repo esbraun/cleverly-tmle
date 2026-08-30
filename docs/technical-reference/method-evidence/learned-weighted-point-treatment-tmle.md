@@ -145,8 +145,8 @@ The two targeted passes therefore do not replace the untargeted learner-weight w
   replicate weights remain outside this row.
 - The study covers ordinary pointwise inference for two arm means and their difference. It excludes
   ratios, ATT, ATC, missing outcomes, clusters, strata, and simultaneous bands.
-- Cross-fitted weighted nuisances and weighted longitudinal targeting remain outside the registered
-  studies.
+- Cross-fitted weighted point-treatment nuisances remain outside this row. Weighted longitudinal
+  targeting has separate ordinary and cross-fitted reporting studies.
 - The learner-weight witness resolves the outcome regression only. Treatment is randomized with
   probability 0.5, and `A ~ W1 + W2` contains the truth. A weighted treatment fit and an unweighted
   treatment fit therefore converge to the same regression. Only

@@ -33,6 +33,7 @@ lmtp_tmle_with_folds <- function(
   time_vary = NULL,
   cens = NULL,
   id = NULL,
+  weights = NULL,
   outcome_type = "binomial",
   fold_assignment,
   learners_outcome = "SL.glm",
@@ -61,6 +62,13 @@ lmtp_tmle_with_folds <- function(
   )
 ) {
   if (nrow(data) != length(fold_assignment)) stop("fold assignment has the wrong length")
+  if (!is.null(weights)) {
+    if (length(weights) != nrow(data)) stop("weights have the wrong length")
+    if (!is.numeric(weights) || any(!is.finite(weights)) || any(weights <= 0)) {
+      stop("weights must be finite positive numbers")
+    }
+    weights <- as.numeric(weights)
+  }
   if (!is.null(id) && (!is.character(id) || length(id) != 1L || !id %in% names(data))) {
     stop("id must be NULL or the name of one cluster identifier column")
   }
@@ -99,7 +107,7 @@ lmtp_tmle_with_folds <- function(
     outcome_type = outcome_type,
     bounds = NULL,
     folds = length(unique(fold_assignment)),
-    weights = NULL
+    weights = weights
   )
   task$folds <- fold_list(fold_assignment)
   progress <- function(...) invisible(NULL)

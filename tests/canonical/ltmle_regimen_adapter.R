@@ -102,7 +102,12 @@ regimen_ltmle_fit <- function(arguments, frame, label) {
   } else {
     coefficients <- first_q[, "Estimate"]
     design <- model.matrix(~ W1 + W2, data = frame)
-    unname(mean(plogis(design[, names(coefficients), drop = FALSE] %*% coefficients)))
+    predictions <- plogis(design[, names(coefficients), drop = FALSE] %*% coefficients)
+    if (is.null(arguments$observation.weights)) {
+      unname(mean(predictions))
+    } else {
+      unname(weighted.mean(predictions, arguments$observation.weights))
+    }
   }
   list(
     estimate = unname(targeted$estimates[["tmle"]]),

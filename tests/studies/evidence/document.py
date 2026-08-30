@@ -254,6 +254,8 @@ def _measured(row: Any) -> str:
         if (
             family in {"weight_necessity", "learner_weight_necessity"}
             and str(row.role) == "control"
+            and hasattr(row, "alternative_bias_ci_lower")
+            and pd.notna(row.alternative_bias_ci_lower)
         ):
             measured += (
                 ", selected-target bias "

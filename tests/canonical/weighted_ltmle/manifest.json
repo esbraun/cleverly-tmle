@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "study": "ordinary weighted end-of-study longitudinal TMLE",
+  "slug": "weighted-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-weighted-ltmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "dd0c20a2646dc0693c58b4f83267f4c0d76431f8",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "ltmle-weighted",
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261101,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "selected_censored_end_of_study": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat then continue if l2 positive]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat then continue if l2 positive vs never]"
+      ]
+    },
+    "construction": "ordinary_weighted",
+    "selection_probability": {
+      "W1_positive": 0.3,
+      "otherwise": 0.9
+    },
+    "selected_n": 2000,
+    "cross_fit": false,
+    "outer_folds": 1,
+    "weights": "fixed_inverse_selection_probability",
+    "outcome_designs": [
+      [
+        "W1",
+        "W2"
+      ],
+      [
+        "W1",
+        "W2",
+        "L2"
+      ]
+    ],
+    "mechanism": "supplied_from_the_law_to_both",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "treat then continue if l2 positive"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_weighted_ltmle.py": "f9c93f028e16d21052eb88a974ced4713ad017e087bc0aa3ebe63ab8df76acce",
+    "tests/studies/weighted_longitudinal_common.py": "5e84ba5a06e1249ee1874f085a08c51c46a1bab5f08b87e39bbd4f899fdf6e07",
+    "tests/studies/weighted_ltmle_properties.py": "a1bfa1d24faeaae7b18e4d7a46fad33d99fa0261f9a0a7fff35de1f6a9980994",
+    "tests/studies/weighted_longitudinal_properties_common.py": "d4f972cad6bf88801e244da2132b770f01640c72080ede568e8e117dea870af5",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "f427cb7c417d9778e4876f12e7338ab982b18bfbb861fd87b9f9a08adfcfea2d",
+    "tests/studies/evidence/property_verdicts.py": "22a97bdbde5afa551b88b4a3784f8674eb57753b2327413e634a215c284cc417",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/ltmle_regimen_adapter.R": "51715276e3a0a4dec7d0a904d3c377b22e61775f46fe631d1297b4d75eef7cb0",
+    "tests/canonical/weighted_ltmle/run_study.R": "1c7d5be3eade45e53a408c34d5d94848f2c1fa3a18c7ef0eb441c64cbed85cd9"
+  },
+  "reference_sha256": {
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/weighted_ltmle/run_study.R": "1c7d5be3eade45e53a408c34d5d94848f2c1fa3a18c7ef0eb441c64cbed85cd9",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/ltmle_regimen_adapter.R": "51715276e3a0a4dec7d0a904d3c377b22e61775f46fe631d1297b4d75eef7cb0"
+  },
+  "sha256": {
+    "replicates.csv.gz": "f118e1eddd4cb3a3351f9d213490a6acde8841abf374af3a041d8f24e98442ad",
+    "summary.csv": "9eafe6e3708e02abc4d1d09fe76cd3b98bb57e4f62c9536eeab87e077ef351d1",
+    "equivalence.csv": "4dc8dbac6067280b040df618bb3e3e05ecdd961b2f1ed15dfa6ed4d6dbd891aa",
+    "performance-tests.csv": "041f59784f0744f8487375646e3260a8ce351eb5a7f29ecc1f2f7a865f6fa165",
+    "property-replicates.csv.gz": "c0d2d543f241d6070119719632ce3da15ea6180d32760b82c41a05b1699bb064",
+    "properties.csv": "9ba0eecf70b87c59f5f1b79dcd44e73dcf1edb3e7f28d663911035f2ed791eac"
+  }
+}

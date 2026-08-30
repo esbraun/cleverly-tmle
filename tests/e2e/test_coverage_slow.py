@@ -28,10 +28,10 @@ registered repeated row validates the median report at three draws, and no cell 
 whether three draws shrink the spread of ``psi`` across fold seeds.  ``docs/roadmap.md``,
 *V7. Repeat stability property cell*, holds the replacement.
 
-**Designs with no registered study row.** The weighted longitudinal composition below remains
-uncovered. It carries its own coverage and root-n checks because no registered property cell
-covers it. Controlled direct effects and weighted point-treatment inference have moved into their
-registered paired studies.
+**Designs with no registered study row.** Remaining legacy studies below cover designs that do
+not yet have a registered replacement. Weighted longitudinal inference has moved into separate
+ordinary and cross-fitted reporting studies, so its deprecated class is no longer duplicated
+here.
 
 These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
 are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather
@@ -61,7 +61,6 @@ from cleverly.datasets import (
     instrument_dgp,
     linear_dgp,
     make_longitudinal_competing,
-    make_longitudinal_weighted,
     make_multi_arm,
     multi_arm_dgp,
     nonlinear_dgp,
@@ -694,130 +693,6 @@ class TestMultiArmSelectorRatioCoverage:
         assert 0.5 <= summary.se_ratio <= 2.0, summary
         assert summary.coverage > 0.60, summary
         assert summary.coverage >= plain.coverage - 3.0 * summary.coverage_se, (plain, summary)
-
-
-class TestAWeightedLongitudinalFitUnderRepeatedSampling:
-    """Does the weighted sequential fit cover, on a sample that was drawn on purpose?
-
-    ``tests/unit/test_weighted_estimand_longitudinal.py`` proves the estimand and the
-    influence curve exactly, on a law a sample realises and handed a saturated learner.
-    What it cannot ask is whether the interval built from that curve covers under repeated
-    sampling when the nuisances are estimated -- which is what this asks, on the one design
-    where the answer is checkable against a truth nobody had to re-derive.
-
-    ``make_longitudinal_weighted`` keeps each unit with a known probability
-    :math:`\\pi(W_1)` and hands it :math:`w = 1/\\pi`.  Tilting the sampling law by those
-    weights reproduces the original law *exactly*, so the truth is
-    ``make_longitudinal``'s unchanged and the comparison is honest in both directions: a
-    fit that applied the weights is estimating this parameter, and one that ignored them is
-    estimating the selected population's -- which selection on ``W1`` makes a different
-    number, since ``W1`` moves both treatment decisions and the outcome.
-
-    **This class has not run at 400 replicates**, and is recorded that way rather than
-    implied to have passed. What *was* run, at ``n=2000``, is 60 replicates at one seed and 120
-    at another.  Bias came back within one Monte Carlo standard error of zero on all three
-    parameters (largest ``0.011``, se ``0.005``), coverage between ``0.93`` and ``0.97``,
-    and ``se_ratio`` between ``0.90`` and ``1.18`` -- the spread of a ratio estimated from
-    that many draws, which is why the band asserted below is the sibling class's and not a
-    tighter one read off a single run.  To check it before the next nightly, dispatch that
-    workflow with ``selection`` set to this class's node id.
-    """
-
-    COLUMNS: ClassVar[dict[str, Any]] = {
-        "outcome": "Y",
-        "treatment": ["A1", "A2"],
-        "baseline": ["W1", "W2"],
-        "time_varying": [[], ["L2"]],
-        "censoring": ["C1", "C2"],
-        "weights": "w",
-    }
-
-    ESTIMANDS: ClassVar[tuple[str, ...]] = (
-        "ey_regimen[always]",
-        "ey_regimen[never]",
-        "ate_regimen[always vs never]",
-    )
-
-    def _run(self, *, n: int, reps: int = REPLICATES, weighted: bool = True) -> Any:
-        columns = dict(self.COLUMNS)
-        if not weighted:
-            del columns["weights"]
-        return CoverageStudy(
-            dgp=make_longitudinal_weighted,
-            estimator=lambda: LTMLE(
-                {"always": 1, "never": 0},
-                reference="never",
-                outcome_learner=sklearn.linear_model.LinearRegression(),
-                pseudo_learner=sklearn.linear_model.LinearRegression(),
-                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-                n_folds=5,
-                learner_folds=3,
-                simultaneous=False,
-                random_state=0,
-            ),
-            n=n,
-            n_replicates=reps,
-            estimands=self.ESTIMANDS,
-            fit_kwargs=columns,
-            seed=2024,
-            n_jobs=STUDY_JOBS,
-        ).run()
-
-    @pytest.fixture(scope="class")
-    def study(self) -> Any:
-        """One study, shared by the tests that read it -- ``n`` is before selection.
-
-        About 60% of the units are retained, so this is a fit on roughly 1200 rows with a
-        design effect near 1.4.
-        """
-        return self._run(n=2000)
-
-    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
-        """The claim: ``(w / E[w]) D*(P_w)`` is the curve of the parameter being reported.
-
-        A weighted fit has two ways to miss here and they are not the same failure.  If the
-        *estimand* were wrong -- weights applied to the plug-in but not to the nuisances,
-        say -- the intervals would sit off the truth and coverage would collapse.  If only
-        the *curve* were wrong -- the centring left outside the weight, the normalisation
-        forgotten -- they would be centred correctly and the wrong width.  Coverage catches
-        both; the standard-error test below separates them.
-        """
-        for name in study.summaries:
-            summary = study[name]
-            assert summary.coverage > 0.90, summary
-            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
-
-    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
-        """The influence-curve variance against the actual spread, under the tilt.
-
-        The Hajek centring ``w (f - psi)`` is what linearises the ratio the estimator is,
-        and dropping it inflates the variance rather than the estimate -- so it shows up
-        here and nowhere in the point estimates.
-        """
-        for name in study.summaries:
-            assert 0.85 < study[name].se_ratio < 1.15, study[name]
-
-    def test_ignoring_the_weights_misses_the_truth(self) -> None:
-        """The negative control, and the reason the design is a biased sample.
-
-        The same replications with the weight column left out estimate the *selected*
-        population's parameter, so the coverage above is evidence that the weighting is
-        doing the work rather than that this process is forgiving.
-
-        **On a level, not on the contrast**, and that is the point worth recording.
-        Selection on ``W1`` shifts both counterfactual means in the same direction, so most
-        of the bias cancels in ``ate_regimen[always vs never]``: a 60-replicate run at
-        ``n=2000`` put the unweighted bias at ``-0.050`` and ``-0.060`` on the two means --
-        fourteen Monte Carlo standard errors each, with coverage collapsing to ``0.43`` and
-        ``0.53`` -- while the contrast came back at ``+0.011`` with coverage ``0.92``.  A
-        negative control taken on the contrast would therefore be nearly silent, and would
-        read as though the weighting barely mattered.
-        """
-        ignored = self._run(n=2000, reps=100, weighted=False)
-        for name in ("ey_regimen[always]", "ey_regimen[never]"):
-            summary = ignored[name]
-            assert abs(summary.bias) > 5.0 * summary.bias_se, summary
-            assert summary.coverage < 0.8, summary
 
 
 class TestCompetingRisksUnderRepeatedSampling:

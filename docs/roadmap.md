@@ -11,8 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V4 | Weighted longitudinal studies | implementation-ready | the registered point-weight row supplies the fixed-weight design | [V4](#v4-weighted-longitudinal-studies) |
-| Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
+| Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | none | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
 | Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
@@ -81,68 +80,6 @@ The [implementation validation grid](technical-reference/method-evidence/validat
 records completed studies. This track records the sequence for implementation families that the
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
-
-### V4. Weighted longitudinal studies
-
-Register separate ordinary and cross-fitted weighted end-of-study studies. The ordinary row must
-compare with pinned R `ltmle` 1.3-0 through `observation.weights=`. The cross-fitted row must
-compare with pinned R `lmtp` 1.5.4 through `weights=` and identical rowwise folds.
-
-Draw exactly 2,000 selected rows per replication. Accept a source-law row with probability 0.3
-when `W1` is positive and 0.9 otherwise. Attach the fixed inverse selection probability as its
-observation weight. Use one explicit generator until the accepted sample has the declared size.
-
-The weighted law recovers the existing end-of-study truth exactly. Report the never-treated,
-always-treated, and dynamic regimen means. Also report the always-treated and dynamic contrasts
-against never treatment. Each study must use its own registered seed stream.
-
-Compare 800 paired replications per row. Supply the same outcome-regression designs, treatment and
-censoring mechanisms, truncation bounds, and intervention plans to both implementations. Use one
-ordinary fold for `ltmle` and one exact five-fold assignment for `lmtp`.
-
-Pinned `lmtp` uses sampling weights for targeting, plug-in averaging, and covariance. Its native
-nuisance pipeline does not pass those weights to its learners. Add a documented SuperLearner GLM
-adapter that reads an auxiliary weight column and excludes that column from the predictor design.
-Use the same weighted GLM designs in Python. Add focused tests for this adapter boundary.
-
-Reuse the pinned images, shared R harness, regimen adapter, fold adapter, and common longitudinal
-row transcription. Add one Python module for the selected law, exact-size sampling, plans, fits,
-and rows. Use thin study records and thin property wrappers around shared weighted-longitudinal
-property machinery.
-
-Extend the shared `lmtp` fold adapter with an optional weight argument. Existing callers must
-continue to pass no weights. Record that inactive branch as a result-neutral provenance revision
-instead of regenerating unrelated studies.
-
-Each property study must test longitudinal double robustness, three sample sizes, root-n rates,
-interval calibration, null size, power, targeting necessity, weight necessity, and learner-weight
-necessity. The cross-fitted row may add an overfitting control only if a disposable probe resolves
-the predeclared margin.
-
-Use 1,200 replications at `n = 2,000` for robustness, targeting, and both weight controls. Use 800
-replications at sizes 500, 2,000, and 8,000 for the rate study. Use 2,400 replications at
-`n = 2,000` for calibration. Use 800 replications at `n = 4,000` for null size and power.
-
-Pair each calibrated interval with a 0.70 standard-error shrinkage control and an added-noise
-control. Pair the sharp null with a nonzero-effect power law. Use the default 99% Monte Carlo
-bounds, a 0.90 to 1.10 efficiency band, and a 0.25 standard-deviation necessity margin.
-
-Test weight necessity on both regimen means. Do not use the ATE as its sole control, because the
-selection bias largely cancels in that contrast. The omitted arm must remove weights from nuisance
-fitting, targeting, plug-in averaging, and covariance.
-
-Test learner-weight necessity separately. Keep weights in targeting, averaging, and covariance,
-but use nuisance learners that deliberately discard `sample_weight` in the control. Use a selected
-finite-support law whose weights move the conditional nuisances and whose weighted truth and
-efficiency bounds are exact.
-
-Run disposable smoke studies before both declared runs. Register every scenario, estimand,
-property cell, artifact, and generated table through the common evidence framework. Remove the
-deprecated weighted longitudinal coverage class only after both registered rows replace its
-claim.
-
-The implementation commit must remove this completed item from the roadmap. It must make V5 the
-next validation item and remove the completed V4 ordering dependency.
 
 ### V5. Fold-evaluated CV-TMLE comparator
 

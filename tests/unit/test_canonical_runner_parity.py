@@ -47,8 +47,50 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 #: Every reference runner, by the study directory that owns it.
 RUNNERS = tuple(sorted((ROOT / "tests" / "canonical").glob("*/run_*.R")))
 
-#: The ``name = `` keys inside a ``data.frame(`` call.
-_KEY = re.compile(r"^\s{2,}(?P<name>[a-z_]+) = ", re.M)
+_KEY = re.compile(r"^\s*(?P<name>[a-z_]+)\s*=")
+
+
+def _top_level_arguments(source: str) -> tuple[str, ...]:
+    """Split R call arguments without mistaking commas inside an expression for columns."""
+    arguments: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    comment = False
+    for index, character in enumerate(source):
+        if comment:
+            if character == "\n":
+                comment = False
+            continue
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            continue
+        if character in {'"', "'", "`"}:
+            quote = character
+        elif character == "#":
+            comment = True
+        elif character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+        elif character == "," and depth == 0:
+            arguments.append(source[start:index])
+            start = index + 1
+    arguments.append(source[start:])
+    return tuple(arguments)
+
+
+def _argument_key(argument: str) -> str | None:
+    """Read a named argument after discarding any explanatory R comment lines."""
+    uncommented = re.sub(r"(?m)^\s*#.*(?:\n|$)", "", argument)
+    match = _KEY.match(uncommented)
+    return None if match is None else match.group("name")
 
 
 def published_keys(source: str) -> tuple[str, ...]:
@@ -62,7 +104,13 @@ def published_keys(source: str) -> tuple[str, ...]:
         end = tail.find("stringsAsFactors")
         if end < 0:
             continue
-        keys = tuple(dict.fromkeys(_KEY.findall(tail[:end])))
+        keys = tuple(
+            dict.fromkeys(
+                name
+                for argument in _top_level_arguments(tail[:end])
+                if (name := _argument_key(argument)) is not None
+            )
+        )
         if "inference_scale" in keys:
             return keys
     raise AssertionError("no published row builder found")
