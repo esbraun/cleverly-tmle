@@ -122,6 +122,10 @@ nuisance losses, in targeting, in the plug-in average, and in the influence-curv
 The registered [weighted point-treatment study](method-evidence/weighted-point-treatment-tmle.md)
 checks that construction against R `tmle` and includes an omitted-weight control that recovers the
 exact selected-population target.
+The [learned-nuisance weighted study](method-evidence/learned-weighted-point-treatment-tmle.md)
+also fits both nuisance regressions with those weights. Its learner-only control separates the
+target and selected plug-ins, while weighted targeting repairs the control under a correct
+treatment mechanism.
 `strata=` produces stratum-specific parameters. `cluster=` changes the independent unit for
 covariance and fold construction, and it does not change the estimand. See
 [how every method reports uncertainty](inference.md#clusters).

@@ -78,7 +78,10 @@ different instruments and neither one substitutes for the other.
 Fixed observation weights are an estimator variant over the same registered point-treatment
 targets. Their registered [weighted point-treatment study](method-evidence/weighted-point-treatment-tmle.md)
 tests the tilted population target, exact weighted influence-curve efficiency, and the consequence
-of omitting the weights on identical selected samples.
+of omitting the weights on identical selected samples. The separate
+[learned-nuisance weighted study](method-evidence/learned-weighted-point-treatment-tmle.md) sends
+the weights through both regressions. Its learner-only control moves the untargeted plug-in to the
+selected target, while a correct treatment mechanism repairs the targeted estimate.
 
 ## Estimator variants over registered targets
 

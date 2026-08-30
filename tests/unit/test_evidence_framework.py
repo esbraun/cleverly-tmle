@@ -65,6 +65,55 @@ def test_calibration_verdicts_refuse_an_unknown_control_kind() -> None:
         calibration_verdicts(summary, margins=Margins(), efficiency_band=(0.9, 1.1))
 
 
+def test_calibration_verdicts_read_a_bandless_study_on_the_se_ratio_alone() -> None:
+    """A study with no exact efficiency ratio publishes no efficiency columns to read.
+
+    Its positive arm answers to the SE ratio and coverage.  Its noise arm answers to the
+    SE-ratio rule, because added noise inflates the empirical spread while the reported
+    standard errors stay put, so the ratio falls below its band.  Reading the absent
+    efficiency columns at all would raise :class:`KeyError`, which is what pins the lazy read.
+    """
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 3,
+            "cell": [
+                "ate__treatment_correct",
+                "ate__shrunken_se_control",
+                "ate__noise_control",
+            ],
+            "se_ratio_ci_lower": [0.98, 0.68, 0.70],
+            "se_ratio_ci_upper": [1.02, 0.72, 0.74],
+            "coverage_ci_lower": [0.94, 0.80, 0.80],
+            "coverage_ci_upper": [0.96, 0.86, 0.86],
+            "passed": [False, False, False],
+        }
+    )
+    assert not any(column.startswith("efficiency_") for column in summary.columns)
+
+    calibration_verdicts(
+        summary, margins=Margins(), efficiency_band=None, positive_suffix="treatment_correct"
+    )
+    assert list(summary["passed"]) == [True, True, True]
+
+    # The positive arm is judged on the SE ratio and coverage alone.  Move coverage out of its
+    # band and the verdict must turn, with the efficiency columns still absent.
+    moved = summary.copy()
+    moved.loc[0, "coverage_ci_upper"] = 0.99
+    calibration_verdicts(
+        moved, margins=Margins(), efficiency_band=None, positive_suffix="treatment_correct"
+    )
+    assert list(moved["passed"]) == [False, True, True]
+
+    # The noise arm is judged by the SE-ratio rule.  Put its ratio back inside the band and the
+    # arm stops discriminating, so its verdict must turn.
+    inert = summary.copy()
+    inert.loc[2, ["se_ratio_ci_lower", "se_ratio_ci_upper"]] = [0.98, 1.02]
+    calibration_verdicts(
+        inert, margins=Margins(), efficiency_band=None, positive_suffix="treatment_correct"
+    )
+    assert list(inert["passed"]) == [True, True, False]
+
+
 def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:
     rng = np.random.default_rng(4)
     noise = rng.normal(scale=0.1, size=200)

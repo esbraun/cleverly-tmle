@@ -108,6 +108,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "cleverly-weighted-tmle": "`cleverly` weighted point-treatment TMLE",
+    "cleverly-learned-weighted-tmle": (
+        "`cleverly` weighted point-treatment TMLE with learned nuisances"
+    ),
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
@@ -123,6 +126,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
     "tmle-r-weighted": "R `tmle` with observation weights",
+    "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
 }
 
 
@@ -157,6 +161,9 @@ SCENARIOS: dict[str, str] = {
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
+    "continuous_selected_weighted_nuisances": (
+        "continuous-outcome law selected by a covariate-dependent density"
+    ),
     "multi_arm_binary": "three-arm binary-outcome law",
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
     "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
@@ -259,6 +266,9 @@ PROPERTIES: dict[str, str] = {
         "the reported standard error and the exact coverage both sit inside their declared "
         "two-sided calibration bands"
     ),
+    "learner_weight_necessity": (
+        "both nuisance learners use the fixed weights that define the target population"
+    ),
     "mechanism_requirement": (
         "the treatment mechanism must be correct because it defines the incremental parameter"
     ),
@@ -323,6 +333,22 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("weight_necessity", "omitted_control"): (
         "the identical selected rows analyzed without their inverse-selection weights",
         "population-target bias outside its margin and selected-target bias inside its margin",
+    ),
+    ("learner_weight_necessity", "weighted_targeted"): (
+        "the weighted nuisance fits followed by weighted targeting and averaging",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "unweighted_targeted"): (
+        "nuisance fits omit weights, while targeting and averaging retain them",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "weighted_plugin"): (
+        "the untargeted plug-in from both weighted nuisance fits",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "unweighted_plugin_control"): (
+        "the untargeted plug-in from nuisance fits that omit weights",
+        "target bias outside its margin, selected-population bias inside its margin, and paired displacement above its threshold",
     ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",
@@ -484,6 +510,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("interval_calibration", "correctly_specified"): (
         "both nuisances are correctly specified",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "treatment_correct"): (
+        "the randomized treatment mechanism is correct while the outcome regression omits effect modification",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "shrunken_se_control"): (
@@ -687,6 +717,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "a confounded law whose true contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
+    ("type_i_error", "target_null"): (
+        "a selected law whose weighted target contrast is exactly zero",
+        "one-sided rejection bound stays under the declared type-I ceiling",
+    ),
 }
 
 
@@ -838,6 +872,9 @@ def cell(
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
+    if family == "interval_calibration" and base == "noise_control" and not exact_efficiency:
+        tested = "a declared scale of independent noise is added to each estimate"
+        required = "the SE-ratio interval must fall below the calibration band"
     if family == "targeting_necessity" and arm is not None:
         if arm.group("arm") == "mechanism":
             tested = (

@@ -250,7 +250,10 @@ def _measured(row: Any) -> str:
         # belongs in the column a reader reads.
         if family == "double_robustness":
             measured += f", SE ratio {render(float(row.se_ratio))}"
-        if family == "weight_necessity" and str(row.role) == "control":
+        if (
+            family in {"weight_necessity", "learner_weight_necessity"}
+            and str(row.role) == "control"
+        ):
             measured += (
                 ", selected-target bias "
                 f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
@@ -338,6 +341,7 @@ _BIAS_GATED = frozenset(
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
+        "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
         "robustness_contract",

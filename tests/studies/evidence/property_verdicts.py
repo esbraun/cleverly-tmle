@@ -394,6 +394,7 @@ def calibration_controls(
     calibration_n: int,
     shrunken_se_factor: float,
     critical: float,
+    positive_suffix: str = "correctly_specified",
 ) -> pd.DataFrame:
     """The calibration cell's two deliberately invalid arms, derived from its own rows.
 
@@ -408,14 +409,27 @@ def calibration_controls(
     A pure transformation of ``rows``: it draws no sample and fits nothing, so a study gains
     these arms without spending replications on them.  Shared rather than copied because the
     arithmetic is the same wherever the claim is, and only the declared constants differ.
+
+    ``positive_suffix`` names the arm the controls are derived from.  Most studies call the
+    positive arm ``correctly_specified``, but a study whose outcome regression is misspecified
+    on purpose must not use that name, because the name would be a false claim.  Such a study
+    passes its own suffix here rather than renaming the cell on the way in.
+
+    An empty selection is a refusal, not an empty frame.  A caller whose suffix does not match
+    its cells would otherwise derive zero controls in silence, and a study that publishes no
+    control reads exactly like a study whose controls all passed.
     """
     source = rows.loc[
         (rows["property"] == "interval_calibration")
-        & rows["cell"].str.endswith("__correctly_specified")
+        & rows["cell"].str.endswith(f"__{positive_suffix}")
     ]
     controls: list[pd.DataFrame] = []
     for label in labels:
-        base = source.loc[source["cell"] == f"{label}__correctly_specified"].copy()
+        base = source.loc[source["cell"] == f"{label}__{positive_suffix}"].copy()
+        if base.empty:
+            raise ValueError(
+                f"{label}__{positive_suffix} has no calibration rows to derive controls from"
+            )
         shrunken = base.copy()
         shrunken["cell"] = f"{label}__shrunken_se_control"
         shrunken["role"] = "control"
@@ -444,7 +458,11 @@ def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataF
 
 
 def calibration_verdicts(
-    summary: pd.DataFrame, *, margins: Margins, efficiency_band: tuple[float, float]
+    summary: pd.DataFrame,
+    *,
+    margins: Margins,
+    efficiency_band: tuple[float, float] | None = None,
+    positive_suffix: str = "correctly_specified",
 ) -> None:
     """Read each calibration cell's verdict against the rule its *kind* answers to.
 
@@ -454,25 +472,46 @@ def calibration_verdicts(
     than the positive arm's.  Written here rather than per study for the reason the arms are:
     the rules belong to the instrument, and only the band belongs to the study that can compute
     an exact bound at all.
+
+    ``efficiency_band`` is optional, because a study may use an exact bound only to size the
+    noise arm without claiming that its estimator attains the bound.  Such a study publishes no
+    efficiency columns at all, so the intervals are read lazily and only where a band exists.
+
+    Without a band the noise arm answers to the SE-ratio rule.  Added noise inflates the
+    empirical spread while the reported standard errors stay where they were, so the ratio
+    falls below its band.  That is the same movement the efficiency rule reads, and it is the
+    only reading left when there is no bound to form an efficiency ratio against.
+
+    ``positive_suffix`` names the positive arm, for the reason
+    :func:`calibration_controls` takes it.
     """
     calibration = summary["property"] == "interval_calibration"
     for index in summary.index[calibration]:
-        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
+        kind = str(summary.loc[index, "cell"]).rsplit("__", 1)[-1]
         ratio = summary_interval(summary, index, "se_ratio")
-        empirical = summary_interval(summary, index, "efficiency_empirical")
-        reported = summary_interval(summary, index, "efficiency_reported")
-        coverage = summary_interval(summary, index, "coverage")
-        if kind == "correctly_specified":
-            passed = (
-                ratio.within(*margins.calibration_se_ratio)
-                and coverage.within(*margins.calibration_coverage)
-                and empirical.within(*efficiency_band)
-                and reported.within(*efficiency_band)
+        if kind == positive_suffix:
+            coverage = summary_interval(summary, index, "coverage")
+            passed = ratio.within(*margins.calibration_se_ratio) and coverage.within(
+                *margins.calibration_coverage
             )
+            if efficiency_band is not None:
+                passed = (
+                    passed
+                    and summary_interval(summary, index, "efficiency_empirical").within(
+                        *efficiency_band
+                    )
+                    and summary_interval(summary, index, "efficiency_reported").within(
+                        *efficiency_band
+                    )
+                )
         elif kind == "shrunken_se_control":
             passed = ratio.high < margins.calibration_se_ratio[0]
         elif kind == "noise_control":
-            passed = empirical.low > efficiency_band[1]
+            passed = (
+                summary_interval(summary, index, "efficiency_empirical").low > efficiency_band[1]
+                if efficiency_band is not None
+                else ratio.high < margins.calibration_se_ratio[0]
+            )
         else:
             raise ValueError(f"unknown calibration cell kind {kind!r}")
         summary.loc[index, "passed"] = bool(passed)

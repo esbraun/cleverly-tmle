@@ -185,6 +185,10 @@ class StudyRecord:
     #: for the same estimand, which is what decides a disagreement between two
     #: implementations rather than merely reporting one.
     efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: Whether interval-calibration cells publish ratios against an exact efficiency bound.
+    #: A study may use an exact bound only to size a negative control without claiming that
+    #: its deliberately misspecified estimator attains the bound.
+    calibration_efficiency_ratio: bool = True
     #: Measured-table quantity -> the decimal places that quantity's claim needs.
     #:
     #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
@@ -269,6 +273,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
+    from tests.studies.canonical_learned_weighted_tmle import (
+        STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
+    )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
@@ -301,6 +308,7 @@ def registered() -> tuple[StudyRecord, ...]:
     return (
         CANONICAL_TMLE,
         CANONICAL_WEIGHTED_TMLE,
+        CANONICAL_LEARNED_WEIGHTED_TMLE,
         CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_CVTMLE,
         CANONICAL_CLUSTERED_TMLE,
