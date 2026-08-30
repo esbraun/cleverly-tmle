@@ -88,15 +88,29 @@ class Reference:
             *(root / name for name in self.extra_files),
         ]
 
-    def run(self, here: Path, samples: Path, truths: Path, output: Path, *, cores: int) -> None:
+    def run(
+        self,
+        here: Path,
+        samples: Path,
+        truths: Path,
+        output: Path,
+        *,
+        cores: int,
+        runner: str | None = None,
+    ) -> None:
         context = self.build_context or here
         root = self.runner_root or here
+        selected_runner = self.runner if runner is None else runner
+        if runner is not None and runner not in self.extra_files:
+            raise ValueError(f"alternate reference runner {runner!r} is not in extra_files")
+        if runner is not None and not self.mount_runner:
+            raise ValueError("an alternate reference runner requires mount_runner=True")
         subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
         mounts = ["-v", f"{samples.parent.resolve()}:/work"]
         arguments: list[str] = []
         if self.mount_runner:
             mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
-            arguments.append(f"/fixture/{self.runner}")
+            arguments.append(f"/fixture/{selected_runner}")
         entrypoint = ["--entrypoint", "Rscript"] if self.mount_runner else []
         subprocess.run(
             [
@@ -303,8 +317,27 @@ def main(
                 [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
                 ignore_index=True,
             )
+        reference_extra_frames = (
+            study.reference_artifacts(
+                reference=reference,
+                here=here,
+                samples=phase.paths["samples.csv.gz"],
+                truths_path=phase.paths["truth.csv"],
+                output=scratch,
+                cores=arguments.r_jobs or arguments.jobs,
+            )
+            if reference is not None and hasattr(study, "reference_artifacts")
+            else {}
+        )
 
-    extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
+    extra_frames = dict(reference_extra_frames)
+    row_extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
+    overlap = set(extra_frames) & set(row_extra_frames)
+    if overlap:
+        raise RuntimeError(
+            f"duplicate extra artifacts from reference and row hooks: {sorted(overlap)}"
+        )
+    extra_frames.update(row_extra_frames)
     if set(extra_frames) != set(record.extra_artifacts):
         raise RuntimeError(
             f"{record.slug} produced extra artifacts {sorted(extra_frames)}, "

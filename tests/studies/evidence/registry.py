@@ -138,6 +138,10 @@ class StudyRecord:
     replicates: int
     n: int
     seed: int
+    #: Scenario -> the scenario whose primary sample stream it owns.  This supports one
+    #: observed law reported under several intervention levels: each exported scenario keeps
+    #: its own rows, while all mapped scenarios draw the owner's realized sample.
+    scenario_seed_owners: Mapping[str, str] = field(default_factory=dict)
     #: Optional independent entropy for bootstrap and Monte Carlo summary intervals.  The
     #: realized samples still use ``seed``; this exists to avoid changing costly raw rows
     #: when a newly registered study discovers a cross-study resampling-stream collision.
@@ -218,6 +222,21 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
+        scenarios = set(self.scenarios)
+        unknown = set(self.scenario_seed_owners) | set(self.scenario_seed_owners.values())
+        unknown -= scenarios
+        if unknown:
+            raise ValueError(f"scenario_seed_owners names unknown scenarios: {sorted(unknown)}")
+        chained = {
+            scenario: owner
+            for scenario, owner in self.scenario_seed_owners.items()
+            if owner in self.scenario_seed_owners and self.scenario_seed_owners[owner] != owner
+        }
+        if chained:
+            raise ValueError(
+                "scenario_seed_owners must point directly to an owning scenario; "
+                f"found chained owners {chained}"
+            )
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -262,6 +281,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
     )
+    from tests.studies.canonical_cde_tmle import STUDY as CANONICAL_CDE_TMLE
     from tests.studies.canonical_clustered_tmle import STUDY as CANONICAL_CLUSTERED_TMLE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
@@ -321,6 +341,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_DRTMLE,
         CANONICAL_MULTI_ARM_DRTMLE,
         CANONICAL_MAR_TMLE,
+        CANONICAL_CDE_TMLE,
         CANONICAL_MAR_DRTMLE,
         CANONICAL_POINT_MSM,
         CANONICAL_DETERMINISTIC_REGIMES,

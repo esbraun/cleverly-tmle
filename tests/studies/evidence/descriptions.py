@@ -55,6 +55,8 @@ ARMS: dict[str, str] = {
     "rule": "covariate-dependent rule",
     "shift": "capped modified treatment policy",
     "tilt": "known stochastic tilt",
+    "z0": "controlled direct effect at intermediate level zero",
+    "z1": "controlled direct effect at intermediate level one",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -90,6 +92,7 @@ _TERM = re.compile(
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
+    "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
@@ -125,6 +128,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
+    "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
 }
@@ -155,6 +159,8 @@ SCENARIOS: dict[str, str] = {
     "outcome_correct": "paper binary law, outcome regression correct",
     "treatment_correct": "paper binary law, treatment mechanism correct",
     "binary_biased_sample": "binary-outcome law sampled with unequal selection probabilities",
+    "binary_cde_z0_mar": "binary-outcome MAR observed law, intervention sets the intermediate to zero",
+    "binary_cde_z1_mar": "binary-outcome MAR observed law, intervention sets the intermediate to one",
     "binary_dynamic_rule": "binary-outcome law with a covariate-dependent deterministic rule",
     "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
@@ -235,6 +241,10 @@ PROPERTIES: dict[str, str] = {
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
+    ),
+    "cde_robustness": (
+        "controlled direct-effect TMLE stays consistent when the outcome regression is correct "
+        "or when all three mechanisms are correct"
     ),
     "clustered_inference": (
         "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
@@ -318,6 +328,30 @@ PROPERTIES: dict[str, str] = {
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("cde_robustness", "all_correct"): (
+        "the outcome regression and all three mechanisms are correct",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "outcome_correct"): (
+        "the outcome regression is correct and all three mechanisms are wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "mechanisms_correct"): (
+        "all three mechanisms are correct and the outcome regression is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "treatment_wrong"): (
+        "only the treatment mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "intermediate_wrong"): (
+        "only the intermediate mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "observation_wrong"): (
+        "only the observation mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("clustered_inference", "cluster_robust"): (
         "five-fold point-treatment TMLE with cluster-robust ATE inference",
         "SE-ratio and coverage intervals both stay inside their calibration bands",
@@ -869,6 +903,13 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
+    if (
+        family == "interval_calibration"
+        and base == "correctly_specified"
+        and arm is not None
+        and arm.group("arm") in {"z0", "z1"}
+    ):
+        tested = "all required nuisance functions are correctly specified"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"

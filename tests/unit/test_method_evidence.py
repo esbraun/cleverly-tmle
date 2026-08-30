@@ -715,6 +715,7 @@ class TestPublishedVerdicts:
 BIAS_GATED_PROPERTIES = frozenset(
     {
         "categorical_probability_necessity",
+        "cde_robustness",
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",

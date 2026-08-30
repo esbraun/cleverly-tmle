@@ -273,10 +273,12 @@ factorisation assumed above; it says nothing about whether that factorisation de
 your study.  Assumption 3, and the absence of an intermediate confounder :math:`L`, remain
 substantive claims about the world that no test can check.  See the scope section.
 
-The Monte-Carlo evidence remains as a second, independent line: a consistency check in
-``tests/e2e/test_missing_and_cde.py`` and, per level, a coverage study
-(:class:`~cleverly.validation.simulation.CoverageStudy`, which accepts
-``intermediate_value=``).
+The registered controlled direct-effect study is the second, independent line.  It compares
+both levels against pinned R ``tmle`` on identical samples, checks the four-nuisance robustness
+contract with one control per mechanism, and measures root-n rate, exact-law efficiency,
+calibration, type-I error, power, and targeting necessity.  Its frozen R regression also records
+why the comparator recodes each requested level to the package's first result rather than using
+the native second result.
 """
 
 from __future__ import annotations

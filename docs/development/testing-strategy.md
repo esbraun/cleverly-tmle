@@ -55,14 +55,14 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 74 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 69 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Two design families now have no active repeated-sampling
-evidence: controlled direct effects and weighted longitudinal fits. Weighted and clustered
-point-treatment inference each have a registered paired study.
+**Read the consequence plainly.** Weighted longitudinal fits remain the design family with no
+active repeated-sampling evidence. Controlled direct effects, weighted point-treatment inference,
+and clustered point-treatment inference each have a registered paired study.
 Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
 longitudinal treatment has separate ordinary and cross-fitted rows. Each uncovered family still
@@ -82,10 +82,10 @@ reporting rule at three draws. It does not cover the spread-reduction rationale,
 `TestRepeatedCrossFitting` used to claim. `docs/roadmap.md` *V7* holds the cell that would restore
 that claim.
 
-What is no longer checked is whether the interval built from that curve covers under repeated
-sampling. Each family needs its own law, exact oracle, margins, and paired control before that
-claim exists again. Deleting the deprecated module is the last step of registering its
-replacement, not the first.
+What remains unchecked for weighted longitudinal fits is whether the interval built from that
+curve covers under repeated sampling. That family needs its own law, exact oracle, margins, and
+paired control before the claim exists again. Deleting a deprecated module is the last step of
+registering its replacement, not the first.
 
 A test nobody runs is not evidence. Skipping these says so out loud rather than leaving a green
 tier that nothing executes.

@@ -336,6 +336,7 @@ def _has_exact_efficiency(row: Any) -> bool:
 _BIAS_GATED = frozenset(
     {
         "categorical_probability_necessity",
+        "cde_robustness",
         "double_robustness",
         "mechanism_requirement",
         "cap_necessity",
