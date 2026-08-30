@@ -1,13 +1,19 @@
-"""The one transcription of the point-treatment replication schema.
+"""The transcription of the point-treatment replication schema for the weighted,
+intervention, missing-outcome and shift-policy families.
 
-Every point-treatment study publishes the same fourteen columns, and five modules used to
-build them: this one, ``missing_outcome_study_helpers``, ``intervention_study_helpers``,
-``canonical_tmle`` and ``canonical_shift_policies``.  The copies differed only in details no
-study had chosen deliberately.  One hardcoded the arm codes, one hardcoded
-``inference_scale="identity"``, one called the truth ``reference``, one divided by ``ey0``
-and ``1 - ey1`` for laws that report no ratio at all, and one point-treatment study imported
-its builder from the missing-outcome module.  A schema written five times is a schema that
-can change in one of them.
+Those four families published the same fourteen columns from five modules: this one,
+``missing_outcome_study_helpers``, ``intervention_study_helpers``, ``canonical_tmle`` and
+``canonical_shift_policies``.  The copies differed only in details no study had chosen
+deliberately.  One hardcoded the arm codes, one hardcoded ``inference_scale="identity"``,
+one called the truth ``reference``, one divided by ``ey0`` and ``1 - ey1`` for laws that
+report no ratio at all, and one point-treatment study imported its builder from the
+missing-outcome module.  A schema written five times is a schema that can change in one of
+them.
+
+Five further modules still write the same fourteen columns and do not read this one:
+``canonical_point_msm``, ``multi_arm_common``, ``canonical_cvtmle``, ``canonical_ctmle_oat``
+and ``canonical_ctmle_selector``.  Absorbing them is a separate change.  ``canonical_drtmle``
+adds four solver columns, so it publishes a different schema and stays apart.
 
 Two columns are *not* uniform, and the refit gate in ``tests/unit/test_method_evidence.py``
 says so in as many words.  ``n`` is ``len(frame)`` in some studies and ``result.data.n`` in

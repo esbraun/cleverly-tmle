@@ -220,7 +220,7 @@ def test_dropping_the_selection_rate_leaves_the_bound_outside_the_declared_band(
 
 #: How far a mean reported standard error may sit from the exact bound, as a share of it.
 #: Wide enough for 800 replications of Monte Carlo noise and the finite-sample term, and
-#: eight times narrower than the 4% departure the two implementations differ by on ``or``.
+#: three times narrower than the 1.8% departure the two implementations differ by on ``or``.
 BOUND_TOLERANCE = 0.005
 
 #: R ``tmle`` 2.1.1's mean marginal log-odds-ratio standard error, as a share of the exact
