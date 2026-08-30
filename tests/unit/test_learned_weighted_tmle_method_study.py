@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.integrate import quad
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from tests.studies import canonical_learned_weighted_tmle as study
@@ -79,17 +79,50 @@ def test_selected_density_weights_recover_the_uniform_target_law() -> None:
     assert law.truths() == {"ey0": 0.5, "ey1": 1.5, "ate": 1.0}
     assert law.SELECTED_W1_MEAN == 0.25
     assert law.SELECTED_ATE == 1.5
-    variance = (
-        2.0
-        * quad(
-            lambda w1: (1.0 + w1**2) / (1.0 + law.SELECTION_SLOPE * w1),
-            -1.0,
-            1.0,
-        )[0]
+
+
+def test_the_efficiency_bound_matches_a_monte_carlo_of_the_influence_curve() -> None:
+    """Rebuild the declared curve from the sampler, and reject the unnormalized rival.
+
+    The witness is built from :func:`law.sample_selected` and :func:`law.outcome_mean`, not
+    from the closed form, so it can disagree with the closed form.
+    """
+    frame = law.sample_selected(1_000_000, 20_260_830)
+    treatment = frame["A"].to_numpy(dtype=float)
+    covariate = frame["W1"].to_numpy(dtype=float)
+    weight = frame["obs_weight"].to_numpy(dtype=float)
+    residual = frame["Y"].to_numpy(dtype=float) - law.outcome_mean(
+        covariate, frame["W2"].to_numpy(dtype=float), treatment, effect=law.TARGET_ATE
     )
-    np.testing.assert_allclose(
-        law.weighted_ate_efficiency_sd(), np.sqrt(variance), rtol=1e-12, atol=0.0
-    )
+    probability = law.TREATMENT_PROBABILITY
+    clever = treatment / probability - (1.0 - treatment) / (1.0 - probability)
+    blip = law.TARGET_ATE + law.EFFECT_MODIFICATION * covariate
+
+    bound = law.weighted_ate_efficiency_sd()
+    inside = weight * (clever * residual + blip - law.TARGET_ATE)
+    np.testing.assert_allclose(np.sqrt(np.mean(inside**2)), bound, rtol=0.02, atol=0.0)
+
+    # The deliberate-mutation control.  ``h * (cc * (Y - Q) + b) - psi`` is the unnormalized
+    # Horvitz-Thompson gradient, which centers outside the weight.  ``cleverly`` averages the
+    # targeted predictions with weights, so its functional is ``E_sel[h * b] / E_sel[h]`` and
+    # its gradient centers inside the weight.  This arm must miss the declared bound, or the
+    # assertion above would pass for either convention.
+    outside = weight * (clever * residual + blip) - law.TARGET_ATE
+    assert abs(np.sqrt(np.mean(outside**2)) / bound - 1.0) > 0.05
+
+
+#: The standard deviation the unnormalized Horvitz-Thompson gradient gives on this law.
+UNNORMALIZED_EFFICIENCY_SD = 2.452519778942014
+
+
+def test_the_reported_standard_error_scales_to_the_declared_bound() -> None:
+    """The fitted standard error resolves the declared bound against its unnormalized rival."""
+    n = 20_000
+    result = study.fit_cleverly(law.sample_selected(n, 20_260_830), estimands=("ate",))["ate"]
+    scaled = float(result.std_error) * math.sqrt(n)
+
+    np.testing.assert_allclose(scaled, law.weighted_ate_efficiency_sd(), rtol=0.05, atol=0.0)
+    assert abs(scaled / UNNORMALIZED_EFFICIENCY_SD - 1.0) > 0.05
 
 
 def test_learner_weight_control_moves_only_the_untargeted_plugin() -> None:

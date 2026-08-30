@@ -10,11 +10,12 @@ from scipy.stats import norm
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_learned_weighted_tmle import STUDY, fit_cleverly
-from tests.studies.evidence.properties import control_row, replicate_row, summary_interval
+from tests.studies.evidence.properties import control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_verdicts,
     finish,
 )
 from tests.studies.evidence.seeds import stream_seed
@@ -40,7 +41,7 @@ SHRUNKEN_SE_FACTOR = 0.70
 # The exact bound supplies one independent noise unit. The study does not claim the estimator
 # attains it because its outcome regression deliberately omits treatment-effect modification.
 CALIBRATION_NOISE_SD = weighted_ate_efficiency_sd()
-WEIGHT_DISPLACEMENT = 0.50
+LEARNER_WEIGHT_DISPLACEMENT = 0.50
 ALTERNATIVE_EFFECT = 0.50
 TARGET = "ate"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -80,7 +81,6 @@ def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[s
     )
     frame = sample_selected(n, seed, effect=effect)
     result = fit_cleverly(frame, estimands=(TARGET,))
-    truth = effect
     if property_name != "learner_weight_necessity":
         return [
             _row(
@@ -91,7 +91,7 @@ def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[s
                 replicate=replicate,
                 n=n,
                 requested=requested,
-                truth=truth,
+                truth=effect,
             )
         ]
 
@@ -188,24 +188,27 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Generate every predeclared cell and paired calibration control."""
     outcomes = map_parallel(fit_replication, _payloads(), n_jobs=n_jobs)
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
-    control_source = rows.copy()
-    control_source.loc[control_source["cell"] == "ate__treatment_correct", "cell"] = (
-        "ate__correctly_specified"
-    )
     controls = calibration_controls(
-        control_source,
+        rows,
         STUDY,
         labels=(TARGET,),
         efficiency_bounds={TARGET: CALIBRATION_NOISE_SD},
         calibration_n=CALIBRATION_N,
         shrunken_se_factor=SHRUNKEN_SE_FACTOR,
         critical=CRITICAL,
+        positive_suffix="treatment_correct",
     )
     return pd.concat([rows, controls], ignore_index=True)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """Apply shared repeated-sampling rules and the learner-weight witness."""
+    """Apply shared repeated-sampling rules, the calibration rules and the weight witness.
+
+    The positive calibration arm is named ``treatment_correct`` rather than
+    ``correctly_specified``, because this study fits a main-effects outcome regression that
+    omits the treatment-effect modification.  The study publishes no efficiency ratio for the
+    same reason, so :func:`calibration_verdicts` reads both control arms on the SE ratio.
+    """
     summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
@@ -218,13 +221,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             "alternative_bias_equivalent",
         ),
     )
-    calibration = summary["property"] == "interval_calibration"
-    for index in summary.index[calibration]:
-        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
-        if kind == "treatment_correct":
-            continue
-        ratio = summary_interval(summary, index, "se_ratio")
-        summary.loc[index, "passed"] = bool(ratio.high < STUDY.margins.calibration_se_ratio[0])
+    calibration_verdicts(summary, margins=STUDY.margins, positive_suffix="treatment_correct")
 
     alternative_target_necessity_verdicts(
         summary,
@@ -235,6 +232,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         arms=("weighted_plugin", "unweighted_plugin_control"),
         alternative_truths={TARGET: SELECTED_ATE},
         column="necessity_displacement",
-        threshold=WEIGHT_DISPLACEMENT,
+        threshold=LEARNER_WEIGHT_DISPLACEMENT,
     )
     return finish(summary, rates)

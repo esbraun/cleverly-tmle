@@ -23,6 +23,7 @@ if (any(!samples$A %in% c(0, 1))) stop("tmle comparison requires binary treatmen
 if (any(!is.finite(samples$obs_weight)) || any(samples$obs_weight <= 0)) {
   stop("observation weights must be finite and strictly positive")
 }
+if (!nrow(samples)) stop("samples contain no observations")
 fit_one <- function(frame) {
   scenario <- frame$scenario[[1]]
   replicate <- frame$replicate[[1]]

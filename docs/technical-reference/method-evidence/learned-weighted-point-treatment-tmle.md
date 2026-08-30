@@ -1,8 +1,10 @@
 # Learned weighted point-treatment TMLE
 
-This study validates ordinary point-treatment TMLE when fixed observation weights reach both
-nuisance learners. It draws 2,000 observations from a selected population. The weighted fit
-targets a uniform population and learns both nuisance regressions from each sample.
+This study validates ordinary point-treatment TMLE when fixed observation weights reach the
+nuisance learners. The fit sends the weights to both learner classes. The repeated-sampling
+witness resolves the outcome regression. The study draws 2,000 observations from a selected
+population. The weighted fit targets a uniform population and learns both nuisance regressions
+from each sample.
 
 The selected density of `W1` is `(1 + 0.75 * W1) / 2` on `[-1, 1]`. `W2` is uniform on the
 same interval. The fixed weight `1 / (1 + 0.75 * W1)` recovers the uniform target law.
@@ -39,6 +41,11 @@ regression.
 | continuous-outcome law selected by a covariate-dependent density | `ey1` | counterfactual mean under treatment | `cleverly` weighted point-treatment TMLE with learned nuisances | -0.0026 to 0.0072 | 0.9563 | 1.0606 | pass |
 | continuous-outcome law selected by a covariate-dependent density | `ey1` | counterfactual mean under treatment | R `tmle` with learned weighted nuisances | -0.0026 to 0.0072 | 0.9563 | 1.0607 | pass |
 <!-- /generated -->
+
+The `ey0` standard error is conservative. It sits about 11.5% above the sampling spread, and the
+coverage is 0.9712. The two implementations agree to four decimal places, at 1.1152 and 1.1153.
+The ratio is therefore a property of the estimator under the misspecified outcome regression. It
+stays inside the 0.8 to 1.2 sanity screen.
 
 ## Agreement with the canonical implementation
 
@@ -140,6 +147,15 @@ The two targeted passes therefore do not replace the untargeted learner-weight w
   ratios, ATT, ATC, missing outcomes, clusters, strata, and simultaneous bands.
 - Cross-fitted weighted nuisances and weighted longitudinal targeting remain outside the registered
   studies.
+- The learner-weight witness resolves the outcome regression only. Treatment is randomized with
+  probability 0.5, and `A ~ W1 + W2` contains the truth. A weighted treatment fit and an unweighted
+  treatment fit therefore converge to the same regression. Only
+  `tests/unit/test_learned_weighted_tmle_method_study.py::test_both_nuisance_learners_consume_the_declared_weights`
+  checks the weights the treatment learner receives.
+- The study declares two calibration controls and judges both with one detector. The
+  shrunken-standard-error arm and the noise arm answer to the SE-ratio rule, because the study
+  publishes no exact efficiency ratio. A study that publishes one judges its noise arm on the
+  empirical efficiency ratio instead.
 
 ## Reproduction
 

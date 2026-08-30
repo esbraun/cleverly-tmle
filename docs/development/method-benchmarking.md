@@ -77,7 +77,7 @@ estimation stage.
 
 | candidate | weighted construction it reaches | verdict |
 | --- | --- | --- |
-| R `tmle` 2.1.1 | ordinary point-treatment TMLE through `obsWeights=` | Used by both weighted point-treatment rows. The fixed-nuisance runner supplies the same weights and exact predictions to both implementations. The learned-nuisance runner fits matching weighted main-effects Gaussian and binomial GLMs. Its marginal log-odds-ratio standard error sits below the exact efficiency bound only in the fixed-nuisance row, so that comparison witnesses the point estimate rather than the inference. |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE through `obsWeights=` | Used by both weighted point-treatment rows. The fixed-nuisance runner supplies the same weights and exact predictions to both implementations. The learned-nuisance runner fits matching weighted main-effects Gaussian and binomial GLMs. In the fixed-nuisance row, R `tmle` reports a marginal log-odds-ratio standard error below the exact bound. That comparison therefore witnesses the point estimate rather than the inference. The learned-nuisance row reports two arm means and their difference, and no ratio. |
 | R `ltmle` 1.3-0 | ordinary weighted longitudinal TMLE through `observation.weights=` | Retained for the weighted longitudinal roadmap item. Its sequential data layout adds no witness to the point-treatment row. |
 | R `lmtp` 1.5.4 | cross-fitted weighted longitudinal TMLE through `weights` | Retained for the cross-fitted half of the weighted longitudinal roadmap item. It is not ordinary point-treatment TMLE. |
 

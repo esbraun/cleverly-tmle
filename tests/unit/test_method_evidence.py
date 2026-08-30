@@ -346,6 +346,31 @@ class TestPublishedVerdicts:
                 ~published["property_passed"]
             ].to_string()
 
+    def test_the_exact_bound_flag_agrees_with_the_module_and_the_published_columns(
+        self, study: StudyRecord
+    ) -> None:
+        """Three statements of one fact, which can only disagree by mistake.
+
+        The registry flag says the study claims an efficiency ratio.  The property module
+        declares the band that ratio is read against.  The committed table carries the
+        populated columns.  A study that says one and not the others has a verdict rule
+        nobody reads, which is the state that let a bandless study publish calibration
+        verdicts no test checked.
+        """
+        noise_declared = any(
+            cell.endswith("noise_control")
+            for cell in study.property_cells.get("interval_calibration", ())
+        )
+        flagged = bool(noise_declared and study.calibration_efficiency_ratio)
+        declared = hasattr(study.properties(), "EFFICIENCY_RATIO_BAND")
+        published = pd.read_csv(study.artifact("properties.csv"))
+        columns = [name for name in published if name.startswith("efficiency_")]
+        populated = bool(columns) and bool(published[columns].notna().any().any())
+        assert flagged == declared == populated, (
+            f"{study.slug} flags an exact efficiency ratio={flagged}, declares a band="
+            f"{declared} and publishes populated efficiency columns={populated}"
+        )
+
     def test_no_property_row_publishes_another_row_s_verdict(self, study: StudyRecord) -> None:
         """The gate the performance table had and this one did not.
 
@@ -439,15 +464,41 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
+        # Unconditional over every study with calibration cells.  Guarding this block on the
+        # presence of the efficiency columns left a study that publishes no exact ratio with
+        # *no* reader of its calibration verdicts at all.
         calibration = published.loc[published["property"] == "interval_calibration"]
-        if (
-            "efficiency_empirical_ci_lower" in calibration.columns
-            and calibration["efficiency_empirical_ci_lower"].notna().any()
-        ):
-            properties = study.properties()
+        if not calibration.empty:
+            # A band exists only where the study declares a noise control *and* claims the
+            # ratio, which mirrors the guard ``claims.thresholds`` publishes the band under.
+            noise_declared = any(
+                cell.endswith("noise_control")
+                for cell in study.property_cells.get("interval_calibration", ())
+            )
+            band = (
+                study.properties().EFFICIENCY_RATIO_BAND
+                if (noise_declared and study.calibration_efficiency_ratio)
+                else None
+            )
             for row in calibration.itertuples():
-                kind = row.cell.split("__", 1)[1]
-                if kind == "correctly_specified":
+                # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
+                # cell ``correctly_specified`` and ``shift-policies`` names its control
+                # ``shrunken_se_control``, with no ``__`` at all, while the longitudinal
+                # studies use two-part prefixes such as ``dynamic__correctly_specified``.
+                # ``rsplit`` reads all three.
+                suffix = row.cell.rsplit("__", 1)[-1]
+                if suffix == "shrunken_se_control":
+                    expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                elif suffix == "noise_control":
+                    expected = (
+                        row.efficiency_empirical_ci_lower > band[1]
+                        if band is not None
+                        else row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                    )
+                else:
+                    assert row.role == "positive", (
+                        f"{row.cell} is neither a declared control nor a positive arm"
+                    )
                     expected = (
                         study.margins.calibration_se_ratio[0]
                         <= row.se_ratio_ci_lower
@@ -457,21 +508,19 @@ class TestPublishedVerdicts:
                         <= row.coverage_ci_lower
                         <= row.coverage_ci_upper
                         <= study.margins.calibration_coverage[1]
-                        and properties.EFFICIENCY_RATIO_BAND[0]
-                        <= row.efficiency_empirical_ci_lower
-                        <= row.efficiency_empirical_ci_upper
-                        <= properties.EFFICIENCY_RATIO_BAND[1]
-                        and properties.EFFICIENCY_RATIO_BAND[0]
-                        <= row.efficiency_reported_ci_lower
-                        <= row.efficiency_reported_ci_upper
-                        <= properties.EFFICIENCY_RATIO_BAND[1]
                     )
-                elif kind == "shrunken_se_control":
-                    expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
-                else:
-                    expected = (
-                        row.efficiency_empirical_ci_lower > properties.EFFICIENCY_RATIO_BAND[1]
-                    )
+                    if band is not None:
+                        expected = (
+                            expected
+                            and band[0]
+                            <= row.efficiency_empirical_ci_lower
+                            <= row.efficiency_empirical_ci_upper
+                            <= band[1]
+                            and band[0]
+                            <= row.efficiency_reported_ci_lower
+                            <= row.efficiency_reported_ci_upper
+                            <= band[1]
+                        )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
@@ -550,31 +599,24 @@ class TestPublishedVerdicts:
                 >= study.properties().PROJECTION_DISPLACEMENT
             )
 
-        weighting = published.loc[published["property"] == "weight_necessity"]
-        if not weighting.empty:
-            control = weighting.loc[weighting["role"] == "control"]
-            assert len(control) == 1
-            assert bool(control["alternative_bias_equivalent"].iloc[0])
-            assert weighting["property_passed"].nunique() == 1
-            assert bool(weighting["property_passed"].iloc[0]) is bool(
-                weighting["passed"].all()
-                and control["alternative_bias_equivalent"].all()
-                and weighting["necessity_displacement"].iloc[0]
-                >= study.properties().WEIGHT_DISPLACEMENT
-            )
-
-        learner_weighting = published.loc[published["property"] == "learner_weight_necessity"]
-        if not learner_weighting.empty:
-            control = learner_weighting.loc[learner_weighting["role"] == "control"]
-            assert len(control) == 1
-            assert bool(control["alternative_bias_equivalent"].iloc[0])
-            assert learner_weighting["property_passed"].nunique() == 1
-            assert bool(learner_weighting["property_passed"].iloc[0]) is bool(
-                learner_weighting["passed"].all()
-                and control["alternative_bias_equivalent"].all()
-                and learner_weighting["necessity_displacement"].iloc[0]
-                >= study.properties().WEIGHT_DISPLACEMENT
-            )
+        # One rule, two families.  Each gates on its own declared threshold, which the two
+        # studies name apart so that neither reads the other's constant.
+        for family, threshold in (
+            ("weight_necessity", "WEIGHT_DISPLACEMENT"),
+            ("learner_weight_necessity", "LEARNER_WEIGHT_DISPLACEMENT"),
+        ):
+            frame = published.loc[published["property"] == family]
+            if not frame.empty:
+                control = frame.loc[frame["role"] == "control"]
+                assert len(control) == 1
+                assert bool(control["alternative_bias_equivalent"].iloc[0])
+                assert frame["property_passed"].nunique() == 1
+                assert bool(frame["property_passed"].iloc[0]) is bool(
+                    frame["passed"].all()
+                    and control["alternative_bias_equivalent"].all()
+                    and frame["necessity_displacement"].iloc[0]
+                    >= getattr(study.properties(), threshold)
+                )
 
         recursion = published.loc[
             published["property"].isin(
@@ -1588,7 +1630,7 @@ class TestTheQuantityVocabulary:
         if "learner_weight_necessity" in study.property_cells:
             assert (
                 declared["margin:learner_weight_displacement"]
-                == study.properties().WEIGHT_DISPLACEMENT
+                == study.properties().LEARNER_WEIGHT_DISPLACEMENT
             )
         if "projection_necessity" in study.property_cells:
             assert (
