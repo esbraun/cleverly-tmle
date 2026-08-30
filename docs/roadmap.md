@@ -11,7 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V2 | Learned weighted point-treatment nuisances | theory-neutral | none | [V2](#v2-learned-weighted-point-treatment-nuisances) |
+| Validation | V2 | Learned weighted point-treatment nuisances | implementation-ready | none | [V2](#v2-learned-weighted-point-treatment-nuisances) |
 | Validation | V3 | Controlled direct-effect studies | source audit | V2 ordering only | [V3](#v3-controlled-direct-effect-studies) |
 | Validation | V4 | Weighted longitudinal studies | source audit | the registered point-weight row supplies the fixed-weight design; V3 ordering only | [V4](#v4-weighted-longitudinal-studies) |
 | Validation | V5 | Fold-evaluated CV-TMLE comparator | source audit | V4 ordering only | [V5](#v5-fold-evaluated-cv-tmle-comparator) |
@@ -86,15 +86,49 @@ artifacts.
 
 ### V2. Learned weighted point-treatment nuisances
 
-The registered
-[weighted point-treatment row](technical-reference/method-evidence/weighted-point-treatment-tmle.md)
-supplies exact nuisance predictions at every fit. It therefore isolates weighted targeting and
-weighted inference, and it reaches no weighted nuisance loss. A learner that receives the weights
-through `sample_weight` is a separate composition, and cross-fitting is a third.
+Register one ordinary weighted point-treatment TMLE study that learns both nuisance regressions.
+Keep cross-fitting disabled, because that composition needs a separate study and comparator
+survey. The registered exact-nuisance row remains separate because it validates a different fit.
 
-Register a study that fits a regression on continuous covariates and passes the weights to the
-learner. Pair it with a control that omits the weights from the learner alone. The comparator
-survey needs no new entry, because R `tmle` 2.1.1 already accepts `obsWeights=`.
+Draw exactly 2,000 rows from a selected law on two continuous covariates. Let the selected density
+of `W1` be `(1 + 0.75 * W1) / 2` on `[-1, 1]`. Let `W2` be uniform on the same interval. The fixed
+weight `1 / (1 + 0.75 * W1)` must recover the uniform target law exactly.
+
+Randomize treatment with probability 0.5. Generate a continuous outcome with conditional mean
+`0.5 + 0.5 * W1 + 0.25 * W2 + A * (1 + 2 * W1)`. Add independent unit-variance Gaussian noise.
+The target arm means are 0.5 and 1.5, so the target ATE is 1.0. The selected arm means are 0.625
+and 2.125, so the selected ATE is 1.5.
+
+Compare 800 paired replications against pinned R `tmle` 2.1.1. Both implementations must fit a
+weighted main-effects linear outcome regression and an unpenalized weighted logistic treatment
+regression. Both must use a linear fluctuation and report both arm means and their difference.
+Reuse the existing R image, study harness, point-row adapter, and Python row transcription.
+
+The property study must cover three sample sizes, root-n rates, interval calibration, null size,
+power, and learner-weight necessity. Use 800 replications at sizes 500, 2,000, and 8,000. Use
+2,400 replications for calibration and 800 paired replications for null size and power. Reuse each
+draw for derived calibration controls.
+
+Pair 1,200 learner-weight necessity replications at `n = 2,000`. Both arms must retain observation
+weights in targeting, plug-in averaging, and inference. The positive arm passes those weights to
+both nuisance learners. The control omits weights from the nuisance learners alone.
+
+Gate the positive arm's untargeted plug-in against the target ATE of 1.0. Gate the control's
+untargeted plug-in against the selected ATE of 1.5. Require a paired displacement of at least 0.50
+positive-arm standard deviations. Also require both targeted estimates to recover the target ATE,
+because the randomized treatment mechanism must repair the control through double robustness.
+
+Use the registered default margins and 99% Monte Carlo confidence bounds. Pair calibration with
+shrunken-standard-error and added-noise controls. Pair the null law with a nonzero-effect power
+law. Run a disposable smoke study before the declared run.
+
+Register every property key and generated table through the common evidence framework. Add focused
+tests that prove both nuisance learners consume the declared weights. Delete no legacy claim until
+the registered artifacts reproduce its learned-regression scope.
+
+The implementation commit must remove this completed item from the roadmap. It must make V3 the
+next validation item. The evidence limits must continue to state that cross-fitted weighted
+nuisances remain outside the registered rows.
 
 ### V3. Controlled direct-effect studies
 
