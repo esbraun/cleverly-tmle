@@ -138,6 +138,7 @@ def test_native_defect_fixture_has_a_registered_reproduction_hook(tmp_path: Path
         here=tmp_path,
         samples=samples,
         truths_path=truths_path,
+        reference_results=tmp_path / "reference-results.csv",
         output=tmp_path,
         cores=1,
     )

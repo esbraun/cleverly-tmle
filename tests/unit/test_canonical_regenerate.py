@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import inspect
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -37,8 +39,8 @@ def _arguments(tmp_path: Any, *, primary_only: bool) -> argparse.Namespace:
         allow_failures=False,
         output=tmp_path,
         jobs=1,
-        r_jobs=1,
-        skip_r=False,
+        reference_jobs=1,
+        skip_reference=False,
         cache=None,
     )
 
@@ -144,7 +146,7 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
         regenerate.main(study, SimpleNamespace(), here=tmp_path)
 
 
-def test_skip_r_refuses_to_synthesize_reference_diagnostics(
+def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     record = dataclasses.replace(
@@ -159,10 +161,42 @@ def test_skip_r_refuses_to_synthesize_reference_diagnostics(
         CONFIGURATION={},
     )
     arguments = _arguments(tmp_path, primary_only=False)
-    arguments.skip_r = True
+    arguments.skip_reference = True
     monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
 
     with pytest.raises(RuntimeError, match="cannot rebuild study-specific extra artifacts"):
+        regenerate.main(
+            study,
+            SimpleNamespace(),
+            here=tmp_path,
+            reference=regenerate.Reference("image", "runner"),
+        )
+
+
+def test_skip_reference_refuses_a_study_whose_hook_reads_the_reference_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The refusal above covers a hook owner only because each one declares an artefact.
+
+    Nothing enforces that coincidence, so the pair is refused on its own terms. The record
+    here declares no extra artefact, which is what makes the first refusal miss it. Without
+    this guard the hook receives ``None`` for a path it annotates as ``Path``, and the run
+    fails inside ``pandas`` on a message about a missing file.
+    """
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    assert not record.extra_artifacts, "this control needs a record the first refusal misses"
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+        reference_artifacts=lambda **options: {},
+    )
+    arguments = _arguments(tmp_path, primary_only=False)
+    arguments.skip_reference = True
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+
+    with pytest.raises(RuntimeError, match="reference_artifacts hook"):
         regenerate.main(
             study,
             SimpleNamespace(),
@@ -382,17 +416,17 @@ def test_cached_reference_phase_is_reused_only_when_compatible(tmp_path: Any) ->
             "n": [50, 50],
         }
     )
-    path = tmp_path / "r-results.csv"
+    path = tmp_path / "reference-results.csv"
     cached.to_csv(path, index=False)
     phase = regenerate._Phase(
         rows=_rows("subject"),
         cached=True,
-        paths={"r-results.csv": path},
+        paths={"reference-results.csv": path},
     )
     reference = SimpleNamespace(
         run=lambda *args, **kwargs: pytest.fail("the compatible cached reference was rerun")
     )
-    arguments = argparse.Namespace(replicates=2, n=50, skip_r=False)
+    arguments = argparse.Namespace(replicates=2, n=50, skip_reference=False)
 
     rows = regenerate._reference_rows(
         SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
@@ -406,21 +440,21 @@ def test_cached_reference_phase_is_reused_only_when_compatible(tmp_path: Any) ->
 
 
 def test_incompatible_cached_reference_phase_is_refused(tmp_path: Any) -> None:
-    path = tmp_path / "r-results.csv"
+    path = tmp_path / "reference-results.csv"
     pd.DataFrame({"implementation": ["reference"], "replicate": [0], "n": [50]}).to_csv(
         path, index=False
     )
     phase = regenerate._Phase(
         rows=_rows("subject"),
         cached=True,
-        paths={"r-results.csv": path},
+        paths={"reference-results.csv": path},
     )
 
     with pytest.raises(RuntimeError, match="incompatible replications"):
         regenerate._reference_rows(
             SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
             regenerate.Reference("image", "runner"),
-            argparse.Namespace(replicates=2, n=50, skip_r=False),
+            argparse.Namespace(replicates=2, n=50, skip_reference=False),
             tmp_path,
             phase,
         )
@@ -471,3 +505,94 @@ def test_an_alternate_reference_runner_must_be_mounted_and_hashed(
             cores=1,
             runner="probe.R",
         )
+
+
+#: The exact keyword set ``regenerate.main`` passes to a study's ``reference_artifacts`` hook.
+DRIVER_KEYWORDS: dict[str, Any] = {
+    "reference": None,
+    "here": Path("."),
+    "samples": Path("samples.csv.gz"),
+    "truths_path": Path("truth.csv"),
+    "reference_results": Path("reference-results.csv"),
+    "output": Path("."),
+    "cores": 1,
+}
+
+
+def test_the_reference_artifact_hook_receives_the_path_the_driver_wrote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The hook reads the reference rows, so it must be told where the driver put them.
+
+    The driver renamed that file once already, and the hook that read it by literal name
+    raised ``FileNotFoundError`` on every fresh regeneration until somebody ran one.
+    """
+    record = dataclasses.replace(
+        canonical_tmle.STUDY, artifacts=tmp_path, extra_artifacts=("probe.csv.gz",)
+    )
+    calls: list[dict[str, Any]] = []
+
+    def reference_artifacts(**options: Any) -> dict[str, pd.DataFrame]:
+        # ``read_csv`` here is the assertion: the driver's scratch directory is gone by the
+        # time the test body runs, so the hook has to prove the path resolved while it did.
+        rows = pd.read_csv(options["reference_results"])
+        calls.append(options)
+        return {"probe.csv.gz": rows}
+
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+        reference_artifacts=reference_artifacts,
+    )
+    _stub_primary(monkeypatch, tmp_path, record)
+    written = _rows(str(record.reference))
+    written["replicate"] = [0]
+    written["n"] = [50]
+
+    def python_phase(study: Any, arguments: Any, scratch: Path) -> regenerate._Phase:
+        # The driver declares the scratch file names; the study never spells one out.
+        paths = {
+            name: scratch / name for name in ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
+        }
+        paths["reference-results.csv"] = scratch / "reference-results.csv"
+        return regenerate._Phase(rows=_rows(record.implementation), paths=paths)
+
+    monkeypatch.setattr(regenerate, "_python_phase", python_phase)
+
+    class FakeReference:
+        def run(self, here: Any, samples: Any, truths: Any, output: Path, **options: Any) -> None:
+            written.to_csv(output, index=False)
+
+    reference = FakeReference()
+    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+
+    assert len(calls) == 1
+    declared = calls[0]["reference_results"]
+    assert declared is not None
+    assert declared.name == "reference-results.csv"
+    probe = pd.read_csv(tmp_path / "probe.csv.gz")
+    assert probe["implementation"].tolist() == [str(record.reference)]
+
+
+def test_every_registered_reference_artifact_hook_accepts_the_driver_call() -> None:
+    """Catch the class of defect, not the one instance of it.
+
+    A hook is called by keyword from one place. Binding each registered hook against that
+    exact keyword set fails when the driver and a study disagree about the call.
+    """
+    from tests.studies.evidence.registry import registered
+
+    hooks = {
+        record.runner_module: hook
+        for record in registered()
+        if (hook := getattr(record.runner(), "reference_artifacts", None)) is not None
+    }
+    assert hooks, "no registered study declares a reference_artifacts hook"
+    for module, hook in hooks.items():
+        signature = inspect.signature(hook)
+        try:
+            signature.bind(**DRIVER_KEYWORDS)
+        except TypeError as error:  # pragma: no cover - the assertion names the module
+            pytest.fail(f"{module}.reference_artifacts rejects the driver call: {error}")

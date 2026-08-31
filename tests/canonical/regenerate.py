@@ -144,6 +144,10 @@ class _Phase:
     truths: pd.DataFrame | None = None
     cached: bool = False
     paths: dict[str, Path] = field(default_factory=dict)
+    #: The reference-result file ``_reference_rows`` actually read or wrote.  A study's
+    #: ``reference_artifacts`` hook reads the same rows, and coupling the two by a literal
+    #: file name broke the moment the driver renamed the file.
+    reference_results: Path | None = None
 
 
 def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> argparse.Namespace:
@@ -231,7 +235,9 @@ def _reference_rows(
     here: Path,
     phase: _Phase,
 ) -> pd.DataFrame:
-    if getattr(arguments, "skip_reference", getattr(arguments, "skip_r", False)):
+    # ``--skip-reference`` is only registered when the study declares a reference, so the one
+    # ``getattr`` here stands in for a flag an unpaired study never carries.
+    if getattr(arguments, "skip_reference", False):
         committed = pd.read_csv(here / "replicates.csv.gz")
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
@@ -241,12 +247,8 @@ def _reference_rows(
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-reference")
         return rows
-    cached_reference = phase.paths.get("reference-results.csv", phase.paths.get("r-results.csv"))
-    if cached_reference is None:
-        raise RuntimeError("the Python phase did not declare a reference-result path")
-    legacy_reference = cached_reference.with_name("r-results.csv")
-    if not cached_reference.exists() and legacy_reference.exists():
-        cached_reference = legacy_reference
+    cached_reference = phase.paths["reference-results.csv"]
+    phase.reference_results = cached_reference
     if (phase.cached or getattr(arguments, "cache", None)) and cached_reference.exists():
         rows = pd.read_csv(cached_reference)
         expected = set(range(arguments.replicates))
@@ -260,11 +262,7 @@ def _reference_rows(
         phase.paths["samples.csv.gz"],
         phase.paths["truth.csv"],
         cached_reference,
-        cores=(
-            getattr(arguments, "reference_jobs", None)
-            or getattr(arguments, "r_jobs", None)
-            or arguments.jobs
-        ),
+        cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
     )
     return pd.read_csv(cached_reference)
 
@@ -323,11 +321,21 @@ def main(
     record = dataclasses.replace(
         study.STUDY, replicates=arguments.replicates, n=arguments.n, artifacts=out
     )
-    skip_reference = getattr(arguments, "skip_reference", getattr(arguments, "skip_r", False))
+    skip_reference = getattr(arguments, "skip_reference", False)
     if skip_reference and record.extra_artifacts:
         raise RuntimeError(
             "--skip-reference cannot rebuild study-specific extra artifacts: the standard "
             "replicate file intentionally omits their source columns"
+        )
+    # The refusal above covers every hook owner today, because each one also declares an
+    # extra artefact.  Nothing enforces that coincidence, and ``tests/`` is not type checked,
+    # so the missing file would otherwise reach the hook as ``None`` against a ``Path``
+    # annotation and fail inside ``pd.read_csv`` on a message about the file rather than
+    # about the flag that removed it.  Refuse the pair here, before any fit runs.
+    if skip_reference and hasattr(study, "reference_artifacts"):
+        raise RuntimeError(
+            f"--skip-reference runs no reference process, so {record.slug} has no "
+            "reference-result file for its reference_artifacts hook to read"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
 
@@ -342,22 +350,17 @@ def main(
                 [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
                 ignore_index=True,
             )
-        reference_extra_frames = (
-            study.reference_artifacts(
+        reference_extra_frames: dict[str, pd.DataFrame] = {}
+        if reference is not None and hasattr(study, "reference_artifacts"):
+            reference_extra_frames = study.reference_artifacts(
                 reference=reference,
                 here=here,
                 samples=phase.paths["samples.csv.gz"],
                 truths_path=phase.paths["truth.csv"],
+                reference_results=phase.reference_results,
                 output=scratch,
-                cores=(
-                    getattr(arguments, "reference_jobs", None)
-                    or getattr(arguments, "r_jobs", None)
-                    or arguments.jobs
-                ),
+                cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
             )
-            if reference is not None and hasattr(study, "reference_artifacts")
-            else {}
-        )
 
     extra_frames = dict(reference_extra_frames)
     row_extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
