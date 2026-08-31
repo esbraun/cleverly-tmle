@@ -107,7 +107,20 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| Julia `TMLE.jl` v0.20.4 | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator. It selects each requested component separately. Its adaptive strategy reorders covariates from the latest targeted residual, unlike the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. Neither package has a published multi-arm selector-aware theorem for this construction. The v0.20.4 candidate fluctuation also receives the complete data before held-out loss is evaluated, which requires an audit. Roadmap item C8 retains the componentwise approach as a separate theory-gated candidate. |
+| Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so this path requires a fold audit. Roadmap item C8 retains the componentwise approach as a separate theory-gated candidate. |
+
+### Multi-arm selector recommendation
+
+Keep the shipped joint selector. Do not replace it with the componentwise `TMLE.jl` path.
+Add componentwise adaptive selection only as a separate, theory-gated approach after the fold
+audit in roadmap item C8.
+
+[van der Laan and Gruber (2010)](https://doi.org/10.2202/1557-4679.1181) derive greedy
+collaborative selection for one target parameter. [Ju et al.
+(2019)](https://doi.org/10.1177/0962280217729845) develop the scalable pre-ordered approach.
+Neither paper supplies a theorem for separately selected multi-arm components and their contrast
+covariance. The [`TMLE.jl` JOSS paper](https://doi.org/10.21105/joss.08446) documents the software,
+but it does not add that theorem.
 
 Two limits of the framework shape these tables. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes
