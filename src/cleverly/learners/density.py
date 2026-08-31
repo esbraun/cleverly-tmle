@@ -30,8 +30,7 @@ here unchanged, and the Super Learner's negative log-likelihood on the long data
 discretised conditional log-likelihood up to the constant :math:`\log(e_{b+1} - e_b)`, so
 its model selection is genuinely selecting a density.
 
-The construction is Diaz & van der Laan (2011); it is what R's ``haldensify`` fits, and
-what ``txshift`` consumes.
+The construction follows Diaz & van der Laan (2011).
 
 **What the bins cost, stated rather than hidden.**  A histogram density is constant within
 a bin.  A shift :math:`\delta` much smaller than a bin width therefore leaves

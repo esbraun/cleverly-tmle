@@ -16,6 +16,8 @@ study and one study per row, requires every link in a row to reach that study's 
 section, and derives every count and headline number below from the committed result files instead
 of reading them.
 
+Scroll inside the grid to move through rows and columns.
+
 | method in `cleverly` | canonical implementation compared | estimands validated | accuracy vs known truth | `cleverly` vs canonical | theory properties | study design and headline results | limitations |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ordinary point-treatment TMLE | R `tmle3` 0.2.0 at commit `ed72f8a`, with `sl3` at `0e8f236`, on a digest-pinned R 4.5.2 | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; pointwise 95% Wald intervals, with RR and OR on the log scale | [34/34 implementation-estimand tests against known truth pass using 99% confidence bounds](canonical-point-treatment-tmle.md#accuracy-against-known-truth) | [17/17 paired similarity and non-inferiority tests pass using 99% confidence bounds](canonical-point-treatment-tmle.md#agreement-with-the-canonical-implementation) | [12/12 cells pass: double robustness with its both-wrong control, bias, coverage, and SE checks at three sizes, two root-n rates, interval calibration, type-I error under a confounded null, and a power control](canonical-point-treatment-tmle.md#theory-properties) | 1,600 replications x n=1,000 on two laws; worst standardized bias 0.1254, lowest coverage 0.9344 | [six declared limits, including what the standard-error band cannot resolve and the PAF scale qualification](canonical-point-treatment-tmle.md) |

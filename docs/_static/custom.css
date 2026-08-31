@@ -117,6 +117,20 @@ html[data-theme="dark"] .cleverly-workflow li {
   scrollbar-width: thin;
 }
 
+.pst-scrollable-table-container:has(thead th:nth-child(5)) {
+  border: 1px solid var(--pst-color-table-outer-border);
+  max-height: min(72vh, 48rem);
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.pst-scrollable-table-container:has(thead th:nth-child(5)) thead th {
+  background: var(--pst-color-table-heading-bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .pst-scrollable-table-container td:first-child {
   font-weight: 600;
   white-space: nowrap;
