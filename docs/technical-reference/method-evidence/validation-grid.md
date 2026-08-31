@@ -11,7 +11,7 @@ implementation exists, half of those tests measure it rather than `cleverly`. *`
 canonical* is the paired comparison. *Theory properties* is the declared repeated-sampling
 behaviour, which a matching implementation would not establish even if the match were exact.
 
-**This is a gate, not a note.** `tests/unit/test_method_evidence.py` requires one row per registered
+`tests/unit/test_method_evidence.py` requires one row per registered
 study and one study per row, requires every link in a row to reach that study's own registered
 section, and derives every count and headline number below from the committed result files instead
 of reading them.
