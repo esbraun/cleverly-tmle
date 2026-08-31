@@ -266,9 +266,9 @@ class TMLE:
         A single split is one draw from a randomised procedure, and on a moderate sample
         two seeds can move ``psi`` by an appreciable fraction of its standard error.
         Repeating the split and taking the median is the reporting rule the source below
-        gives for that situation. No study here measures how much the across-seed spread
-        falls: the registered repeated row validates the median report at three draws and
-        declares that gap, and ``docs/roadmap.md`` *V7* holds the cell that would close it.
+        gives for that situation. The registered ``repeat_stability`` property compares
+        one and three draws across 400 paired fold seeds on a fixed binary sample. Its
+        committed result measures the reduction in across-seed spread for that design.
         Read :meth:`~cleverly.estimators.TMLEResult.repeat_spread` on your own fit.
         The point estimate is
 

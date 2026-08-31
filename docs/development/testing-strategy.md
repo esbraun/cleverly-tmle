@@ -82,11 +82,11 @@ weighted longitudinal rows add sequential targeting, covariance, and direct lear
 controls under a fixed selection law. They do not cover estimated weights or arbitrary flexible
 learner libraries.
 
-Fold repeats are a partial case. The registered
+The registered
 [repeated row](../technical-reference/method-evidence/repeated-cross-fitting.md) covers the median
-reporting rule at three draws. It does not cover the spread-reduction rationale, which the deleted
-`TestRepeatedCrossFitting` used to claim. `docs/roadmap.md` *V7* holds the cell that would restore
-that claim.
+reporting rule at three draws. Its `repeat_stability` property also tests the spread-reduction
+rationale. The property compares one and three draws across 400 paired fold seeds on a fixed
+binary sample.
 
 The weighted longitudinal rows use reporting policy. Their red cells remain visible in the
 committed tables, so registration does not imply that every primary or property gate passed.
