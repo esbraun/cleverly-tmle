@@ -11,10 +11,9 @@ be checked *exactly*, which is nearly all of it:
 * under ``cv_evaluation`` the same rule reads each draw's cross-validated variance;
 * the refused combinations, and why.
 
-The one claim that is *not* here is that repeats reduce the across-seed spread of ``psi``.
-That is a statement about repeated sampling, and no test or study makes it: the registered
-repeated row validates the median report at three draws and declares the gap, and
-``docs/roadmap.md`` *V7* holds the property cell that would close it.
+The registered ``repeat_stability`` property tests the repeated-sampling claim on one fixed
+binary sample. It compares 400 paired fold seeds for one and three draws. These unit tests
+instead keep the exact structural guarantees close to the implementation.
 """
 
 from __future__ import annotations
@@ -252,6 +251,18 @@ class TestTheDrawsAreDistinctAndReproducible:
     def test_a_draw_carries_the_split_that_made_it(self, repeated: Any) -> None:
         for repeat in repeated.repeats:
             assert repeat.folds is repeat.nuisance.folds
+
+    def test_the_first_draw_is_exactly_its_one_repeat_control(
+        self, frame: Any, repeated: Any
+    ) -> None:
+        first_seed = fast_tmle(repeats=REPEATS).crossfit_plan(repeated.data).seeds()[0]
+        assert first_seed is not None
+        control = fast_tmle(repeats=1, random_state=first_seed).fit(frame, **COLUMNS).single()
+        np.testing.assert_array_equal(
+            repeated.repeats[0].nuisance.folds.assignment,
+            control.nuisance.folds.assignment,
+        )
+        assert repeated.repeats[0].psi["ate"] == control.psi("ate")
 
     def test_the_same_seed_gives_the_same_draws(self, frame: Any, repeated: Any) -> None:
         again = fast_tmle(repeats=REPEATS).fit(frame, **COLUMNS).single()

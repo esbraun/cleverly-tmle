@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-repeated-cvtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "f184bf45ea1a9faaec7deb86cafc297a23aa0573",
+      "cleverly_commit": "a1ab49730efea077f828893a893a4ae03049fc29",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -96,7 +96,7 @@
   },
   "study_module_sha256": {
     "tests/studies/repeated_crossfit.py": "62402cb1279854b89539953ed0d366ad063b006c7eb7b69d2434b4ddbf87f2de",
-    "tests/studies/repeated_crossfit_properties.py": "50838a883e70e77098c217663da7776020c3fc7796497244323dc6bcbc0a5452",
+    "tests/studies/repeated_crossfit_properties.py": "ef8aef8601d698f78296e045435f4a2757aeff547a8a787b5715fac1423a3770",
     "tests/studies/canonical_cvtmle.py": "8c9678967ade0574a1feb4dbfff8b24f89cda3d5b42a7d7277777abd4940dc95",
     "tests/studies/canonical_tmle.py": "6f97ea926151ce8b36abfa364e539636787abce34c6677a3cb5a618c44999536",
     "tests/studies/canonical_properties.py": "5b93472483a8832797fbbf16810179baaaf84cc340f8594a7facfa118b667050",
@@ -115,6 +115,6 @@
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "1941771097261925f410e3507fcf24e3d64298352739b8b2b2489b27c8dd16a2",
     "property-replicates.csv.gz": "ba46f1763b5f9224690a03f37a4c71bdca7b9cd13cf3fcd37450268c2b1ba57a",
-    "properties.csv": "2a71f6dce0e92fbaa4fdd7932d3b7effa920936a2aaf96e29b541d33bd29d63c"
+    "properties.csv": "6747c4a53c92431ae550fab940c96a6a9d3a9c9c911b85aa4e74837053ce39c1"
   }
 }

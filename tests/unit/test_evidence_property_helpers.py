@@ -128,3 +128,17 @@ def test_paired_spread_ratio_refuses_unpaired_duplicate_and_degenerate_rows() ->
             pd.DataFrame({"replicate": [0, 1, 2], "estimate": [1.0, 1.0, 1.0]}),
             **kwargs,
         )
+
+
+def test_paired_spread_ratio_refuses_a_zero_denominator_bootstrap_draw() -> None:
+    subject = pd.DataFrame({"replicate": [0, 1, 2], "estimate": [0.0, 2.0, 1.0]})
+    denominator = pd.DataFrame({"replicate": [0, 1, 2], "estimate": [0.0, 1.0, 2.0]})
+
+    with np.testing.assert_raises_regex(ValueError, "bootstrap draw has zero denominator"):
+        paired_spread_ratio_interval(
+            subject,
+            denominator,
+            replicates=20,
+            confidence_level=0.99,
+            seed=17,
+        )

@@ -16,6 +16,7 @@ from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     paired_spread_ratio_interval,
     replicate_row,
+    require_complete,
 )
 from tests.studies.evidence.property_verdicts import finish
 from tests.studies.evidence.seeds import stream_seed
@@ -73,6 +74,8 @@ def _stability_trial(
     control_folds = control.nuisance.folds.assignment
     if not np.array_equal(repeated_first, control_folds):
         raise RuntimeError("the one-repeat control is not the repeated fit's first fold draw")
+    if repeated.repeats[0].psi["ate"] != control.psi("ate"):
+        raise RuntimeError("the one-repeat control does not reproduce the first draw's ATE")
 
     return (
         replicate_row(
@@ -121,11 +124,11 @@ def generate_repeat_stability_rows(
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 
 
-def _summarize_repeat_stability(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Broadcast the paired spread result without changing another family's verdict."""
-    family = rows["property"] == "repeat_stability"
-    repeated = rows.loc[family & (rows["cell"] == "three_repeats")]
-    control = rows.loc[family & (rows["cell"] == "one_repeat_control")]
+def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.DataFrame:
+    """Build fixed-sample stability rows without population-sampling endpoints."""
+    require_complete(rows)
+    repeated = rows.loc[rows["cell"] == "three_repeats"]
+    control = rows.loc[rows["cell"] == "one_repeat_control"]
     result = paired_spread_ratio_interval(
         repeated,
         control,
@@ -133,14 +136,28 @@ def _summarize_repeat_stability(summary: pd.DataFrame, rows: pd.DataFrame) -> No
         confidence_level=STUDY.margins.confidence_level,
         seed=stream_seed(STUDY, "repeat_stability", "bootstrap"),
     )
-    mask = summary["property"] == "repeat_stability"
-    summary.loc[mask, "spread_ratio"] = result.ratio
-    summary.loc[mask, "spread_ratio_ci_lower"] = result.interval.low
-    summary.loc[mask, "spread_ratio_ci_upper"] = result.interval.high
-    summary.loc[mask, "spread_ratio_boundary"] = MAX_REPEAT_SPREAD_RATIO
     passed = result.interval.high < MAX_REPEAT_SPREAD_RATIO
-    summary.loc[mask, "passed"] = passed
-    summary.loc[mask, "property_passed"] = passed
+    records: list[dict[str, object]] = []
+    for cell, group in rows.groupby("cell", sort=True):
+        record = dict.fromkeys(columns, np.nan)
+        record.update(
+            {
+                "property": "repeat_stability",
+                "cell": cell,
+                "role": group["role"].iloc[0],
+                "n": int(group["n"].iloc[0]),
+                "replicates": len(group),
+                "failed_replicates": int(group["failed_replicates"].iloc[0]),
+                "spread_ratio": result.ratio,
+                "spread_ratio_ci_lower": result.interval.low,
+                "spread_ratio_ci_upper": result.interval.high,
+                "spread_ratio_boundary": MAX_REPEAT_SPREAD_RATIO,
+                "passed": passed,
+                "property_passed": passed,
+            }
+        )
+        records.append(record)
+    return pd.DataFrame(records, columns=columns)
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -156,13 +173,18 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+    stability_mask = rows["property"] == "repeat_stability"
+    inherited = rows.loc[~stability_mask]
+    stability = rows.loc[stability_mask]
     summary, rates = summarize(
-        rows,
+        inherited,
         STUDY,
         "repeated",
         include_overfitting=False,
         extra_columns=REPEAT_STABILITY_COLUMNS,
         return_parts=True,
     )
-    _summarize_repeat_stability(summary, rows)
+    summary = pd.concat(
+        [summary, _summarize_repeat_stability(stability, summary.columns)], ignore_index=True
+    )
     return finish(summary, rates)

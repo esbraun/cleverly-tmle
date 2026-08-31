@@ -699,6 +699,32 @@ class TestPublishedVerdicts:
 
         stability = published.loc[published["property"] == "repeat_stability"]
         if not stability.empty:
+            population_sampling_columns = [
+                "truth",
+                "mean_estimate",
+                "bias",
+                "bias_se",
+                "bias_ci_lower",
+                "bias_ci_upper",
+                "bias_margin",
+                "standardized_bias",
+                "bias_equivalent",
+                "bias_discriminated",
+                "root_n_bias",
+                "empirical_se",
+                "mean_std_error",
+                "se_ratio",
+                "se_ratio_ci_lower",
+                "se_ratio_ci_upper",
+                "coverage",
+                "coverage_ci_lower",
+                "coverage_ci_upper",
+                "rejection_rate",
+                "rejection_ci_lower",
+                "rejection_ci_upper",
+                "nominal_size",
+            ]
+            assert stability[population_sampling_columns].isna().all().all()
             expected = (
                 stability["spread_ratio_ci_upper"].iloc[0]
                 < study.properties().MAX_REPEAT_SPREAD_RATIO
