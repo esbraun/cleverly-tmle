@@ -116,6 +116,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "cleverly-weighted-tmle": "`cleverly` weighted point-treatment TMLE",
+    "cleverly-weighted-ltmle": "`cleverly` ordinary weighted LTMLE",
+    "cleverly-cross-fitted-weighted-ltmle": "`cleverly` cross-fitted weighted LTMLE",
     "cleverly-learned-weighted-tmle": (
         "`cleverly` weighted point-treatment TMLE with learned nuisances"
     ),
@@ -123,8 +125,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
     "ltmle": "R `ltmle`",
+    "ltmle-weighted": "R `ltmle` with observation weights",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
+    "lmtp-weighted": "R `lmtp` with observation weights",
     "npcausal": "R `npcausal`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
@@ -145,6 +149,9 @@ SCENARIOS: dict[str, str] = {
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
     "censored_end_of_study": "two-time-point law with monotone censoring",
+    "selected_censored_end_of_study": (
+        "selected two-time-point law with monotone censoring and fixed observation weights"
+    ),
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_competing_risk_curve": (
@@ -373,6 +380,11 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the identical selected rows analyzed without their inverse-selection weights",
         "population-target bias outside its margin and selected-target bias inside its margin",
     ),
+    ("weight_necessity", "omitted_weight_control"): (
+        "the identical selected rows analyzed without any observation weights",
+        "population-target bias outside its margin, selected-target bias inside its margin, "
+        "and paired displacement above its threshold",
+    ),
     ("learner_weight_necessity", "weighted_targeted"): (
         "the weighted nuisance fits followed by weighted targeting and averaging",
         "target-population bias interval inside the equivalence margin",
@@ -388,6 +400,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("learner_weight_necessity", "unweighted_plugin_control"): (
         "the untargeted plug-in from nuisance fits that omit weights",
         "target bias outside its margin, selected-population bias inside its margin, and paired displacement above its threshold",
+    ),
+    ("learner_weight_necessity", "weighted_learners"): (
+        "sampling weights enter nuisance learning, targeting, averaging, and covariance",
+        "population-target bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "discarded_learner_weight_control"): (
+        "nuisance learners discard sampling weights while later estimator stages retain them",
+        "population-target bias outside its margin, learner-selected-target bias inside its "
+        "margin, and paired displacement above its threshold",
     ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",

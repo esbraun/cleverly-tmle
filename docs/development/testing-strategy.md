@@ -55,16 +55,17 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 69 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 66 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
 
-**Read the consequence plainly.** Weighted longitudinal fits remain the design family with no
-active repeated-sampling evidence. Controlled direct effects, weighted point-treatment inference,
-and clustered point-treatment inference each have a registered paired study. The controlled
-direct-effect row uses exact finite-support nuisances. The fast end-to-end test checks
-learned-nuisance bias, but no active study checks learned-nuisance interval coverage.
+**Read the consequence plainly.** Ordinary and cross-fitted weighted longitudinal fits now have
+separate registered reporting studies. Controlled direct effects, weighted point-treatment
+inference, and clustered point-treatment inference also have registered paired studies. The
+controlled direct-effect row uses exact finite-support nuisances. The fast end-to-end test checks
+learned-nuisance bias, but no active study checks learned-nuisance interval coverage for every
+learner library.
 
 Multi-arm means and selectors have moved into four registered
 [multi-arm point-treatment studies](../technical-reference/method-evidence/index.md). Categorical
@@ -72,12 +73,14 @@ longitudinal treatment has separate ordinary and cross-fitted rows. Each uncover
 runs its exact-law, Gateaux, remainder and mutation tests in the fast tier. Those tests check the
 parameter and the influence curve.
 
-Weights are a partial case. The registered [fixed-nuisance
+Weights remain construction-specific. The registered [fixed-nuisance point-treatment
 row](../technical-reference/method-evidence/weighted-point-treatment-tmle.md) isolates weighted
-targeting and inference. The separate [learned-nuisance
+targeting and inference. The separate [learned-nuisance point-treatment
 row](../technical-reference/method-evidence/learned-weighted-point-treatment-tmle.md) reaches
-ordinary weighted regressions on two continuous covariates. Cross-fitted weighted nuisances remain
-outside the registered evidence.
+ordinary weighted regressions on two continuous covariates. The ordinary and cross-fitted
+weighted longitudinal rows add sequential targeting, covariance, and direct learner-weight
+controls under a fixed selection law. They do not cover estimated weights or arbitrary flexible
+learner libraries.
 
 Fold repeats are a partial case. The registered
 [repeated row](../technical-reference/method-evidence/repeated-cross-fitting.md) covers the median
@@ -85,10 +88,8 @@ reporting rule at three draws. It does not cover the spread-reduction rationale,
 `TestRepeatedCrossFitting` used to claim. `docs/roadmap.md` *V7* holds the cell that would restore
 that claim.
 
-What remains unchecked for weighted longitudinal fits is whether the interval built from that
-curve covers under repeated sampling. That family needs its own law, exact oracle, margins, and
-paired control before the claim exists again. Deleting a deprecated module is the last step of
-registering its replacement, not the first.
+The weighted longitudinal rows use reporting policy. Their red cells remain visible in the
+committed tables, so registration does not imply that every primary or property gate passed.
 
 A test nobody runs is not evidence. Skipping these says so out loud rather than leaving a green
 tier that nothing executes.
@@ -141,9 +142,10 @@ tier recomputes every published verdict from the committed rows and refits two r
 study. It never re-executes the property fits.
 
 Regeneration closes that gap at the point where it opens. `regenerate.py` produces the property
-rows with the current code, and it refuses the run on any failed gate. The artifacts a study
-commits were therefore produced by the code it was committed against. Re-executing them afterwards
-confirms determinism rather than freshness.
+rows with the current code. A gated study refuses a failed scientific verdict. A reporting study
+publishes red verdicts but still refuses schema, provenance, convergence, and replication-accounting
+failures. The artifacts a study commits were therefore produced by the code it was committed
+against. Re-executing them afterwards confirms determinism rather than freshness.
 
 Reach for this tier when you are diagnosing a specific disagreement between committed rows and
 current behaviour. Name the study whose path and assertion can observe the change, rather than

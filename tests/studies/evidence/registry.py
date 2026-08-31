@@ -325,6 +325,10 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
+    from tests.studies.canonical_weighted_ltmle_crossfit import (
+        STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
+    )
     from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
@@ -353,9 +357,11 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_SHIFT_POLICIES,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
+        CANONICAL_WEIGHTED_LTMLE,
         CANONICAL_CATEGORICAL_LTMLE,
         CANONICAL_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
+        CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
         CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
         CANONICAL_LTMLE_SURVIVAL,
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,

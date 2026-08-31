@@ -365,7 +365,8 @@ def main(
     )
     write_csv(paired, paths["equivalence.csv"])
     for name, frame in extra_frames.items():
-        write_csv(frame, paths[name])
+        compression = {"method": "gzip", "mtime": 0} if name.endswith(".csv.gz") else None
+        write_csv(frame, paths[name], compression=compression)
 
     if arguments.primary_only:
         print(performance.to_string(index=False))

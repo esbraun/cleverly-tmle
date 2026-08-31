@@ -9,6 +9,7 @@ Run the smoke check from the repository root.
 docker build -t cleverly-lmtp-crossfit:1.5.4 tests/canonical/lmtp_crossfit
 docker run --rm -v "$PWD/tests/canonical:/fixture:ro" cleverly-lmtp-crossfit:1.5.4 /fixture/lmtp_crossfit/smoke.R
 docker run --rm -v "$PWD/tests/canonical:/fixture:ro" cleverly-lmtp-crossfit:1.5.4 /fixture/lmtp_crossfit/smoke_clustered.R
+docker run --rm -v "$PWD/tests/canonical:/fixture:ro" cleverly-lmtp-crossfit:1.5.4 /fixture/lmtp_crossfit/smoke_weighted.R
 ```
 
 The clustered smoke also proves that the adapter preserves an identifier and rejects a split

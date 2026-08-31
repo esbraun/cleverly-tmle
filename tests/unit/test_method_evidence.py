@@ -608,14 +608,25 @@ class TestPublishedVerdicts:
             frame = published.loc[published["property"] == family]
             if not frame.empty:
                 control = frame.loc[frame["role"] == "control"]
-                assert len(control) == 1
-                assert bool(control["alternative_bias_equivalent"].iloc[0])
+                assert len(control) >= 1
+                alternative_ok = True
+                if (
+                    "alternative_bias_equivalent" in control
+                    and control["alternative_bias_equivalent"].notna().any()
+                ):
+                    alternative_ok = bool(control["alternative_bias_equivalent"].all())
+                    assert alternative_ok
+                displacement_column = {
+                    "weight_necessity": "weight_displacement",
+                    "learner_weight_necessity": "learner_weight_displacement",
+                }[family]
+                if displacement_column not in frame or frame[displacement_column].isna().all():
+                    displacement_column = "necessity_displacement"
                 assert frame["property_passed"].nunique() == 1
                 assert bool(frame["property_passed"].iloc[0]) is bool(
                     frame["passed"].all()
-                    and control["alternative_bias_equivalent"].all()
-                    and frame["necessity_displacement"].iloc[0]
-                    >= getattr(study.properties(), threshold)
+                    and alternative_ok
+                    and frame[displacement_column].iloc[0] >= getattr(study.properties(), threshold)
                 )
 
         recursion = published.loc[
@@ -768,12 +779,21 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 
 
 class TestNegativeControls:
-    """Corrupt one implementation and require exactly that one to fail."""
+    """Corrupt one implementation and leave the other implementation's verdict unchanged."""
 
     @pytest.fixture
     def cell(self, study: StudyRecord, rows: pd.DataFrame) -> pd.DataFrame:
         scenario = next(iter(study.scenarios))
-        estimand = study.scenarios[scenario][0]
+        performance = pd.read_csv(study.artifact("performance-tests.csv"))
+        valid = set(
+            performance.loc[
+                (performance["implementation"] == study.implementation) & performance["passed"],
+                "estimand",
+            ]
+        )
+        estimand = next((name for name in study.scenarios[scenario] if name in valid), None)
+        if estimand is None:
+            pytest.skip("study publishes no subject-valid primary cell for this mutation")
         return rows.loc[(rows["scenario"] == scenario) & (rows["estimand"] == estimand)].copy()
 
     @staticmethod
@@ -798,6 +818,9 @@ class TestNegativeControls:
             "coverage": self._lose_coverage,
             "standard error": self._inflate_standard_errors,
         }
+        baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
+            "implementation"
+        )
         for implementation in study.implementations:
             mutated = cell.copy()
             mutations[label](mutated, mutated["implementation"] == implementation)
@@ -808,7 +831,7 @@ class TestNegativeControls:
                 f"a corrupted {label} for {implementation} was accepted"
             )
             for other in set(study.implementations) - {implementation}:
-                assert bool(verdicts.loc[other, "passed"]), (
+                assert bool(verdicts.loc[other, "passed"]) is bool(baseline.loc[other, "passed"]), (
                     f"corrupting {implementation}'s {label} implicated {other}"
                 )
 

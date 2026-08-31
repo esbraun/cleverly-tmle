@@ -29,6 +29,7 @@ from ..utils.frames import as_frame, column_array, frame_from_dict
 
 __all__ = [
     "RULE_LABEL",
+    "WEIGHTED_SELECTION_PROBABILITIES",
     "competing_truth",
     "longitudinal_rule_truth",
     "longitudinal_truth",
@@ -426,7 +427,7 @@ def make_longitudinal(
 #: on a covariate that moves both treatment decisions and the outcome, so an unweighted
 #: analysis of the retained rows answers for the wrong population; and both values are far
 #: from zero, so the weights are a tilt rather than a positivity problem of their own.
-_SELECTION = (0.3, 0.9)
+WEIGHTED_SELECTION_PROBABILITIES = (0.3, 0.9)
 
 
 def make_longitudinal_weighted(
@@ -469,7 +470,7 @@ def make_longitudinal_weighted(
     """
     rng = np.random.default_rng(seed)
     frame, truth = make_longitudinal(n=n, seed=rng, backend=backend)
-    low, high = _SELECTION
+    low, high = WEIGHTED_SELECTION_PROBABILITIES
     source = as_frame(frame)
     keep_probability = np.where(column_array(source, "W1") > 0.0, low, high)
     selected = rng.random(n) < keep_probability

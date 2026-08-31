@@ -83,6 +83,16 @@ of omitting the weights on identical selected samples. The separate
 the weights through both regressions. Its learner-only control moves the untargeted plug-in to the
 selected target, while a correct treatment mechanism repairs the targeted estimate.
 
+The registered [ordinary weighted longitudinal
+study](method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md) and [cross-fitted
+weighted longitudinal
+study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) extend that
+instrument to two treatment nodes, censoring, static and dynamic plans, and correlated contrasts.
+Both use exact-size selected samples and fixed inverse-selection weights. Their independent
+property laws include separate controls for omitting weights from the full estimator and from the
+nuisance learners alone. These are reporting rows: their committed red cells remain limitations,
+not hidden successes.
+
 ## Estimator variants over registered targets
 
 `CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they
