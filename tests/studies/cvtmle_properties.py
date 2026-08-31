@@ -15,6 +15,7 @@ from cleverly.estimators import TMLE
 from cleverly.inference import cross_validated_variance
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_properties
+from tests.studies.canonical_cvtmle import G_BOUNDS as CV_G_BOUNDS
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -61,7 +62,6 @@ def cells(variant: str, *, include_overfitting: bool = True) -> tuple[PropertyCe
 
 
 def estimator(
-    record: StudyRecord,
     variant: str,
     *,
     repeats: int = 1,
@@ -83,7 +83,7 @@ def estimator(
             cv_evaluation=evaluate_by_fold and not control,
             estimands=cell.estimand,
             simultaneous=False,
-            g_bounds=(0.025, 0.975),
+            g_bounds=CV_G_BOUNDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
@@ -93,7 +93,6 @@ def estimator(
 
 
 def assert_double_robustness_preflight(
-    record: StudyRecord,
     variant: str,
     declared: tuple[PropertyCell, ...],
     *,
@@ -103,25 +102,16 @@ def assert_double_robustness_preflight(
     cv_evaluation: bool | None,
 ) -> None:
     """Run deterministic controls before a CV property driver spends its full budget."""
-    cell = next(
-        cell
-        for cell in declared
-        if cell.property == "double_robustness" and cell.cell == "treatment_correct"
-    )
-    frame, _ = cell.dgp.sample(400, seed=cell.seed)
-    build = estimator(
-        record,
-        variant,
-        repeats=repeats,
-        n_folds=n_folds,
-        targeting_scheme=targeting_scheme,
-        cv_evaluation=cv_evaluation,
-    )
-    result = build(cell)().fit(frame, **cell.fit_kwargs).single()
-    canonical_properties.assert_double_robustness_fit(
-        cell,
-        result,
-        g_bounds=(0.025, 0.975),
+    result = canonical_properties.run_double_robustness_preflight(
+        declared,
+        estimator(
+            variant,
+            repeats=repeats,
+            n_folds=n_folds,
+            targeting_scheme=targeting_scheme,
+            cv_evaluation=cv_evaluation,
+        ),
+        g_bounds=CV_G_BOUNDS,
     )
 
     fluctuation = result.fluctuations["mean"]
@@ -130,8 +120,15 @@ def assert_double_robustness_preflight(
             raise RuntimeError("fold targeting did not retain one fluctuation per fold")
         if any(np.max(np.abs(fold.epsilon)) <= 1e-8 for fold in fluctuation.folds):
             raise RuntimeError("a fold-targeted preflight epsilon is zero")
+        # ``converged`` reports the solver against *its own* configured ``tol``, so a study
+        # that loosened ``tol`` would still report every fold converged.  The second clause
+        # holds each fold to the tolerance this module configures, whatever the estimator
+        # was built with.  A raw score threshold cannot do that job: it reads a different
+        # quantity on a fold than on the whole sample.  The fold-targeted preflight measures
+        # 1.5e-13 here, so this leaves three orders of headroom.
         if any(
-            not fold.converged or np.max(np.abs(fold.score)) > 1e-9 for fold in fluctuation.folds
+            not fold.converged or fold.relative_score_norm > canonical_properties.SOLVED_SCORE_TOL
+            for fold in fluctuation.folds
         ):
             raise RuntimeError("a fold-targeted preflight score is unsolved")
 
@@ -157,7 +154,6 @@ def assert_double_robustness_preflight(
 
 
 def generate(
-    record: StudyRecord,
     variant: str,
     *,
     repeats: int = 1,
@@ -169,7 +165,6 @@ def generate(
 ) -> pd.DataFrame:
     declared = cells(variant, include_overfitting=include_overfitting)
     assert_double_robustness_preflight(
-        record,
         variant,
         declared,
         repeats=repeats,
@@ -180,7 +175,6 @@ def generate(
     return run_cells(
         declared,
         estimator(
-            record,
             variant,
             repeats=repeats,
             n_folds=n_folds,

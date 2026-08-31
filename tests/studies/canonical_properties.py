@@ -11,17 +11,19 @@ implementation comparison declares, so the two halves of the study cannot drift 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.datasets import DGP, linear_dgp
+from cleverly.datasets import DGP, linear_dgp, nonlinear_dgp
 from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
 from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
+from tests.studies import canonical_cvtmle
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
@@ -38,11 +40,38 @@ DOUBLE_ROBUST_N = 700
 DOUBLE_ROBUST_TREATMENT_N = 2_000
 DOUBLE_ROBUST_SEED = 17_100
 
-#: The bounded mechanism below has this open support.  The endpoints are the limits from
-#: ``tanh(W)`` in ``(-1, 1)``; both sit well inside the estimator's narrowest declared
-#: treatment bounds, so the oracle arm exercises double robustness without truncation.
-DOUBLE_ROBUST_LOGIT_RANGE = (-1.5, 1.05625)
+#: The relative score norm a preflight fit has to reach before the study spends its budget.
+#: Declared here rather than read from the estimator's ``tol``, and that separation is the
+#: whole point: ``Fluctuation.converged`` reports the solver against whatever tolerance it
+#: was configured with, so a study that loosened ``tol`` would still report a converged fit.
+#: Checking this value as well holds every preflight to one standard.  Keep it equal to the
+#: ``tol`` the estimators below pass, and change the two together deliberately.
+SOLVED_SCORE_TOL = 1e-10
+
+#: Half-width of the treatment mechanism's logit.  ``L * tanh(u / L)`` maps the unbounded
+#: linear predictor onto the open interval ``(-L, L)``, so it leaves ``u`` almost unchanged
+#: where the law is moderate and compresses only the tail that would otherwise be clipped.
+#: Bounding the *inputs* instead compresses ``W2`` and ``W3`` exactly where the outcome
+#: regression varies, which is where the both-wrong control gets its bias from.
+DOUBLE_ROBUST_LOGIT_SCALE = 2.5
+
+#: The bounded mechanism below has this open support.  ``u(W)`` reaches every real value,
+#: ``tanh`` is a strictly increasing bijection onto ``(-1, 1)``, and ``expit`` is strictly
+#: increasing, so the mechanism's range is exactly ``(expit(-L), expit(L))`` and attains
+#: neither endpoint.  Both sit inside ``DOUBLE_ROBUST_G_BOUNDS`` with over one logit unit
+#: of headroom, so no study estimator clips the oracle probabilities.
+DOUBLE_ROBUST_LOGIT_RANGE = (-DOUBLE_ROBUST_LOGIT_SCALE, DOUBLE_ROBUST_LOGIT_SCALE)
 DOUBLE_ROBUST_G_RANGE = tuple(float(expit(value)) for value in DOUBLE_ROBUST_LOGIT_RANGE)
+
+#: The narrowest treatment bound any consumer of this law configures, taken as an envelope
+#: rather than read from one study.  Ordinary TMLE runs the law at ``(0.01, 0.99)`` and the
+#: four cross-fitted studies run it at ``(0.025, 0.975)``, so the design check below has to
+#: clear the tighter pair.  Reading a single study's bound would let a study widen its own
+#: clipping and silently weaken the check for every other consumer.
+DOUBLE_ROBUST_G_BOUNDS = (
+    max(G_BOUNDS[0], canonical_cvtmle.G_BOUNDS[0]),
+    min(G_BOUNDS[1], canonical_cvtmle.G_BOUNDS[1]),
+)
 
 #: Sized by what the *coverage* gate in these cells needs, which is the binding one and was
 #: the budget's real constraint.  A 99% Clopper-Pearson lower endpoint clearing 0.90 needs
@@ -74,33 +103,33 @@ def double_robustness_dgp() -> DGP:
 
     The outcome law is the established nonlinear point-treatment law.  Its conditional
     contrast varies with ``W1`` and ``I(W2 > 0)``, so a main-effects linear regression is
-    genuinely wrong.  The treatment law keeps the same nonlinear terms but bounds every
-    continuous input with ``tanh``.  Its full range is therefore strictly inside
-    ``DOUBLE_ROBUST_G_RANGE`` and no study estimator clips the oracle probabilities.
+    genuinely wrong.  The treatment law keeps that law's linear predictor and bounds the
+    *logit* rather than the inputs.
+
+    ``u(W)`` reaches every real value: it goes to ``+inf`` along ``W1 -> +inf`` at
+    ``W2 = W3 = 0``, and to ``-inf`` along ``|W2| -> inf`` at ``W3 = 0``.  ``tanh`` is a
+    strictly increasing bijection from the reals onto ``(-1, 1)``, so ``L * tanh(u / L)``
+    has range exactly ``(-L, L)`` and attains neither endpoint.  ``expit`` is strictly
+    increasing, so the mechanism's range is exactly ``DOUBLE_ROBUST_G_RANGE`` and no study
+    estimator clips the oracle probabilities.
+
+    Bounding each input instead would compress ``W2`` and ``W3`` where the outcome
+    regression varies, and the both-wrong control's bias is the correlation between the two
+    misspecifications.  The truth does not move either way: the ATE is
+    ``E[2.0 + 0.7 * W1 - 0.5 * I(W2 > 0)] = 1.75``, which the propensity does not enter.
     """
 
     def propensity(w: np.ndarray) -> np.ndarray:
-        w1, w2, w3, w4 = (np.tanh(w[:, index]) for index in range(4))
-        return expit(0.6 * w1 - 0.4 * w2**2 + 0.5 * w2 * w3 + 0.3 * (w4 > 0))
+        logit = 0.6 * w[:, 0] - 0.4 * w[:, 1] ** 2 + 0.5 * w[:, 1] * w[:, 2] + 0.3 * (w[:, 3] > 0)
+        scale = DOUBLE_ROBUST_LOGIT_SCALE
+        return expit(scale * np.tanh(logit / scale))
 
-    def outcome_mean(w: np.ndarray, a: float, z: float | None) -> np.ndarray:
-        del z
-        baseline = (
-            1.0
-            + 0.8 * np.sin(1.5 * w[:, 0])
-            + 0.6 * w[:, 1] ** 2
-            - 0.5 * w[:, 2] * w[:, 3]
-            + 0.4 * np.abs(w[:, 3])
-        )
-        effect = 2.0 + 0.7 * w[:, 0] - 0.5 * (w[:, 1] > 0)
-        return baseline + effect * a
-
-    return DGP(
+    # ``DGP`` is frozen, so the outcome law is the shipped one by construction rather than by
+    # a copy that a reader has to diff.  Only the treatment mechanism differs.
+    return replace(
+        nonlinear_dgp(),
         name="canonical_double_robustness_bounded_nonlinear",
-        n_latent=4,
-        covariate_names=("W1", "W2", "W3", "W4"),
         propensity=propensity,
-        outcome_mean=outcome_mean,
     )
 
 
@@ -124,17 +153,16 @@ def _assert_double_robustness_design(cells: tuple[PropertyCell, ...]) -> None:
         )
     if len({id(cell.dgp) for cell in robust}) != 1:
         raise RuntimeError("all four double-robustness arms must use one shared law")
-    if not (0.025 < DOUBLE_ROBUST_G_RANGE[0] < DOUBLE_ROBUST_G_RANGE[1] < 0.975):
+    lower, upper = DOUBLE_ROBUST_G_BOUNDS
+    if not (lower < DOUBLE_ROBUST_G_RANGE[0] < DOUBLE_ROBUST_G_RANGE[1] < upper):
         raise RuntimeError(
-            "the analytic treatment-mechanism range is not strictly inside [0.025, 0.975]"
+            "the analytic treatment-mechanism range is not strictly inside "
+            f"[{lower}, {upper}], the narrowest bound any consumer configures"
         )
     dgp = robust[0].dgp
-    range_witnesses = np.array(
-        [
-            [-50.0, 50.0, -50.0, -1.0],
-            [50.0, np.arctanh(0.625), 50.0, 1.0],
-        ]
-    )
+    # Two points where ``tanh`` saturates to exactly +-1 in float64, so the mechanism
+    # returns the analytic endpoints bit for bit rather than approaching them.
+    range_witnesses = np.array([[0.0, 50.0, 0.0, 0.0], [100.0, 0.0, 0.0, 1.0]])
     if not np.allclose(
         dgp.propensity(range_witnesses),
         DOUBLE_ROBUST_G_RANGE,
@@ -191,9 +219,11 @@ def assert_double_robustness_fit(
         raise RuntimeError("the bounded-overlap oracle was clipped before targeting")
 
     true_contrast = cell.dgp.outcome_mean(w, 1.0, None) - cell.dgp.outcome_mean(w, 0.0, None)
-    wrong_contrast = result.nuisance.scaler.range * (
-        result.nuisance.outcome.arms[1.0] - result.nuisance.outcome.arms[0.0]
-    )
+    # ``lower`` cancels in the difference, so this is the scaler's own method rather than an
+    # open-coded ``range *`` that a reader has to check against it.
+    scaler = result.nuisance.scaler
+    arms = result.nuisance.outcome.arms
+    wrong_contrast = scaler.unscale_levels(arms[1.0]) - scaler.unscale_levels(arms[0.0])
     wrong_q_error = float(np.sqrt(np.mean((true_contrast - wrong_contrast) ** 2)))
     if np.ptp(true_contrast) <= 0.5 or wrong_q_error <= 0.25:
         raise RuntimeError("the fitted main-effects wrong-Q contrast witness vanished")
@@ -201,7 +231,11 @@ def assert_double_robustness_fit(
     fluctuation = result.fluctuations["mean"]
     if np.max(np.abs(fluctuation.epsilon)) <= 1e-8:
         raise RuntimeError("the targeting preflight has no nonzero fluctuation witness")
-    if not fluctuation.converged or fluctuation.relative_score_norm > 1e-8:
+    # Two separate questions. ``converged`` asks whether the solver met its own configured
+    # tolerance, and ``SOLVED_SCORE_TOL`` asks whether the score reaches the standard this
+    # module declares. The pooled preflight measures 1e-17 here, so the second leaves seven
+    # orders of headroom and still bites on a fit that was configured to stop early.
+    if not fluctuation.converged or fluctuation.relative_score_norm > SOLVED_SCORE_TOL:
         raise RuntimeError("the targeting preflight did not solve its score")
 
 
@@ -337,17 +371,33 @@ def _estimator(cell: PropertyCell) -> Callable[[], Any]:
     )
 
 
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """Run every property cell and return the per-replication rows."""
-    declared = cells()
-    treatment_correct = next(
+def run_double_robustness_preflight(
+    declared: tuple[PropertyCell, ...],
+    build: Callable[[PropertyCell], Callable[[], Any]],
+    *,
+    g_bounds: tuple[float, float],
+    n: int = 400,
+) -> Any:
+    """Fit the treatment-correct arm once and assert its deterministic controls.
+
+    The fitted result is returned so a cross-fitted caller can add its own fold and
+    cross-validated evaluation checks to the same fit rather than paying for a second one.
+    """
+    cell = next(
         cell
         for cell in declared
         if cell.property == "double_robustness" and cell.cell == "treatment_correct"
     )
-    frame, _ = treatment_correct.dgp.sample(400, seed=treatment_correct.seed)
-    result = _estimator(treatment_correct)().fit(frame, **treatment_correct.fit_kwargs).single()
-    assert_double_robustness_fit(treatment_correct, result, g_bounds=G_BOUNDS)
+    frame, _ = cell.dgp.sample(n, seed=cell.seed)
+    result = build(cell)().fit(frame, **cell.fit_kwargs).single()
+    assert_double_robustness_fit(cell, result, g_bounds=g_bounds)
+    return result
+
+
+def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+    """Run every property cell and return the per-replication rows."""
+    declared = cells()
+    run_double_robustness_preflight(declared, _estimator, g_bounds=G_BOUNDS)
     return run_cells(declared, _estimator, n_jobs=n_jobs)
 
 

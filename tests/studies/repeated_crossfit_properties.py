@@ -12,7 +12,6 @@ from tests.studies.repeated_crossfit import N_FOLDS, REPEATS, STUDY
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate(
-        STUDY,
         "repeated",
         repeats=REPEATS,
         n_folds=N_FOLDS,

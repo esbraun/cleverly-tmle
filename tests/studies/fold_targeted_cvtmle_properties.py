@@ -11,7 +11,6 @@ from tests.studies.fold_targeted_cvtmle import N_FOLDS, STUDY
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate(
-        STUDY,
         "fold_targeted",
         n_folds=N_FOLDS,
         targeting_scheme="fold",

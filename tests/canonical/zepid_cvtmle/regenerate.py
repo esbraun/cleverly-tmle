@@ -11,7 +11,8 @@ if __name__ == "__main__":
         fold_targeted_cvtmle_properties,
         here=Path(__file__).resolve().parent,
         reference=Reference(
-            image="cleverly-zepid-reference:16a0f96",
+            # Derived, so the tag cannot drift away from the commit the study declares.
+            image=f"cleverly-zepid-reference:{fold_targeted_cvtmle.ZEPID_COMMIT[:7]}",
             runner="run_zepid_cvtmle.py",
             mount_runner=True,
             extra_files=("requirements.txt",),

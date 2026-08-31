@@ -124,7 +124,14 @@ class FixedFoldTMLE(TMLE):
 
 
 def zepid_partition(n: int, seed: int) -> tuple[np.ndarray, int]:
-    """Reproduce zEpid's one-partition two-split draw from a labelled study seed."""
+    """Reproduce zEpid's one-partition two-split draw from a labelled study seed.
+
+    The second element is the *study* seed, not the partition seed.  ``run_zepid_cvtmle.py``
+    reads it out of the ``partition_random_state`` column and hands it to zEpid, which then
+    re-derives ``partition_seed`` by the same draw below.  Passing the derived seed instead
+    would make zEpid draw a third one and split the rows differently.  The column name is
+    read by that runner, whose bytes the manifest hashes, so it is not renamable here.
+    """
     if n % N_FOLDS:
         raise ValueError(f"the fold-targeted study needs two equal folds; got n={n}")
     partition_seed = int(RandomState(seed).choice(range(5_000_000), size=1, replace=False)[0])

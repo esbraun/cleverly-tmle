@@ -96,7 +96,7 @@ binary-outcome law covers those plus `paf`, `rr`, and `or`.
 ## Theory properties
 
 The double-robustness cells use a bounded nonlinear confounded law with exact ATE 1.75.
-Its treatment mechanism stays between 0.182 and 0.742, so the configured bounds do not clip it.
+Its treatment mechanism stays between 0.076 and 0.924, so the configured bounds do not clip it.
 The wrong main-effects outcome regression imposes a constant contrast, while the true contrast
 varies with `W1` and `I(W2 > 0)`. The treatment-correct cell uses n = 2,000. The other three cells
 use n = 700. Each cell uses 1,200 replications and the existing predeclared margin.
@@ -104,10 +104,10 @@ use n = 700. Each cell uses 1,200 replications and the existing predeclared marg
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0077 to 0.0047, margin 0.0208, SE ratio 0.9925 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0567 to -0.0380, margin 0.0313, SE ratio 0.9499 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0037 to 0.0090, margin 0.0213, SE ratio 0.9651 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0096 to 0.000686, margin 0.0173, SE ratio 1.0135 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0043 to 0.0087, margin 0.0218, SE ratio 0.9982 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.3017 to -0.2835, margin 0.0306, SE ratio 0.9811 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0058 to 0.0077, margin 0.0226, SE ratio 0.9250 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0094 to 0.0024, margin 0.0199, SE ratio 0.9974 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9420 to 0.9645, SE ratio 0.9679 to 1.0385 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000513, coverage 0.9194 to 0.9627, SE ratio 0.9777 | pass |
@@ -157,11 +157,11 @@ table rather than leaving it asserting a rule the study never applied.
 | `continuous_summary_cells` | 14 | continuous-law summary cells, both implementations |
 | `continuous_cells_with_se_ratio_below_one` | 8 | of those, reporting a standard error below the empirical spread |
 | `continuous_cells_with_coverage_below_nominal` | 7 | of those, covering below 95% |
-| `properties[double_robustness/both_correct]:bias` | -0.0015 | bias with both nuisances correct |
-| `properties[double_robustness/outcome_correct]:bias` | 0.0027 | bias with only the outcome regression correct |
-| `properties[double_robustness/treatment_correct]:bias` | -0.0045 | bias with only the treatment mechanism correct |
-| `properties[double_robustness/both_wrong]:bias` | -0.0473 | bias with both nuisances wrong; this is the negative control |
-| `properties[double_robustness/both_wrong]:coverage` | 0.9258 | coverage of the same control |
+| `properties[double_robustness/both_correct]:bias` | 0.0022 | bias with both nuisances correct |
+| `properties[double_robustness/outcome_correct]:bias` | 0.000949 | bias with only the outcome regression correct |
+| `properties[double_robustness/treatment_correct]:bias` | -0.0035 | bias with only the treatment mechanism correct |
+| `properties[double_robustness/both_wrong]:bias` | -0.2926 | bias with both nuisances wrong; this is the negative control |
+| `properties[double_robustness/both_wrong]:coverage` | 0.3167 | coverage of the same control |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.5045 | fitted log-log contraction rate of the sampling spread |
 | `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5374 | its 99% lower endpoint |
 | `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4725 | its 99% upper endpoint |

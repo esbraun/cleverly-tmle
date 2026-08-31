@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from tests.canonical.zepid_cvtmle.run_zepid_cvtmle import assert_native_split_identity
+from tests.studies import canonical_properties
 from tests.studies import fold_targeted_cvtmle as study
 from tests.studies.canonical_cvtmle import cv_fit
 
@@ -58,7 +59,10 @@ def test_each_fold_has_a_nonzero_solved_targeting_step(fold_targeted: object) ->
     fluctuation = fold_targeted.fluctuations["mean"]  # type: ignore[attr-defined]
     assert len(fluctuation.folds) == study.N_FOLDS
     assert all(np.max(np.abs(record.epsilon)) > 1e-8 for record in fluctuation.folds)
-    assert all(np.max(np.abs(record.score)) < 1e-9 for record in fluctuation.folds)
+    assert all(
+        record.relative_score_norm <= canonical_properties.SOLVED_SCORE_TOL
+        for record in fluctuation.folds
+    )
     assert any(
         not np.allclose(record.epsilon, fluctuation.folds[0].epsilon)
         for record in fluctuation.folds[1:]

@@ -13,7 +13,7 @@ each native split before it fits a nuisance model. The two-split design makes ea
 training split the complete complement of its validation split.
 
 The double-robustness properties use a bounded nonlinear confounded law with exact ATE 1.75.
-Its treatment mechanism stays between 0.182 and 0.742, so the configured bounds do not clip it.
+Its treatment mechanism stays between 0.076 and 0.924, so the configured bounds do not clip it.
 The wrong main-effects outcome regression has a constant contrast, while the true contrast varies.
 The treatment-correct cell uses n = 2,000 and 1,200 replications. The other three cells use
 n = 700 and 1,200 replications. All cells use their predeclared seeds and the existing margins.
