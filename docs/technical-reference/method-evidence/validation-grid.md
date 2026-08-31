@@ -16,7 +16,9 @@ study and one study per row, requires every link in a row to reach that study's 
 section, and derives every count and headline number below from the committed result files instead
 of reading them.
 
-Scroll inside the grid to move through rows and columns.
+Use either horizontal scrollbar to move through columns. Hover over a shortened cell to read its
+full content. Keyboard users can focus the cell and press Enter. Use the **Studies** list to move
+to a registered study.
 
 | method in `cleverly` | canonical implementation compared | estimands validated | accuracy vs known truth | `cleverly` vs canonical | theory properties | study design and headline results | limitations |
 | --- | --- | --- | --- | --- | --- | --- | --- |

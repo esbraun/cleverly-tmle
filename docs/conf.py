@@ -92,6 +92,7 @@ html_title = "cleverly: the Python toolbox for TMLE"
 html_baseurl = "https://esbraun.github.io/cleverly-tmle/"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = ["custom.js"]
 html_theme_options = {
     "github_url": "https://github.com/esbraun/cleverly-tmle",
     "show_nav_level": 2,
