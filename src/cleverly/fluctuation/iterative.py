@@ -216,6 +216,36 @@ class FoldFluctuation:
     Recorded so a CV-TMLE fit can be inspected fold by fold.  A fluctuation
     coefficient that swings wildly across folds is the signature of an unstable
     clever covariate -- something the pooled ``epsilon`` averages away and hides.
+
+    Parameters
+    ----------
+    index : ndarray
+        Row positions of this validation fold, into the fitted sample.
+    epsilon : ndarray
+        Fluctuation coefficients solved on this fold alone, one per clever-covariate
+        column.
+    score : ndarray
+        Solved score per column over this fold's rows, the fold's own estimating
+        equation.
+    converged : bool
+        Whether this fold's own solve reached its tolerance.
+    n_iter : int
+        Solver iterations this fold took.
+    trace : tuple of float
+        Relative score norm through this fold's solve.
+    score_scale : ndarray or None
+        Per-column largest score this fold's rows could produce, or ``None`` when the
+        solver reported no scale.
+
+    Attributes
+    ----------
+    n : int
+    score_norm : float
+    relative_score_norm : float
+
+    See Also
+    --------
+    cleverly.fluctuation.Fluctuation : The targeting step these folds make up.
     """
 
     index: IntArray
@@ -231,63 +261,52 @@ class FoldFluctuation:
 
     @property
     def n(self) -> int:
+        """How many rows this validation fold holds."""
         return int(self.index.shape[0])
+
+    @property
+    def score_norm(self) -> float:
+        """Largest absolute score component, in the outcome's own units."""
+        return float(np.max(np.abs(self.score))) if self.score.size else 0.0
+
+    @property
+    def relative_score_norm(self) -> float:
+        """Largest score component relative to its maximum possible magnitude."""
+        if self.score.size == 0:
+            return 0.0
+        if self.score_scale is None:
+            return self.score_norm
+        return float(np.max(np.abs(self.score) / np.maximum(self.score_scale, 1e-300)))
 
 
 @dataclass(frozen=True)
 class Fluctuation:
     """The result of a targeting step.
 
-    Attributes
+    Parameters
     ----------
-    epsilon:
+    epsilon : ndarray
         Fitted fluctuation coefficients, one per clever-covariate column.
-    targeted:
+    targeted : InitialFit
         Targeted predictions at the observed treatment, and at ``A = 1`` / ``A = 0``.
-    score:
+    score : ndarray
         Mean of ``w * h * (Y - Q*)`` per column -- the estimating equation the
         targeting step is meant to zero out.  Reported rather than asserted so
         :mod:`cleverly.validation.score` can check it against the standard error.
-    score_scale:
-        Per-column ``mean(|w * h|)``, the largest the score could possibly be given
-        that the residual is bounded by one on the ``[0, 1]`` outcome scale.  Dividing
-        by it turns the score into a dimensionless quantity, which is what makes a
-        single default tolerance meaningful across problems whose clever covariates
-        differ by orders of magnitude.
-    converged:
+    converged : bool
         Whether the *relative* score norm reached ``tol``.
-    score_initial:
-        The same quantity *before* targeting.  Reported so the reader can see how far
-        the step actually moved: a score that started near zero means the initial fit
-        already solved the equation and targeting had nothing to do, which is a
-        different situation from one that started large and was driven down.
-    trace:
+    n_iter : int
+        Outer iterations of the solver: Newton steps for ``"iterative"``, walk steps
+        for ``"one_step"``, ``1`` for ``"linear"``.
+    trace : tuple of float
         Relative score norm through one solve.  ``trace[0]`` is always the score at
         ``epsilon = 0``, whichever solver ran.  Empty when this object aggregates several
         independent fold solves; their complete trajectories are in ``folds``.
-    n_iter:
-        Outer iterations of the solver: Newton steps for ``"iterative"``, walk steps
-        for ``"one_step"``, ``1`` for ``"linear"``.
-    n_solver_calls:
-        How many times a solver was invoked -- ``1`` for a pooled fit, and one per
-        fold for a fold-targeted one, where ``n_iter`` is the sum across folds and on
-        its own would be indistinguishable from a single long solve.
-    failure:
-        Why the step stopped, when it did not converge.  ``None`` when it converged.
-    hessian_condition:
-        Condition number of the last Newton Hessian.  Large means the clever
-        covariate columns are nearly collinear and ``epsilon`` is barely identified.
-    epsilon_std_error:
-        Standard errors of the fluctuation coefficients from the inverse Hessian.
-        A diagnostic only: the parameter's inference comes from the influence curve,
-        not from ``epsilon``.
-    loglik:
-        Quasi-log-likelihood at the fitted ``epsilon``.  The submodel is fit by
-        maximising it, so it must not decrease along the path.
-    folds:
-        Per-fold detail, populated only by the cross-validated (``targeting_scheme=
-        "fold"``) targeting step and empty otherwise.
-    carried:
+    method : {"iterative", "one_step", "linear"}
+        Which solver produced this step.
+    names : tuple of str
+        Name of each clever-covariate column, in the order ``epsilon`` reports them.
+    carried : tuple of InitialFit
         Further initial fits moved along the **same** submodel by the **same** steps, in
         the order they were passed as ``carry``.  Empty on every fit that did not ask for
         one, which is every fit but a
@@ -300,6 +319,56 @@ class Fluctuation:
         exactly the weak-overlap ones a reference construction is compared on.  Carrying the
         arrays *through* the solver is the only way to move them by the transformation that
         was actually applied rather than by one that usually equals it.
+    score_scale : ndarray or None
+        Per-column ``mean(|w * h|)``, the largest the score could possibly be given
+        that the residual is bounded by one on the ``[0, 1]`` outcome scale.  Dividing
+        by it turns the score into a dimensionless quantity, which is what makes a
+        single default tolerance meaningful across problems whose clever covariates
+        differ by orders of magnitude.
+    folds : tuple of FoldFluctuation
+        Per-fold detail, populated only by the cross-validated (``targeting_scheme=
+        "fold"``) targeting step and empty otherwise.
+    score_initial : ndarray or None
+        The score *before* targeting.  Reported so the reader can see how far
+        the step actually moved: a score that started near zero means the initial fit
+        already solved the equation and targeting had nothing to do, which is a
+        different situation from one that started large and was driven down.
+    n_solver_calls : int
+        How many times a solver was invoked -- ``1`` for a pooled fit, and one per
+        fold for a fold-targeted one, where ``n_iter`` is the sum across folds and on
+        its own would be indistinguishable from a single long solve.
+    failure : str or None
+        Why the step stopped, when it did not converge.  ``None`` when it converged.
+    hessian_condition : float
+        Condition number of the last Newton Hessian.  Large means the clever
+        covariate columns are nearly collinear and ``epsilon`` is barely identified.
+    epsilon_std_error : ndarray or None
+        Standard errors of the fluctuation coefficients from the inverse Hessian.
+        A diagnostic only: the parameter's inference comes from the influence curve,
+        not from ``epsilon``.
+    loglik : float
+        Quasi-log-likelihood at the fitted ``epsilon``.  The submodel is fit by
+        maximising it, so it must not decrease along the path.
+    mechanism : object or None
+        The treatment-mechanism half of the targeting, for a group whose parameter is
+        defined through the mechanism.
+    projection : object or None
+        The working model's coefficients for an ``msm`` group whose link makes the
+        clever covariate depend on them.
+    reduction : object or None
+        Equation (10)'s fluctuation and the reduced regressions it was solved against,
+        for a :class:`~cleverly.DRTMLE` fit.
+
+    Attributes
+    ----------
+    score_norm : float
+    relative_score_norm : float
+    initial_score_norm : float
+
+    See Also
+    --------
+    cleverly.fluctuation.FoldFluctuation : One validation fold's own solve.
+    cleverly.estimators.TMLEResult : The fit these are read out of.
     """
 
     epsilon: FloatArray
@@ -365,10 +434,23 @@ class Fluctuation:
         return float(np.max(np.abs(self.score_initial)))
 
     def coefficients(self) -> dict[str, float]:
+        """Return the fitted ``epsilon``, keyed by clever-covariate column name.
+
+        Returns
+        -------
+        dict of str to float
+            One coefficient for each column named in ``names``, in that order.
+        """
         return dict(zip(self.names, self.epsilon.tolist(), strict=True))
 
     def describe_failure(self) -> str:
-        """One sentence naming the failure and what usually causes it."""
+        """One sentence naming the failure and what usually causes it.
+
+        Returns
+        -------
+        str
+            ``"converged"`` when the step converged, and the explanation otherwise.
+        """
         if self.failure is None:
             return "converged"
         return _FAILURE_TEXT[self.failure]

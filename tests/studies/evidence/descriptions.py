@@ -107,6 +107,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
+    "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
@@ -140,6 +141,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
+    "zepid-single-crossfit-tmle": "Python `zEpid` single-crossfit TMLE",
 }
 
 
@@ -440,6 +442,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("crossfit_overfitting", "fold_evaluated_cvtmle"): (
         "fold-evaluated CV-TMLE with a flexible learner",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "fold_targeted_cvtmle"): (
+        "fold-targeted CV-TMLE with a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("crossfit_overfitting", "stacked_cvtmle"): (

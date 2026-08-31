@@ -127,7 +127,9 @@ def cv_fit(
     estimands: Sequence[str],
     n_folds: int,
     repeats: int = 1,
+    targeting_scheme: str = "pooled",
     cv_evaluation: bool,
+    estimator_factory: Callable[..., TMLE] = TMLE,
 ) -> Any:
     """The cross-fitted point-treatment construction the three CV studies share.
 
@@ -147,13 +149,13 @@ def cv_fit(
     treatment = LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
     covariates = [column for column in frame.columns if column.startswith("W")]
     return (
-        TMLE(
+        estimator_factory(
             outcome_learner=outcome,
             treatment_learner=treatment,
             cross_fit=True,
             n_folds=n_folds,
             repeats=repeats,
-            targeting_scheme="pooled",
+            targeting_scheme=targeting_scheme,
             cv_evaluation=cv_evaluation,
             estimands=estimands,
             simultaneous=False,
@@ -190,6 +192,8 @@ def rows_from_result(
     truth: Mapping[str, float],
     scenario: str,
     replicate: int,
+    *,
+    initial_estimates: Mapping[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for name, estimate in result.estimates.items():
@@ -215,7 +219,11 @@ def rows_from_result(
                 "ci_upper": float(high),
                 "inference_scale": "log" if estimate.scale == "ratio" else "identity",
                 "covered": int(low <= reference <= high),
-                "initial_estimate": math.nan,
+                "initial_estimate": (
+                    math.nan
+                    if initial_estimates is None
+                    else float(initial_estimates.get(name, math.nan))
+                ),
             }
         )
     return rows

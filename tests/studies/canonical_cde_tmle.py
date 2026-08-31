@@ -246,10 +246,12 @@ def reference_artifacts(
     here: Path,
     samples: Path,
     truths_path: Path,
+    reference_results: Path,
     output: Path,
     cores: int,
 ) -> dict[str, pd.DataFrame]:
     """Reproduce the frozen native second-result defect from the generated replication zero."""
+    del reference_results  # this hook writes its own probe file rather than reading the driver's
     path = output / "native-result2-defect.csv"
     reference.run(
         here,

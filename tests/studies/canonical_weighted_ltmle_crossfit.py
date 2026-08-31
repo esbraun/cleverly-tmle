@@ -138,12 +138,13 @@ def reference_artifacts(
     here: Path,
     samples: Path,
     truths_path: Path,
+    reference_results: Path,
     output: Path,
     cores: int,
 ) -> dict[str, pd.DataFrame]:
     """Retain both weighted influence-curve conventions from the reference run."""
-    del reference, here, samples, truths_path, cores
-    rows = pd.read_csv(output / "r-results.csv")
+    del reference, here, samples, truths_path, output, cores
+    rows = pd.read_csv(reference_results)
     keys = (
         "implementation",
         "scenario",
