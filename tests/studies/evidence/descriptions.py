@@ -382,7 +382,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("weight_necessity", "omitted_weight_control"): (
         "the identical selected rows analyzed without any observation weights",
-        "the paired displacement must exceed the declared necessity margin",
+        "population-target bias outside its margin, selected-target bias inside its margin, "
+        "and paired displacement above its threshold",
     ),
     ("learner_weight_necessity", "weighted_targeted"): (
         "the weighted nuisance fits followed by weighted targeting and averaging",
@@ -406,7 +407,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("learner_weight_necessity", "discarded_learner_weight_control"): (
         "nuisance learners discard sampling weights while later estimator stages retain them",
-        "the paired displacement must exceed the declared necessity margin",
+        "population-target bias outside its margin, learner-selected-target bias inside its "
+        "margin, and paired displacement above its threshold",
     ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",

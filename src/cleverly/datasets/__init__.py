@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .longitudinal import (
     RULE_LABEL,
+    WEIGHTED_SELECTION_PROBABILITIES,
     competing_truth,
     longitudinal_rule_truth,
     longitudinal_truth,
@@ -53,6 +54,7 @@ __all__ = [
     "DGP",
     "GENERATORS",
     "RULE_LABEL",
+    "WEIGHTED_SELECTION_PROBABILITIES",
     "MultiArmDGP",
     "ShiftDGP",
     "available",

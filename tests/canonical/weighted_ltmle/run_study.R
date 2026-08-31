@@ -22,7 +22,15 @@ fit_regimen <- function(frame, label) {
     abar = abar, gbounds = c(1e-8, 1), SL.library = "glm", stratify = TRUE,
     variance.method = "ic", observation.weights = frame$obs_weight
   )
-  regimen_ltmle_fit(arguments, frame, label)
+  fit <- regimen_ltmle_fit(arguments, frame, label)
+  computed_se <- sd(fit$ic) / sqrt(nrow(frame))
+  if (!isTRUE(all.equal(fit$native_standard_error, computed_se, tolerance = 1e-12))) {
+    stop(sprintf(
+      "ltmle native standard error %.17g does not equal influence-curve formula %.17g",
+      fit$native_standard_error, computed_se
+    ))
+  }
+  fit
 }
 
 truth_for <- function(replicate, estimand) {
@@ -31,9 +39,8 @@ truth_for <- function(replicate, estimand) {
   truths$truth[selected]
 }
 
-row_for <- function(replicate, name, estimate, initial, ic, n) {
+row_for <- function(replicate, name, estimate, initial, standard_error, n) {
   truth <- truth_for(replicate, name)
-  standard_error <- sd(ic) / sqrt(n)
   low <- estimate - z * standard_error
   high <- estimate + z * standard_error
   data.frame(
@@ -50,14 +57,17 @@ fit_one <- function(frame) {
   fits <- setNames(lapply(regimens, function(label) fit_regimen(frame, label)), regimens)
   rows <- lapply(regimens, function(label) {
     fit <- fits[[label]]
-    row_for(replicate, sprintf("ey_regimen[%s]", label), fit$estimate, fit$initial, fit$ic, nrow(frame))
+    row_for(
+      replicate, sprintf("ey_regimen[%s]", label), fit$estimate, fit$initial,
+      fit$native_standard_error, nrow(frame)
+    )
   })
   for (label in c("always", dynamic_label)) {
     left <- fits[[label]]
     right <- fits[["never"]]
     rows[[length(rows) + 1]] <- row_for(
       replicate, sprintf("ate_regimen[%s vs never]", label), left$estimate - right$estimate,
-      left$initial - right$initial, left$ic - right$ic, nrow(frame)
+      left$initial - right$initial, sd(left$ic - right$ic) / sqrt(nrow(frame)), nrow(frame)
     )
   }
   do.call(rbind, rows)

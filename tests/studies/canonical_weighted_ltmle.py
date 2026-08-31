@@ -14,7 +14,7 @@ from tests.studies.weighted_longitudinal_properties_common import property_cells
 
 LTMLE_VERSION = "1.3-0"
 SEED = 20261101
-PRIMARY_REPLICATES = common.PRIMARY_REPLICATES
+PRIMARY_REPLICATES = common.ORDINARY_PRIMARY_REPLICATES
 PRIMARY_N = common.PRIMARY_N
 
 STUDY = StudyRecord(
@@ -39,6 +39,9 @@ STUDY = StudyRecord(
         "tests/studies/weighted_longitudinal_common.py",
         "tests/studies/weighted_ltmle_properties.py",
         "tests/studies/weighted_longitudinal_properties_common.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/studies/canonical_ltmle.py",
+        "tests/studies/ltmle_properties.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -67,7 +70,10 @@ REFERENCE_METADATA = {
 
 CONFIGURATION = {
     "construction": "ordinary_weighted",
-    "selection_probability": {"W1_positive": 0.3, "otherwise": 0.9},
+    "selection_probability": {
+        "W1_positive": common.SELECTION_LOW,
+        "otherwise": common.SELECTION_HIGH,
+    },
     "selected_n": common.PRIMARY_N,
     "cross_fit": False,
     "outer_folds": 1,

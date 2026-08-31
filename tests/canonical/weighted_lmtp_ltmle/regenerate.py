@@ -13,6 +13,7 @@ REFERENCE = Reference(
     extra_files=(
         "lmtp_crossfit_adapter.R",
         "lmtp_weighted_glm_adapter.R",
+        "lmtp_crossfit/smoke_weighted.R",
         "study_harness.R",
         "ltmle_regimen_adapter.R",
     ),

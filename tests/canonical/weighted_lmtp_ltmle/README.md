@@ -6,6 +6,8 @@ five-fold assignment. The R nuisance adapter consumes the fixed weight from an a
 Run this smoke command before the declared regeneration:
 
 ```bash
+docker build -t cleverly-lmtp-crossfit:1.5.4 tests/canonical/lmtp_crossfit
+docker run --rm -v "$PWD/tests/canonical:/fixture:ro" cleverly-lmtp-crossfit:1.5.4 /fixture/lmtp_crossfit/smoke_weighted.R
 python -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 200 --skip-properties --allow-failures --output build/weighted-lmtp-ltmle-smoke
 ```
 

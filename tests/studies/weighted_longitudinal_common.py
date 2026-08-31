@@ -8,7 +8,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
+from cleverly.datasets import (
+    RULE_LABEL,
+    WEIGHTED_SELECTION_PROBABILITIES,
+    make_longitudinal_weighted,
+    rule_arm_at_node_two,
+)
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
@@ -22,13 +27,13 @@ from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
-PRIMARY_REPLICATES = 800
+ORDINARY_PRIMARY_REPLICATES = 3_200
+CROSSFIT_PRIMARY_REPLICATES = 800
 PRIMARY_N = 2_000
 SCENARIO = "selected_censored_end_of_study"
 G_BOUNDS = (1e-8, 1.0)
 WEIGHT_COLUMN = "obs_weight"
-SELECTION_LOW = 0.3
-SELECTION_HIGH = 0.9
+SELECTION_LOW, SELECTION_HIGH = WEIGHTED_SELECTION_PROBABILITIES
 
 REGIMENS: dict[str, Any] = {
     "never": 0,
@@ -67,14 +72,9 @@ def sample_selected_exact(n: int, seed: int) -> tuple[pd.DataFrame, dict[str, fl
         # The expected retention is 0.6. Two source rows per needed selected row makes
         # another iteration uncommon while keeping small smoke draws inexpensive.
         source_n = max(64, 2 * remaining)
-        source, source_truth = make_longitudinal(
-            n=source_n, seed=rng, censoring=True, backend="pandas"
-        )
+        source, source_truth = make_longitudinal_weighted(n=source_n, seed=rng, backend="pandas")
         truth = {name: float(source_truth[name]) for name in ESTIMANDS}
-        probability = selection_probability(source["W1"].to_numpy())
-        keep = rng.random(source_n) < probability
-        selected = source.loc[keep].copy()
-        selected[WEIGHT_COLUMN] = 1.0 / probability[keep]
+        selected = source.rename(columns={"w": WEIGHT_COLUMN})
         accepted.append(selected.iloc[:remaining])
         remaining -= min(remaining, len(selected))
     if truth is None:  # pragma: no cover - guarded by n > 0

@@ -10,12 +10,14 @@ from scipy.stats import norm
 from sklearn.base import BaseEstimator, clone
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
+from cleverly.datasets import WEIGHTED_SELECTION_PROBABILITIES
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
+    alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
@@ -24,6 +26,7 @@ from tests.studies.evidence.property_verdicts import (
 )
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.ltmle_crossfit_properties import KnownDiscreteMechanism, _plan_arms
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -97,8 +100,11 @@ def property_cells() -> dict[str, tuple[str, ...]]:
     }
 
 
+SELECTION_LOW, SELECTION_HIGH = WEIGHTED_SELECTION_PROBABILITIES
+
+
 def _selection(point: tuple[Any, ...]) -> float:
-    return 0.3 if float(point[0]) > 0.0 else 0.9
+    return SELECTION_LOW if float(point[0]) > 0.0 else SELECTION_HIGH
 
 
 SELECTION = np.array([_selection(point) for point in law.SUPPORT], dtype=float)
@@ -117,11 +123,13 @@ def _history_weight(point: tuple[Any, ...]) -> float:
 
 LEARNER_OBS_WEIGHTS = np.array([_history_weight(point) for point in law.SUPPORT], dtype=float)
 LEARNER_SELECTION = 1.0 / LEARNER_OBS_WEIGHTS
+LEARNER_SELECTED_PROBS = law.PROBS * LEARNER_SELECTION
+LEARNER_SELECTED_PROBS /= LEARNER_SELECTED_PROBS.sum()
 
 
 def efficiency_sd(name: str) -> float:
     """Return the exact selected-law SD of the weighted target-population curve."""
-    curve = law.eif(name) * SELECTION_RATE / SELECTION
+    curve = law.weighted_eif(name, OBS_WEIGHTS, base=SELECTED_PROBS)
     return float(np.sqrt(np.sum(SELECTED_PROBS * np.square(curve))))
 
 
@@ -177,6 +185,9 @@ class DiscardSampleWeight(BaseEstimator):
 
 def _learners(configuration: str, *, cross_fit: bool) -> tuple[Any, Any, Any, Any]:
     if configuration in {"weighted_learners", "discard_learner_weights"}:
+        # This deliberate control needs learners whose fitted values depend on sample
+        # weights. Cross-fitting can leave a training complement without a support cell,
+        # but an exact mechanism would make discarding learner weights observationally inert.
         learners: tuple[Any, Any, Any, Any] = (
             law.CellMeans(),
             law.CellMeans(),
@@ -193,8 +204,6 @@ def _learners(configuration: str, *, cross_fit: bool) -> tuple[Any, Any, Any, An
     if g_correct and cross_fit:
         # A training complement can miss a finite-support cell.  Use the law's exact
         # mechanism so "mechanism correct" stays correct on every realized split.
-        from tests.studies.ltmle_crossfit_properties import KnownDiscreteMechanism
-
         treatment: Any = KnownDiscreteMechanism("treatment")
         censoring: Any = KnownDiscreteMechanism("censoring")
     else:
@@ -246,11 +255,8 @@ def untargeted(
 ) -> float:
     """Return the matched observation-weighted plug-in without fluctuation."""
     outcome, pseudo, _, _ = _learners(configuration, cross_fit=cross_fit)
-    node1, node2 = law.REGIMEN_ARMS[label]
-    w = frame["W"].to_numpy().astype(int)
+    first, second = _plan_arms(frame, label)
     l2 = np.nan_to_num(frame["L2"].to_numpy()).astype(int)
-    first = np.full(len(frame), float(node1)) if np.ndim(node1) == 0 else np.asarray(node1)[w]
-    second = np.full(len(frame), float(node2)) if np.ndim(node2) == 0 else np.asarray(node2)[w, l2]
     followed_one = (frame["C1"].to_numpy() == 1.0) & (frame["A1"].to_numpy() == first)
     followed_two = (
         followed_one & (frame["C2"].to_numpy() == 1.0) & (frame["A2"].to_numpy() == second)
@@ -508,6 +514,11 @@ def summarize_properties(rows: pd.DataFrame, record: StudyRecord) -> pd.DataFram
             "targeting_displacement",
             "weight_displacement",
             "learner_weight_displacement",
+            "alternative_truth",
+            "alternative_bias_ci_lower",
+            "alternative_bias_ci_upper",
+            "alternative_bias_margin",
+            "alternative_bias_equivalent",
         ),
         rate_labels=tuple(CONTRASTS),
         efficiency_bounds=EFFICIENCY_SD,
@@ -522,21 +533,30 @@ def summarize_properties(rows: pd.DataFrame, record: StudyRecord) -> pd.DataFram
         column="targeting_displacement",
         threshold=NECESSITY_DISPLACEMENT,
     )
-    necessity_verdicts(
+    alternative_target_necessity_verdicts(
         summary,
         rows,
+        record,
         family="weight_necessity",
         labels=tuple(WEIGHT_MEANS),
         arms=("weighted", "omitted_weight_control"),
+        alternative_truths={
+            label: float(law.functional(SELECTED_PROBS, name))
+            for label, name in WEIGHT_MEANS.items()
+        },
         column="weight_displacement",
         threshold=NECESSITY_DISPLACEMENT,
     )
-    necessity_verdicts(
+    alternative_target_necessity_verdicts(
         summary,
         rows,
+        record,
         family="learner_weight_necessity",
         labels=("static",),
         arms=("weighted_learners", "discarded_learner_weight_control"),
+        alternative_truths={
+            "static": float(law.functional(LEARNER_SELECTED_PROBS, CONTRASTS["static"]))
+        },
         column="learner_weight_displacement",
         threshold=NECESSITY_DISPLACEMENT,
     )

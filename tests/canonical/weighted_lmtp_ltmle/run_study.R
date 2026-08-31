@@ -60,13 +60,24 @@ fit_plan <- function(frame, label) {
   if (!isTRUE(all.equal(fit$estimate@std_error, expected_se, tolerance = 1e-12))) {
     stop("lmtp weighted standard error does not equal the weighted-EIF formula")
   }
+  weighted_eif <- fit$estimate@weights * fit$estimate@eif
+  if (abs(mean(weighted_eif) - fit$estimate@x) > 0.02) {
+    stop(sprintf(
+      "lmtp weighted EIF averages %.17g but reports estimate %.17g",
+      mean(weighted_eif), fit$estimate@x
+    ))
+  }
   list(
     estimate = fit$estimate@x,
     initial = weighted.mean(fit$initial, frame$obs_weight),
     ic = fit$estimate@eif,
     weights = fit$estimate@weights,
     id = fit$estimate@id,
-    standard_error = fit$estimate@std_error
+    standard_error = fit$estimate@std_error,
+    ht_standard_error = sd(weighted_eif) / sqrt(nrow(frame)),
+    hajek_standard_error = sd(
+      fit$estimate@weights * (fit$estimate@eif - fit$estimate@x)
+    ) / sqrt(nrow(frame))
   )
 }
 
@@ -76,7 +87,10 @@ truth_for <- function(replicate, estimand) {
   truths$truth[selected]
 }
 
-row_for <- function(replicate, name, estimate, initial, standard_error, n) {
+row_for <- function(
+  replicate, name, estimate, initial, standard_error, ht_standard_error,
+  hajek_standard_error, n
+) {
   truth <- truth_for(replicate, name)
   low <- estimate - z * standard_error
   high <- estimate + z * standard_error
@@ -85,6 +99,8 @@ row_for <- function(replicate, name, estimate, initial, standard_error, n) {
     estimand = name, truth = truth, estimate = estimate, inference_estimate = estimate,
     std_error = standard_error, ci_lower = low, ci_upper = high, inference_scale = "identity",
     covered = as.integer(low <= truth && truth <= high), initial_estimate = initial,
+    native_std_error = standard_error, ht_std_error = ht_standard_error,
+    hajek_std_error = hajek_standard_error,
     stringsAsFactors = FALSE, check.names = FALSE
   )
 }
@@ -96,7 +112,7 @@ fit_one <- function(frame) {
     fit <- fits[[label]]
     row_for(
       replicate, sprintf("ey_regimen[%s]", label), fit$estimate, fit$initial,
-      fit$standard_error, nrow(frame)
+      fit$standard_error, fit$ht_standard_error, fit$hajek_standard_error, nrow(frame)
     )
   })
   for (label in c("always", dynamic_label)) {
@@ -114,9 +130,18 @@ fit_one <- function(frame) {
       left$weights,
       left$id
     )
+    weighted_eif <- left$weights * (left$ic - right$ic)
+    ht_standard_error <- sd(weighted_eif) / sqrt(nrow(frame))
+    hajek_standard_error <- sd(
+      left$weights * ((left$ic - right$ic) - contrast@x)
+    ) / sqrt(nrow(frame))
+    if (!isTRUE(all.equal(contrast@std_error, ht_standard_error, tolerance = 1e-12))) {
+      stop("lmtp contrast standard error does not equal the Horvitz-Thompson formula")
+    }
     rows[[length(rows) + 1]] <- row_for(
       replicate, sprintf("ate_regimen[%s vs never]", label), contrast@x,
-      left$initial - right$initial, contrast@std_error, nrow(frame)
+      left$initial - right$initial, contrast@std_error, ht_standard_error,
+      hajek_standard_error, nrow(frame)
     )
   }
   do.call(rbind, rows)

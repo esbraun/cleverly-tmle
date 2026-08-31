@@ -19,13 +19,17 @@ comparison.
 | mechanisms | generating treatment and censoring probabilities | the same density ratios |
 | observation weights | fixed inverse-selection probabilities | `weights=` on every task |
 | folds | one exact five-fold assignment | the identical assignment |
-| intervals | pointwise 95% identity-scale Wald intervals | the corresponding influence-curve intervals |
+| intervals | pointwise 95% identity-scale Wald intervals | native Horvitz-Thompson influence-curve intervals |
 
 The R learner adapter reads an auxiliary observation-weight column and removes it from the
 predictor design. `lmtp` keeps the task weights in targeting, averaging, and covariance. The
-independent property law tests target weighting and learner weighting directly, in addition to
-longitudinal double robustness, targeting, root-n behavior, interval calibration, type-I error,
-and power.
+diagnostic artifact records the native standard error beside direct Horvitz-Thompson and Hájek
+calculations. It confirms that the native result uses the uncentered Horvitz-Thompson form.
+
+The target-weight control uses regimen means because baseline selection shifts both means in the
+same direction. That common shift can cancel in a contrast. The double-robustness and targeting
+controls use contrasts because their deliberate mutations move those contrasts. The learner-weight
+control uses a separate history-dependent selection law that moves every sequential nuisance.
 
 ## Accuracy against known truth
 
@@ -75,7 +79,7 @@ and power.
 | `interval_calibration` | `static__correctly_specified` | positive | static plan: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9255 to 0.9511, SE ratio 0.9509 to 1.0287, empirical efficiency ratio 1.0122 to 1.0922, reported efficiency ratio 1.0343 to 1.0452 | pass |
 | `interval_calibration` | `static__noise_control` | control | static plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8037 to 0.8441, SE ratio 0.6851 to 0.7381, empirical efficiency ratio 1.4092 to 1.5172, reported efficiency ratio 1.0342 to 1.0452 | pass |
 | `interval_calibration` | `static__shrunken_se_control` | control | static plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.7912 to 0.8326, SE ratio 0.6657 to 0.7177, empirical efficiency ratio 1.0146 to 1.0916, reported efficiency ratio 0.7238 to 0.7316 | pass |
-| `learner_weight_necessity` | `static__discarded_learner_weight_control` | control | static plan: nuisance learners discard sampling weights while later estimator stages retain them | the paired displacement must exceed the declared necessity margin | bias 0.0379 to 0.0481, margin 0.0172 | pass |
+| `learner_weight_necessity` | `static__discarded_learner_weight_control` | control | static plan: nuisance learners discard sampling weights while later estimator stages retain them | population-target bias outside its margin, learner-selected-target bias inside its margin, and paired displacement above its threshold | bias 0.0379 to 0.0481, margin 0.0172, selected-target bias -0.000220 to 0.0100, margin 0.0172 | pass |
 | `learner_weight_necessity` | `static__weighted_learners` | positive | static plan: sampling weights enter nuisance learning, targeting, averaging, and covariance | population-target bias interval inside the equivalence margin | bias -0.0067 to 0.0033, margin 0.0167 | pass |
 | `power` | `static__alternative` | positive | static plan: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.8788, 0.8461 to 0.9068 | pass |
 | `root_n_and_efficiency` | `dynamic__n_2000` | positive | dynamic plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000002, coverage 0.9326 to 0.9717, SE ratio 1.0036 | pass |
@@ -93,18 +97,21 @@ and power.
 | `targeting_necessity` | `static__targeted` | positive | static plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0053 to 0.0048, margin 0.0170 | pass |
 | `targeting_necessity` | `static__untargeted` | control | static plan: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias -0.0264 to -0.0171, margin 0.0158 | pass |
 | `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0612, 0.0415 to 0.0864 | pass |
-| `weight_necessity` | `dynamic__omitted_weight_control` | control | dynamic plan: the identical selected rows analyzed without any observation weights | the paired displacement must exceed the declared necessity margin | bias -0.0318 to -0.0276, margin 0.0071 | pass |
+| `weight_necessity` | `dynamic__omitted_weight_control` | control | dynamic plan: the identical selected rows analyzed without any observation weights | population-target bias outside its margin, selected-target bias inside its margin, and paired displacement above its threshold | bias -0.0318 to -0.0276, margin 0.0071, selected-target bias -0.000560 to 0.0036, margin 0.0071 | pass |
 | `weight_necessity` | `dynamic__weighted` | positive | dynamic plan: the selected sample analyzed with its fixed inverse-selection weights | population-target bias interval inside the equivalence margin | bias -0.0016 to 0.0038, margin 0.0090 | pass |
-| `weight_necessity` | `static__omitted_weight_control` | control | static plan: the identical selected rows analyzed without any observation weights | the paired displacement must exceed the declared necessity margin | bias -0.0344 to -0.0271, margin 0.0122 | pass |
+| `weight_necessity` | `static__omitted_weight_control` | control | static plan: the identical selected rows analyzed without any observation weights | population-target bias outside its margin, selected-target bias inside its margin, and paired displacement above its threshold | bias -0.0344 to -0.0271, margin 0.0122, selected-target bias -0.0032 to 0.0041, margin 0.0122 | pass |
 | `weight_necessity` | `static__weighted` | positive | static plan: the selected sample analyzed with its fixed inverse-selection weights | population-target bias interval inside the equivalence margin | bias -0.0052 to 0.0040, margin 0.0154 | pass |
 <!-- /generated -->
 
 Agreement with `lmtp` is distributional because its sequential regression implementation is not
 the same solver path as `cleverly`'s. All ten implementation-estimand truth tests pass. Three
-paired comparisons conclude equivalence. The two remaining regimen-mean comparisons are
-underpowered for their combined coverage and SE-calibration margins. The static both-wrong control
-is the only failed property cell. Its bias interval overlaps the discrimination margin instead of
-clearing it.
+paired comparisons conclude equivalence.
+
+The two remaining regimen-mean comparisons use `lmtp`'s native Horvitz-Thompson standard errors.
+The `reference-inference.csv.gz` artifact confirms that identity and records the centered Hájek
+result separately. The failed paired gates therefore name an inference-convention difference
+instead of an estimator disagreement. The static both-wrong control remains marginal because its
+bias interval overlaps the discrimination boundary.
 
 ## Measured values
 

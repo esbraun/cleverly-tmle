@@ -177,13 +177,13 @@ def test_standard_regeneration_runs_the_declared_reference_artifact_hook(
     record = dataclasses.replace(
         canonical_tmle.STUDY,
         artifacts=tmp_path,
-        extra_artifacts=("probe.csv",),
+        extra_artifacts=("probe.csv.gz",),
     )
     calls: list[dict[str, Any]] = []
 
     def reference_artifacts(**options: Any) -> dict[str, pd.DataFrame]:
         calls.append(options)
-        return {"probe.csv": pd.DataFrame({"reproduced": [True]})}
+        return {"probe.csv.gz": pd.DataFrame({"reproduced": [True]})}
 
     study = SimpleNamespace(
         STUDY=record,
@@ -214,7 +214,9 @@ def test_standard_regeneration_runs_the_declared_reference_artifact_hook(
     assert calls[0]["reference"] is reference
     assert calls[0]["samples"] == sample_path
     assert calls[0]["truths_path"] == truth_path
-    assert pd.read_csv(tmp_path / "probe.csv")["reproduced"].tolist() == [True]
+    artifact = tmp_path / "probe.csv.gz"
+    assert pd.read_csv(artifact)["reproduced"].tolist() == [True]
+    assert artifact.read_bytes()[4:8] == b"\x00\x00\x00\x00"
 
 
 def test_reporting_policy_publishes_failed_scientific_verdicts(

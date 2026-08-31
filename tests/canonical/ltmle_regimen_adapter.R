@@ -112,6 +112,7 @@ regimen_ltmle_fit <- function(arguments, frame, label) {
   list(
     estimate = unname(targeted$estimates[["tmle"]]),
     initial = initial,
-    ic = as.numeric(targeted$IC$tmle)
+    ic = as.numeric(targeted$IC$tmle),
+    native_standard_error = as.numeric(summary(targeted)$treatment$std.dev)
   )
 }

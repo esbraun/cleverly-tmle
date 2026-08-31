@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from cleverly.datasets import make_longitudinal
+from cleverly.datasets import WEIGHTED_SELECTION_PROBABILITIES, make_longitudinal
 from cleverly.learners.crossfit import Folds
 from tests.studies import canonical_weighted_ltmle as ordinary
 from tests.studies import canonical_weighted_ltmle_crossfit as crossfit
@@ -22,13 +22,15 @@ def test_the_selected_sampler_returns_exactly_the_declared_size() -> None:
     assert len(first) == 2_000
     assert first.equals(second)
     assert first_truth == second_truth
-    expected = np.where(first["W1"].to_numpy() > 0.0, 1.0 / 0.3, 1.0 / 0.9)
+    low, high = WEIGHTED_SELECTION_PROBABILITIES
+    expected = np.where(first["W1"].to_numpy() > 0.0, 1.0 / low, 1.0 / high)
     np.testing.assert_allclose(first["obs_weight"], expected, atol=0.0, rtol=0.0)
 
 
 def test_the_two_rows_have_distinct_seed_streams_and_declared_counts() -> None:
     assert ordinary.STUDY.seed != crossfit.STUDY.seed
-    assert ordinary.STUDY.replicates == crossfit.STUDY.replicates == 800
+    assert ordinary.STUDY.replicates == 3_200
+    assert crossfit.STUDY.replicates == 800
     assert ordinary.STUDY.n == crossfit.STUDY.n == 2_000
     assert ordinary.STUDY.estimands == crossfit.STUDY.estimands
     assert ordinary.STUDY.property_cells == crossfit.STUDY.property_cells
@@ -107,47 +109,40 @@ def test_the_learner_weight_law_untilts_and_moves_each_sequential_nuisance() -> 
     assert all(largest_conditional_shift(node) > 0.01 for node in range(1, 7))
 
 
-def test_the_lmtp_weight_adapter_excludes_its_auxiliary_column() -> None:
-    root = Path(__file__).resolve().parents[2]
-    learner = (root / "tests/canonical/lmtp_weighted_glm_adapter.R").read_text()
-    fold_adapter = (root / "tests/canonical/lmtp_crossfit_adapter.R").read_text()
-    runner = (root / "tests/canonical/weighted_lmtp_ltmle/run_study.R").read_text()
-
-    assert 'LMTP_AUX_WEIGHT <- "obs_weight_aux"' in learner
-    assert "setdiff(names(X), weight_column)" in learner
-    assert "obsWeights = design$weights" in learner
-    assert "weights = weights" in fold_adapter
-    assert "weights = frame$obs_weight" in runner
-    assert 'learners_outcome = "SL.weighted.glm"' in runner
-    assert 'baseline = c("W1", "W2", "obs_weight_aux")' in runner
-
-
-def test_the_lmtp_reference_pins_and_checks_weighted_influence_inference() -> None:
-    root = Path(__file__).resolve().parents[2]
-    dockerfile = (root / "tests/canonical/lmtp_crossfit/Dockerfile").read_text()
-    runner = (root / "tests/canonical/weighted_lmtp_ltmle/run_study.R").read_text()
-
-    assert crossfit.IFE_VERSION in dockerfile
-    assert crossfit.IFE_SHA256 in dockerfile
-    assert "fit$estimate@eif * fit$estimate@weights" in runner
-    assert "fit$estimate@std_error" in runner
-    assert "ife::ife(" in runner
-    assert "contrast@std_error" in runner
-    assert "sd(ic) / sqrt(n)" not in runner
-
-
-def test_the_optional_lmtp_weight_boundary_rejects_bad_values_in_r_source() -> None:
-    root = Path(__file__).resolve().parents[2]
-    adapter = (root / "tests/canonical/lmtp_crossfit_adapter.R").read_text()
-    assert "weights = NULL" in adapter
-    assert 'stop("weights have the wrong length")' in adapter
-    assert 'stop("weights must be finite positive numbers")' in adapter
-    assert adapter.count("weights = weights") == 1
-
-
 def test_property_efficiency_bounds_are_finite_and_nonzero() -> None:
     assert properties.EFFICIENCY_SD.keys() == properties.CONTRASTS.keys()
     assert all(np.isfinite(value) and value > 0.0 for value in properties.EFFICIENCY_SD.values())
+
+
+@pytest.mark.parametrize(("label", "name"), properties.CONTRASTS.items())
+def test_the_efficiency_curve_needs_the_selected_to_source_density_ratio(
+    label: str, name: str
+) -> None:
+    derived = properties.law.weighted_eif(
+        name,
+        properties.OBS_WEIGHTS,
+        base=properties.SELECTED_PROBS,
+    )
+    expected = properties.law.eif(name) * properties.SELECTION_RATE / properties.SELECTION
+    np.testing.assert_allclose(derived, expected, atol=1e-12, rtol=0.0)
+    expected_sd = float(np.sqrt(np.sum(properties.SELECTED_PROBS * np.square(expected))))
+    assert properties.EFFICIENCY_SD[label] == pytest.approx(expected_sd, abs=1e-12)
+    assert properties.efficiency_sd(name) == pytest.approx(expected_sd, abs=1e-12)
+
+    missing_selection_rate = properties.law.eif(name) / properties.SELECTION
+    mutated_sd = float(
+        np.sqrt(np.sum(properties.SELECTED_PROBS * np.square(missing_selection_rate)))
+    )
+    assert abs(properties.EFFICIENCY_SD[label] - mutated_sd) > 0.01
+
+
+def test_the_reference_inference_artifact_names_the_native_ht_mechanism() -> None:
+    rows = pd.read_csv(crossfit.STUDY.artifact("reference-inference.csv.gz"))
+    assert set(rows["inference_method"]) == {"native", "horvitz_thompson", "hajek"}
+    keys = ["scenario", "replicate", "n", "estimand"]
+    wide = rows.pivot(index=keys, columns="inference_method", values="std_error")
+    np.testing.assert_allclose(wide["native"], wide["horvitz_thompson"], atol=0.0, rtol=1e-12)
+    assert np.max(np.abs(wide["native"] - wide["hajek"])) > 1e-6
 
 
 @pytest.mark.parametrize("module", [ordinary, crossfit], ids=("ordinary", "cross-fitted"))

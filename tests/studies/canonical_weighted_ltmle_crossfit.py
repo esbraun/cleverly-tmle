@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
@@ -16,7 +18,7 @@ LMTP_VERSION = "1.5.4"
 IFE_VERSION = "0.2.3"
 IFE_SHA256 = "b6be1e9ba514db95118e425d2f78deabb2c9f745f44f35a301ff9b5f266d5ed2"
 SEED = 20262000
-PRIMARY_REPLICATES = common.PRIMARY_REPLICATES
+PRIMARY_REPLICATES = common.CROSSFIT_PRIMARY_REPLICATES
 PRIMARY_N = common.PRIMARY_N
 
 STUDY = StudyRecord(
@@ -36,12 +38,16 @@ STUDY = StudyRecord(
     implementation="cleverly-cross-fitted-weighted-ltmle",
     reference="lmtp-weighted",
     publication_policy="reporting",
+    extra_artifacts=("reference-inference.csv.gz",),
     modules=(
         "tests/studies/canonical_weighted_ltmle_crossfit.py",
         "tests/studies/weighted_longitudinal_common.py",
         "tests/studies/weighted_ltmle_crossfit_properties.py",
         "tests/studies/weighted_longitudinal_properties_common.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_crossfit_properties.py",
+        "tests/studies/ltmle_properties.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -52,7 +58,9 @@ STUDY = StudyRecord(
         "tests/canonical/lmtp_crossfit/Dockerfile",
         "tests/canonical/lmtp_crossfit/audit.py",
         "tests/canonical/lmtp_crossfit_adapter.R",
+        "tests/canonical/lmtp_crossfit/smoke_weighted.R",
         "tests/canonical/lmtp_weighted_glm_adapter.R",
+        "tests/canonical/study_harness.R",
         "tests/canonical/ltmle_regimen_adapter.R",
         "tests/canonical/weighted_lmtp_ltmle/run_study.R",
     ),
@@ -74,7 +82,10 @@ REFERENCE_METADATA = {
 
 CONFIGURATION = {
     "construction": "fold_specific_cross_fit_weighted",
-    "selection_probability": {"W1_positive": 0.3, "otherwise": 0.9},
+    "selection_probability": {
+        "W1_positive": common.SELECTION_LOW,
+        "otherwise": common.SELECTION_HIGH,
+    },
     "selected_n": common.PRIMARY_N,
     "cross_fit": True,
     "outer_folds": 5,
@@ -119,3 +130,54 @@ def draw_and_fit(
     *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return common.draw_and_fit(STUDY, replicates=replicates, n=n, cross_fit=True, n_jobs=n_jobs)
+
+
+def reference_artifacts(
+    *,
+    reference: Any,
+    here: Path,
+    samples: Path,
+    truths_path: Path,
+    output: Path,
+    cores: int,
+) -> dict[str, pd.DataFrame]:
+    """Retain both weighted influence-curve conventions from the reference run."""
+    del reference, here, samples, truths_path, cores
+    rows = pd.read_csv(output / "r-results.csv")
+    keys = (
+        "implementation",
+        "scenario",
+        "replicate",
+        "n",
+        "estimand",
+        "truth",
+        "estimate",
+    )
+    if not np.allclose(rows["std_error"], rows["native_std_error"], rtol=0.0, atol=0.0):
+        raise RuntimeError("lmtp diagnostic native standard errors differ from the primary rows")
+    if not np.allclose(rows["native_std_error"], rows["ht_std_error"], rtol=1e-12, atol=0.0):
+        raise RuntimeError("lmtp native standard errors differ from the HT formula")
+    if np.allclose(rows["ht_std_error"], rows["hajek_std_error"], rtol=1e-12, atol=0.0):
+        raise RuntimeError("lmtp HT and Hajek formulas have no nonzero witness")
+    z = 1.959963984540054
+    frames = []
+    for method, column in (
+        ("native", "native_std_error"),
+        ("horvitz_thompson", "ht_std_error"),
+        ("hajek", "hajek_std_error"),
+    ):
+        frame = rows.loc[:, list(keys)].copy()
+        frame["inference_method"] = method
+        frame["std_error"] = rows[column].to_numpy(dtype=float)
+        frame["ci_lower"] = frame["estimate"] - z * frame["std_error"]
+        frame["ci_upper"] = frame["estimate"] + z * frame["std_error"]
+        frame["covered"] = (
+            (frame["ci_lower"] <= frame["truth"]) & (frame["truth"] <= frame["ci_upper"])
+        ).astype(int)
+        frames.append(frame)
+    result = pd.concat(frames, ignore_index=True)
+    if not np.isfinite(result[["std_error", "ci_lower", "ci_upper"]]).all().all():
+        raise RuntimeError("lmtp diagnostic inference contains non-finite values")
+    if not (result["std_error"] > 0.0).all():
+        raise RuntimeError("lmtp diagnostic inference contains non-positive standard errors")
+    return {"reference-inference.csv.gz": result}
