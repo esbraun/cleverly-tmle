@@ -33,15 +33,15 @@ and power.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` cross-fitted weighted LTMLE | -0.0019 to 0.0048 | 0.9325 | 0.9766 | pass |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `lmtp` with observation weights | -0.0018 to 0.0049 | 0.8938 | 0.8506 | **fail** |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `lmtp` with observation weights | -0.0018 to 0.0049 | 0.9350 | 0.9800 | pass |
 | selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` cross-fitted weighted LTMLE | -0.0036 to 0.0032 | 0.9450 | 0.9843 | pass |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `lmtp` with observation weights | -0.0038 to 0.0030 | 0.9062 | 0.8618 | **fail** |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `lmtp` with observation weights | -0.0038 to 0.0030 | 0.9475 | 0.9880 | pass |
 | selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` cross-fitted weighted LTMLE | -0.0012 to 0.0026 | 0.9313 | 0.9214 | pass |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `lmtp` with observation weights | -0.0011 to 0.0027 | 0.9450 | 1.0062 | pass |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `lmtp` with observation weights | -0.0011 to 0.0027 | 0.9625 | 1.0898 | pass |
 | selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` cross-fitted weighted LTMLE | -0.0035 to 0.0021 | 0.9387 | 0.9944 | pass |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `lmtp` with observation weights | -0.0036 to 0.0020 | 0.8675 | 0.7695 | **fail** |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `lmtp` with observation weights | -0.0036 to 0.0020 | 0.9487 | 1.0299 | pass |
 | selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` cross-fitted weighted LTMLE | -0.0029 to 0.0011 | 0.9450 | 0.9634 | pass |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `lmtp` with observation weights | -0.0032 to 0.000735 | 0.9587 | 1.0329 | pass |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `lmtp` with observation weights | -0.0032 to 0.000735 | 0.9725 | 1.1110 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
@@ -49,11 +49,11 @@ and power.
 <!-- generated: agreement -->
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000119 | 0.0215 | 1.0095 | 0.0387 | 0.0687 vs 0.0500 **>** | superior |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000212 | 0.0378 | 1.0130 | 0.0387 | 0.0838 vs 0.0500 **>** | superior |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | -0.000014 | 0.0046 | 1.0110 | -0.0137 | 0.0169 vs 0.0500 | **inconclusive** |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000105 | 0.0225 | 1.0147 | 0.0712 | 0.0976 vs 0.0500 **>** | superior |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000317 | 0.0981 | 1.0167 | -0.0138 | 0.0672 vs 0.0500 **>** | *underpowered* |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000119 | 0.0215 | 1.0095 | -0.0025 | 0.0070 vs 0.0500 | equivalent |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000212 | 0.0378 | 1.0130 | -0.0025 | 0.0080 vs 0.0500 | equivalent |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | -0.000014 | 0.0046 | 1.0110 | -0.0312 | 0.1129 vs 0.0500 **>** | *underpowered* |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000105 | 0.0225 | 1.0147 | -0.0100 | 0.0628 vs 0.0500 **>** | equivalent |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000317 | 0.0981 | 1.0167 | -0.0275 | 0.1116 vs 0.0500 **>** | *underpowered* |
 <!-- /generated -->
 
 ## Theory properties
@@ -100,11 +100,11 @@ and power.
 <!-- /generated -->
 
 Agreement with `lmtp` is distributional because its sequential regression implementation is not
-the same solver path as `cleverly`'s. All five `cleverly` truth tests pass. Three R truth tests
-fail their coverage or SE screens. The paired results therefore include three superiority
-conclusions, one inconclusive coverage comparison, and one comparison whose SE-calibration margin
-the run could not resolve. The static both-wrong control is the only failed property cell. Its
-bias interval overlaps the discrimination margin instead of clearing it.
+the same solver path as `cleverly`'s. All ten implementation-estimand truth tests pass. Three
+paired comparisons conclude equivalence. The two remaining regimen-mean comparisons are
+underpowered for their combined coverage and SE-calibration margins. The static both-wrong control
+is the only failed property cell. Its bias interval overlaps the discrimination margin instead of
+clearing it.
 
 ## Measured values
 
@@ -116,20 +116,20 @@ from the committed artifacts and checked at the precision printed.
 | `replicates` | 800 | paired replications |
 | `n` | 2000 | selected observations per paired replication |
 | `independent_tests_total` | 10 | implementation-estimand truth tests |
-| `independent_tests_passed` | 7 | truth tests passing |
+| `independent_tests_passed` | 10 | truth tests passing |
 | `paired_tests_total` | 5 | paired estimand comparisons |
 | `paired_tests_passed` | 3 | paired comparisons passing |
 | `property_cells_total` | 36 | independent property cells |
 | `property_cells_passed` | 35 | property cells passing |
 | `max_standardized_bias` | 0.0571 | largest primary standardized bias |
-| `min_coverage` | 0.8675 | lowest primary coverage |
-| `min_coverage_ci_lower` | 0.8338 | lowest primary coverage lower endpoint |
-| `min_se_ratio_ci_lower` | 0.7245 | lowest primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.1043 | highest primary SE-ratio endpoint |
+| `min_coverage` | 0.9313 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9049 | lowest primary coverage lower endpoint |
+| `min_se_ratio_ci_lower` | 0.8626 | lowest primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.1878 | highest primary SE-ratio endpoint |
 | `max_margin_utilization` | 0.0981 | largest share of paired similarity margin used |
 | `max_rmse_ratio_upper` | 1.0167 | largest paired RMSE-ratio bound |
-| `min_coverage_difference_lower` | -0.0262 | smallest paired coverage-difference bound |
-| `max_calibration_excess_upper` | 0.0893 | largest paired calibration-excess bound |
+| `min_coverage_difference_lower` | -0.0462 | smallest paired coverage-difference bound |
+| `max_calibration_excess_upper` | 0.1016 | largest paired calibration-excess bound |
 | `properties[weight_necessity/static__weighted]:weight_displacement` | 0.4879 | target-weight positive control displacement |
 | `properties[learner_weight_necessity/static__weighted_learners]:learner_weight_displacement` | 0.6665 | learner-weight positive control displacement |
 | `properties[double_robustness/static__both_wrong]:bias_ci_upper` | -0.0149 | both-wrong control endpoint |

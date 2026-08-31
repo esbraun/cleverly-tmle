@@ -52,7 +52,22 @@ fit_plan <- function(frame, label) {
   if (!identical(fit$fold_assignment, as.integer(frame$fold))) {
     stop("lmtp did not retain the supplied fold assignment")
   }
-  list(estimate = fit$estimate@x, initial = weighted.mean(fit$initial, frame$obs_weight), ic = fit$estimate@eif)
+  expected_weights <- frame$obs_weight / mean(frame$obs_weight)
+  if (!isTRUE(all.equal(as.numeric(fit$estimate@weights), expected_weights, tolerance = 1e-12))) {
+    stop("lmtp did not retain the normalized observation weights in its influence estimate")
+  }
+  expected_se <- sd(fit$estimate@eif * fit$estimate@weights) / sqrt(nrow(frame))
+  if (!isTRUE(all.equal(fit$estimate@std_error, expected_se, tolerance = 1e-12))) {
+    stop("lmtp weighted standard error does not equal the weighted-EIF formula")
+  }
+  list(
+    estimate = fit$estimate@x,
+    initial = weighted.mean(fit$initial, frame$obs_weight),
+    ic = fit$estimate@eif,
+    weights = fit$estimate@weights,
+    id = fit$estimate@id,
+    standard_error = fit$estimate@std_error
+  )
 }
 
 truth_for <- function(replicate, estimand) {
@@ -61,9 +76,8 @@ truth_for <- function(replicate, estimand) {
   truths$truth[selected]
 }
 
-row_for <- function(replicate, name, estimate, initial, ic, n) {
+row_for <- function(replicate, name, estimate, initial, standard_error, n) {
   truth <- truth_for(replicate, name)
-  standard_error <- sd(ic) / sqrt(n)
   low <- estimate - z * standard_error
   high <- estimate + z * standard_error
   data.frame(
@@ -80,14 +94,29 @@ fit_one <- function(frame) {
   fits <- setNames(lapply(plans, function(label) fit_plan(frame, label)), plans)
   rows <- lapply(plans, function(label) {
     fit <- fits[[label]]
-    row_for(replicate, sprintf("ey_regimen[%s]", label), fit$estimate, fit$initial, fit$ic, nrow(frame))
+    row_for(
+      replicate, sprintf("ey_regimen[%s]", label), fit$estimate, fit$initial,
+      fit$standard_error, nrow(frame)
+    )
   })
   for (label in c("always", dynamic_label)) {
     left <- fits[[label]]
     right <- fits[["never"]]
+    if (!isTRUE(all.equal(left$weights, right$weights, tolerance = 0))) {
+      stop("regimen influence estimates carry different observation weights")
+    }
+    if (!identical(left$id, right$id)) {
+      stop("regimen influence estimates carry different row identifiers")
+    }
+    contrast <- ife::ife(
+      left$estimate - right$estimate,
+      left$ic - right$ic,
+      left$weights,
+      left$id
+    )
     rows[[length(rows) + 1]] <- row_for(
-      replicate, sprintf("ate_regimen[%s vs never]", label), left$estimate - right$estimate,
-      left$initial - right$initial, left$ic - right$ic, nrow(frame)
+      replicate, sprintf("ate_regimen[%s vs never]", label), contrast@x,
+      left$initial - right$initial, contrast@std_error, nrow(frame)
     )
   }
   do.call(rbind, rows)

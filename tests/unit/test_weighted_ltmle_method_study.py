@@ -122,6 +122,20 @@ def test_the_lmtp_weight_adapter_excludes_its_auxiliary_column() -> None:
     assert 'baseline = c("W1", "W2", "obs_weight_aux")' in runner
 
 
+def test_the_lmtp_reference_pins_and_checks_weighted_influence_inference() -> None:
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "tests/canonical/lmtp_crossfit/Dockerfile").read_text()
+    runner = (root / "tests/canonical/weighted_lmtp_ltmle/run_study.R").read_text()
+
+    assert crossfit.IFE_VERSION in dockerfile
+    assert crossfit.IFE_SHA256 in dockerfile
+    assert "fit$estimate@eif * fit$estimate@weights" in runner
+    assert "fit$estimate@std_error" in runner
+    assert "ife::ife(" in runner
+    assert "contrast@std_error" in runner
+    assert "sd(ic) / sqrt(n)" not in runner
+
+
 def test_the_optional_lmtp_weight_boundary_rejects_bad_values_in_r_source() -> None:
     root = Path(__file__).resolve().parents[2]
     adapter = (root / "tests/canonical/lmtp_crossfit_adapter.R").read_text()

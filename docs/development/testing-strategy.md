@@ -55,7 +55,7 @@ Read [method benchmarking strategy](method-benchmarking.md) to design and regist
 ## The deprecated studies
 
 The repeated-sampling studies that predate the registered rows are **deprecated and do not run.**
-There are 69 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
+There are 66 of them, marked `legacy_study`, and pytest skips each one with that reason. They are
 skipped rather than deleted, because deleting them would drop a claim without recording that it
 had been dropped. Run them with `pytest --run-legacy-studies` while building the row that replaces
 one.
@@ -142,9 +142,10 @@ tier recomputes every published verdict from the committed rows and refits two r
 study. It never re-executes the property fits.
 
 Regeneration closes that gap at the point where it opens. `regenerate.py` produces the property
-rows with the current code, and it refuses the run on any failed gate. The artifacts a study
-commits were therefore produced by the code it was committed against. Re-executing them afterwards
-confirms determinism rather than freshness.
+rows with the current code. A gated study refuses a failed scientific verdict. A reporting study
+publishes red verdicts but still refuses schema, provenance, convergence, and replication-accounting
+failures. The artifacts a study commits were therefore produced by the code it was committed
+against. Re-executing them afterwards confirms determinism rather than freshness.
 
 Reach for this tier when you are diagnosing a specific disagreement between committed rows and
 current behaviour. Name the study whose path and assertion can observe the change, rather than

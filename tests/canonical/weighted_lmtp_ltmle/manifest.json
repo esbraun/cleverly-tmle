@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-cross-fitted-weighted-ltmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "dd0c20a2646dc0693c58b4f83267f4c0d76431f8",
+      "cleverly_commit": "fa268a8cfb7dab395846a13ee570e3398596b032",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -19,6 +19,8 @@
       "lmtp_version": "1.5.4",
       "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
       "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "ife_version": "0.2.3",
+      "ife_tarball_sha256": "b6be1e9ba514db95118e425d2f78deabb2c9f745f44f35a301ff9b5f266d5ed2",
       "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
     }
   },
@@ -95,7 +97,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_weighted_ltmle_crossfit.py": "8534cbae9bfa26293c3f88423bc342e05b3c134589e7e16f6fb306ff16971aa4",
+    "tests/studies/canonical_weighted_ltmle_crossfit.py": "2fa90f6707afb3e99805e4470fb048b3ec1716788c558a2648737e137b24bceb",
     "tests/studies/weighted_longitudinal_common.py": "5e84ba5a06e1249ee1874f085a08c51c46a1bab5f08b87e39bbd4f899fdf6e07",
     "tests/studies/weighted_ltmle_crossfit_properties.py": "40cb4492f2702d107098619ff32cc0881b23baee75c5b472c575634133eb7982",
     "tests/studies/weighted_longitudinal_properties_common.py": "d4f972cad6bf88801e244da2132b770f01640c72080ede568e8e117dea870af5",
@@ -107,26 +109,26 @@
     "tests/studies/evidence/property_verdicts.py": "22a97bdbde5afa551b88b4a3784f8674eb57753b2327413e634a215c284cc417",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_crossfit/audit.py": "8703b3389c17c599b7bf33e5037867be5e56857d4194b45b6e35ec24e65d8275",
     "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/lmtp_weighted_glm_adapter.R": "b3373bf633d759b68af7bbb860754fbf76dff436eeef93272eefc5b71ebb717b",
     "tests/canonical/ltmle_regimen_adapter.R": "51715276e3a0a4dec7d0a904d3c377b22e61775f46fe631d1297b4d75eef7cb0",
-    "tests/canonical/weighted_lmtp_ltmle/run_study.R": "b727ca2e99b3b4bb61d61d85dc13a285b3244beb36d792c57cf5b5995f3cb3c2"
+    "tests/canonical/weighted_lmtp_ltmle/run_study.R": "5abd0d397d69164d279e20f7a33daea9b8932d54e3861cf8c834960356ce826c"
   },
   "reference_sha256": {
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
-    "tests/canonical/weighted_lmtp_ltmle/run_study.R": "b727ca2e99b3b4bb61d61d85dc13a285b3244beb36d792c57cf5b5995f3cb3c2",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/weighted_lmtp_ltmle/run_study.R": "5abd0d397d69164d279e20f7a33daea9b8932d54e3861cf8c834960356ce826c",
     "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/lmtp_weighted_glm_adapter.R": "b3373bf633d759b68af7bbb860754fbf76dff436eeef93272eefc5b71ebb717b",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
     "tests/canonical/ltmle_regimen_adapter.R": "51715276e3a0a4dec7d0a904d3c377b22e61775f46fe631d1297b4d75eef7cb0"
   },
   "sha256": {
-    "replicates.csv.gz": "3f2768a1790f96450eb7ccb225643393bcf085df05f220303c6aab53cdb2f2cd",
-    "summary.csv": "727b12980b22c07920491cf7b105468757c6facf040a76d6ef51b6c6dec308f2",
-    "equivalence.csv": "7444273438e3eb08f22df76d5a61fb4405f35363433cf9b33b96d65add217c8e",
-    "performance-tests.csv": "6b2eaea9cc23835cd0787780822c084ce6984b7683662ae83aafc829eb35f87c",
+    "replicates.csv.gz": "53e4b1dc47132293541760d84d1a9e6df646aca0b3ebb56850663a7e2e62ff7d",
+    "summary.csv": "cc9ed741d313f3d86eaa933937aa5e9c4cb96b2949e4cb7fa779943d34b7272d",
+    "equivalence.csv": "2cade5165c2ea39b5bd6a2f7fb9afdcb234dd298d7d864d6c8661759f3f4cf07",
+    "performance-tests.csv": "798616a8767925ce89f9c6b0126e32ba59225b94cf1d160b60038c0e73ef4bad",
     "property-replicates.csv.gz": "8cde61fa9b442531a3ea77df1303b65b7077b2e60396d929162367189e305343",
     "properties.csv": "955904bda7ecd0398d3976fccbb5162cf7ae3a9d3bb2f8eaf4e9b523bb7965ef"
   }

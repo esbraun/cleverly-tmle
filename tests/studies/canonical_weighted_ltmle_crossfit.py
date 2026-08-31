@@ -13,6 +13,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.weighted_longitudinal_properties_common import property_cells
 
 LMTP_VERSION = "1.5.4"
+IFE_VERSION = "0.2.3"
+IFE_SHA256 = "b6be1e9ba514db95118e425d2f78deabb2c9f745f44f35a301ff9b5f266d5ed2"
 SEED = 20262000
 PRIMARY_REPLICATES = common.PRIMARY_REPLICATES
 PRIMARY_N = common.PRIMARY_N
@@ -63,6 +65,8 @@ REFERENCE_METADATA = {
     "lmtp_version": LMTP_VERSION,
     "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
     "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+    "ife_version": IFE_VERSION,
+    "ife_tarball_sha256": IFE_SHA256,
     "r_base_image": (
         "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
     ),
