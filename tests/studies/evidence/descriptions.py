@@ -310,6 +310,9 @@ PROPERTIES: dict[str, str] = {
         "the declared projection measure determines the coefficient rather than an implicit "
         "uniform measure"
     ),
+    "repeat_stability": (
+        "three fold draws reduce the ATE's sensitivity to the realized fold assignment"
+    ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
@@ -593,6 +596,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
+    ),
+    ("repeat_stability", "three_repeats"): (
+        "the median ATE over three fold draws across labelled base seeds",
+        "the paired spread-ratio upper endpoint must fall below the declared boundary",
+    ),
+    ("repeat_stability", "one_repeat_control"): (
+        "the ATE from each repeated fit's first actual fold draw",
+        "the paired spread-ratio upper endpoint must fall below the declared boundary",
     ),
     ("projection_necessity", "declared_weights"): (
         "the working model uses its declared nonuniform projection weights",

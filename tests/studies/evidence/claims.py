@@ -222,6 +222,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         # and genuinely live in one module.  ``test_method_evidence`` reads it the same way,
         # so the two cannot come to disagree about which module owns it.
         declared["margin:selector_rmse_ratio"] = record.properties().SELECTOR_RMSE_RATIO
+    if "repeat_stability" in record.property_cells:
+        declared["margin:repeat_spread_ratio"] = record.properties().MAX_REPEAT_SPREAD_RATIO
     # Off the declared cells, like the three blocks above, rather than off ``hasattr`` on the
     # module.  A duck-typed guard publishes a threshold because a constant happens to be
     # importable, which is a fact about a file rather than about what the study claims -- and

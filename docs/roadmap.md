@@ -11,8 +11,6 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | none | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
-| Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -79,34 +77,6 @@ The [implementation validation grid](technical-reference/method-evidence/validat
 records completed studies. This track records the sequence for implementation families that the
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
-
-### V6. Selector-based multi-arm C-TMLE comparator
-
-The published selector row claims no comparator. R `ctmle` 0.1.2 documents its treatment as a
-binary indicator, and archived R `ctmle3` ships the outcome-adaptive specification alone. Julia
-`TMLE.jl` ships a greedy strategy and a pre-ordered adaptive-correlation strategy. It accepts
-categorical treatment levels, it stratifies folds by treatment, and it selects a candidate on a
-cross-validated loss. It composes the risk ratio and the odds ratio by the delta method over a
-joint estimand.
-
-Two consequences follow. `TMLE.jl` has no discrete ladder, so the greedy and ordered scenarios need
-a separate record from the discrete scenario. This is the first Julia comparator, so it needs a
-pinned Julia image beside the existing R and Python images.
-
-### V7. Repeat stability property cell
-
-The published
-[repeated row](technical-reference/method-evidence/repeated-cross-fitting.md) validates the median
-report at three fold draws. It does not measure the reason a reader repeats a split. No cell
-compares the spread of `psi` across fold seeds at one draw against three draws, so the
-spread-reduction rationale in `TMLE(repeats=)` rests on the source alone.
-
-Add a `repeat_stability` property cell to that study. Fit the same law at `repeats=1` and at
-`repeats=3` over a shared set of fold seeds, and report a paired bootstrap interval for the ratio
-of the two across-seed standard deviations. The `repeats=1` arm is the control, and it must show
-the larger spread. Two constraints follow. The cell needs its own seed stream, because the
-statistic is a function of the fold seed rather than of the sample. The cell also changes the
-study's declared cells, so it is a regeneration rather than a documentation edit.
 
 ## Extensibility track
 
@@ -450,8 +420,8 @@ influence-function correction.
 
 Hejazi, van der Laan, Janes, Gilbert and Benkeser (2021) derive the
 two-phase correction, and R `txshift` 0.3.8 implements it. Van der Laan (2008) derives case-control
-weighting under a known prevalence, and Julia `TMLE.jl` implements it. Fixed observation weights do
-not replace either correction. The comparator survey rejects `txshift` as a second opinion on
+weighting under a known prevalence. Fixed observation weights do not replace either correction.
+The comparator survey rejects `txshift` as a second opinion on
 continuous shifts. That verdict does not carry here, because the two-phase correction is a
 different feature.
 

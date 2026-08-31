@@ -66,6 +66,10 @@ The wrong main-effects outcome regression imposes a constant contrast, while the
 varies with `W1` and `I(W2 > 0)`. The treatment-correct cell uses n = 2,000. The other three cells
 use n = 700. Each cell uses 1,200 replications and the existing predeclared margin.
 
+The repeat-stability cells hold one binary-law sample of 1,000 rows fixed across 400 fold-seed
+trials. Each control uses the first actual fold draw from its paired three-repeat fit. The 99%
+paired-bootstrap interval compares the three-repeat ATE spread with the control spread.
+
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -75,6 +79,8 @@ use n = 700. Each cell uses 1,200 replications and the existing predeclared marg
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0087 to 0.0032, margin 0.0200, SE ratio 0.9994 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9430 to 0.9652, SE ratio 0.9760 to 1.0468 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
+| `repeat_stability` | `one_repeat_control` | control | the ATE from each repeated fit's first actual fold draw | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.5841, 0.5161 to 0.6592, boundary 1 | pass |
+| `repeat_stability` | `three_repeats` | positive | the median ATE over three fold draws across labelled base seeds | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.5841, 0.5161 to 0.6592, boundary 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000524, coverage 0.9208 to 0.9637, SE ratio 0.9822 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000832, coverage 0.9238 to 0.9657, SE ratio 1.0184 | pass |
 | `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000276, coverage 0.9297 to 0.9698, SE ratio 1.0093 | pass |
@@ -85,9 +91,9 @@ use n = 700. Each cell uses 1,200 replications and the existing predeclared marg
 
 ## Result
 
-The median repeated estimator and every declared repeated-sampling property passed. Mean
-aggregation is not a public option and is not retained as a study alternative: this record tests
-the method the library ships, not a situation selected to make one aggregation rule beat another.
+The median repeated estimator and every declared repeated-sampling property passed. The
+repeat-stability ratio was 0.5841, with a 99% interval from 0.5161 to 0.6592. Mean aggregation is
+not a public option. This record tests the method that the library ships.
 
 ## Measured values
 
@@ -102,8 +108,8 @@ from the committed results and checked at the precision printed.
 | `independent_tests_passed` | 17 | of those, passing |
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
-| `property_cells_total` | 12 | repeated-sampling property cells |
-| `property_cells_passed` | 12 | cells whose own and family verdicts pass |
+| `property_cells_total` | 14 | repeated-sampling property cells |
+| `property_cells_passed` | 14 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0560 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9337 | lowest measured primary-study coverage |
 | `min_coverage_ci_lower` | 0.9078 | lowest exact 99% primary coverage endpoint |
@@ -134,6 +140,7 @@ from the committed results and checked at the precision printed.
 | `margin:excluded_slope` | -0.2500 | slower rate the root-n interval must exclude |
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
+| `margin:repeat_spread_ratio` | 1 | largest accepted upper endpoint for the paired repeat-stability spread ratio |
 
 ## Limitations
 
@@ -141,9 +148,8 @@ from the committed results and checked at the precision printed.
 | --- | --- |
 | The row publishes under the reporting policy, not gated | Every declared cell is green. The `reporting` policy does not assert that, so the fast tier recomputes each verdict and does not fail on a red one |
 | There is no full-method cross-implementation evidence | zEpid corroborates the aggregation formula, not the complement-trained stacked pooled estimator |
-| The study does not measure spread reduction | No cell compares the spread of the point estimate across fold seeds at one draw against three draws. The row validates the median report. It does not validate the reason to prefer that report |
 | The study does not claim median superiority | Median is the source-backed reporting standard, not an option chosen because this law makes it beat a mean alternative |
-| The repeat budget is fixed | Primary evidence covers three fold draws; it does not establish behavior for arbitrary repeat counts |
+| The stability law and repeat budget are fixed | Spread reduction is measured on one fixed binary-law sample at one versus three fold draws. It does not establish behavior for other samples, laws, or arbitrary repeat counts |
 | Inference is marginal | Coordinatewise medians do not supply joint covariance or post-fit contrasts; the central-draw curve does not support simultaneous bands for the split-adjusted estimator |
 | The scientific scope is point treatment | The row does not validate clustering, observation weights, missing outcomes, longitudinal data, bootstrap inference, or severe positivity violations outside the declared law |
 

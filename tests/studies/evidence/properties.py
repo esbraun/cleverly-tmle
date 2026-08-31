@@ -551,6 +551,74 @@ def se_ratio_deficit_interval(
 
 
 @dataclass(frozen=True)
+class PairedSpreadRatio:
+    """A paired spread ratio and its percentile-bootstrap interval."""
+
+    ratio: float
+    interval: Interval
+
+
+def paired_spread_ratio_interval(
+    numerator: pd.DataFrame,
+    denominator: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> PairedSpreadRatio:
+    """Bootstrap one ratio of paired across-replication standard deviations.
+
+    The two inputs must contain each replication exactly once and must have identical
+    replication keys. The bootstrap samples paired rows with one shared index matrix. This
+    preserves any dependence between the two estimates instead of resampling two marginal
+    spreads independently.
+
+    A zero denominator is undefined. The helper refuses it in either the observed statistic
+    or a resampled draw instead of dropping that draw and changing the bootstrap law.
+    """
+    required = {"replicate", "estimate"}
+    for label, frame in (("numerator", numerator), ("denominator", denominator)):
+        missing = required.difference(frame.columns)
+        if missing:
+            raise ValueError(f"the {label} is missing required columns {sorted(missing)}")
+        if frame["replicate"].duplicated().any():
+            raise ValueError(f"the {label} contains duplicate replication keys")
+
+    ordered_numerator = numerator.sort_values("replicate")
+    ordered_denominator = denominator.sort_values("replicate")
+    numerator_keys = ordered_numerator["replicate"].to_numpy()
+    denominator_keys = ordered_denominator["replicate"].to_numpy()
+    if not np.array_equal(numerator_keys, denominator_keys):
+        raise ValueError("the numerator and denominator are not paired on replication")
+    if len(numerator_keys) < 2:
+        raise ValueError("a spread ratio needs at least two paired replications")
+
+    values = np.column_stack(
+        [
+            ordered_numerator["estimate"].to_numpy(dtype=float),
+            ordered_denominator["estimate"].to_numpy(dtype=float),
+        ]
+    )
+    if not np.isfinite(values).all():
+        raise ValueError("the paired estimates must all be finite")
+    observed_spreads = values.std(axis=0, ddof=1)
+    if observed_spreads[1] <= 0.0:
+        raise ValueError("the observed denominator spread is zero")
+
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(values), size=(replicates, len(values)))
+    draws = values[picks]
+    spreads = draws.std(axis=1, ddof=1)
+    if np.any(spreads[:, 1] <= 0.0):
+        raise ValueError("a bootstrap draw has zero denominator spread")
+    ratios = spreads[:, 0] / spreads[:, 1]
+    return PairedSpreadRatio(
+        ratio=float(observed_spreads[0] / observed_spreads[1]),
+        interval=percentile_interval(ratios, confidence_level=confidence_level),
+    )
+
+
+@dataclass(frozen=True)
 class Rate:
     """A fitted ``log(quantity) ~ log(n)`` slope with a bootstrap interval."""
 

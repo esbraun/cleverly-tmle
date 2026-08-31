@@ -93,7 +93,7 @@ the source before you accept one.
 | R `lmtp` 1.5.4 | takes `weighted.mean` of the pooled shifted regression column | Rejected for the fold-evaluated row. Used elsewhere for its intervention family. |
 | R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |
 | R `npcausal` at `56a5ac1` | averages the influence-function values over all rows | Rejected. It is a one-step AIPW estimator, and its aggregation is pooled. |
-| Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. Retained for the multi-arm selector survey below. |
+| Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. The multi-arm selector survey below also rejects it as a canonical comparator. |
 | Python `zEpid` 0.9.1 at [`16a0f96`](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L976-L1048) | `SingleCrossfitTMLE` targets separately by validation split, then takes the mean over the stacked targeted rows, which size-weights the folds. It uses a within-fold sample variance with `ddof=1`; `cleverly` uses an equal $1/V$ fold average and the raw influence-curve second moment instead | Used by the fold-targeted CV-TMLE row at two equal folds and one partition. The two point-estimate weightings coincide only at these equal sizes. At two folds, each nuisance training split is the complete validation-fold complement. It also corroborates repeated-report aggregation, but it does not compare with the stacked pooled update. |
 | R `Crossfit` at `momenulhaque/Crossfit` | takes the median of the split estimates under a double cross-fit | Rejected. Double cross-fitting fits each nuisance on a separate split, which is a different estimator. |
 | Chernozhukov et al. (2018), Definition 3.3 and equation (3.13) | explicitly define median aggregation for fixed repeated partitions with within-partition variance plus squared split displacement | Governing source for the median reporting rule and fixed-repeat first-order validity. It does not make the DML score a TMLE or establish full-method numerical parity. |
@@ -107,7 +107,20 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| Julia `TMLE.jl` v0.20.4 | `GreedyStrategy` and `AdaptiveCorrelationStrategy` | Candidate for the greedy and ordered scenarios. It takes categorical treatment levels, stratifies folds by treatment, selects on a cross-validated loss, and composes ratios by the delta method. It has no discrete ladder. |
+| Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
+
+### Multi-arm selector recommendation
+
+Keep the shipped joint selector. Do not replace it with the componentwise `TMLE.jl` path.
+The library review records the alternative and its limitations; implementing it is not a current
+priority and it is not tracked on the roadmap.
+
+[van der Laan and Gruber (2010)](https://doi.org/10.2202/1557-4679.1181) derive greedy
+collaborative selection for one target parameter. [Ju et al.
+(2019)](https://doi.org/10.1177/0962280217729845) develop the scalable pre-ordered approach.
+Neither paper supplies a theorem for separately selected multi-arm components and their contrast
+covariance. The [`TMLE.jl` JOSS paper](https://doi.org/10.21105/joss.08446) documents the software,
+but it does not add that theorem.
 
 Two limits of the framework shape these tables. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes

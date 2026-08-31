@@ -9,7 +9,9 @@ ratios are aggregated on their log inference scale.
 The study tests arm means, ATE, ATT, ATC, observed mean, PAR, and, where defined, PAF, RR, and OR
 against exact truth under binary and bounded continuous outcome laws. It reuses the shared
 CV-TMLE property machinery for double robustness, empirical and reported root-n rates, interval
-calibration, type-I error, and power.
+calibration, type-I error, and power. A separate property family holds one binary-law sample fixed
+across 400 labelled fold-seed trials. It compares the ATE spread from three draws with the spread
+from each repeated fit's first actual draw.
 
 No full estimator is compared. Chernozhukov et al. establish the median aggregation rule and
 fixed-repeat first-order validity, and zEpid implements the same aggregation formula. zEpid's

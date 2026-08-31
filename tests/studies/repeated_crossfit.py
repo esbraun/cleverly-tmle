@@ -19,6 +19,9 @@ PRIMARY_N = 1000
 SEED = 20260924
 N_FOLDS = 5
 REPEATS = 3
+FOLD_SEED_TRIALS = 400
+REPEAT_STABILITY_N = 1_000
+MAX_REPEAT_SPREAD_RATIO = 1.0
 
 PROPERTY_CELLS = {
     "double_robustness": (
@@ -32,6 +35,7 @@ PROPERTY_CELLS = {
     "interval_calibration": ("correctly_specified",),
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
+    "repeat_stability": ("three_repeats", "one_repeat_control"),
 }
 
 STUDY = StudyRecord(
@@ -81,6 +85,13 @@ CONFIGURATION = {
         "median point; median of within-draw variance plus squared split displacement; "
         "ratios use the log scale"
     ),
+    "repeat_stability": {
+        "n": REPEAT_STABILITY_N,
+        "paired_fold_seed_trials": FOLD_SEED_TRIALS,
+        "spread_ratio_upper_boundary": MAX_REPEAT_SPREAD_RATIO,
+        "seed_streams": ["sample", "fold_seed", "bootstrap"],
+        "control": "first fold seed derived by each three-repeat plan",
+    },
 }
 
 
