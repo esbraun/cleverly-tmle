@@ -17,9 +17,9 @@ Give materially different estimators separate evidence rows. Ordinary TMLE, stac
 fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
 samples; one method does not inherit another's parity or coverage claims.
 
-## R implementation comparisons
+## Reference implementation comparisons
 
-- Pin the R base image and packages immutably, and record hashes for the Dockerfile, runner, and
+- Pin the runtime base image and packages immutably. Record hashes for the Dockerfile, runner, and
   reference sources in the study manifest.
 - Give both implementations the same realized datasets, covariates, contrasts, nuisance-model
   families, bounds, targeting controls, and interval scale. Declare any setting that cannot be
@@ -94,7 +94,7 @@ the source before you accept one.
 | R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |
 | R `npcausal` at `56a5ac1` | averages the influence-function values over all rows | Rejected. It is a one-step AIPW estimator, and its aggregation is pooled. |
 | Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. Retained for the multi-arm selector survey below. |
-| Python `zEpid` at [`16a0f96`](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641) | `SingleCrossfitTMLE` targets separately by validation split and defaults to the median point and median of within-partition variance plus squared split displacement | Used as corroborating source for the repeated-report aggregation formula. Rejected as a full-method comparator because its one-partition nuisance training and foldwise targeting differ from the complement-trained stacked pooled update. |
+| Python `zEpid` 0.9.1 at [`16a0f96`](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L976-L1048) | `SingleCrossfitTMLE` targets separately by validation split, then takes the mean over the stacked targeted rows, which size-weights the folds. It uses a within-fold sample variance with `ddof=1`; `cleverly` uses an equal $1/V$ fold average and the raw influence-curve second moment instead | Used by the fold-targeted CV-TMLE row at two equal folds and one partition. The two point-estimate weightings coincide only at these equal sizes. At two folds, each nuisance training split is the complete validation-fold complement. It also corroborates repeated-report aggregation, but it does not compare with the stacked pooled update. |
 | R `Crossfit` at `momenulhaque/Crossfit` | takes the median of the split estimates under a double cross-fit | Rejected. Double cross-fitting fits each nuisance on a separate split, which is a different estimator. |
 | Chernozhukov et al. (2018), Definition 3.3 and equation (3.13) | explicitly define median aggregation for fixed repeated partitions with within-partition variance plus squared split displacement | Governing source for the median reporting rule and fixed-repeat first-order validity. It does not make the DML score a TMLE or establish full-method numerical parity. |
 | current R and Python `DoubleML` | uses median aggregation with a between-partition dispersion adjustment | Further corroboration for the reporting rule, but rejected as a comparator because it is DML rather than a targeted estimator and does not expose `cleverly`'s stacked update. |

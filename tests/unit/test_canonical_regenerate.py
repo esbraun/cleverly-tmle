@@ -450,6 +450,7 @@ def test_an_alternate_reference_runner_must_be_mounted_and_hashed(
         runner="probe.R",
     )
     assert "/fixture/probe.R" in commands[-1]
+    assert "CLEVERLY_REFERENCE_CORES=2" in commands[-1]
     assert "CLEVERLY_R_CORES=2" in commands[-1]
 
     with pytest.raises(ValueError, match="not in extra_files"):

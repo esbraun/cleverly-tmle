@@ -20,7 +20,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.studies import canonical_cvtmle, fold_evaluated_cvtmle, repeated_crossfit
+from tests.studies import (
+    canonical_cvtmle,
+    canonical_properties,
+    cvtmle_properties,
+    fold_evaluated_cvtmle,
+    fold_targeted_cvtmle,
+    repeated_crossfit,
+)
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import INFERENCE_SCALES, REPLICATE_COLUMNS
 
@@ -91,6 +98,20 @@ def test_the_stacked_driver_returns_its_samples_truths_and_rows() -> None:
     assert set(truths["scenario"]) == set(record.scenarios)
 
 
+def test_the_fold_targeted_driver_returns_its_exact_samples_truths_and_rows() -> None:
+    samples, truths, rows = fold_targeted_cvtmle.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    record = fold_targeted_cvtmle.STUDY
+
+    assert tuple(rows.columns) == REPLICATE_COLUMNS
+    assert set(rows["implementation"]) == {record.implementation}
+    assert rows["estimand"].tolist() == ["ate"]
+    assert rows["initial_estimate"].notna().all()
+    assert set(samples["fold"]) == {0, 1}
+    assert samples.groupby("fold").size().tolist() == [100, 100]
+    assert {"scenario", "replicate", "row_id", "partition_random_state"} <= set(samples)
+    assert set(truths["scenario"]) == {"binary"}
+
+
 def test_a_driver_draws_the_scenario_the_seed_names() -> None:
     """The rows a driver returns come from the study's own published seed stream.
 
@@ -108,3 +129,32 @@ def test_a_driver_draws_the_scenario_the_seed_names() -> None:
         assert merged["estimate_driver"].to_numpy() == pytest.approx(
             merged["estimate_direct"].to_numpy(), rel=1e-9
         )
+
+
+def test_the_double_robustness_driver_declares_the_bounded_law_and_budgets() -> None:
+    cells = tuple(
+        cell for cell in canonical_properties.cells() if cell.property == "double_robustness"
+    )
+    assert {cell.cell: (cell.n, cell.replicates, cell.seed) for cell in cells} == {
+        "both_correct": (700, 1_200, 17_100),
+        "outcome_correct": (700, 1_200, 17_101),
+        "treatment_correct": (2_000, 1_200, 17_102),
+        "both_wrong": (700, 1_200, 17_103),
+    }
+    assert len({id(cell.dgp) for cell in cells}) == 1
+    assert canonical_properties.DOUBLE_ROBUST_LOGIT_RANGE == (-1.5, 1.05625)
+    assert canonical_properties.DOUBLE_ROBUST_G_RANGE[0] > 0.025
+    assert canonical_properties.DOUBLE_ROBUST_G_RANGE[1] < 0.975
+    assert cells[0].dgp.truth()["ate"] == pytest.approx(1.75, abs=1e-6)
+
+
+def test_the_fold_targeted_property_driver_runs_every_deterministic_control() -> None:
+    cvtmle_properties.assert_double_robustness_preflight(
+        fold_targeted_cvtmle.STUDY,
+        "fold_targeted",
+        canonical_properties.cells(),
+        repeats=1,
+        n_folds=fold_targeted_cvtmle.N_FOLDS,
+        targeting_scheme="fold",
+        cv_evaluation=True,
+    )

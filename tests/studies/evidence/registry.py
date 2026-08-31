@@ -331,6 +331,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
+    from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -341,6 +342,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CVTMLE,
         CANONICAL_CLUSTERED_TMLE,
         FOLD_EVALUATED_CVTMLE,
+        FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,

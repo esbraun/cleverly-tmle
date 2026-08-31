@@ -64,8 +64,8 @@ class Reference:
     three data paths.  ``True`` binds ``runner_root`` read-only at ``/fixture`` and passes the
     script as the first argument.  The root defaults to the study directory.
 
-    ``extra_files`` are further reference sources whose bytes belong in the manifest -- a
-    sourced adapter or a second script a maintainer runs by hand, for instance.
+    ``extra_files`` are further reference sources whose bytes belong in the manifest. Examples
+    include a sourced adapter, a requirement lock, or a second diagnostic runner.
     """
 
     image: str
@@ -78,6 +78,8 @@ class Reference:
     #: Optional root mounted at ``/fixture``.  ``runner`` and ``extra_files`` are relative
     #: to this root when supplied; existing studies continue to resolve them from ``here``.
     runner_root: Path | None = None
+    #: Program that executes a mounted runner. Existing R studies retain the historical default.
+    interpreter: str = "Rscript"
 
     def files(self, here: Path) -> list[Path]:
         context = self.build_context or here
@@ -111,12 +113,14 @@ class Reference:
         if self.mount_runner:
             mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
             arguments.append(f"/fixture/{selected_runner}")
-        entrypoint = ["--entrypoint", "Rscript"] if self.mount_runner else []
+        entrypoint = ["--entrypoint", self.interpreter] if self.mount_runner else []
         subprocess.run(
             [
                 "docker",
                 "run",
                 "--rm",
+                "-e",
+                f"CLEVERLY_REFERENCE_CORES={cores}",
                 "-e",
                 f"CLEVERLY_R_CORES={cores}",
                 *mounts,
@@ -165,18 +169,24 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     )
     if reference is not None:
         parser.add_argument(
-            "--skip-r", action="store_true", help="reuse the committed reference rows"
+            "--skip-reference",
+            "--skip-r",
+            dest="skip_reference",
+            action="store_true",
+            help="reuse the committed reference rows",
         )
         parser.add_argument(
+            "--reference-jobs",
             "--r-jobs",
+            dest="reference_jobs",
             type=int,
             help="reference-process concurrency (defaults to --jobs)",
         )
     arguments = parser.parse_args()
     if arguments.replicates < 2 or arguments.n < 50:
         parser.error("replicates must be >= 2 and n must be >= 50")
-    if getattr(arguments, "r_jobs", None) is not None and arguments.r_jobs < 1:
-        parser.error("--r-jobs must be >= 1")
+    if getattr(arguments, "reference_jobs", None) is not None and arguments.reference_jobs < 1:
+        parser.error("--reference-jobs must be >= 1")
     return arguments
 
 
@@ -184,7 +194,12 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     """Draw the samples and fit the subject, reusing a cached phase when one is declared."""
     paths = {
         name: scratch / name
-        for name in ("samples.csv.gz", "truth.csv", "python-rows.csv.gz", "r-results.csv")
+        for name in (
+            "samples.csv.gz",
+            "truth.csv",
+            "python-rows.csv.gz",
+            "reference-results.csv",
+        )
     }
     cache = getattr(arguments, "cache", None)
     reusable = ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
@@ -216,7 +231,7 @@ def _reference_rows(
     here: Path,
     phase: _Phase,
 ) -> pd.DataFrame:
-    if getattr(arguments, "skip_r", False):
+    if getattr(arguments, "skip_reference", getattr(arguments, "skip_r", False)):
         committed = pd.read_csv(here / "replicates.csv.gz")
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
@@ -224,9 +239,14 @@ def _reference_rows(
             & (committed["n"] == arguments.n)
         ]
         if rows.empty:
-            raise RuntimeError("no compatible committed reference rows for --skip-r")
+            raise RuntimeError("no compatible committed reference rows for --skip-reference")
         return rows
-    cached_reference = phase.paths["r-results.csv"]
+    cached_reference = phase.paths.get("reference-results.csv", phase.paths.get("r-results.csv"))
+    if cached_reference is None:
+        raise RuntimeError("the Python phase did not declare a reference-result path")
+    legacy_reference = cached_reference.with_name("r-results.csv")
+    if not cached_reference.exists() and legacy_reference.exists():
+        cached_reference = legacy_reference
     if (phase.cached or getattr(arguments, "cache", None)) and cached_reference.exists():
         rows = pd.read_csv(cached_reference)
         expected = set(range(arguments.replicates))
@@ -239,8 +259,12 @@ def _reference_rows(
         here,
         phase.paths["samples.csv.gz"],
         phase.paths["truth.csv"],
-        phase.paths["r-results.csv"],
-        cores=arguments.r_jobs or arguments.jobs,
+        cached_reference,
+        cores=(
+            getattr(arguments, "reference_jobs", None)
+            or getattr(arguments, "r_jobs", None)
+            or arguments.jobs
+        ),
     )
     return pd.read_csv(cached_reference)
 
@@ -299,9 +323,10 @@ def main(
     record = dataclasses.replace(
         study.STUDY, replicates=arguments.replicates, n=arguments.n, artifacts=out
     )
-    if getattr(arguments, "skip_r", False) and record.extra_artifacts:
+    skip_reference = getattr(arguments, "skip_reference", getattr(arguments, "skip_r", False))
+    if skip_reference and record.extra_artifacts:
         raise RuntimeError(
-            "--skip-r cannot rebuild study-specific extra artifacts: the standard "
+            "--skip-reference cannot rebuild study-specific extra artifacts: the standard "
             "replicate file intentionally omits their source columns"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
@@ -324,7 +349,11 @@ def main(
                 samples=phase.paths["samples.csv.gz"],
                 truths_path=phase.paths["truth.csv"],
                 output=scratch,
-                cores=arguments.r_jobs or arguments.jobs,
+                cores=(
+                    getattr(arguments, "reference_jobs", None)
+                    or getattr(arguments, "r_jobs", None)
+                    or arguments.jobs
+                ),
             )
             if reference is not None and hasattr(study, "reference_artifacts")
             else {}

@@ -11,8 +11,7 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V5 | Fold-targeted CV-TMLE comparator | implementation-ready | none | [V5](#v5-fold-targeted-cv-tmle-comparator) |
-| Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | V5 ordering only | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
+| Validation | V6 | Selector-based multi-arm C-TMLE comparator | source audit | none | [V6](#v6-selector-based-multi-arm-c-tmle-comparator) |
 | Validation | V7 | Repeat stability property cell | theory-neutral | V6 ordering only | [V7](#v7-repeat-stability-property-cell) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
@@ -81,64 +80,6 @@ records completed studies. This track records the sequence for implementation fa
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
 
-### V5. Fold-targeted CV-TMLE comparator
-
-Register a second fold-evaluated study for `targeting_scheme="fold"` and
-`cv_evaluation=True`. Keep the published pooled-targeting row unchanged. One study record names
-one reference, and the two targeting schemes are different estimators.
-
-Use Python `zEpid` 0.9.1 at commit `16a0f96` as the comparator. Its `SingleCrossfitTMLE`
-fits one coefficient inside each validation split. It averages fold plug-ins by split size and
-uses the mean within-split influence-curve variance over the total sample size.
-
-Use two equal folds and one partition. At two folds, each `zEpid` nuisance trains on the complete
-complement of its validation fold. More folds would give `zEpid` only one training split while
-`cleverly` uses the complete complement. A second partition would mix the targeting comparison
-with repeat aggregation.
-
-Generate the two-fold assignment from this study's labelled seed stream. Store it with every
-sample. Give the same assignment to a study-only fixed-fold `cleverly` fit. Make the reference
-runner abort unless its native split contains the same row identities.
-
-Use one binary-outcome law and report the ATE only. `zEpid` does not report treatment-specific
-means, ATT, or ATC. `cleverly` refuses RR and OR under fold evaluation because their fold-varying
-gradients need a separate targeting score. Preserve that refusal instead of using `zEpid`'s
-globally pooled ratio as a surrogate parameter.
-
-Match the main-effects logistic nuisance learners and treatment bounds in both implementations.
-Use `(0.025, 0.975)` bounds, pointwise 95% inference, and no repeats. Compare 1,600 paired
-replications at `n = 1,000` with the registered default margins.
-
-Run the reference in a container based on
-`python:3.10-slim-bookworm@sha256:673f009e3763f8d03953b525c89b03a9ee8ca315bf6b8006979b5c4a4e2e4d68`.
-Pin the `zEpid` commit and every Python dependency in that image. Use the shared regeneration
-driver, and generalize its R-specific option names without breaking existing aliases.
-
-Reuse the point-treatment laws, row transcription, CV-TMLE fit helper, property cells, verdicts,
-and generated documentation machinery. Parameterize the shared fit helper by targeting scheme.
-Use thin study and property adapters for the new row. Keep existing study results unchanged under
-their current defaults.
-
-The property study must cover double robustness, three sizes, two root-n rates, interval
-calibration, null size, power, and flexible-learner cross-fitting. Pair double robustness with the
-both-wrong control. Pair null size with the nonzero-effect power control. Pair flexible learning
-with the in-sample tree control.
-
-Use the existing CV-TMLE budgets. Use 1,200 replications for robustness, 800 per rate size, and
-2,400 for calibration. Use 400 for null size, 400 for power, and 400 for each overfitting arm.
-Keep the default 99% Monte Carlo bounds and every registered margin unchanged.
-
-Add focused tests for fold identity, training complements, nonzero fold-specific targeting,
-solved fold scores, and pooled-targeting displacement. Test the ratio refusals and the ATE-only
-row. Test that a changed reference split fails before it can produce comparison rows.
-
-Run a disposable primary smoke study before the declared run. Register the study, descriptions,
-artifacts, generated page, and validation-grid row through the common evidence framework. Update
-the CV-TMLE reference and benchmarking survey with the exact comparator boundary.
-
-The implementation commit must remove this completed item from the roadmap. It must promote V6
-to the next validation item and remove the completed V5 ordering dependency.
-
 ### V6. Selector-based multi-arm C-TMLE comparator
 
 The published selector row claims no comparator. R `ctmle` 0.1.2 documents its treatment as a
@@ -149,8 +90,8 @@ cross-validated loss. It composes the risk ratio and the odds ratio by the delta
 joint estimand.
 
 Two consequences follow. `TMLE.jl` has no discrete ladder, so the greedy and ordered scenarios need
-a separate record from the discrete scenario. This is the first comparator outside R, so it needs a
-pinned Julia image beside the existing R images.
+a separate record from the discrete scenario. This is the first Julia comparator, so it needs a
+pinned Julia image beside the existing R and Python images.
 
 ### V7. Repeat stability property cell
 

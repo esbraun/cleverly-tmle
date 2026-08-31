@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
-  "study": "stacked point-treatment CV-TMLE",
-  "slug": "canonical-cvtmle",
+  "study": "fold-targeted point-treatment CV-TMLE",
+  "slug": "fold-targeted-cvtmle",
   "generated_with": {
     "subject": {
-      "implementation": "cleverly-stacked-cvtmle",
+      "implementation": "cleverly-fold-targeted-cvtmle",
       "cleverly_version": "0.1.0",
       "cleverly_commit": "343e18dfa7b8a8b8c0318f06125250c5380ea04d",
       "cleverly_worktree_clean": false,
@@ -15,51 +15,37 @@
       "scikit_learn": "1.9.0"
     },
     "reference": {
-      "implementation": "tmle3-cvtmle",
-      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
-      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+      "implementation": "zepid-single-crossfit-tmle",
+      "zepid_commit": "16a0f96f8b2c65df8715085801f21757d1478e1e",
+      "zepid_version": "0.9.1",
+      "python_base_image": "python:3.10-slim-bookworm@sha256:673f009e3763f8d03953b525c89b03a9ee8ca315bf6b8006979b5c4a4e2e4d68"
     }
   },
   "configuration": {
     "replicates": 1600,
     "n": 1000,
-    "seed": 20240820,
+    "seed": 20240822,
+    "resampling_seed": 20261026,
     "publication_policy": "gated",
     "scenarios": {
       "binary": [
-        "ey1",
-        "ey0",
-        "ate",
-        "att",
-        "atc",
-        "ey_obs",
-        "par",
-        "paf",
-        "rr",
-        "or"
-      ],
-      "continuous": [
-        "ey1",
-        "ey0",
-        "ate",
-        "att",
-        "atc",
-        "ey_obs",
-        "par"
+        "ate"
       ]
     },
     "cross_fit": true,
-    "n_folds": 10,
-    "targeting_scheme": "pooled",
-    "cv_evaluation": false,
+    "n_folds": 2,
+    "partitions": 1,
+    "repeats": 1,
+    "targeting_scheme": "fold",
+    "cv_evaluation": true,
     "simultaneous_intervals": false,
     "g_bounds": [
       0.025,
       0.975
     ],
-    "q_bounds": "sample outcome range",
-    "folds": "identical treatment-stratified assignments supplied to both implementations",
+    "q_bounds": "binary outcome",
+    "folds": "identical equal-size row assignments supplied to both implementations",
+    "fold_aggregation": "equal 1/V plug-in average; identical to size weighting here only because folds are equal",
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -87,11 +73,12 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_cvtmle.py": "d6854b3a8ba9138b6159bf63e1b4df6801ff746127fbb74413ab9d6aefda3211",
+    "tests/studies/fold_targeted_cvtmle.py": "63a4f5bb854a603f9cdcd4531de25c394d178e3e4eaffc9ef1037bf68c82bcd3",
+    "tests/studies/canonical_cvtmle.py": "ff2b70ac41d6f25b268bc5d6986381d0500189e4af7fb925512988b22ba5b805",
     "tests/studies/canonical_tmle.py": "6f97ea926151ce8b36abfa364e539636787abce34c6677a3cb5a618c44999536",
-    "tests/studies/canonical_properties.py": "4f509964736194d03402d7efbc038167b3cb152e63763ae85171a2686c74d183",
+    "tests/studies/canonical_properties.py": "cd5a9c018cb50b13475dfeec3895b617d3ad5f64c3b6c6d395ad4e28f492735c",
     "tests/studies/cvtmle_properties.py": "01a305b7d0e86836d8afc5f4981fd0b725c728d158dd6f9422d29d1b634e74a0",
-    "tests/studies/stacked_cvtmle_properties.py": "c59e93a082b776365875cba8a4cda32120dab7d6d42c3fcb8fd3f76091ae355e",
+    "tests/studies/fold_targeted_cvtmle_properties.py": "dbd4dffc3ce4f3f4d99c444495a42357a7ff7a240238da0a96ed89d386e19314",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
@@ -101,16 +88,16 @@
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
   },
   "reference_sha256": {
-    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
-    "tests/canonical/tmle3_cvtmle/run_tmle3_cvtmle.R": "7da2bd62aeb4331596a346678f317853a7257833e50610923b591033935506ab",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+    "tests/canonical/zepid_cvtmle/Dockerfile": "8fc86668a340cbcd55934fb0c6b86ae41e123979f5abb73e456b94876f445658",
+    "tests/canonical/zepid_cvtmle/run_zepid_cvtmle.py": "52208a9c3c759a8db2b92b0df915b6c8d4f5438b5d5da887be4bd234b6de5bdb",
+    "tests/canonical/zepid_cvtmle/requirements.txt": "65518b25d46d5f3762a3a37f2988ba398bef34a407beac16f55e067a4e42b429"
   },
   "sha256": {
-    "replicates.csv.gz": "ebd2d9f1a22f0bb5715b04b19c738e0698bbcb4ff276d5d03d4d052f1207d5ec",
-    "summary.csv": "6c918239d070dbdf8eb7094af344e783de0abc8c832e555fb2194bddf8dc37be",
-    "equivalence.csv": "664bbf6c753edd2af22af51e3f01ecdaa10a35c4bd35ee9f909346e2a48c56ab",
-    "performance-tests.csv": "d45cdde4bc96721c55431171f65ff12cbdf8b907514c29004c723f681006a09f",
-    "property-replicates.csv.gz": "1c84c80c3e8470e5d6c4f8e91ea8b1c3a9bf229766fbfc0622b959a9d1a161e4",
-    "properties.csv": "b5b0f9b9679c32c50a305e4da9c0c8ccb003adad33c83a66063b199ffdd20e1d"
+    "replicates.csv.gz": "ba9768a78f39f4480ccfe33ca84f7ad8cbaa1dbf45a26a94ab8637bb865c64b8",
+    "summary.csv": "575eea946a95b03ee57ef4be7b6ffd2dd35c853a17e3dca856d5e620b3203ed4",
+    "equivalence.csv": "b8d365246b4a8f5bb12a74aae92a58301366260e6e620ba59802c41a372b1f68",
+    "performance-tests.csv": "0a103326c0c678a2557ce2374ed77109a6a84afb57b0fd5046b8f27cf358388e",
+    "property-replicates.csv.gz": "c148ee58a628081a336a74884b5934f43753d9229f46cfd39d4a330cdb2dfd18",
+    "properties.csv": "49f988dc41323fb91cc52ff32b5a9d3fd599489a34699172bfcaf2006ed42462"
   }
 }
