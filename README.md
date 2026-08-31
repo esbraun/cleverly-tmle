@@ -116,18 +116,14 @@ is the authoritative inventory, and it names the evidence for each row.
 
 ## Roadmap
 
-- Build the general nested Riesz engine and its initial evidence-gated catalog, including analytic
-  and direct representers, nested composition, diagnostics, and persistence.
-- Add optional DoWhy integration for graph-based identification and backdoor translation while
-  keeping the core package standalone.
-- Add EP learning for heterogeneous effects, beginning with conditional average treatment effects
-  and conditional relative risks.
-- Expand the estimand catalog target by target, with a separate derivation, evidence record,
-  refusal contract, and statistical study for each family.
+- Extend sensitivity and validation with source-backed refutations and longitudinal analyses.
+- Add optional DoWhy identification and graph validation while the core package stays standalone.
+- Add EP learning for conditional average treatment effects and conditional relative risks.
+- Extend current methods through persistence, design, splitting, and new evidenced estimands.
+- Build the nested Riesz engine and expand its catalog one evidenced target at a time.
 
-These are accepted directions, not implemented release claims. Their ordering, governing sources,
-interfaces, refusals, and evidence requirements are in the single
-[roadmap](docs/roadmap.md).
+These are accepted directions, not implemented release claims. The [roadmap](docs/roadmap.md)
+gives their binding order. It keeps work without published theory in a separate future grid.
 
 ## Method configuration
 

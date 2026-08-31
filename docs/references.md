@@ -280,28 +280,50 @@ mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuation
 
 ## Proposed methods on the roadmap
 
-These sources locate the derivations that [roadmap](roadmap.md#later-candidate-track) items C5 to
-C7 wait on. Nobody has read one first-hand yet, and none supports a shipped claim. The
-readiness label on each item says so.
+These sources locate methods in the [main roadmap](roadmap.md#main-roadmap). A roadmap citation
+does not support a shipped claim. The readiness label on each item states the remaining source
+work.
+
+- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
+  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
+  framework and describes outcome, bootstrap, and unobserved-confounder refutations. Cited by
+  roadmap items S1 to S3 and I1.
+- Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
+  Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518), ICML 2021 Workshop on the
+  Neglected Assumptions in Causal Inference. The paper states the limits of validation from
+  observed data and separates refutation tests from sensitivity analysis. Cited by roadmap items
+  S1 to S3 and I1.
+- Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
+  longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
+  10.1093/biomet/asae044. The paper defines multi-period sensitivity models and observed-data
+  convex representations for sharp and conservative bounds. Cited by roadmap item S4.
+- van der Laan, Carone & Luedtke (2024), [*Combining T-learning and DR-learning: a framework for
+  oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
+  arXiv:2402.01972. The paper derives EP learning for heterogeneous causal contrasts. Cited by
+  roadmap item P1.
+- Rust & Rao (1996), [*Variance estimation for complex surveys using replication
+  techniques*](https://doi.org/10.1177/096228029600500305), *Statistical Methods in Medical
+  Research* 5(3):283–310, DOI 10.1177/096228029600500305. The paper reviews jackknife, balanced
+  repeated replication, and bootstrap variance methods. Cited by roadmap item X2.
 
 - Díaz, Hejazi, Rudolph & van der Laan (2021), [*Non-parametric efficient causal mediation with
   intermediate confounders*](https://doi.org/10.1093/biomet/asaa085), *Biometrika* 108(3):627–641,
   DOI 10.1093/biomet/asaa085. A correction follows at *Biometrika* 111(2):723–726, DOI
   [10.1093/biomet/asae009](https://doi.org/10.1093/biomet/asae009). Read the correction with the
-  paper. Cited by roadmap item C5.
+  paper. Cited by roadmap item X5.
 - Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
-  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item C6.
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item X6.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI
   10.1111/biom.13856. This is the construction the `concrete` package implements. Cited by roadmap
-  item C6.
+  item X6.
 - Hejazi, van der Laan, Janes, Gilbert & Benkeser (2021), [*Efficient nonparametric inference on
   the effects of stochastic interventions under two-phase sampling, with applications to vaccine
   efficacy trials*](https://doi.org/10.1111/biom.13375), *Biometrics* 77(4):1241–1253, DOI
-  10.1111/biom.13375. Cited by roadmap item C7.
+  10.1111/biom.13375. Cited by roadmap item X7.
 - van der Laan (2008), [*Estimation Based on Case-Control Designs with Known Prevalence
   Probability*](https://doi.org/10.2202/1557-4679.1114), *International Journal of Biostatistics*
-  4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item C7 for the case-control
+  4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item X7 for the case-control
   weighting that `TMLE.jl` implements.

@@ -12,10 +12,11 @@ a large change. An early conversation is cheaper than a rejected branch.
 `cleverly` is alpha software. The public API changes between commits, and no version is released
 yet.
 
-The [roadmap](../roadmap.md) is the single planning contract. It contains proposed work only, in
-parallel tracks. Read its [eligibility rule](../roadmap.md#eligibility) before you propose a new
-method. `cleverly` implements established statistical methods. It does not use a package feature as
-the place to invent one.
+The [roadmap](../roadmap.md) is the single planning contract. It puts source-backed work in one
+binding sequence. It keeps work without published theory in a separate future grid. Read its
+[eligibility rule](../roadmap.md#eligibility) before you propose a new method. `cleverly`
+implements established statistical methods. It does not use a package feature as the place to
+invent one.
 
 ## Set up your environment
 

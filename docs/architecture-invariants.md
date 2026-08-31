@@ -308,7 +308,7 @@ Production code stays pure Python. Prior measurements found nuisance fitting dom
 representative workloads and found no material full-workload advantage from compiling the clearest
 package-owned numerical kernels. *Reconsider when* a competent compiled implementation wins
 materially in a full supported workload, including compilation, memory, data movement, packaging,
-and maintenance cost. HAL is the clearest known workload likely to meet that condition.
+and maintenance cost.
 
 Choose the algorithm before choosing the compiler. Newton targeting is the default because the
 universal least-favourable one-step walk can dominate a cheap GLM fit, and the Gaussian multiplier

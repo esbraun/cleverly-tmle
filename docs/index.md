@@ -124,9 +124,9 @@ The [implementation matrix](technical-reference/index.md#implementation-matrix) 
 implementation family the package ships. Each row names the theory, the source module, the
 external provenance, and the correctness evidence.
 
-The [roadmap](roadmap.md) lists every proposed direction in one table, with its readiness, its
-governing sources, and the evidence gate it has to clear. A roadmap entry is an accepted direction
-and not a release claim.
+The [roadmap](roadmap.md) gives source-backed work in one binding grid. A second grid keeps future
+investigations out of the implementation sequence until a paper supplies the missing theory. A
+roadmap entry is an accepted direction and not a release claim.
 
 ```{toctree}
 :hidden:

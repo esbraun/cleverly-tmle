@@ -61,7 +61,7 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | Poulos `multi-ltmle` companion | simulation code for longitudinal multi-valued treatment | Retained as supporting source provenance. It is a simulation repository, not a versioned package entry point for rowwise paired studies. |
 | R `imtp` 0.1.0 at `d4b5204` | incremental odds curve | Rejected. Its influence curve omits that derivative, so it witnesses the point curve and cannot gate inference. |
 | R `ltmle` 1.3-0 | deterministic point-treatment regimes | Available and not used. `abar` accepts a single treatment node, which `ltmle_regimen_adapter.R` already reaches at `horizon = 1`. One comparator per study is the framework limit today. |
-| R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |
+| R `txshift` 0.3.8 | continuous shift interventions | Not used. It estimates the exposure density through a second density path, which requires a separate study rather than serving as a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
 The missing-outcome survey is separate because the response mechanism changes the observed-data
