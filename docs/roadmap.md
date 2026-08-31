@@ -30,7 +30,6 @@ not block another track unless its dependency says so.
 | Later candidates | C5 | Natural and interventional mediation effects | published support; pending source read | C4 ordering only | [C5](#c5-natural-and-interventional-mediation-effects) |
 | Later candidates | C6 | Continuous-time survival and competing risks | published support; pending source read | C5 ordering only | [C6](#c6-continuous-time-survival-and-competing-risks) |
 | Later candidates | C7 | Two-phase and outcome-dependent sampling | published support; pending source read | C6 ordering only | [C7](#c7-two-phase-and-outcome-dependent-sampling) |
-| Later candidates | C8 | Componentwise adaptive multi-arm C-TMLE | waiting on published theory | selector-aware multi-arm inference and a resolved TMLE.jl fold audit | [C8](#c8-componentwise-adaptive-multi-arm-c-tmle) |
 
 ## Eligibility
 
@@ -421,24 +420,10 @@ influence-function correction.
 
 Hejazi, van der Laan, Janes, Gilbert and Benkeser (2021) derive the
 two-phase correction, and R `txshift` 0.3.8 implements it. Van der Laan (2008) derives case-control
-weighting under a known prevalence, and Julia `TMLE.jl` implements it. Fixed observation weights do
-not replace either correction. The comparator survey rejects `txshift` as a second opinion on
+weighting under a known prevalence. Fixed observation weights do not replace either correction.
+The comparator survey rejects `txshift` as a second opinion on
 continuous shifts. That verdict does not carry here, because the two-phase correction is a
 different feature.
-
-### C8. Componentwise adaptive multi-arm C-TMLE
-
-Keep the shipped joint selector. Julia `TMLE.jl` selects each requested component separately and
-reorders covariates from the last targeted residual. These choices define a different estimator.
-
-Add this approach only as separate strategies after published theory covers the multi-arm target
-and selector-aware covariance. The derivation must include the adaptive treatment-mechanism
-contribution. It must also cover delta-method contrasts across separately selected components.
-
-Resolve the `TMLE.jl` v0.20.4 fold audit before using that package as a numerical comparator. Its
-candidate fluctuation receives the complete data before the code evaluates validation loss. If
-the construction becomes eligible, separate dynamic correlation from fixed preordering. Also
-separate joint selection from per-estimand selection in the API, result, and evidence rows.
 
 ## Reading a gap correctly
 
