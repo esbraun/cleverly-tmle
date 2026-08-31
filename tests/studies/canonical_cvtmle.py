@@ -129,6 +129,7 @@ def cv_fit(
     repeats: int = 1,
     targeting_scheme: str = "pooled",
     cv_evaluation: bool,
+    random_state: int = 0,
     estimator_factory: Callable[..., TMLE] = TMLE,
 ) -> Any:
     """The cross-fitted point-treatment construction the three CV studies share.
@@ -162,7 +163,7 @@ def cv_fit(
             g_bounds=G_BOUNDS,
             max_iter=100,
             tol=1e-10,
-            random_state=0,
+            random_state=random_state,
         )
         .fit(frame, outcome="Y", treatment="A", covariates=covariates)
         .single()

@@ -312,6 +312,12 @@ def _measured(row: Any) -> str:
         )
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+    if family == "repeat_stability":
+        return (
+            f"spread ratio {render(float(row.spread_ratio))}, "
+            f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
+            f"boundary {render(float(row.spread_ratio_boundary))}"
+        )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":

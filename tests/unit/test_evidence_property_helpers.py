@@ -13,6 +13,7 @@ from tests.studies.cde_study_helpers import sample_discrete as sample_cde
 from tests.studies.evidence import descriptions
 from tests.studies.evidence.properties import (
     ReplicationSpec,
+    paired_spread_ratio_interval,
     property_role,
     replication_payloads,
 )
@@ -79,3 +80,51 @@ def test_shared_sampler_keeps_the_declared_draw_deterministic() -> None:
     second = sample_cde(cde.PROBS, 50, 81)
     pd.testing.assert_frame_equal(first, second)
     assert np.isfinite(first[["W", "A", "Z", "Delta"]].to_numpy()).all()
+
+
+def test_paired_spread_ratio_uses_one_shared_bootstrap_index_matrix() -> None:
+    keys = np.arange(20)
+    denominator = pd.DataFrame({"replicate": keys, "estimate": np.linspace(-2.0, 3.0, 20)})
+    numerator = pd.DataFrame(
+        {"replicate": keys, "estimate": 0.4 * denominator["estimate"] + np.sin(keys)}
+    )
+
+    result = paired_spread_ratio_interval(
+        numerator,
+        denominator,
+        replicates=500,
+        confidence_level=0.99,
+        seed=81,
+    )
+
+    values = np.column_stack([numerator["estimate"], denominator["estimate"]])
+    picks = np.random.default_rng(81).integers(0, len(values), size=(500, len(values)))
+    expected = values[picks].std(axis=1, ddof=1)
+    expected_ratios = expected[:, 0] / expected[:, 1]
+    assert result.ratio == values[:, 0].std(ddof=1) / values[:, 1].std(ddof=1)
+    assert result.interval.low == np.quantile(expected_ratios, 0.005)
+    assert result.interval.high == np.quantile(expected_ratios, 0.995)
+
+
+def test_paired_spread_ratio_refuses_unpaired_duplicate_and_degenerate_rows() -> None:
+    subject = pd.DataFrame({"replicate": [0, 1, 2], "estimate": [0.0, 1.0, 2.0]})
+    kwargs = {"replicates": 20, "confidence_level": 0.99, "seed": 17}
+
+    with np.testing.assert_raises_regex(ValueError, "not paired"):
+        paired_spread_ratio_interval(
+            subject,
+            pd.DataFrame({"replicate": [0, 1, 3], "estimate": [0.0, 1.0, 2.0]}),
+            **kwargs,
+        )
+    with np.testing.assert_raises_regex(ValueError, "duplicate"):
+        paired_spread_ratio_interval(
+            subject,
+            pd.DataFrame({"replicate": [0, 0, 2], "estimate": [0.0, 1.0, 2.0]}),
+            **kwargs,
+        )
+    with np.testing.assert_raises_regex(ValueError, "denominator spread is zero"):
+        paired_spread_ratio_interval(
+            subject,
+            pd.DataFrame({"replicate": [0, 1, 2], "estimate": [1.0, 1.0, 1.0]}),
+            **kwargs,
+        )

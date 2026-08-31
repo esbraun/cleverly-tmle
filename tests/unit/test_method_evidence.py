@@ -697,6 +697,17 @@ class TestPublishedVerdicts:
                 >= property_verdicts.CLUSTERED_COVERAGE_GAIN
             )
 
+        stability = published.loc[published["property"] == "repeat_stability"]
+        if not stability.empty:
+            expected = (
+                stability["spread_ratio_ci_upper"].iloc[0]
+                < study.properties().MAX_REPEAT_SPREAD_RATIO
+            )
+            assert stability["passed"].nunique() == 1
+            assert bool(stability["passed"].iloc[0]) is bool(expected)
+            assert stability["property_passed"].nunique() == 1
+            assert bool(stability["property_passed"].iloc[0]) is bool(expected)
+
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
             pytest.skip("study declares no cross-fit overfitting cells")
@@ -769,6 +780,7 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "interval_calibration",
         "natural_course_identity",
         "power",
+        "repeat_stability",
         "root_n_and_efficiency",
         "root_n_rate",
         "static_reduction",
@@ -1640,6 +1652,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:union_model_se_upper": lambda s: property_verdicts.UNION_MODEL_SE_BAND[1],
     "margin:generated_design_deficit": lambda s: s.properties().GENERATED_DESIGN_DEFICIT,
     "margin:selector_rmse_ratio": lambda s: s.properties().SELECTOR_RMSE_RATIO,
+    "margin:repeat_spread_ratio": lambda s: s.properties().MAX_REPEAT_SPREAD_RATIO,
     "margin:shrunken_se_factor": lambda s: s.properties().SHRUNKEN_SE_FACTOR,
     "margin:efficiency_ratio_lower": lambda s: s.properties().EFFICIENCY_RATIO_BAND[0],
     "margin:efficiency_ratio_upper": lambda s: s.properties().EFFICIENCY_RATIO_BAND[1],

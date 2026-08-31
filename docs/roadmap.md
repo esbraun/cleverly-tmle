@@ -11,7 +11,6 @@ not block another track unless its dependency says so.
 
 | track | order | item | readiness | dependency | details |
 | --- | ---: | --- | --- | --- | --- |
-| Validation | V7 | Repeat stability property cell | theory-neutral | none | [V7](#v7-repeat-stability-property-cell) |
 | Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
 | Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
 | Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
@@ -79,28 +78,6 @@ The [implementation validation grid](technical-reference/method-evidence/validat
 records completed studies. This track records the sequence for implementation families that the
 grid does not cover. A completed item leaves this roadmap and enters the grid with committed
 artifacts.
-
-### V7. Repeat stability property cell
-
-The published
-[repeated row](technical-reference/method-evidence/repeated-cross-fitting.md) validates the median
-report at three fold draws. It does not measure the reason a reader repeats a split. No cell
-compares the spread of `psi` across fold seeds at one draw against three draws, so the
-spread-reduction rationale in `TMLE(repeats=)` rests on the source alone.
-
-Add a `repeat_stability` property family to that study. Draw one binary-law sample of 1,000 rows
-from a labelled sample stream. Hold those rows fixed while the fold seed changes.
-
-Run 400 paired fold-seed trials. For each trial, fit the three-repeat estimator from one labelled
-base seed. Fit the one-repeat control from the first fold seed that the repeated plan derives.
-This pairing makes the control one of the repeated fit's actual draws.
-
-Report the paired bootstrap interval for the ratio of the across-seed standard deviations. The
-numerator is the three-repeat ATE spread, and the denominator is the one-repeat control spread.
-Declare 1.0 as the upper boundary before the run. The 99% upper endpoint must fall below it.
-
-Use separate labelled streams for the fixed sample, fold seeds, and paired bootstrap. Regenerate
-the complete study because the declared property cells and result-determining source both change.
 
 ## Extensibility track
 
