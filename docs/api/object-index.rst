@@ -18,6 +18,8 @@ categorized API tables.
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.longitudinal.LongitudinalResult
+   cleverly.fluctuation.Fluctuation
+   cleverly.fluctuation.FoldFluctuation
    cleverly.ParameterKey
    cleverly.Provenance
    cleverly.ATE
