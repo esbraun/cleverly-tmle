@@ -62,9 +62,12 @@ estimates a familywise critical value.
 | `n_multiplier=` | the number of draws. `"auto"` resolves per engine, because the point path draws 1000 and the sequential path draws 2000 |
 | `multiplier_kind=` | the multiplier distribution: `rademacher`, `mammen`, or `normal` |
 
-Ordinary and cluster resampling both preserve the declared independent unit. Bootstrap
-configuration is refused for engines that cannot implement it, rather than accepted and then
-discarded.
+Ordinary and cluster resampling both preserve the declared independent unit. Whole-cluster
+resampling gives each sampled occurrence a distinct cluster code. Repeated draws of one source
+cluster therefore remain separate for fold construction and variance estimation.
+
+Bootstrap configuration is refused for engines that cannot implement it. An engine does not
+accept and then discard this configuration.
 
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)

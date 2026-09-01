@@ -284,6 +284,9 @@ whole-cluster sample through the inference bootstrap design. It perturbs numeric
 mean-zero Gaussian noise after sampling. The noise scale is the declared multiplier times the
 selected variable's bootstrap-sample standard deviation.
 
+Each sampled cluster occurrence receives a distinct code before perturbation. Repeated draws of
+one source cluster therefore remain separate during the refit.
+
 The categorical path recovers original logical levels from `CausalData.encodings`. Each changed
 row draws uniformly from the other levels. The operation then rebuilds the complete drop-first
 indicator block. Boolean covariates use the same two-level path.

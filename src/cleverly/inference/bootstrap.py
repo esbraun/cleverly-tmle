@@ -11,8 +11,10 @@ nuisance fits included.  Bootstrapping only the targeting step while holding the
 nuisance fits fixed would understate the variance, because the nuisance
 estimation is itself a source of uncertainty.
 
-With clusters, whole clusters are resampled -- resampling rows would destroy the
-dependence structure the cluster variance exists to account for.
+With clusters, whole clusters are resampled. Resampling rows would destroy the
+dependence structure the cluster variance exists to account for. Each sampled
+occurrence receives a distinct cluster code, including repeated draws of one source
+cluster.
 
 Observation weights are resampled with their rows and renormalised within each replicate,
 which is what keeps every replicate aimed at the same tilted parameter (see
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -62,14 +64,17 @@ class _BootstrapDesign:
     members: tuple[IntArray, ...] | None
 
     def sample(self, data: CausalData, draw: _BootstrapDraw) -> CausalData:
-        """Materialize one sample without retaining every replicate index."""
-        index = bootstrap_indices(
+        """Materialize one sample with distinct codes for cluster occurrences."""
+        index, occurrence_codes = _bootstrap_draw(
             data.n,
             self.cluster,
             np.random.default_rng(draw.sequence),
             None if self.members is None else list(self.members),
         )
-        return data.subset(index)
+        sample = data.subset(index)
+        if occurrence_codes is None:
+            return sample
+        return replace(sample, cluster=occurrence_codes)
 
 
 @dataclass(frozen=True)
@@ -165,17 +170,34 @@ def bootstrap_indices(
 
     Parameters
     ----------
-    members:
+    members : list of ndarray or None
         Precomputed :func:`cluster_members` output.  Building it is ``O(n log n)`` and
         does not depend on the draw, so :func:`run_bootstrap` builds it once and passes
         it to every replicate rather than paying for it thousands of times.
     """
+    index, _ = _bootstrap_draw(n, cluster, rng, members)
+    return index
+
+
+def _bootstrap_draw(
+    n: int,
+    cluster: IntArray | None,
+    rng: np.random.Generator,
+    members: list[IntArray] | None = None,
+) -> tuple[IntArray, IntArray | None]:
+    """Draw rows and, for cluster samples, one code per sampled occurrence."""
     if cluster is None:
-        return rng.integers(0, n, size=n, dtype=np.int64)
+        return rng.integers(0, n, size=n, dtype=np.int64), None
 
     groups = cluster_members(cluster) if members is None else members
     drawn = rng.integers(0, len(groups), size=len(groups))
-    return np.concatenate([groups[int(k)] for k in drawn]).astype(np.int64)
+    selected = [groups[int(k)] for k in drawn]
+    index = np.concatenate(selected).astype(np.int64)
+    occurrence_codes = np.repeat(
+        np.arange(len(selected), dtype=np.int64),
+        [group.size for group in selected],
+    )
+    return index, occurrence_codes
 
 
 def _bootstrap_design(
