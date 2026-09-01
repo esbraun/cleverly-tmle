@@ -227,8 +227,8 @@ previous reader had is not a citation; a page number is.
 - Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
   Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
   framework and describes outcome, bootstrap, and unobserved-confounder refutations. It supports
-  the shipped generated-outcome refutations. Roadmap items S2 and S3 cite it separately, and
-  that citation supports no shipped claim.
+  the shipped generated-outcome and bootstrap measurement-error refutations. Roadmap item S3
+  cites it separately, and that citation supports no other shipped claim.
 - The maintained DoWhy dummy outcome refuter, source at commit
   [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/dummy_outcome_refuter.py).
   It supplies secondary control-flow evidence for independent noise and `f(W) + h(A)`. Two of its
@@ -237,6 +237,11 @@ previous reader had is not a citation; a page number is.
   failure policy: the pinned file has no `try` block, and its refits run under `joblib.Parallel`,
   so one failed refit aborts the refutation. `cleverly` retains each failed refit as a
   `ReplicationFailure` record and fails the refutation under the recorded rule.
+- The maintained DoWhy bootstrap refuter, source at commit
+  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/bootstrap_refuter.py).
+  Its measurement-error control flow supplies secondary implementation evidence. The package
+  does not copy its dtype check, categorical probability reuse, or shared simulation seed. The
+  source locator is an implementation reference and not acceptance evidence.
 
 ## Multiple testing
 
@@ -303,8 +308,8 @@ work.
 - Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
   Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518), ICML 2021 Workshop on the
   Neglected Assumptions in Causal Inference. The paper states the limits of validation from
-  observed data and separates refutation tests from sensitivity analysis. Cited by roadmap items
-  S2 and S3.
+  observed data and separates refutation tests from sensitivity analysis. Cited by roadmap item
+  S3.
 - Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
   longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
   10.1093/biomet/asae044. The paper defines multi-period sensitivity models and observed-data
