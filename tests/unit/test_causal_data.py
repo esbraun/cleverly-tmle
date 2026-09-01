@@ -146,6 +146,20 @@ class TestCovariateHandling:
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
         assert "flag" in data.covariate_names
 
+    def test_a_boolean_column_records_a_one_column_categorical_encoding(self) -> None:
+        # The single indicator is still a drop-first block over two levels, and callers
+        # that replay an encoding read the levels off this record rather than the column.
+        frame = _frame()
+        frame["flag"] = frame["W1"] > 0
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        encoding = next(item for item in data.encodings if item.column == "flag")
+        assert encoding.levels == (False, True)
+        assert encoding.dropped_level is False
+        assert encoding.generated == ("flag",)
+        column = data.covariates[:, data.covariate_names.index("flag")]
+        assert set(np.unique(column)) == {0.0, 1.0}
+        assert np.array_equal(column == 1.0, frame["flag"].to_numpy())
+
     def test_constant_covariates_are_dropped_with_a_warning(self) -> None:
         frame = _frame()
         frame["const"] = 3.0
@@ -353,6 +367,126 @@ class TestReshaping:
         data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
         with pytest.raises(DataError, match="cannot drop every covariate"):
             data.without_covariates(["W1", "W2"])
+
+
+def _encoded_data() -> CausalData:
+    """Study data whose design carries a boolean and a three-level categorical block."""
+    frame = _frame(n=60)
+    frame["flag"] = frame["W1"] > 0
+    frame["G"] = np.resize(["a", "b", "c"], len(frame))
+    return CausalData.from_frame(frame, outcome="Y", treatment="A")
+
+
+def _design_frame(data: CausalData) -> pd.DataFrame:
+    return pd.DataFrame(data.covariates, columns=list(data.covariate_names))
+
+
+class TestCompleteCovariateReplacement:
+    def test_a_dataframe_is_realigned_by_column_name(self) -> None:
+        data = _encoded_data()
+        assert data.covariate_names == ("W1", "W2", "flag", "G__b", "G__c")
+        shuffled = _design_frame(data)[["G__c", "flag", "W2", "G__b", "W1"]]
+        replaced = data.with_covariates(shuffled)
+        assert np.array_equal(replaced.covariates, data.covariates)
+        assert replaced.covariate_names == data.covariate_names
+        assert replaced.encodings == data.encodings
+
+    def test_a_polars_dataframe_is_realigned_the_same_way(self) -> None:
+        data = _encoded_data()
+        frame = _design_frame(data)
+        shuffled = pl.DataFrame(
+            {name: frame[name].to_numpy() for name in ["G__c", "flag", "W2", "G__b", "W1"]}
+        )
+        assert np.array_equal(data.with_covariates(shuffled).covariates, data.covariates)
+
+    @pytest.mark.parametrize(
+        ("drop", "add", "match"),
+        [
+            (["flag"], None, r"Missing \['flag'\]; unexpected \[\]"),
+            (None, "extra", r"Missing \[\]; unexpected \['extra'\]"),
+            (["G__c"], "G__d", r"Missing \['G__c'\]; unexpected \['G__d'\]"),
+        ],
+    )
+    def test_a_dataframe_that_names_another_design_is_refused(
+        self, drop: list[str] | None, add: str | None, match: str
+    ) -> None:
+        # A frame is matched on names, so a set mismatch is refused rather than read
+        # positionally: a positional read would move every estimate with no error.
+        data = _encoded_data()
+        frame = _design_frame(data)
+        if drop is not None:
+            frame = frame.drop(columns=drop)
+        if add is not None:
+            frame[add] = 0.0
+        with pytest.raises(DataError, match=match):
+            data.with_covariates(frame)
+
+    def test_a_row_index_that_is_not_positional_is_refused(self) -> None:
+        data = _encoded_data()
+        frame = _design_frame(data)
+        frame.index = np.arange(1, data.n + 1)
+        with pytest.raises(DataError, match=r"row index that is not 0\.\.n-1"):
+            data.with_covariates(frame)
+        assert np.array_equal(
+            data.with_covariates(frame.reset_index(drop=True)).covariates, data.covariates
+        )
+
+    def test_an_array_is_still_read_positionally(self) -> None:
+        data = _encoded_data()
+        values = data.covariates.copy()
+        values[:, 0] = values[:, 0] + 1.0
+        replaced = data.with_covariates(values)
+        assert np.array_equal(replaced.covariates[:, 0], data.covariates[:, 0] + 1.0)
+        assert np.array_equal(replaced.covariates[:, 1:], data.covariates[:, 1:])
+
+    @pytest.mark.parametrize("variable", ["flag", "G"])
+    def test_a_block_that_is_not_zero_or_one_is_refused_by_its_logical_name(
+        self, variable: str
+    ) -> None:
+        data = _encoded_data()
+        encoding = next(item for item in data.encodings if item.column == variable)
+        values = data.covariates.copy()
+        values[0, data.covariate_names.index(encoding.generated[0])] = 0.5
+        with pytest.raises(
+            DataError, match=rf"does not encode covariate '{variable}' as indicators"
+        ):
+            data.with_covariates(values)
+
+    def test_two_active_indicators_in_one_block_are_refused(self) -> None:
+        data = _encoded_data()
+        values = data.covariates.copy()
+        values[:3, data.covariate_names.index("G__b")] = 1.0
+        values[:3, data.covariate_names.index("G__c")] = 1.0
+        with pytest.raises(
+            DataError,
+            match=r"sets more than one indicator of covariate 'G' on 3 of 60 rows",
+        ):
+            data.with_covariates(values)
+
+    def test_the_replacement_is_copied_rather_than_held(self) -> None:
+        data = _encoded_data()
+        values = data.covariates.copy()
+        replaced = data.with_covariates(values)
+        assert replaced.covariates is not values
+        values[0, 0] = 999.0
+        assert replaced.covariates[0, 0] == data.covariates[0, 0]
+
+    def test_a_design_that_repeats_a_name_refuses_the_dataframe_form(self) -> None:
+        # ``from_arrays`` takes the names it is given, so a design can repeat one. A name
+        # then identifies no single column, and only the array form stays well defined.
+        n = 60
+        covariates = np.column_stack([np.arange(n, dtype=float), np.arange(n, dtype=float) * 2.0])
+        data = CausalData.from_arrays(
+            np.linspace(-1.0, 1.0, n),
+            np.tile([0, 1], n // 2),
+            covariates,
+            covariate_names=("W1", "W1"),
+        )
+        assert data.covariate_names == ("W1", "W1")
+        frame = pd.DataFrame(data.covariates, columns=["W1", "W2"])
+        with pytest.raises(DataError, match="this design repeats a covariate name"):
+            data.with_covariates(frame)
+        assert np.array_equal(data.with_covariates(data.covariates).covariates, data.covariates)
 
 
 class TestDesignMatrices:

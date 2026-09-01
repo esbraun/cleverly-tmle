@@ -51,6 +51,34 @@ def point_result():  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.fixture
+def categorical_point_result():  # type: ignore[no-untyped-def]
+    """A fit whose adjustment set carries a three-level categorical variable.
+
+    ``bootstrap_measurement_error`` perturbs a numeric variable and a categorical block by
+    two different mechanisms, so a round-trip check needs one of each to exercise both.
+    """
+    frame, _ = make_nonlinear_ate(n=300, seed=7)
+    frame = frame.assign(G=np.resize(["a", "b", "c"], len(frame)))
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3", "W4", "G"),
+        ),
+    )
+    return study.estimate(
+        ATE(),
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=3,
+        learner_folds=2,
+        random_state=7,
+        simultaneous=False,
+    )
+
+
 def test_file_round_trip_retains_the_complete_point_result(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     path = point_result.save(tmp_path / "analysis.joblib")
     restored = load(path)
@@ -89,27 +117,42 @@ def test_generated_outcome_cache_and_records_survive_round_trip(point_result) ->
     assert cached["dummy_outcome"].child_seeds == report["dummy_outcome"].child_seeds
 
 
-def test_measurement_error_cache_and_records_survive_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
+def test_measurement_error_cache_and_records_survive_round_trip(categorical_point_result) -> None:  # type: ignore[no-untyped-def]
+    # Nonzero on both perturbation paths. A declaration with zero noise and no categorical
+    # variable perturbs nothing, so the round trip would agree even if the restored fit
+    # applied no measurement error at all.
+    active = BootstrapMeasurementError(
+        ("W1", "G"),
+        numeric_noise=RelativeGaussianNoise(0.5),
+        categorical_change_probability=0.4,
+    )
     kwargs = {
         "tests": ("bootstrap_measurement_error",),
-        "bootstrap_measurement_error": BootstrapMeasurementError(
-            ("W1",), numeric_noise=RelativeGaussianNoise(0.0)
-        ),
+        "bootstrap_measurement_error": active,
         "n_replicates": 4,
         "measurement_error_rule": EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
         "random_state": 17,
     }
-    report = point_result.diagnostics.refute(**kwargs)
-    assert point_result.diagnostics.refute(**kwargs) is report
-    assert point_result["ate"].psi == report["bootstrap_measurement_error"].original
+    report = categorical_point_result.diagnostics.refute(**kwargs)
+    assert categorical_point_result.diagnostics.refute(**kwargs) is report
+    assert categorical_point_result["ate"].psi == report["bootstrap_measurement_error"].original
 
-    restored = loads(dumps(point_result))
+    # The witness that the recorded draws carry a perturbation at all.
+    unperturbed = categorical_point_result.diagnostics.refute(
+        **{
+            **kwargs,
+            "bootstrap_measurement_error": BootstrapMeasurementError(
+                ("W1", "G"),
+                numeric_noise=RelativeGaussianNoise(0.0),
+                categorical_change_probability=0.0,
+            ),
+        }
+    )["bootstrap_measurement_error"]
+    assert report["bootstrap_measurement_error"].values != unperturbed.values
+
+    restored = loads(dumps(categorical_point_result))
     cached = restored.diagnostics.refute(**kwargs)
     assert cached == report
-    assert (
-        cached["bootstrap_measurement_error"].child_seeds
-        == report["bootstrap_measurement_error"].child_seeds
-    )
 
 
 def test_byte_round_trip_matches_file_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]

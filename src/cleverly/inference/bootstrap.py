@@ -243,9 +243,10 @@ def run_bootstrap(
         up with an empty treatment arm in some stratum.
     n_replicates : int
         How many replicates to draw.
-    resampling : {"auto", "cluster", "row"}
-        ``"auto"`` resamples clusters when the data has them, rows otherwise.
-
+    resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when the data has them, and rows otherwise.
+        ``"iid"`` always resamples rows. ``"cluster"`` requires cluster ids and is
+        refused without them. Any other value is refused.
     random_state : int or None
         Seed for the replicate draws.
     n_jobs : int

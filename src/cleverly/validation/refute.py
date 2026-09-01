@@ -43,6 +43,14 @@ The tests, and what a failure means:
     the empirical refit distribution.  Failure reveals that the pipeline cannot recover
     a known effect under its first registered generated-outcome process.
 
+``bootstrap_measurement_error``
+    Draw a bootstrap sample, add declared measurement error to the selected adjustment
+    variables, then fully refit.  Mild measurement error should move the estimate by less
+    than sampling noise, so the original estimate must lie inside the empirical refit
+    distribution.  Exclusion means the fit rests on adjustment variables it cannot
+    tolerate any error in.  A draw that fails to sample, perturb, or refit is retained as
+    a failure rather than raised, because a bootstrap draw fails per sample.
+
 Each test refits the model, so a full run costs several times a single fit.
 """
 
@@ -188,7 +196,15 @@ class BootstrapMeasurementError:
     def __post_init__(self) -> None:
         if isinstance(self.variables, str):
             raise ValueError("bootstrap measurement error variables must be a sequence of names")
-        object.__setattr__(self, "variables", tuple(self.variables))
+        try:
+            selected = tuple(self.variables)
+        except TypeError:
+            # ``tuple`` on a non-iterable raises ``TypeError``, which would escape the
+            # module's ``ValueError`` convention for a rejected declaration.
+            raise ValueError(
+                "bootstrap measurement error variables must be a sequence of names"
+            ) from None
+        object.__setattr__(self, "variables", selected)
         if not self.variables:
             raise ValueError("bootstrap measurement error variables must not be empty")
         if len(set(self.variables)) != len(self.variables):
@@ -468,7 +484,8 @@ class EmpiricalRefitRecord:
     replicate : int
         Zero-based draw index.
     seed : int
-        Child seed used for both outcome generation and estimator refit.
+        Child seed for this draw. It seeds the estimator refit, and the perturbation the
+        operation applies before it: outcome generation, or bootstrap measurement error.
     estimand : str
         Structured result alias selected for the refit.
     estimate : float
@@ -529,15 +546,18 @@ class RefutationTest:
     detail : str
         What was seen, in the test's own terms.
     standard_errors : tuple of float
-        Standard errors from successful generated-outcome refits.
+        Standard errors from successful empirical refits.
     declaration : object or None
-        Immutable outcome-process declaration, for a generated-outcome test.
+        Immutable declaration, for an empirical refit test. It holds the outcome process,
+        or the measurement-error request.
     rule : EmpiricalInclusionRule or None
-        Recorded inclusion rule, for a generated-outcome test.
+        Recorded inclusion rule, for an empirical refit test.
     records : tuple of EmpiricalRefitRecord
         Successful empirical refit draws.
     failures : tuple of ReplicationFailure
-        Failed generated-outcome draws retained by the shared failure contract.
+        Failed empirical draws retained by the shared failure contract. Every operation
+        retains a refit failure. ``bootstrap_measurement_error`` also retains a draw it
+        cannot sample or perturb.
     family : str or None
         Family supplied by successful refitted results.
     empirical_pvalue : float or None
@@ -599,7 +619,7 @@ class RefutationTest:
 
     @property
     def n_failed(self) -> int:
-        """Return the number of retained failed generated-outcome draws."""
+        """Return the number of retained failed empirical draws."""
         return len(self.failures)
 
     @property
@@ -611,7 +631,7 @@ class RefutationTest:
 
     @property
     def process(self) -> Any:
-        """Return the generated outcome declaration, or ``None`` for older refuters."""
+        """Return the empirical refit declaration, or ``None`` for older refuters."""
         return self.declaration
 
     @property
@@ -622,7 +642,7 @@ class RefutationTest:
         return tuple(seed for _, seed in sorted(indexed))
 
     def to_frame(self, data: Any = None, *, backend: str | None = None) -> Any:
-        """Return one row per generated-outcome draw.
+        """Return one row per empirical refit draw.
 
         Parameters
         ----------
@@ -743,12 +763,12 @@ class RefutationResult:
         return emit_frame(payload, data, backend=self.backend)
 
     def draws_frame(self, name: str, data: Any = None) -> Any:
-        """Return successful and failed draws for one generated-outcome test.
+        """Return successful and failed draws for one empirical refit test.
 
         Parameters
         ----------
         name : str
-            Name of a generated-outcome refutation in this report.
+            Name of a generated-outcome or measurement-error refutation in this report.
         data : Any
             Dataframe or fitted container whose backend to match. ``None`` uses the
             backend recorded by the report.
@@ -756,11 +776,11 @@ class RefutationResult:
         Returns
         -------
         dataframe
-            One row per requested generated-outcome draw.
+            One row per requested empirical draw.
         """
         test = self[name]
         if test.declaration is None:
-            raise ValueError(f"refutation {name!r} has no generated-outcome draw records")
+            raise ValueError(f"refutation {name!r} has no empirical draw records")
         return test.to_frame(data, backend=self.backend)
 
     def summary(self) -> str:
@@ -1067,12 +1087,55 @@ def _run_empirical_refits(
     draws: Sequence[tuple[int, int]],
     replacement: Callable[[int, int], Any],
     expected_family: str,
+    retain_preparation_failures: bool = False,
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
-    """Run, validate, and retain empirical refits through one failure contract."""
+    """Run, validate, and retain empirical refits through one failure contract.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        Fitted result that supplies the estimator and its intermediate value.
+    estimand : str
+        Structured result alias read off each refit.
+    draws : sequence of tuple of int
+        One ``(replicate, seed)`` pair per requested draw.
+    replacement : callable
+        Builds the data for one draw from its replicate index and seed.
+    expected_family : str
+        Outcome family every successful refit must report.
+    retain_preparation_failures : bool
+        Whether a failure inside ``replacement`` becomes a retained failure. ``False``
+        raises it, because a deterministic preparation fails the same way on every draw
+        and the caller must see that declaration or data error at once. ``True`` retains
+        it, because a bootstrap draw fails per sample: a resample can hold too few rows,
+        and ``run_bootstrap`` drops exactly that draw. Keep the two paths apart. A refit
+        failure is retained either way.
+
+    Returns
+    -------
+    tuple of tuple
+        Successful records, then the retained failures.
+    """
     records: list[EmpiricalRefitRecord] = []
     failures: list[ReplicationFailure] = []
     for replicate, child_seed in draws:
-        prepared = replacement(replicate, child_seed)
+        try:
+            prepared = replacement(replicate, child_seed)
+        except Exception as error:
+            if not retain_preparation_failures:
+                raise
+            # A bootstrap sample this draw cannot build, or a perturbation the sample
+            # refuses, is one failed draw among many. Raising would discard every draw
+            # that already succeeded, so record it with the fields a refit failure carries.
+            failures.append(
+                ReplicationFailure(
+                    replicate=replicate,
+                    seed=child_seed,
+                    error_type=type(error).__name__,
+                    message=str(error),
+                )
+            )
+            continue
         try:
             refitted = result.estimator.refit(
                 prepared,
@@ -1123,6 +1186,40 @@ def _measurement_encodings(data: Any) -> dict[str, Any]:
     return {encoding.column: encoding for encoding in data.encodings}
 
 
+def _validate_numeric_measurement_column(data: Any, name: str) -> None:
+    """Refuse a selected column that relative Gaussian noise cannot perturb coherently.
+
+    Parameters
+    ----------
+    data : CausalData
+        Original data the fit ran on.
+    name : str
+        Selected adjustment variable that carries no ``CategoricalEncoding``.
+    """
+    column = data.covariate_names.index(name)
+    values = np.asarray(data.covariates[:, column], dtype=float)
+    # A column with no encoding is treated as numeric, and ``CausalData.from_arrays``
+    # records no encoding at all.  An undeclared 0/1 column therefore reaches the numeric
+    # path, where continuous noise would make it real-valued, and a hand-built dummy block
+    # would have each indicator perturbed on its own.  Refuse both here, before any refit.
+    if bool(np.all(np.isin(values, (0.0, 1.0)))):
+        raise CapabilityError(
+            f"bootstrap_measurement_error cannot perturb {name!r}: its values are all 0 or 1 "
+            "but it carries no CategoricalEncoding, so the operation cannot tell an "
+            "undeclared binary variable from one indicator of a dummy block, and relative "
+            "Gaussian noise would make it real-valued. Supply the variable as a boolean or "
+            "categorical dataframe column to CausalData.from_frame, so it carries the "
+            "logical metadata this operation perturbs by"
+        )
+    if float(np.std(values, ddof=0)) == 0.0:
+        raise CapabilityError(
+            f"bootstrap_measurement_error cannot perturb {name!r}: the variable is constant, "
+            "so its relative noise scale is exactly zero and every draw would return the "
+            "original column while the report still named the variable as perturbed. Remove "
+            "it from the declaration, or declare an absolute noise law for it"
+        )
+
+
 def _validate_measurement_error_eligibility(
     result: Any, declaration: BootstrapMeasurementError, n_replicates: int
 ) -> Any:
@@ -1169,6 +1266,7 @@ def _validate_measurement_error_eligibility(
     for name in declaration.variables:
         encoding = encodings.get(name)
         if encoding is None:
+            _validate_numeric_measurement_column(data, name)
             continue
         missing = [indicator for indicator in encoding.generated if indicator not in retained]
         if missing:
@@ -1245,6 +1343,10 @@ def _bootstrap_measurement_error_test(
             design.sample(data, draw_by_replicate[replicate]), declaration, seed=seed
         ),
         expected_family=data.family,
+        # A cluster or stratum bootstrap draw can hold too few rows to subset, and that is
+        # a property of the draw rather than of the request. ``run_bootstrap`` drops such a
+        # draw, so this operation retains it.
+        retain_preparation_failures=True,
     )
     values = tuple(item.estimate for item in records)
     passed, probability, detail = rule.evaluate(values, original, failures)
@@ -1356,8 +1458,9 @@ def refute(
         Which refutations to run.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
-        perturbation and 100 for each generated-outcome test. A generated-outcome test
-        refuses a budget below its rule's ``minimum_draws`` before any refit.
+        perturbation, and 100 for each generated-outcome test and for
+        ``bootstrap_measurement_error``. Each of those three tests refuses a budget below
+        its rule's ``minimum_draws`` before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
     negative_control_outcome : str or None

@@ -908,29 +908,133 @@ class CausalData:
     ) -> CausalData:
         """Return a copy with a validated complete covariate design.
 
+        An array is read by position against :attr:`covariate_names`.  A pandas or polars
+        frame is matched on its column names instead, and is reordered into the fitted
+        order; a frame that does not name exactly this design is refused rather than read
+        positionally, because a permuted frame would move every estimate with no error.  A
+        row index that is not ``0..n-1`` is refused for the same reason: this method reads
+        rows by position and never aligns on an index.
+
+        Each recorded :class:`CategoricalEncoding` is checked against the replacement, so
+        a block that is no longer a drop-first indicator block is refused here.  What is
+        preserved is every other role, every covariate name, and every encoding
+        declaration: this method replaces the values of the design and nothing else.  The
+        replacement is copied, so a caller that reuses one buffer across replicates cannot
+        mutate the returned data.
+
         Parameters
         ----------
-        covariates : array-like
-            Complete encoded design with the same shape as the fitted design.
+        covariates : array-like or DataFrame
+            Complete encoded design with the same shape as the fitted design.  A dataframe
+            must carry exactly the columns named by :attr:`covariate_names`.
         name : str
             Name used in validation errors.
 
         Returns
         -------
         CausalData
-            A replacement that preserves every role and encoding declaration.
+            A copy holding a private copy of the replacement design.
 
         Raises
         ------
         DataError
-            If the replacement has the wrong shape or contains non-finite values.
+            If the frame's columns or row index, the shape, the finiteness, or a recorded
+            categorical block is invalid.
         """
-        values = np.asarray(covariates, dtype=float)
+        if is_dataframe(covariates):
+            values = self._covariates_from_frame(covariates, name)
+        else:
+            values = np.array(covariates, dtype=float, copy=True)
         if values.shape != self.covariates.shape:
             raise DataError(f"{name} has shape {values.shape}, expected {self.covariates.shape}")
         if not np.all(np.isfinite(values)):
             raise DataError(f"{name} contains non-finite values")
+        self._check_encoded_blocks(values, name)
         return replace(self, covariates=values)
+
+    def _covariates_from_frame(self, covariates: Any, name: str) -> FloatArray:
+        """Read a replacement design out of a dataframe by column name.
+
+        Parameters
+        ----------
+        covariates : DataFrame
+            Replacement design, as a pandas or polars frame.
+        name : str
+            Name used in validation errors.
+
+        Returns
+        -------
+        numpy.ndarray
+            The frame's columns in :attr:`covariate_names` order.
+        """
+        expected = list(self.covariate_names)
+        if len(set(expected)) != len(expected):
+            raise DataError(
+                f"{name} was given as a dataframe, but this design repeats a covariate "
+                "name, so a name does not identify one column. Pass a numpy array in "
+                f"covariate_names order instead; the order is {expected}."
+            )
+        frame = as_frame(covariates)
+        columns = list(frame.columns)
+        duplicates = sorted({column for column in columns if columns.count(column) > 1})
+        if duplicates:
+            raise DataError(f"{name} repeats the columns {duplicates}")
+        if set(columns) != set(expected):
+            missing = [column for column in expected if column not in columns]
+            unexpected = [column for column in columns if column not in expected]
+            raise DataError(
+                f"{name} must carry exactly the fitted covariate columns. Missing "
+                f"{missing}; unexpected {unexpected}. The expected columns are {expected}."
+            )
+        index = nw.maybe_get_index(frame)
+        if index is not None:
+            labels = np.asarray(index)
+            rows = int(frame.shape[0])
+            if labels.shape != (rows,) or not np.array_equal(labels, np.arange(rows)):
+                raise DataError(
+                    f"{name} has a row index that is not 0..n-1. This method reads rows by "
+                    "position and does not align on an index. Call reset_index(drop=True) "
+                    "on the frame first, or pass a numpy array."
+                )
+        return matrix_from_columns(frame, expected)
+
+    def _check_encoded_blocks(self, values: FloatArray, name: str) -> None:
+        """Refuse a replacement that breaks a recorded drop-first indicator block.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            Replacement design, already aligned to :attr:`covariate_names`.
+        name : str
+            Name used in validation errors.
+        """
+        position = {column: j for j, column in enumerate(self.covariate_names)}
+        for encoding in self.encodings:
+            # An encoding survives on `encodings` when duplicate-column removal kept only
+            # part of its block, so only the retained indicators can be checked.  Any
+            # subset of a valid drop-first block is itself one, so the weaker check on a
+            # partial block is the strongest true statement available here.
+            columns = [position[item] for item in encoding.generated if item in position]
+            if not columns:
+                continue
+            block = values[:, columns]
+            names = [self.covariate_names[j] for j in columns]
+            if not bool(np.all(np.isin(block, (0.0, 1.0)))):
+                raise DataError(
+                    f"{name} does not encode covariate {encoding.column!r} as indicators: "
+                    f"columns {names} must hold 0 or 1. This data records a drop-first "
+                    f"encoding of {encoding.column!r} over levels "
+                    f"{list(encoding.levels)}, and every estimate reads it that way."
+                )
+            active = np.count_nonzero(block, axis=1)
+            if int(np.max(active, initial=0)) > 1:
+                rows = int(np.count_nonzero(active > 1))
+                raise DataError(
+                    f"{name} sets more than one indicator of covariate "
+                    f"{encoding.column!r} on {rows} of {values.shape[0]} rows; columns "
+                    f"{names} are a drop-first block, so at most one is active. The "
+                    f"dropped level {encoding.dropped_level!r} is the all-zero row."
+                )
 
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
         """A copy with one extra covariate column appended."""

@@ -134,8 +134,8 @@ Plain bootstrap inference does not add measurement error.
 Two defaults govern generated-outcome calls, and they are separate objects. `n_replicates` defaults to
 `DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
 `EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
-refit fails. The example above asks for 40 draws, which is the smallest budget the default rule
-accepts.
+refit fails. The simulated-outcome example asks for 40 draws, which is the smallest budget the
+default rule accepts.
 
 Read alpha as a width and not as a false-alarm rate. The rule passes when the declared effect
 lies inside the central 95% of the refit estimates, which

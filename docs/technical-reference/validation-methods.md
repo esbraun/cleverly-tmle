@@ -288,10 +288,24 @@ The categorical path recovers original logical levels from `CausalData.encodings
 row draws uniformly from the other levels. The operation then rebuilds the complete drop-first
 indicator block. Boolean covariates use the same two-level path.
 
-The operation refuses generated indicator names, unknown variables, selected strata variables,
-and cluster resampling without clusters before the first refit. The first catalog accepts only
-point-treatment `CausalData` results. The report records the declaration, requested draw count,
-resolved mode, rule, estimates, standard errors, child seeds, and failures.
+The operation checks every condition in the table below before the first refit. Each row is one
+`CapabilityError` branch of `_validate_measurement_error_eligibility` in
+[`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py),
+and each message names the variable it rejects.
+
+| what the operation refuses | what it requires instead |
+| --- | --- |
+| a result whose data is not point-treatment `CausalData` | a point-treatment `CausalData` result |
+| `resampling="cluster"` on data that carries no cluster ids | declared cluster ids, or iid resampling |
+| a selected strata variable | a variable outside the strata, because the operation cannot perturb target metadata coherently |
+| a generated indicator name | the original categorical variable that the indicator encodes |
+| a name that is not an original adjustment variable | one of the original names the message lists |
+| a categorical variable whose encoded block lost an indicator to duplicate-column removal | a retained indicator for every level the encoding generated |
+| a selected variable whose values are all 0 or 1 and that carries no `CategoricalEncoding` | the same variable declared to `CausalData.from_frame` as a boolean or categorical column, because relative Gaussian noise makes an undeclared indicator real-valued |
+| a selected numeric variable that is constant | a variable with nonzero spread, because a relative noise scale of zero leaves every draw unperturbed |
+
+The report records the declaration, requested draw count, resolved mode, rule, estimates,
+standard errors, child seeds, and failures.
 
 **Alpha is a width here, and not a false-alarm rate.** The rule decides one question. Does the
 declared effect lie inside the central `1 - alpha` of the refit estimates? At the default alpha
