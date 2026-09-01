@@ -28,84 +28,108 @@
     }
   }
 
-  function createSidebarButton(side, sidebar, storageKey) {
-    const button = document.createElement("button");
-    const icon = document.createElement("span");
+  function createPanelGlyph(side) {
+    const namespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(namespace, "svg");
+    const frame = document.createElementNS(namespace, "rect");
+    const panel = document.createElementNS(namespace, "rect");
+
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", "18");
+    svg.setAttribute("height", "18");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    frame.setAttribute("x", "3");
+    frame.setAttribute("y", "4");
+    frame.setAttribute("width", "18");
+    frame.setAttribute("height", "16");
+    frame.setAttribute("rx", "2");
+    frame.setAttribute("fill", "none");
+    frame.setAttribute("stroke", "currentColor");
+    frame.setAttribute("stroke-width", "2");
+    panel.setAttribute("x", side === "primary" ? "4" : "14");
+    panel.setAttribute("y", "5");
+    panel.setAttribute("width", "6");
+    panel.setAttribute("height", "14");
+    panel.setAttribute("fill", "currentColor");
+    svg.append(frame, panel);
+    return svg;
+  }
+
+  function createSidebarControls(side, sidebar, storageKey) {
     const sidebarName = side === "primary" ? "site navigation" : "On this page";
-    const className = `cleverly-${side}-sidebar-collapsed`;
+    const collapsedClass = `cleverly-${side}-sidebar-collapsed`;
+    const hide = document.createElement("button");
+    const show = document.createElement("button");
 
-    button.type = "button";
-    button.className = `cleverly-sidebar-toggle cleverly-sidebar-toggle--${side}`;
-    button.setAttribute("aria-controls", sidebar.id);
-    icon.setAttribute("aria-hidden", "true");
-    button.append(icon);
+    hide.type = "button";
+    hide.className = `cleverly-sidebar-hide cleverly-sidebar-hide--${side}`;
+    hide.setAttribute("aria-label", `Hide ${sidebarName}`);
+    hide.title = `Hide ${sidebarName}`;
+    hide.append(createPanelGlyph(side));
 
-    const applyState = (collapsed) => {
-      document.documentElement.classList.toggle(className, collapsed);
-      button.setAttribute("aria-expanded", String(!collapsed));
-      button.setAttribute(
-        "aria-label",
-        `${collapsed ? "Show" : "Hide"} ${sidebarName}`,
-      );
-      button.title = button.getAttribute("aria-label");
-      icon.className = `fa-solid ${
-        side === "primary"
-          ? collapsed
-            ? "fa-angles-right"
-            : "fa-angles-left"
-          : collapsed
-            ? "fa-angles-left"
-            : "fa-angles-right"
-      }`;
+    show.type = "button";
+    show.className = `cleverly-sidebar-tab cleverly-sidebar-tab--${side}`;
+    show.setAttribute("aria-label", `Show ${sidebarName}`);
+    show.title = `Show ${sidebarName}`;
+    show.append(createPanelGlyph(side));
+
+    [hide, show].forEach((control) => {
+      control.setAttribute("aria-controls", sidebar.id);
+    });
+
+    // Each state has its own control, so no element has to change its own
+    // appearance. FontAwesome replaces any node carrying an fa- class, which
+    // silently detaches a class name the script means to keep updating.
+    const reflectState = (collapsed) => {
+      document.documentElement.classList.toggle(collapsedClass, collapsed);
+      hide.setAttribute("aria-expanded", String(!collapsed));
+      show.setAttribute("aria-expanded", String(!collapsed));
     };
 
-    applyState(readSessionPreference(storageKey));
-    button.addEventListener("click", () => {
-      const collapsed = !document.documentElement.classList.contains(className);
-      applyState(collapsed);
+    const setCollapsed = (collapsed) => {
+      reflectState(collapsed);
       writeSessionPreference(storageKey, collapsed);
       window.dispatchEvent(new Event("cleverly:layout-change"));
-    });
-    return button;
+      window.requestAnimationFrame(() => {
+        (collapsed ? show : hide).focus();
+      });
+    };
+
+    reflectState(readSessionPreference(storageKey));
+    hide.addEventListener("click", () => setCollapsed(true));
+    show.addEventListener("click", () => setCollapsed(false));
+    return { hide, show };
+  }
+
+  function mountSidebarControls(side, sidebar, storageKey, before) {
+    const controls = createSidebarControls(side, sidebar, storageKey);
+    const header = document.createElement("div");
+    header.className = `cleverly-sidebar-panel-header cleverly-sidebar-panel-header--${side}`;
+    header.append(controls.hide);
+    if (before) {
+      before.before(header);
+    } else {
+      sidebar.prepend(header);
+    }
+    document.body.append(controls.show);
   }
 
   function initializeSidebarControls() {
-    const articleHeader = document.querySelector(
-      ".bd-header-article .header-article__inner",
-    );
-    if (!articleHeader) {
-      return;
-    }
-
     const primarySidebar = document.getElementById("pst-primary-sidebar");
     const secondarySidebar = document.getElementById("pst-secondary-sidebar");
-    const start =
-      articleHeader.querySelector(".header-article-items__start") || articleHeader;
-    let end = articleHeader.querySelector(".header-article-items__end");
 
     if (primarySidebar) {
-      const wrapper = document.createElement("div");
-      wrapper.className =
-        "header-article-item cleverly-sidebar-control cleverly-sidebar-control--primary";
-      wrapper.append(
-        createSidebarButton("primary", primarySidebar, PRIMARY_STORAGE_KEY),
-      );
-      start.prepend(wrapper);
+      mountSidebarControls("primary", primarySidebar, PRIMARY_STORAGE_KEY, null);
     }
 
     if (secondarySidebar) {
-      if (!end) {
-        end = document.createElement("div");
-        end.className = "header-article-items__end";
-        articleHeader.append(end);
-      }
-      const wrapper = document.createElement("div");
-      wrapper.className =
-        "header-article-item cleverly-sidebar-control cleverly-sidebar-control--secondary";
-      wrapper.append(
-        createSidebarButton("secondary", secondarySidebar, SECONDARY_STORAGE_KEY),
+      mountSidebarControls(
+        "secondary",
+        secondarySidebar,
+        SECONDARY_STORAGE_KEY,
+        secondarySidebar.querySelector(".sidebar-secondary-items"),
       );
-      end.append(wrapper);
     }
   }
 
