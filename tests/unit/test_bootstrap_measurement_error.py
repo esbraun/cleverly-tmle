@@ -550,10 +550,22 @@ class TestBootstrapAndPerturbation:
         )
         report, estimator = _run(data, declaration)
         assert report["bootstrap_measurement_error"].resampling == "cluster"
+        repeated_source = False
         for _, sample in estimator.calls:
-            values, counts = np.unique(sample.covariates[:, 0] // 3, return_counts=True)
-            del values
-            assert np.all(counts % 3 == 0)
+            assert sample.cluster is not None
+            source_codes = (sample.covariates[:, 0] // 3).astype(int)
+            repeated_source |= np.unique(source_codes).size < 20
+            np.testing.assert_array_equal(np.unique(sample.cluster), np.arange(20))
+            np.testing.assert_array_equal(np.bincount(sample.cluster), np.full(20, 3))
+            for occurrence in range(20):
+                rows = sample.covariates[sample.cluster == occurrence, 0]
+                sources = np.unique(source_codes[sample.cluster == occurrence])
+                assert sources.size == 1
+                source = int(sources[0])
+                np.testing.assert_array_equal(rows, np.arange(3 * source, 3 * source + 3))
+        # This fixed seed actively exercises the defect: at least one source cluster is
+        # selected more than once, and its copies still have separate occurrence codes.
+        assert repeated_source
 
     @pytest.mark.parametrize("backend", ["pandas", "polars"])
     def test_seed_replay_child_separation_and_backend(self, backend: str) -> None:

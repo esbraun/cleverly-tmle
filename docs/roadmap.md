@@ -1,8 +1,7 @@
 # Roadmap
 
-This is the single planning contract for `cleverly`. It contains proposed work and the
-[known defects](#known-defects) in shipped code. Implemented capabilities belong in the
-[user guide](user-guide/index.md), scientific contracts in the
+This is the single planning contract for `cleverly`. It contains proposed work only. Implemented
+capabilities belong in the [user guide](user-guide/index.md), scientific contracts in the
 [technical reference](technical-reference/index.md) and [DR-TMLE contract](technical-reference/dr-tmle/index.md), validation results in
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
@@ -41,64 +40,6 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Other refused DR-TMLE compositions | composition-specific reduced regressions, corrected curve, remainder, and rate conditions | named pre-fit refusals remain | [F5](#f5-other-refused-dr-tmle-compositions) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
-
-## Known defects
-
-This section records a defect in shipped code. A defect is not a missing feature, so it enters
-neither grid above. Each entry names the module, the observed behavior, and the inference the
-defect reaches.
-
-### K1. Whole-cluster bootstrap merges a repeated cluster
-
-`CausalData.subset` re-derives cluster codes with
-`np.unique(self.cluster[idx], return_inverse=True)[1]` in
-[`data/causal_data.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/data/causal_data.py).
-A whole-cluster bootstrap draws some clusters more than once. Every copy of a repeated cluster
-receives the same new code. A cluster drawn three times therefore becomes one cluster of three
-times the row count.
-
-A check confirms the merge. It uses 20 clusters of 3 rows, `resampling="cluster"`, seed 17, and 20
-draws. Each sample holds 9 to 15 distinct cluster codes in place of 20. The largest merged cluster
-holds 6 to 15 rows in place of 3.
-
-`estimators/tmle.py` groups the cross-validation folds by cluster. It also counts `n_clusters` for
-the cluster-robust variance. Each draw therefore reports an estimate and a standard error under a
-dependence structure that is not the original one.
-
-The defect affects clustered bootstrap inference generally. It reaches `run_bootstrap()` and the
-`bootstrap_measurement_error` refuter under `resampling="cluster"`. It predates both operations,
-because `CausalData.subset` and the shared bootstrap design already shipped.
-
-A fix moves every existing clustered bootstrap interval. The fix therefore needs its own change,
-its own regression evidence, and a record of the moved intervals.
-
-Resolve K1 in the shared bootstrap sample materialization path. Keep the ordinary
-`CausalData.subset` semantics because a filtered data set must preserve source-cluster identity.
-The bootstrap path must carry both the selected row indices and one contiguous cluster code per
-sampled occurrence. Two draws of one source cluster must receive different codes.
-
-Keep `bootstrap_indices` as the public row-index operation. Reuse one private draw helper for that
-operation and for materialization, so both paths consume the same random stream. The helper must
-build occurrence codes from each selected member block. It must not assume equal cluster sizes.
-
-Materialize all other data through `CausalData.subset`. Replace only the cluster codes on a
-resolved cluster draw. This keeps weight normalization, encodings, strata, backend routing, and
-row order in one existing path. Forced iid resampling on clustered data must retain its current
-behavior.
-
-Acceptance requires a fixed-seed witness that repeats at least one source cluster. Every draw must
-still contain the original cluster count, and every occurrence must contain the selected source
-cluster's complete row block. An unbalanced-cluster control must reject fixed-size occurrence
-codes. Exact row-index controls must prove that iid and cluster draw streams do not move.
-
-Cover both consumers of the shared design. `run_bootstrap()` must pass correctly coded samples to
-its refit, and `bootstrap_measurement_error` must do the same before perturbation. The existing
-clustered end-to-end fit supplies the interval audit. Record its point estimate, bootstrap standard
-error, interval, failure count, and draw vector before and after the fix.
-
-When these checks pass, remove K1 from the open-defect record. Remove the known-defects section if
-no entry remains, and restore the roadmap introduction to proposed work only. The implementation
-commit and pull request retain the structural audit and the moved interval.
 
 ## Eligibility
 
