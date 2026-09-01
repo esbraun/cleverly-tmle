@@ -231,14 +231,14 @@ has its own derivation.
 
 These fit new models. They cost what a fit costs, multiplied by the number of draws.
 
-### The four refuters
+### Refutation operations
 
 **Why.** A diagnostic reads the fit you have. A refuter constructs a case whose answer is known and
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships four. Three test the implementation. The fourth tests a design, and the paragraph below it
-says what that buys and what it does not.
+ships six operations. Five test the implementation. The negative-control outcome tests a design,
+and the paragraph below states its boundary.
 
 | refuter | what it does | what must happen | what it tests |
 | --- | --- | --- | --- |
@@ -246,17 +246,118 @@ says what that buys and what it does not.
 | `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
+| `dummy_outcome` | draws independent Gaussian noise and refits | the empirical draws include zero | outcome replacement and the full estimator pipeline |
+| `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the empirical draws include the declared effect | adjustment and treatment terms in the full pipeline |
 
-A refuter refits the nuisance models once for each replication. The default is five
-replications of each of three refuters, so `refute()` costs about 15 fits.
-`run_all(include_refits=True)` runs it. `refute()` draws its randomization from the seed of the
-fit, unless the caller passes `random_state`. A fit that carries a seed gives the same refutation
-on every call. A fit that carries no seed gives a different refutation on every call.
+A refuter refits the nuisance models once for each replication. The three default operations use
+five replications each, so `refute()` costs about 15 fits. Generated outcomes use 100 draws by
+default because their decision rule is empirical. `run_all(include_refits=True)` runs `refute()`.
+
+`refute()` draws its randomization from the seed of the fit, unless the caller passes
+`random_state`. A fit that carries a seed gives the same refutation on every call. A fit that
+carries no seed gives a different refutation on every call.
 
 The report records the seed under `random_state`. Pass that value back to `refute()` to obtain
 the report again. The seed governs the perturbations and the refits they feed, so it repeats
 the report of a fit that carries no seed of its own. The seed applies to a copy of the
 estimator, so a refutation never changes the fit it examines.
+
+Each generated draw derives a child seed from the recorded root seed. The outcome draw and its
+full refit use that child seed. `report.draws_frame(name)` reports every child seed, estimate,
+standard error, family, and failure.
+
+`EmpiricalInclusionRule` uses a two-sided empirical rank and inclusive half-ties. It passes only
+when the empirical probability strictly exceeds alpha, matching the maintained DoWhy convention
+that a probability at or below alpha fails. The default rule uses alpha 0.05, requires 40
+successful draws, and fails when any refit fails. A failure stays in the report as the shared
+`ReplicationFailure` record, so the operation never reports only the conditional distribution of
+successful fits.
+
+The rule count and the draw budget are separate defaults. `DEFAULT_OUTCOME_REPLICATES` is 100 and
+sets `n_replicates`. `EmpiricalInclusionRule()` requires 40 successful draws and sets no budget.
+The operation refuses a budget below the rule's minimum before it refits anything.
+
+**Alpha is a width here, and not a false-alarm rate.** The rule decides one question. Does the
+declared effect lie inside the central `1 - alpha` of the refit estimates? At the default alpha
+that is the central 95%.
+
+A correct estimator centres the refit distribution on the declared effect, so each draw falls
+above it with probability about one half. Under 100 draws the rule then fails only when at most
+two draws fall on one side. That probability is `2 * (1 + 100 + 4950) / 2**100`, which is about
+`8e-27`. More draws do not buy power. They stabilise the quantile the rule reads.
+
+The default minimum of 40 draws is the smallest budget at alpha 0.05 that can fail on anything
+short of a one-sided sweep. With 40 draws, one estimate on the minority side gives `2 / 40`, which
+equals alpha and fails. With 39 draws, one estimate on the minority side gives `2 / 39`, which
+exceeds alpha and passes. The rule therefore refuses a declaration whose `minimum_draws * alpha`
+is below 2, because such a rule fails only when every draw falls on one side.
+
+The first process catalog covers Gaussian outcomes and additive `ate`, `att`, or `atc` contrasts.
+`refute()` and its `_validate_generated_eligibility` helper in
+[`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
+check every condition in the table before the operation refits anything. Each row is one
+`CapabilityError` branch, and each message names what is missing.
+
+| what the operation refuses | what it requires instead |
+| --- | --- |
+| an inclusion rule of any other type | the exact registered `EmpiricalInclusionRule` declaration |
+| a process declaration of any other type | the exact registered `GaussianIndependentOutcome` or `GaussianAdjustmentOutcome` |
+| a process whose family is not `"gaussian"` | the Gaussian family, which is the one with an implemented effect derivation |
+| a legacy fit that carries no identification metadata | identification metadata on the result |
+| a functional that is not `BackdoorMeanContrast` | a backdoor-identified additive mean contrast |
+| a provider that is not `ExplicitAdjustmentProvider` | registered backdoor provider provenance |
+| an original outcome family that is not `"gaussian"` | an original family equal to the process family, so a binomial fit is refused |
+| an estimator configured with a family other than `"auto"` or `"gaussian"` | a configured family that accepts the declared process |
+| a saved outcome learner with no regression-capable route | a regression-capable outcome learner |
+| a longitudinal functional | a point-treatment functional |
+| a treatment that is not binary | code one against code zero |
+| an intermediate node or a controlled direct effect | no intermediate node |
+| a fit with missing outcomes | complete outcomes |
+| an MSM functional or the `msm` axis | the `arm` axis |
+| an intervention-indexed functional | the `arm` axis with no declared interventions |
+| a parameter key that is not a structured `ParameterKey` | a structured key for the selected estimand |
+| a ratio estimand, or any other non-additive contrast | `ate`, `att`, or `atc` |
+| disagreement between the functional target, the identified estimand, and the parameter key | one estimand named by all three |
+| a missing registered identification artifact | the artifact `TARGETS` records for that target |
+| an arm contrast that does not resolve to two distinct arms | a resolvable contrast of two distinct arms |
+| a draw budget below the rule's minimum | `n_replicates` of at least `minimum_draws` |
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+from cleverly.validation import GaussianAdjustmentOutcome, GaussianNoise
+
+frame, _ = make_linear_ate(n=200, seed=21)
+study = CausalStudy(
+    frame,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+)
+result = study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=21,
+)
+process = GaussianAdjustmentOutcome(effect=0.5, noise=GaussianNoise())
+report = result.diagnostics.refute(
+    tests=("simulated_outcome",),
+    simulated_outcome=process,
+    random_state=21,
+)
+print(report.summary())
+```
+
+Sharma and Kiciman (2020) define the refutation framework. The maintained DoWhy dummy refuter,
+pinned at
+[`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/dummy_outcome_refuter.py),
+supplies secondary evidence for independent noise and `f(W) + h(A)`. That implementation uses a
+normal rule below 100 draws, which `perform_normal_distribution_test` in
+`dowhy/causal_refuter.py` applies. It declares no failure policy at all. The pinned file contains
+no `try` block, and its refits run under `joblib.Parallel`, so one failed refit aborts the whole
+refutation. `cleverly` keeps each failed refit as a `ReplicationFailure` record and fails the
+refutation under the rule stated above.
 
 A negative-control outcome must have no causal path from treatment. It must also share the relevant
 confounding structure with the primary outcome. A non-null result flags residual bias or a bad

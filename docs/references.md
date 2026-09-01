@@ -222,6 +222,22 @@ previous reader had is not a citation; a page number is.
   standard caveat rather than for a derivation. A negative control has limited sensitivity and
   specificity for unmeasured confounding, and a null association does not establish the null.
 
+## Refutation
+
+- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
+  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
+  framework and describes outcome, bootstrap, and unobserved-confounder refutations. It supports
+  the shipped generated-outcome refutations. Roadmap items S2 and S3 cite it separately, and
+  that citation supports no shipped claim.
+- The maintained DoWhy dummy outcome refuter, source at commit
+  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/dummy_outcome_refuter.py).
+  It supplies secondary control-flow evidence for independent noise and `f(W) + h(A)`. Two of its
+  choices are not adopted. The first is a normal rule below 100 draws, in
+  `perform_normal_distribution_test` in `dowhy/causal_refuter.py`. The second is the absence of any
+  failure policy: the pinned file has no `try` block, and its refits run under `joblib.Parallel`,
+  so one failed refit aborts the refutation. `cleverly` retains each failed refit as a
+  `ReplicationFailure` record and fails the refutation under the recorded rule.
+
 ## Multiple testing
 
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
@@ -284,15 +300,11 @@ These sources locate methods in the [main roadmap](roadmap.md#main-roadmap). A r
 does not support a shipped claim. The readiness label on each item states the remaining source
 work.
 
-- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
-  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
-  framework and describes outcome, bootstrap, and unobserved-confounder refutations. Cited by
-  roadmap items S1 to S3 and I1.
 - Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
   Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518), ICML 2021 Workshop on the
   Neglected Assumptions in Causal Inference. The paper states the limits of validation from
   observed data and separates refutation tests from sensitivity analysis. Cited by roadmap items
-  S1 to S3 and I1.
+  S2 and S3.
 - Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
   longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
   10.1093/biomet/asae044. The paper defines multi-period sensitivity models and observed-data

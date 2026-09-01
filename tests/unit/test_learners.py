@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from sklearn.dummy import DummyRegressor
-from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import (
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline, make_pipeline
 
@@ -577,6 +581,22 @@ class TestSuperLearner:
     def library() -> list[object]:
         return [LinearRegression(), DummyRegressor()]
 
+    @staticmethod
+    def classifier_library() -> list[tuple[str, object]]:
+        return [
+            ("logistic", LogisticRegression(max_iter=200)),
+            ("forest", RandomForestClassifier(n_estimators=8, max_depth=3, random_state=0)),
+        ]
+
+    @staticmethod
+    def assert_probabilities(model: SuperLearner, x: np.ndarray, n_classes: int) -> np.ndarray:
+        probabilities = model.predict_proba(x)
+        assert probabilities.shape == (len(x), n_classes)
+        assert np.all(np.isfinite(probabilities))
+        assert np.all((probabilities >= 0.0) & (probabilities <= 1.0))
+        assert np.allclose(probabilities.sum(axis=1), 1.0)
+        return probabilities
+
     def test_weights_lie_on_the_simplex(self, sample) -> None:
         x, y, _ = sample
         model = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, y)
@@ -619,6 +639,45 @@ class TestSuperLearner:
         assert p.max() <= 0.999
         assert model.predict_proba(x).shape == (len(a), 2)
         assert np.allclose(model.predict_proba(x).sum(axis=1), 1.0)
+
+    def test_explicit_regression_drops_named_classifier_candidates(self, sample) -> None:
+        x, y, _ = sample
+        library = [*self.classifier_library(), ("ols", LinearRegression())]
+        with pytest.warns(UserWarning, match="dropping learner"):
+            model = SuperLearner(
+                library=library,
+                task="regression",
+                n_folds=3,
+                random_state=0,
+            ).fit(x, y)
+        assert model.learner_names_ == ("ols",)
+        assert np.all(np.isfinite(model.predict(x)))
+
+    def test_inferred_binary_classification_retains_named_classifiers(self, sample) -> None:
+        x, _, treatment = sample
+        model = SuperLearner(
+            library=self.classifier_library(),
+            n_folds=3,
+            random_state=0,
+        ).fit(x, treatment)
+        assert model.task_ == "classification"
+        assert model.learner_names_ == ("logistic", "forest")
+        self.assert_probabilities(model, x, 2)
+
+    def test_explicit_multiclass_classification_retains_each_ovr_library(self, sample) -> None:
+        x, _, _ = sample
+        lower, upper = np.quantile(x[:, 0], (1.0 / 3.0, 2.0 / 3.0))
+        target = np.digitize(x[:, 0], (lower, upper)).astype(float)
+        model = SuperLearner(
+            library=self.classifier_library(),
+            task="classification",
+            n_folds=3,
+            random_state=0,
+        ).fit(x, target)
+        assert model.is_multiclass
+        assert model.classes_.tolist() == [0.0, 1.0, 2.0]
+        self.assert_probabilities(model, x, 3)
+        assert all(member.learner_names_ == ("logistic", "forest") for member in model.one_vs_rest_)
 
     def test_nnloglik_is_the_default_for_a_binary_target(self, sample) -> None:
         x, _, a = sample

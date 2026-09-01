@@ -39,6 +39,49 @@ REPLICATE_COLUMNS = (
 )
 
 
+#: Gathered elements one bootstrap block may materialize at once.  A block of ``b``
+#: replicates over ``n`` rows of width ``w`` gathers ``b * n * w`` floats, so this caps a
+#: block near 32 MB and the index matrix that feeds it near half that.
+BOOTSTRAP_BLOCK_ELEMENTS = 4_000_000
+
+
+def bootstrap_draw_blocks(values: np.ndarray, *, replicates: int, rng: np.random.Generator) -> Any:
+    """Yield resampled blocks of ``values`` that together form ``replicates`` draws.
+
+    ``rng.integers`` fills its output in C order, so drawing the index matrix in row blocks
+    consumes exactly the stream one ``(replicates, n)`` call consumes.  Every block is
+    therefore bit-identical to the corresponding rows of the single allocation this
+    replaces, and no published interval moves.
+
+    Blocking is what makes the cells with 40,000 replications affordable.  A ``(10,000 x
+    40,000)`` index matrix and the ``(10,000 x 40,000 x 2)`` gather it feeds cost about 9.6
+    GB together, which is fine alone and exhausts the machine once the test session runs
+    sixteen workers at a time.
+
+    Parameters
+    ----------
+    values : ndarray
+        Rows to resample, either one-dimensional or one row per observation.
+    replicates : int
+        Total bootstrap replicates to draw.
+    rng : numpy.random.Generator
+        Generator that supplies the index draws.
+
+    Yields
+    ------
+    ndarray
+        One block of resampled draws, indexed by replicate first.
+    """
+    rows = len(values)
+    width = max(1, values.size // max(1, rows))
+    block = max(1, BOOTSTRAP_BLOCK_ELEMENTS // max(1, rows * width))
+    drawn = 0
+    while drawn < replicates:
+        count = min(block, replicates - drawn)
+        yield values[rng.integers(0, rows, size=(count, rows))]
+        drawn += count
+
+
 @dataclass(frozen=True)
 class ReplicationSpec:
     """One repeated-sampling configuration before it expands into seeded replications."""
@@ -225,10 +268,13 @@ def coverage_gain_interval(
         "covered_control"
     ].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(differences), size=(replicates, len(differences)))
-    interval = percentile_interval(
-        differences[picks].mean(axis=1), confidence_level=confidence_level
+    means = np.concatenate(
+        [
+            block.mean(axis=1)
+            for block in bootstrap_draw_blocks(differences, replicates=replicates, rng=rng)
+        ]
     )
+    interval = percentile_interval(means, confidence_level=confidence_level)
     return interval.low, interval.high
 
 
@@ -480,10 +526,12 @@ def ratio_intervals(
     """
     values = group[["estimate", "std_error"]].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(values), size=(replicates, len(values)))
-    draws = values[picks]
-    spread = draws[:, :, 0].std(axis=1, ddof=1)
-    reported = draws[:, :, 1].mean(axis=1)
+    blocks = [
+        (draws[:, :, 0].std(axis=1, ddof=1), draws[:, :, 1].mean(axis=1))
+        for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+    ]
+    spread = np.concatenate([block[0] for block in blocks])
+    reported = np.concatenate([block[1] for block in blocks])
     intervals = {
         "se_ratio": percentile_interval(reported / spread, confidence_level=confidence_level)
     }
@@ -543,11 +591,14 @@ def se_ratio_deficit_interval(
         ["estimate_subject", "std_error_subject", "estimate_reference", "std_error_reference"]
     ].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(values), size=(replicates, len(values)))
-    draws = values[picks]
-    subject_ratio = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
-    reference_ratio = draws[:, :, 3].mean(axis=1) / draws[:, :, 2].std(axis=1, ddof=1)
-    return percentile_interval(subject_ratio - reference_ratio, confidence_level=confidence_level)
+    gaps = np.concatenate(
+        [
+            draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
+            - draws[:, :, 3].mean(axis=1) / draws[:, :, 2].std(axis=1, ddof=1)
+            for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+        ]
+    )
+    return percentile_interval(gaps, confidence_level=confidence_level)
 
 
 @dataclass(frozen=True)
@@ -606,9 +657,12 @@ def paired_spread_ratio_interval(
         raise ValueError("the observed denominator spread is zero")
 
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(values), size=(replicates, len(values)))
-    draws = values[picks]
-    spreads = draws.std(axis=1, ddof=1)
+    spreads = np.concatenate(
+        [
+            draws.std(axis=1, ddof=1)
+            for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+        ]
+    )
     if np.any(spreads[:, 1] <= 0.0):
         raise ValueError("a bootstrap draw has zero denominator spread")
     ratios = spreads[:, 0] / spreads[:, 1]
@@ -735,14 +789,18 @@ def rate(
     children = np.random.SeedSequence(seed).spawn(len(samples))
     for index, values in enumerate(samples):
         rng = np.random.default_rng(children[index])
-        picks = rng.integers(0, len(values), size=(bootstrap_replicates, len(values)))
-        resampled = values[picks]
-        if statistic == "spread":
-            draws[:, index] = np.log(resampled.std(axis=1, ddof=1))
-        elif statistic == "bias":
-            draws[:, index] = np.log(_positive(np.abs(resampled.mean(axis=1) - truths[index])))
-        else:
-            draws[:, index] = np.log(resampled.mean(axis=1))
+        filled = 0
+        for resampled in bootstrap_draw_blocks(values, replicates=bootstrap_replicates, rng=rng):
+            stop = filled + len(resampled)
+            if statistic == "spread":
+                draws[filled:stop, index] = np.log(resampled.std(axis=1, ddof=1))
+            elif statistic == "bias":
+                draws[filled:stop, index] = np.log(
+                    _positive(np.abs(resampled.mean(axis=1) - truths[index]))
+                )
+            else:
+                draws[filled:stop, index] = np.log(resampled.mean(axis=1))
+            filled = stop
     return Rate(
         slope=float(point),
         interval=percentile_interval(_slope(sizes, draws), confidence_level=confidence_level),

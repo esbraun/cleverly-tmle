@@ -69,6 +69,52 @@ everything = result.diagnostics.run_all(include_refits=True, include_retargets=T
 `run_all` passes no seed, so `refute()` draws from the seed of the fit. Give the fit a seed if
 you need the same refutation twice.
 
+Use generated outcomes to test the full pipeline against a declared effect. The dummy operation
+uses independent Gaussian noise and declares zero. The simulated operation uses a standardized
+adjustment function, an additive treatment term, and Gaussian noise.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+from cleverly.validation import GaussianAdjustmentOutcome
+
+gaussian_frame, _ = make_linear_ate(n=200, seed=21)
+gaussian_study = CausalStudy(
+    gaussian_frame,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+)
+ate_result = gaussian_study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=21,
+)
+generated = ate_result.diagnostics.refute(
+    tests=("simulated_outcome",),
+    simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
+    n_replicates=40,
+    random_state=21,
+)
+draws = generated.draws_frame("simulated_outcome")
+```
+
+That call reports `includes 0.5 yes` on 40 successful refits. Each row in `draws` records the
+child seed, estimate, standard error, family, or refit failure.
+
+Two defaults govern the call, and they are separate objects. `n_replicates` defaults to
+`DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
+`EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
+refit fails. The example above asks for 40 draws, which is the smallest budget the default rule
+accepts.
+
+Read alpha as a width and not as a false-alarm rate. The rule passes when the declared effect
+lies inside the central 95% of the refit estimates, which
+[the technical reference](../technical-reference/validation-methods.md#refutation-operations)
+derives. Generated outcomes apply only to identified additive contrasts for binary point
+treatments.
+
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against
 `tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity

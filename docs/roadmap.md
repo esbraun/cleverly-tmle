@@ -13,10 +13,9 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Dummy and simulated outcome refutations | published support; source audit | existing refit and result-assessment contracts | [S1](#s1-dummy-and-simulated-outcome-refutations) |
-| 1.2 | Bootstrap measurement-error validation | published support; source audit | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
-| 1.3 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
-| 1.4 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
+| 1.1 | Bootstrap measurement-error validation | published support; source audit | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
+| 1.2 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
+| 1.3 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
@@ -86,19 +85,9 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next four items extend the post-fit assessment surface. The DoWhy
+records completed studies. The next three items extend the post-fit assessment surface. The DoWhy
 paper supplies the refutation framework and names these tests. Its maintained source supplies
 secondary implementation evidence, not acceptance evidence.
-
-### S1. Dummy and simulated outcome refutations
-
-Replace the fitted outcome with data from a declared process whose effect is known. The simplest
-process is independent noise with a zero effect. A simulated process may preserve dependence on
-the adjustment variables and add a declared nonzero treatment effect.
-
-The refit must recover the declared effect within a prespecified sampling rule. Record the outcome
-generator, seed, fitted family, and every failed refit. Restrict the first implementation to
-backdoor-identified point-treatment results, which is the scope of DoWhy's general construction.
 
 ### S2. Bootstrap measurement-error validation
 
@@ -122,7 +111,7 @@ answer related questions without refitting a simulated confounder. Acceptance re
 strength identity, active perturbation controls, reproducible refits, and a boundary that states
 which treatment and outcome families the source covers.
 
-The governing sources for S1 to S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
+The governing sources for S2 and S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
 for Causal Inference*, and Sharma, Syrgkanis, Zhang and Kiciman (2021), *DoWhy: Addressing
 Challenges in Expressing and Validating Causal Assumptions*. Read the maintained refuter source
 before fixing the finite-sample comparison rules.

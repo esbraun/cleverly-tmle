@@ -10,7 +10,18 @@ from .drtmle import (
     correction_check,
 )
 from .nuisance import NuisanceDiagnostics, NuisanceModelReport, nuisance_diagnostics
-from .refute import DEFAULT_TESTS, RefutationResult, RefutationTest, refute
+from .refute import (
+    DEFAULT_OUTCOME_REPLICATES,
+    DEFAULT_TESTS,
+    EmpiricalInclusionRule,
+    GaussianAdjustmentOutcome,
+    GaussianIndependentOutcome,
+    GaussianNoise,
+    GeneratedOutcomeRecord,
+    RefutationResult,
+    RefutationTest,
+    refute,
+)
 from .score import DEFAULT_TOLERANCE, ScoreCheck, ScoreCheckRow, score_check
 from .simulation import (
     CoverageStudy,
@@ -22,6 +33,7 @@ from .simulation import (
 )
 
 __all__ = [
+    "DEFAULT_OUTCOME_REPLICATES",
     "DEFAULT_TESTS",
     "DEFAULT_TOLERANCE",
     "IDENTITY_TOLERANCE",
@@ -29,7 +41,12 @@ __all__ = [
     "CorrectionCheck",
     "CorrectionRow",
     "CoverageStudy",
+    "EmpiricalInclusionRule",
     "EstimandSummary",
+    "GaussianAdjustmentOutcome",
+    "GaussianIndependentOutcome",
+    "GaussianNoise",
+    "GeneratedOutcomeRecord",
     "NuisanceDiagnostics",
     "NuisanceModelReport",
     "RefutationResult",
