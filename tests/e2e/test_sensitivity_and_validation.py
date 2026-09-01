@@ -31,7 +31,12 @@ from cleverly.datasets import (
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
 from cleverly.sensitivity.omitted_variable import benchmark
-from cleverly.validation.refute import refute
+from cleverly.validation.refute import (
+    BootstrapMeasurementError,
+    EmpiricalInclusionRule,
+    RelativeGaussianNoise,
+    refute,
+)
 from tests.conftest import fast_tmle
 
 
@@ -540,6 +545,35 @@ class TestRefutation:
     def test_an_unknown_test_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="unknown refutation test"):
             good_overlap.diagnostics.refute(tests=["magic"])
+
+    def test_nonzero_measurement_error_changes_real_refits(self) -> None:
+        frame, _ = make_linear_ate(n=120, seed=91)
+        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+        rule = EmpiricalInclusionRule(alpha=0.5, minimum_draws=4)
+
+        def run(noise: float):
+            return result.diagnostics.refute(
+                tests=("bootstrap_measurement_error",),
+                n_replicates=4,
+                bootstrap_measurement_error=BootstrapMeasurementError(
+                    ("W1",), numeric_noise=RelativeGaussianNoise(noise)
+                ),
+                measurement_error_rule=rule,
+                random_state=17,
+            )["bootstrap_measurement_error"]
+
+        active = run(0.5)
+        zero = run(0.0)
+        child_seeds = tuple(
+            int(sequence.generate_state(1)[0]) for sequence in np.random.SeedSequence(17).spawn(4)
+        )
+        assert active.child_seeds == zero.child_seeds == child_seeds
+        assert active.failures == zero.failures == ()
+        assert active.family == zero.family == "gaussian"
+        assert len(active.records) == len(zero.records) == 4
+        active_estimates = np.asarray([record.estimate for record in active.records])
+        zero_estimates = np.asarray([record.estimate for record in zero.records])
+        assert np.max(np.abs(active_estimates - zero_estimates)) > 1e-3
 
 
 class TestARefutationInheritsTheFitsSeed:

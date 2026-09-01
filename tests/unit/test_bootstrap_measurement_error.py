@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import FrozenInstanceError, dataclass, field, replace
 from types import SimpleNamespace
@@ -326,6 +325,12 @@ class TestDeclarationsAndReplacement:
 class TestBootstrapAndPerturbation:
     def test_zero_noise_uses_exact_plain_bootstrap_samples(self) -> None:
         data = _data()
+        sequences = np.random.SeedSequence(17).spawn(4)
+        indices = tuple(
+            np.random.default_rng(sequence).integers(0, data.n, size=data.n, dtype=np.int64)
+            for sequence in sequences
+        )
+        expected = tuple(data.covariates[index] for index in indices)
         plain: list[np.ndarray] = []
         run_bootstrap(
             data,
@@ -340,21 +345,19 @@ class TestBootstrapAndPerturbation:
         )
         _, estimator = _run(data, declaration)
 
-        # The plain-bootstrap equivalence alone would pass on a design that never
-        # resamples, because both callers now go through the same sampler. Check the
-        # samples are with-replacement draws in their own right first.
-        original = Counter(tuple(row) for row in data.covariates)
+        # Reconstruct each iid draw without a production sampling helper. Equality
+        # between the two callers alone is tautological because they share the sampler.
         assert len(estimator.calls) == 4
-        for _, sample in estimator.calls:
+        assert len(plain) == 4
+        for index, expected_sample, plain_sample, (_, sample) in zip(
+            indices, expected, plain, estimator.calls, strict=True
+        ):
+            # This explicitly witnesses sampling with replacement. A no-resampling
+            # mutation returns the original rows and cannot satisfy this index oracle.
+            assert len(np.unique(index)) < data.n
             assert sample.n == data.n
-            rows = Counter(tuple(row) for row in sample.covariates)
-            assert set(rows) <= set(original)
-            assert max(rows.values()) > 1
-            assert rows != original
-
-        assert len(plain) == len(estimator.calls)
-        for expected, (_, actual) in zip(plain, estimator.calls, strict=True):
-            assert np.array_equal(actual.covariates, expected)
+            assert np.array_equal(plain_sample, expected_sample)
+            assert np.array_equal(sample.covariates, expected_sample)
 
     def test_numeric_noise_uses_each_sample_scale_and_recorded_child_seed(self) -> None:
         data = _data()
