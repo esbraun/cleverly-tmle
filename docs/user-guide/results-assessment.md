@@ -78,10 +78,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate
-from cleverly.validation import (
-    EmpiricalInclusionRule,
-    GaussianAdjustmentOutcome,
-)
+from cleverly.validation import GaussianAdjustmentOutcome
 
 gaussian_frame, _ = make_linear_ate(n=200, seed=21)
 gaussian_study = CausalStudy(
@@ -97,16 +94,26 @@ ate_result = gaussian_study.estimate(
 generated = ate_result.diagnostics.refute(
     tests=("simulated_outcome",),
     simulated_outcome=GaussianAdjustmentOutcome(effect=0.5),
-    n_replicates=2,
-    outcome_rule=EmpiricalInclusionRule(minimum_draws=2),
+    n_replicates=40,
     random_state=21,
 )
 draws = generated.draws_frame("simulated_outcome")
 ```
 
-Each row in `draws` records the child seed, estimate, standard error, family, or refit failure.
-The default empirical rule requests 100 draws and fails if any refit fails. Generated outcomes
-apply only to identified additive contrasts for binary point treatments.
+That call reports `includes 0.5 yes` on 40 successful refits. Each row in `draws` records the
+child seed, estimate, standard error, family, or refit failure.
+
+Two defaults govern the call, and they are separate objects. `n_replicates` defaults to
+`DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
+`EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
+refit fails. The example above asks for 40 draws, which is the smallest budget the default rule
+accepts.
+
+Read alpha as a width and not as a false-alarm rate. The rule passes when the declared effect
+lies inside the central 95% of the refit estimates, which
+[the technical reference](../technical-reference/validation-methods.md#refutation-operations)
+derives. Generated outcomes apply only to identified additive contrasts for binary point
+treatments.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against

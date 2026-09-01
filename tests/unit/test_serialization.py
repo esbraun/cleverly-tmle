@@ -70,8 +70,9 @@ def test_generated_outcome_cache_and_records_survive_round_trip(point_result) ->
     kwargs = {
         "tests": ("dummy_outcome",),
         "dummy_outcome": GaussianIndependentOutcome(),
-        "n_replicates": 2,
-        "outcome_rule": EmpiricalInclusionRule(minimum_draws=1),
+        "n_replicates": 4,
+        # The rule refuses minimum_draws * alpha < 2, so a four-draw budget needs alpha=0.5.
+        "outcome_rule": EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
         "random_state": 17,
     }
     report = point_result.diagnostics.refute(**kwargs)

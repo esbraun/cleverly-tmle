@@ -168,16 +168,21 @@ class GaussianIndependentOutcome:
 class GaussianAdjustmentOutcome:
     r"""Declare ``f(W) + effect * A + epsilon`` with Gaussian noise.
 
-    The adjustment function standardizes each nonconstant covariate, averages the
-    standardized columns, and multiplies the result by ``adjustment_scale``. The known
-    binary arm contrast is ``effect`` because the treatment term is additive.
+    The adjustment function standardizes each nonconstant covariate, sums the standardized
+    columns, divides by the square root of how many columns it summed, and multiplies the
+    result by ``adjustment_scale``. The root-count divisor holds the adjustment standard
+    deviation at about ``adjustment_scale`` for any number of approximately independent
+    covariates, so the confounding signal does not shrink against the fixed noise scale as
+    the adjustment set widens. Correlated columns raise that standard deviation instead,
+    which only makes a failure to adjust easier to detect. The known binary arm contrast is
+    ``effect`` because the treatment term is additive.
 
     Parameters
     ----------
     effect : float
         Declared effect of treatment code one against code zero.
     adjustment_scale : float
-        Multiplier on the standardized covariate mean.
+        Multiplier on the root-count normalized standardized covariate sum.
     noise : GaussianNoise
         Gaussian law for ``epsilon``.
     """
@@ -186,7 +191,9 @@ class GaussianAdjustmentOutcome:
     adjustment_scale: float = 1.0
     noise: GaussianNoise = GaussianNoise()
     name: str = field(default="gaussian_adjustment_dependent", init=False)
-    adjustment_function: str = field(default="scaled_mean_of_standardized_covariates", init=False)
+    adjustment_function: str = field(
+        default="scaled_standardized_covariate_sum_over_root_count", init=False
+    )
     treatment_term: str = field(default="effect_times_treatment_code", init=False)
     family: str = field(default="gaussian", init=False)
 
@@ -226,7 +233,13 @@ class GaussianAdjustmentOutcome:
         if not np.any(active):
             return np.zeros(values.shape[0], dtype=float)
         standardized = (values[:, active] - center[active]) / scale[active]
-        return np.asarray(self.adjustment_scale * np.mean(standardized, axis=1), dtype=float)
+        # Sum over root count rather than mean: a mean of p standardized columns has
+        # standard deviation about 1/sqrt(p), so the confounding signal would vanish
+        # against the fixed noise scale on a wide adjustment set.
+        divisor = np.sqrt(float(np.count_nonzero(active)))
+        return np.asarray(
+            self.adjustment_scale * np.sum(standardized, axis=1) / divisor, dtype=float
+        )
 
     def draw(self, data: Any, *, seed: int) -> np.ndarray:
         """Draw one adjustment-dependent outcome vector.
@@ -259,7 +272,8 @@ class EmpiricalInclusionRule:
     alpha : float
         Two-sided tail probability.
     minimum_draws : int
-        Minimum successful draw count needed to apply the empirical rule.
+        Minimum successful draw count needed to apply the empirical rule. The rule refuses
+        a count below ``2 / alpha``, where the declared level is unreachable.
     failure_policy : {"fail"}
         Policy for a failed refit. The first catalog always fails if any refit fails.
     """
@@ -273,6 +287,18 @@ class EmpiricalInclusionRule:
             raise ValueError("empirical inclusion alpha must be between zero and one")
         if self.minimum_draws < 1:
             raise ValueError("empirical inclusion minimum_draws must be positive")
+        # The smallest positive value ``pvalue`` can return on n draws is 2/n.  When that
+        # exceeds alpha the rule can only reject a sample whose draws all fall on one side
+        # of the declared effect, which leaves it with almost no power: it stops reading the
+        # tail of the refit distribution and reads only whether the truth is outside its
+        # whole range.
+        needed = int(np.ceil(2.0 / self.alpha - 1e-9))
+        if self.minimum_draws < needed:
+            raise ValueError(
+                f"empirical inclusion needs minimum_draws >= {needed} at alpha={self.alpha:g}; "
+                f"{self.minimum_draws} draws cannot reach a two-sided p-value at or below "
+                "alpha except on an all-on-one-side sample"
+            )
         if self.failure_policy != "fail":
             raise ValueError("generated-outcome refutations support only failure_policy='fail'")
 
@@ -289,7 +315,9 @@ class EmpiricalInclusionRule:
         Returns
         -------
         float
-            Two-sided empirical rank probability.
+            Two-sided empirical rank probability. An empty sample returns ``0.0``, which is
+            a rank over nothing rather than a rejection. :meth:`evaluate` reports ``None``
+            for that case, and it is the value a report carries.
         """
         estimates = np.asarray(values, dtype=float)
         if estimates.size == 0:
@@ -309,7 +337,7 @@ class EmpiricalInclusionRule:
         values: Sequence[float],
         truth: float,
         failures: Sequence[ReplicationFailure],
-    ) -> tuple[bool, float, str]:
+    ) -> tuple[bool, float | None, str]:
         """Apply the declared draw-count, failure, and empirical-tail gates.
 
         Parameters
@@ -323,19 +351,23 @@ class EmpiricalInclusionRule:
 
         Returns
         -------
-        tuple of bool, float, str
-            Pass status, empirical probability, and readable detail.
+        tuple of bool, float or None, str
+            Pass status, empirical probability, and readable detail. The probability is
+            ``None`` when no draw succeeded, because an empty sample carries no rank
+            information and a reported zero would read as a strong rejection.
         """
+        # ``None`` rather than a number the empty sample cannot support.
+        probability = self.pvalue(values, truth) if len(values) else None
         if failures:
             return (
                 False,
-                self.pvalue(values, truth),
+                probability,
                 f"{len(failures)} refit(s) failed; failure_policy='fail' keeps every failure",
             )
         if len(values) < self.minimum_draws:
             return (
                 False,
-                self.pvalue(values, truth),
+                probability,
                 f"only {len(values)} successful draw(s); the rule requires {self.minimum_draws}",
             )
         probability = self.pvalue(values, truth)
@@ -375,6 +407,22 @@ class GeneratedOutcomeRecord:
     family: str
 
 
+def _format_number(value: float | None) -> str:
+    """Format one optional number for a summary line.
+
+    Parameters
+    ----------
+    value : float or None
+        Number to format.
+
+    Returns
+    -------
+    str
+        Five significant figures, and ``"-"`` for a missing value.
+    """
+    return "-" if value is None else f"{value:.5g}"
+
+
 @dataclass(frozen=True)
 class RefutationTest:
     """The outcome of one refutation test.
@@ -408,7 +456,12 @@ class RefutationTest:
     family : str or None
         Family supplied by successful refitted results.
     empirical_pvalue : float or None
-        Two-sided empirical rank p-value for the declared effect.
+        Two-sided empirical rank p-value for the declared effect. ``None`` when no draw
+        succeeded, and on an older refuter.
+    declared_effect : float or None
+        Effect the declared process implies for this test's own contrast direction, and
+        ``None`` for an older refuter. It carries the sign of the parameter key: a fit
+        that reports code zero against code one declares the negated process effect.
     """
 
     name: str
@@ -425,6 +478,7 @@ class RefutationTest:
     failures: tuple[ReplicationFailure, ...] = ()
     family: str | None = None
     empirical_pvalue: float | None = None
+    declared_effect: float | None = None
 
     @property
     def mean(self) -> float:
@@ -451,13 +505,6 @@ class RefutationTest:
         """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.std(ddof=1)) if finite.size > 1 else float("nan")
-
-    @property
-    def declared_effect(self) -> float | None:
-        """Return the generated process effect, or ``None`` for an older refuter."""
-        if self.declaration is None:
-            return None
-        return float(self.declaration.known_effect)
 
     @property
     def n_failed(self) -> int:
@@ -514,11 +561,10 @@ class RefutationTest:
         for index in indices:
             record = successes.get(index)
             failure = failures.get(index)
-            if record is None:
-                assert failure is not None
-                seed = failure.seed
-            else:
-                seed = record.seed
+            # Every index comes from one of the two maps, so exactly one lookup can miss.
+            # Read the seed off whichever hit rather than narrowing with an ``assert``,
+            # which ``-O`` strips.
+            seed = record.seed if record is not None else failures[index].seed
             payload["test"].append(self.name)
             payload["replicate"].append(index)
             payload["seed"].append(seed)
@@ -655,8 +701,8 @@ class RefutationResult:
                 lines.append("")
                 lines.append(
                     f"{test.name}: process={test.declaration.name}; family={test.family}; "
-                    f"effect={test.declared_effect:.5g}; successful={len(test.records)}; "
-                    f"failed={test.n_failed}"
+                    f"effect={_format_number(test.declared_effect)}; "
+                    f"successful={len(test.records)}; failed={test.n_failed}"
                 )
                 lines.append(f"rule: {test.detail}")
             if not test.passed and test.declaration is None:
@@ -723,7 +769,6 @@ def _validate_generated_process(process: Any, name: str) -> None:
             f"{name} has no registered effect derivation and family validation for "
             f"{type(process).__name__}; use the exact registered {expected.__name__} declaration"
         )
-    assert type(process) in {GaussianIndependentOutcome, GaussianAdjustmentOutcome}
     if process.family != "gaussian":
         raise CapabilityError(
             f"{name} has family={process.family!r}; only the Gaussian process family has "
@@ -731,7 +776,67 @@ def _validate_generated_process(process: Any, name: str) -> None:
         )
 
 
-def _validate_generated_eligibility(result: Any, estimand: str, process: Any, name: str) -> None:
+def _resolve_arm_code(data: Any, endpoint: Any, role: str, name: str) -> float:
+    """Resolve one parameter-key endpoint to its internal arm code.
+
+    Parameters
+    ----------
+    data : CausalData
+        Analysis rows that declare the arm codes and their labels.
+    endpoint : Any
+        Label or code recorded on the parameter key.
+    role : str
+        Which endpoint this is, named in a refusal.
+    name : str
+        Refutation name, named in a refusal.
+
+    Returns
+    -------
+    float
+        The internal arm code for ``endpoint``.
+
+    Raises
+    ------
+    CapabilityError
+        If no declared arm matches the endpoint.
+    """
+    # Same label-or-code match the estimator's reference-arm resolution uses, so a key
+    # written in the user's own levels and one written in internal codes agree.
+    for code, label in zip(data.arm_codes, data.treatment_levels, strict=True):
+        if label == endpoint or code == endpoint:
+            return float(code)
+    raise CapabilityError(
+        f"{name} has no effect derivation for {role}={endpoint!r}; it is not an arm of "
+        f"{data.treatment_name} whose levels are {list(data.treatment_levels)}"
+    )
+
+
+def _validate_generated_eligibility(
+    result: Any, estimand: str, process: Any, name: str
+) -> tuple[float, float]:
+    """Refuse an ineligible generated-outcome request and resolve its contrast direction.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fitted result the refutation would refit.
+    estimand : str
+        Alias the refutation runs for.
+    process : object
+        Registered outcome-process declaration.
+    name : str
+        Refutation name, named in every refusal.
+
+    Returns
+    -------
+    tuple of float, float
+        Value and reference arm codes the parameter key contrasts, in that order.
+
+    Raises
+    ------
+    CapabilityError
+        If the fit, the estimand, or the process has no registered effect derivation.
+    """
     _validate_generated_process(process, name)
     from ..study import BackdoorMeanContrast, ExplicitAdjustmentProvider, ParameterKey
     from ..targets import TARGETS
@@ -825,6 +930,32 @@ def _validate_generated_eligibility(result: Any, estimand: str, process: Any, na
         raise CapabilityError(
             f"{name} needs the registered identification artifact for target {functional.target!r}"
         )
+    # The key names the contrast direction, and the process declares its effect for code
+    # one against code zero.  A fit reported against a non-default reference therefore
+    # declares the negated effect, and reading the key is the only way to see it.
+    reference_endpoint = key.reference
+    reference_code = (
+        float(data.arm_codes[0])
+        if reference_endpoint is None
+        else _resolve_arm_code(data, reference_endpoint, "the parameter key reference", name)
+    )
+    value_endpoint = key.value
+    if value_endpoint is None:
+        remaining = [float(code) for code in data.arm_codes if float(code) != reference_code]
+        if len(remaining) != 1:
+            raise CapabilityError(
+                f"{name} has no effect derivation for a parameter key with no value arm; "
+                f"{data.treatment_name} does not leave exactly one other arm"
+            )
+        value_code = remaining[0]
+    else:
+        value_code = _resolve_arm_code(data, value_endpoint, "the parameter key value", name)
+    if value_code == reference_code:
+        raise CapabilityError(
+            f"{name} has no effect derivation for a parameter key whose value and reference "
+            f"are the same arm ({value_code:g}); the catalog covers a two-arm contrast"
+        )
+    return value_code, reference_code
 
 
 def _generated_outcome_test(
@@ -837,6 +968,8 @@ def _generated_outcome_test(
     rule: EmpiricalInclusionRule,
     n_replicates: int,
     root_seed: int,
+    value_code: float,
+    reference_code: float,
 ) -> RefutationTest:
     records: list[GeneratedOutcomeRecord] = []
     failures: list[ReplicationFailure] = []
@@ -889,7 +1022,10 @@ def _generated_outcome_test(
             )
         )
     values = tuple(item.estimate for item in records)
-    passed, probability, detail = rule.evaluate(values, process.known_effect, failures)
+    # The additive treatment term makes the arm contrast linear in the code difference, so
+    # the declared effect is the process effect signed by the key's own direction.
+    declared_effect = float(process.known_effect * (value_code - reference_code))
+    passed, probability, detail = rule.evaluate(values, declared_effect, failures)
     families = {item.family for item in records}
     family = next(iter(families)) if len(families) == 1 else None
     if len(families) > 1:
@@ -900,7 +1036,7 @@ def _generated_outcome_test(
         estimand=estimand,
         original=original,
         values=values,
-        expectation=f"includes {process.known_effect:.5g}",
+        expectation=f"includes {declared_effect:.5g}",
         passed=passed,
         detail=detail,
         standard_errors=tuple(item.std_error for item in records),
@@ -910,6 +1046,7 @@ def _generated_outcome_test(
         failures=tuple(failures),
         family=family,
         empirical_pvalue=probability,
+        declared_effect=declared_effect,
     )
 
 
@@ -939,7 +1076,8 @@ def refute(
         Which refutations to run.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
-        perturbation and 100 for each generated-outcome test.
+        perturbation and 100 for each generated-outcome test. A generated-outcome test
+        refuses a budget below its rule's ``minimum_draws`` before any refit.
     subset_fraction : float
         Share of rows the subset test refits on.
     negative_control_outcome : str or None
@@ -993,9 +1131,22 @@ def refute(
             "generated-outcome refutations require the exact registered "
             "EmpiricalInclusionRule declaration"
         )
+    contrasts: dict[str, tuple[float, float]] = {}
     for name in requested:
         if name in _GENERATED_TESTS:
-            _validate_generated_eligibility(result, estimand, processes[name], name)
+            contrasts[name] = _validate_generated_eligibility(
+                result, estimand, processes[name], name
+            )
+    if generated_requested:
+        # A draw budget below the rule's own floor can only end in "too few draws", and the
+        # caller can see that before any refit is paid for.
+        budget = n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
+        if budget < outcome_rule.minimum_draws:
+            raise CapabilityError(
+                f"a generated-outcome refutation was asked for {budget} draw(s) under a rule "
+                f"that requires {outcome_rule.minimum_draws}; raise n_replicates to at least "
+                f"{outcome_rule.minimum_draws}, or declare a rule with a smaller minimum_draws"
+            )
 
     original = result[estimand].psi
     std_error = result[estimand].std_error
@@ -1111,7 +1262,9 @@ def refute(
                     "the negative_control_outcome test needs an outcome array that treatment "
                     "cannot affect; pass negative_control_outcome=<array>"
                 )
-            replacement = data.with_outcome(negative_control_outcome)
+            replacement = data.with_outcome(
+                negative_control_outcome, name="negative_control_outcome"
+            )
             refitted = estimator.refit(
                 replacement,
                 intermediate_value=result.intermediate_value,
@@ -1148,6 +1301,8 @@ def refute(
                     rule=outcome_rule,
                     n_replicates=replicate_count,
                     root_seed=seed,
+                    value_code=contrasts[name][0],
+                    reference_code=contrasts[name][1],
                 )
             )
 

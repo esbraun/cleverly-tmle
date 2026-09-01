@@ -857,7 +857,9 @@ class CausalData:
             )
         return replace(self, treatment=a)
 
-    def with_outcome(self, outcome: Any, *, family: str = "auto") -> CausalData:
+    def with_outcome(
+        self, outcome: Any, *, family: str = "auto", name: str = "replacement outcome"
+    ) -> CausalData:
         """Return a copy with a validated replacement outcome.
 
         Parameters
@@ -868,6 +870,9 @@ class CausalData:
         family : {"auto", "gaussian", "binomial"}
             Outcome family for the replacement. ``"auto"`` infers it from observed
             replacement values.
+        name : str
+            What the caller calls this outcome. Every refusal names it, so a caller that
+            passes a named argument can report the argument rather than the role.
 
         Returns
         -------
@@ -882,19 +887,18 @@ class CausalData:
         values = np.asarray(outcome)
         if values.ndim == 0 or values.reshape(-1).size != self.n:
             actual = 1 if values.ndim == 0 else values.reshape(-1).size
-            raise DataError(f"replacement outcome has length {actual}, expected {self.n}")
-        cleaned = check_outcome(values, "replacement outcome", self.observed)
+            raise DataError(f"{name} has length {actual}, expected {self.n}")
+        cleaned = check_outcome(values, name, self.observed)
         resolved = infer_family(cleaned, self.observed) if family == "auto" else family
         if resolved not in ("binomial", "gaussian"):
             raise DataError(
-                f"replacement outcome family must be 'binomial', 'gaussian' or 'auto'; "
-                f"got {family!r}"
+                f"{name} family must be 'binomial', 'gaussian' or 'auto'; got {family!r}"
             )
         if resolved == "binomial":
             observed_values = np.unique(cleaned[self.observed])
             if not np.all(np.isin(observed_values, (0.0, 1.0))):
                 raise DataError(
-                    "replacement outcome with family='binomial' requires 0/1 observed "
+                    f"{name} with family='binomial' requires 0/1 observed "
                     f"values; observed {observed_values[:6].tolist()}"
                 )
         return replace(self, outcome=cleaned, family=resolved)

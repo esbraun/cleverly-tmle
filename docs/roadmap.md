@@ -13,9 +13,9 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.2 | Bootstrap measurement-error validation | published support; source audit | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
-| 1.3 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
-| 1.4 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
+| 1.1 | Bootstrap measurement-error validation | published support; source audit | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
+| 1.2 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
+| 1.3 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
