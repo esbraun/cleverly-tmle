@@ -3,7 +3,7 @@
 **[Read the cleverly documentation →](https://esbraun.github.io/cleverly-tmle/)**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
@@ -21,28 +21,28 @@ polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
 [narwhals](https://narwhals-dev.github.io/narwhals/).
 
 > [!WARNING]
-> `cleverly` is alpha software and is not on PyPI. Pin a commit for reproducible work. Unsupported
-> design, estimand, and method combinations fail before nuisance fitting instead of returning an
-> approximation to a different causal question.
+> `cleverly` is alpha software, and releases use `0.1.N` versions. Pin a version for reproducible
+> work. Unsupported combinations fail before nuisance fitting instead of returning an
+> approximation to another causal question.
 
 ## Install
 
-Install the core package from GitHub:
+Install the core package from PyPI:
 
 ```bash
-python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install cleverly
 ```
 
 Add pandas, polars, and plotting support with the `all` extra. Third-party nuisance estimators
 such as XGBoost or LightGBM can be installed separately and passed as sklearn-compatible objects:
 
 ```bash
-python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install "cleverly[all]"
 ```
 
 Python 3.11 or newer is required. See
 [Installation](https://esbraun.github.io/cleverly-tmle/getting-started/installation.html) for a
-development environment and reproducible commit-pinned installs.
+development environment and reproducible version-pinned installs.
 
 ## Quickstart
 
@@ -122,8 +122,9 @@ is the authoritative inventory, and it names the evidence for each row.
 - Extend current methods through persistence, design, splitting, and new evidenced estimands.
 - Build the nested Riesz engine and expand its catalog one evidenced target at a time.
 
-These are accepted directions, not implemented release claims. The [roadmap](docs/roadmap.md)
-gives their binding order. It keeps work without published theory in a separate future grid.
+These are accepted directions, not implemented release claims. The
+[roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) gives their binding
+order. It keeps work without published theory in a separate future grid.
 
 ## Method configuration
 
@@ -174,8 +175,8 @@ also resolves relative links and checks that generated API source represents the
 Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
 relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) gives the branch names, the checks each kind of change needs,
-and the commit style.
+[CONTRIBUTING.md](https://github.com/esbraun/cleverly-tmle/blob/main/CONTRIBUTING.md) gives the
+branch names, the checks each kind of change needs, and the commit style.
 
 ## Citing
 
@@ -186,9 +187,9 @@ listed in the
 
 ## License
 
-[MIT License](LICENSE).
+[MIT License](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE).
 
 The R comparison runners under `tests/canonical/` are under the
-[GNU General Public License v3.0](tests/canonical/LICENSE). They call reference R packages
-in the same process, and one of those packages is AGPL-3. No published distribution carries
-them, so an installed copy of `cleverly` is MIT alone.
+[GNU General Public License v3.0](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/LICENSE).
+They call reference R packages in the same process, and one package is AGPL-3. No published
+distribution carries them, so an installed copy of `cleverly` is MIT alone.

@@ -10,6 +10,7 @@ The full guides live in the documentation site.
 | --- | --- |
 | setup, branch names, the checks, documentation and docstring rules | [Contributing](https://esbraun.github.io/cleverly-tmle/development/contributing.html) |
 | the commit style, the pull request body, what CI does and does not check | [Pull requests](https://esbraun.github.io/cleverly-tmle/development/pull-requests.html) |
+| alpha versions, package checks, tags, and Trusted Publishing | [Releases](https://esbraun.github.io/cleverly-tmle/development/releases.html) |
 | which tier a change has to satisfy | [Test tiers and gates](https://esbraun.github.io/cleverly-tmle/development/testing-strategy.html) |
 | designing and registering a validation study | [Method benchmarking strategy](https://esbraun.github.io/cleverly-tmle/development/method-benchmarking.html) |
 

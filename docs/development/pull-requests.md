@@ -64,7 +64,7 @@ byte-identical. A regeneration that changes nothing is a result, and it belongs 
 
 ## What CI runs on your pull request
 
-`.github/workflows/ci.yml` runs on every pull request. It has five jobs.
+`.github/workflows/ci.yml` runs on every pull request. It has six jobs.
 
 | job | Python | command |
 | --- | --- | --- |
@@ -73,10 +73,15 @@ byte-identical. A regeneration that changes nothing is a result, and it belongs 
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
 | `tests` | 3.11, 3.12, 3.13 | `pytest -m "not slow" -q -n auto` |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
+| `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions, which mirror the
 first four jobs. `minimal-install` has no session, because it installs one dataframe backend and
-nothing else.
+nothing else. The package job builds both distribution formats before it creates clean smoke-test
+environments.
+
+A release-bearing pull request changes `src/cleverly/_version.py` to the next unused `0.1.N`
+version. Read [releases](releases.md) for the version and tag rules.
 
 The `docs` job builds the site that `.github/workflows/pages.yml` deploys, and it treats every
 Sphinx warning as an error. It covers what no fast test can see: numpydoc validation of each

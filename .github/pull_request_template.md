@@ -16,6 +16,7 @@
 - [ ] `pytest -m "not slow" -q` passes
 - [ ] `python -m tests.prose` findings are fixed, or carry `accepted: <reason>` in `tests/prose-report.md`
 - [ ] `nox -s docs` passes, if a document or a docstring changed
+- [ ] `python -m build`, strict Twine validation, archive checks, and clean install checks pass
 - [ ] regenerated artifacts carry matching manifest hashes and line-feed endings
 
 <!-- CI runs all of these except the prose report. Running them locally first saves a round trip,

@@ -41,5 +41,6 @@ These are the documents no reader path introduces on its own.
 | [Test tiers and gates](development/testing-strategy.md) | which tier a change has to satisfy, and which deprecated studies no longer run |
 | [Contributing](development/contributing.md) | how to set up the project, which checks a change needs, and where each working rule is written down |
 | [Pull requests](development/pull-requests.md) | the commit style, the pull request body, what each CI job checks, and what none of them checks |
+| [Releases](development/releases.md) | the alpha version rule, package gates, tag process, and Trusted Publishing setup |
 | [DR-TMLE](technical-reference/dr-tmle/index.md) | the doubly-robust variant's production contract: the supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [References](references.md) | every paper a derivation is read off, with the locators the prose cites |

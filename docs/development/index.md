@@ -7,13 +7,15 @@ behavior is determined by code and tests. A roadmap entry becomes a release clai
 implementation and its evidence gates land.
 
 Start at [contributing](contributing.md) to set up the project and to choose the checks your change
-needs. Read [pull requests](pull-requests.md) before you open one.
+needs. Read [pull requests](pull-requests.md) before you open one. Read
+[releases](releases.md) before you change a version or create a tag.
 
 ```{toctree}
 :maxdepth: 2
 
 Contributing <contributing>
 Pull requests <pull-requests>
+Releases <releases>
 Roadmap <../roadmap>
 Architecture invariants <../architecture-invariants>
 Test tiers and gates <testing-strategy>
