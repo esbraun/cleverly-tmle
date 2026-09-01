@@ -15,6 +15,22 @@ html[data-theme="light"] {
   max-width: 62rem;
 }
 
+/* The theme splits the header into a col-lg-3 brand column and a col-lg-9 item
+   column. The brand column then holds a quarter of the width whatever the brand
+   needs, which leaves the header links too little room and wraps them onto a
+   second row. Size both columns to their content instead. */
+@media (min-width: 992px) {
+  .bd-header .navbar-header-items__start.col-lg-3 {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .bd-header .navbar-header-items.col-lg-9 {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
+
 .cleverly-hero {
   background:
     radial-gradient(circle at 88% 18%, rgb(8 127 140 / 16%), transparent 34%),
