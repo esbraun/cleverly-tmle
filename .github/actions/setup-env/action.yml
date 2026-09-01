@@ -1,7 +1,7 @@
 name: Set up cleverly's environment
 description: >-
   uv, a pinned interpreter, a virtual environment on PATH, and the package installed
-  editable.  The four jobs that need a working cleverly all did this identically.
+  editable from the committed lock. Jobs that need a working cleverly do this identically.
 
 inputs:
   python-version:
@@ -13,8 +13,7 @@ inputs:
     default: dev
   packages:
     description: >-
-      Further requirements to install alongside the package, space-separated.  Used by the
-      typecheck job for its pinned mypy, and empty everywhere else.
+      Further requirements to install after the locked project, space-separated.
     required: false
     default: ""
 
@@ -47,8 +46,13 @@ runs:
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
 
-    - run: uv pip install -e ".[${EXTRA}]" ${PACKAGES}
+    - run: uv sync --locked --extra "${EXTRA}"
       shell: bash
       env:
         EXTRA: ${{ inputs.extra }}
+
+    - if: ${{ inputs.packages != '' }}
+      run: uv pip install ${PACKAGES}
+      shell: bash
+      env:
         PACKAGES: ${{ inputs.packages }}

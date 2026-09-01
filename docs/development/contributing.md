@@ -9,8 +9,7 @@ gives the commit style, the pull request body, and what each CI job checks.
 One person maintains `cleverly`, so a review can take several days. Open an issue before you start
 a large change. An early conversation is cheaper than a rejected branch.
 
-`cleverly` is alpha software. The public API changes between commits, and no version is released
-yet.
+`cleverly` is alpha software. The public API can change between `0.1.N` releases.
 
 The [roadmap](../roadmap.md) is the single planning contract. It puts source-backed work in one
 binding sequence. It keeps work without published theory in a separate future grid. Read its
@@ -58,6 +57,7 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `pytest -m "not slow" -q` | the fast tier, which is the default handoff gate |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
+| `python -m build`, then package checks | distribution metadata, contents, and clean installs |
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
 mirror the CI jobs, so a green `nox` run predicts a green pull request.
@@ -65,6 +65,8 @@ mirror the CI jobs, so a green `nox` run predicts a green pull request.
 Run one test tier at a time. Each tier sizes itself from the machine's cores, and running two
 together oversubscribes every core. [Test tiers and gates](testing-strategy.md) explains the design
 behind the commands.
+
+Read [releases](releases.md) before you change `src/cleverly/_version.py` or create a tag.
 
 ## Choose the checks your change needs
 
@@ -157,7 +159,7 @@ The project has no issue templates yet. Include these items in the issue.
 
 | item | why it is needed |
 | --- | --- |
-| the `cleverly` commit hash | no version is released, so the hash is the only identifier |
+| the `cleverly` version and commit hash | alpha releases can differ from later Git snapshots |
 | your Python version | the supported versions are 3.11, 3.12, and 3.13 |
 | your dataframe backend | some code paths differ between pandas and polars |
 | the learners you passed | estimator behaviour depends on the learner, not on `cleverly` alone |

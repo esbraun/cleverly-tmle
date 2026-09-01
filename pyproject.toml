@@ -1,13 +1,14 @@
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "cleverly"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A Python toolbox for causal studies based on targeted maximum likelihood estimation (TMLE)."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Eric Braun" }]
 keywords = [
@@ -21,7 +22,6 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -62,6 +62,8 @@ dev = [
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",
+    "build>=1.2,<2",
+    "twine>=7,<8",
     # Exact pins live here and in uv.lock. CI and nox install this extra rather than
     # restating versions, so local and automated toolchains resolve from one declaration.
     "ruff==0.16.1",
@@ -73,6 +75,10 @@ dev = [
 Homepage = "https://esbraun.github.io/cleverly-tmle/"
 Documentation = "https://esbraun.github.io/cleverly-tmle/"
 Repository = "https://github.com/esbraun/cleverly-tmle"
+Issues = "https://github.com/esbraun/cleverly-tmle/issues"
+
+[tool.hatch.version]
+path = "src/cleverly/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cleverly"]
