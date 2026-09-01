@@ -72,6 +72,34 @@ because `CausalData.subset` and the shared bootstrap design already shipped.
 A fix moves every existing clustered bootstrap interval. The fix therefore needs its own change,
 its own regression evidence, and a record of the moved intervals.
 
+Resolve K1 in the shared bootstrap sample materialization path. Keep the ordinary
+`CausalData.subset` semantics because a filtered data set must preserve source-cluster identity.
+The bootstrap path must carry both the selected row indices and one contiguous cluster code per
+sampled occurrence. Two draws of one source cluster must receive different codes.
+
+Keep `bootstrap_indices` as the public row-index operation. Reuse one private draw helper for that
+operation and for materialization, so both paths consume the same random stream. The helper must
+build occurrence codes from each selected member block. It must not assume equal cluster sizes.
+
+Materialize all other data through `CausalData.subset`. Replace only the cluster codes on a
+resolved cluster draw. This keeps weight normalization, encodings, strata, backend routing, and
+row order in one existing path. Forced iid resampling on clustered data must retain its current
+behavior.
+
+Acceptance requires a fixed-seed witness that repeats at least one source cluster. Every draw must
+still contain the original cluster count, and every occurrence must contain the selected source
+cluster's complete row block. An unbalanced-cluster control must reject fixed-size occurrence
+codes. Exact row-index controls must prove that iid and cluster draw streams do not move.
+
+Cover both consumers of the shared design. `run_bootstrap()` must pass correctly coded samples to
+its refit, and `bootstrap_measurement_error` must do the same before perturbation. The existing
+clustered end-to-end fit supplies the interval audit. Record its point estimate, bootstrap standard
+error, interval, failure count, and draw vector before and after the fix.
+
+When these checks pass, remove K1 from the open-defect record. Remove the known-defects section if
+no entry remains, and restore the roadmap introduction to proposed work only. The implementation
+commit and pull request retain the structural audit and the moved interval.
+
 ## Eligibility
 
 `cleverly` implements established statistical methods; it does not use a package feature as the
