@@ -231,14 +231,14 @@ has its own derivation.
 
 These fit new models. They cost what a fit costs, multiplied by the number of draws.
 
-### The four refuters
+### Refutation operations
 
 **Why.** A diagnostic reads the fit you have. A refuter constructs a case whose answer is known and
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships four. Three test the implementation. The fourth tests a design, and the paragraph below it
-says what that buys and what it does not.
+ships six operations. Five test the implementation. The negative-control outcome tests a design,
+and the paragraph below states its boundary.
 
 | refuter | what it does | what must happen | what it tests |
 | --- | --- | --- | --- |
@@ -246,9 +246,12 @@ says what that buys and what it does not.
 | `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
+| `dummy_outcome` | draws independent Gaussian noise and refits | the empirical draws include zero | outcome replacement and the full estimator pipeline |
+| `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the empirical draws include the declared effect | adjustment and treatment terms in the full pipeline |
 
-A refuter refits the nuisance models once for each replication. The default is five
-replications of each of three refuters, so `refute()` costs about 15 fits.
+A refuter refits the nuisance models once for each replication. The three default operations use
+five replications each, so `refute()` costs about 15 fits. Generated outcomes use 100 draws by
+default because their decision rule is empirical.
 `run_all(include_refits=True)` runs it. `refute()` draws its randomization from the seed of the
 fit, unless the caller passes `random_state`. A fit that carries a seed gives the same refutation
 on every call. A fit that carries no seed gives a different refutation on every call.
@@ -257,6 +260,46 @@ The report records the seed under `random_state`. Pass that value back to `refut
 the report again. The seed governs the perturbations and the refits they feed, so it repeats
 the report of a fit that carries no seed of its own. The seed applies to a copy of the
 estimator, so a refutation never changes the fit it examines.
+
+Each generated draw derives a child seed from the recorded root seed. The outcome draw and its
+full refit use that child seed. `report.draws_frame(name)` reports every child seed, estimate,
+standard error, family, and failure.
+
+`EmpiricalInclusionRule` uses a two-sided empirical rank and inclusive half-ties. It passes only
+when the empirical probability strictly exceeds alpha, matching the maintained DoWhy convention
+that a probability at or below alpha fails. The default rule
+uses alpha 0.05, requires 40 successful draws, and fails when any refit fails. A failure stays in
+the report as the shared `ReplicationFailure` record, so the operation never reports only the
+conditional distribution of successful fits.
+
+The first process catalog covers Gaussian outcomes and additive `ate`, `att`, or `atc` contrasts.
+The original fit and its configured outcome learner must support that Gaussian family. The fit must
+identify a binary point treatment through a registered backdoor provider, and its functional,
+identified estimand, identification artifact, and parameter key must agree. The operation refuses
+binomial-family, legacy, longitudinal, controlled-direct-effect, missing-outcome, intervention,
+MSM, ratio, and unregistered-provider results before it starts a refit.
+
+```python
+from cleverly.validation import GaussianAdjustmentOutcome, GaussianNoise
+
+process = GaussianAdjustmentOutcome(
+    effect=0.5,
+    adjustment_scale=1.0,
+    noise=GaussianNoise(standard_deviation=1.0),
+)
+report = result.diagnostics.refute(
+    tests=("simulated_outcome",),
+    simulated_outcome=process,
+    random_state=21,
+)
+print(report.summary())
+```
+
+Sharma and Kiciman (2020) define the refutation framework. The maintained
+[DoWhy dummy refuter at revision `2116d5c`](https://github.com/py-why/dowhy/blob/2116d5c/dowhy/causal_refuters/dummy_outcome_refuter.py)
+supplies secondary evidence for independent noise and `f(W) + h(A)`. That implementation uses a
+normal rule below 100 draws and does not retain failed fits. `cleverly` uses the recorded empirical
+rule and failure policy stated above.
 
 A negative-control outcome must have no causal path from treatment. It must also share the relevant
 confounding structure with the primary outcome. A non-null result flags residual bias or a bad

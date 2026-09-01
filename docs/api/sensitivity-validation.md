@@ -36,6 +36,11 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.validation.ScoreCheckRow
    cleverly.validation.NuisanceDiagnostics
    cleverly.validation.NuisanceModelReport
+   cleverly.validation.GaussianNoise
+   cleverly.validation.GaussianIndependentOutcome
+   cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.EmpiricalInclusionRule
+   cleverly.validation.GeneratedOutcomeRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
    cleverly.validation.CoverageStudy

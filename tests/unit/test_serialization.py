@@ -21,6 +21,7 @@ from cleverly import (
 )
 from cleverly.datasets import make_longitudinal, make_nonlinear_ate
 from cleverly.estimators.serialize import dumps, loads, save
+from cleverly.validation import EmpiricalInclusionRule, GaussianIndependentOutcome
 
 
 @pytest.fixture
@@ -63,6 +64,23 @@ def test_loaded_result_can_refit_nuisances(point_result, tmp_path: Path) -> None
     # raising ``n_replicates`` buys no margin, because the gate is 3 sigma at every k below 5.
     report = restored.diagnostics.refute(n_replicates=1, tests=["placebo"], random_state=7)
     assert report.passed
+
+
+def test_generated_outcome_cache_and_records_survive_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
+    kwargs = {
+        "tests": ("dummy_outcome",),
+        "dummy_outcome": GaussianIndependentOutcome(),
+        "n_replicates": 2,
+        "outcome_rule": EmpiricalInclusionRule(minimum_draws=1),
+        "random_state": 17,
+    }
+    report = point_result.diagnostics.refute(**kwargs)
+    assert point_result.diagnostics.refute(**kwargs) is report
+
+    restored = loads(dumps(point_result))
+    cached = restored.diagnostics.refute(**kwargs)
+    assert cached == report
+    assert cached["dummy_outcome"].child_seeds == report["dummy_outcome"].child_seeds
 
 
 def test_byte_round_trip_matches_file_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]

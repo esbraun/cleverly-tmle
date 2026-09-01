@@ -857,6 +857,48 @@ class CausalData:
             )
         return replace(self, treatment=a)
 
+    def with_outcome(self, outcome: Any, *, family: str = "auto") -> CausalData:
+        """Return a copy with a validated replacement outcome.
+
+        Parameters
+        ----------
+        outcome : array-like
+            One replacement value per analysis row. Missing or non-finite values are
+            allowed only on rows already marked as unobserved.
+        family : {"auto", "gaussian", "binomial"}
+            Outcome family for the replacement. ``"auto"`` infers it from observed
+            replacement values.
+
+        Returns
+        -------
+        CausalData
+            A replacement that preserves every role except outcome and family.
+
+        Raises
+        ------
+        DataError
+            If length, observed values, family, or family support is invalid.
+        """
+        values = np.asarray(outcome)
+        if values.ndim == 0 or values.reshape(-1).size != self.n:
+            actual = 1 if values.ndim == 0 else values.reshape(-1).size
+            raise DataError(f"replacement outcome has length {actual}, expected {self.n}")
+        cleaned = check_outcome(values, "replacement outcome", self.observed)
+        resolved = infer_family(cleaned, self.observed) if family == "auto" else family
+        if resolved not in ("binomial", "gaussian"):
+            raise DataError(
+                f"replacement outcome family must be 'binomial', 'gaussian' or 'auto'; "
+                f"got {family!r}"
+            )
+        if resolved == "binomial":
+            observed_values = np.unique(cleaned[self.observed])
+            if not np.all(np.isin(observed_values, (0.0, 1.0))):
+                raise DataError(
+                    "replacement outcome with family='binomial' requires 0/1 observed "
+                    f"values; observed {observed_values[:6].tolist()}"
+                )
+        return replace(self, outcome=cleaned, family=resolved)
+
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
         """A copy with one extra covariate column appended."""
         column = np.asarray(values, dtype=float).reshape(-1, 1)

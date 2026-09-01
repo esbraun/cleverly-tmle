@@ -13,7 +13,6 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Dummy and simulated outcome refutations | source audit complete; implementation planned | existing refit and result-assessment contracts | [S1](#s1-dummy-and-simulated-outcome-refutations) |
 | 1.2 | Bootstrap measurement-error validation | published support; source audit | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
 | 1.3 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
 | 1.4 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
@@ -86,53 +85,9 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next four items extend the post-fit assessment surface. The DoWhy
+records completed studies. The next three items extend the post-fit assessment surface. The DoWhy
 paper supplies the refutation framework and names these tests. Its maintained source supplies
 secondary implementation evidence, not acceptance evidence.
-
-### S1. Dummy and simulated outcome refutations
-
-Add `dummy_outcome` and `simulated_outcome` to the existing `refute()` operation. Keep placebo
-treatment and negative-control outcome tests separate because they test different claims.
-
-The dummy process draws an outcome that is independent of treatment and adjustment variables. Its
-declared effect is zero. The simulated process uses the form `f(W) + h(A) + epsilon`. Its named
-declaration records the adjustment function, treatment term, noise law, family, and known effect.
-
-Use immutable declarations with stable cache identities. Provide a Gaussian independent-noise
-declaration and a Gaussian adjustment-dependent declaration first. A later process type must add
-its own effect derivation and family validation.
-
-Run each draw through the estimator's existing full-refit seam. Resolve one root seed by the
-existing assessment rule. Derive one recorded child seed per draw, and use it for the outcome and
-the refit. Store successful estimates and standard errors as draw records. Store each failed draw
-as the shared replication-failure record, with its index, seed, exception type, and message.
-
-Use a recorded two-sided empirical inclusion rule. The rule compares the declared effect with the
-distribution of successful refits and uses inclusive half-ties. Its declaration records alpha,
-the minimum draw count, and the failure policy. The default outcome rule uses alpha 0.05 and 100
-requested draws. Any failed refit fails the refutation instead of silently changing its sampling
-distribution.
-
-Restrict the first catalog to additive mean contrasts from backdoor-identified binary
-point-treatment results. Refuse a legacy fit without identification metadata before any refit.
-Also refuse longitudinal, controlled-direct-effect, missing-outcome, intervention, MSM, ratio, and
-unsupported-family results. Each refusal names the missing process or effect derivation.
-
-Reuse one `CausalData.with_outcome()` replacement seam for generated and negative-control outcomes.
-It validates length, observed rows, finite values, and family support. The refitted result supplies
-the family recorded in the report. Reuse the assessment facade, persistent cache, backend routing,
-and simulation failure record. Do not add another assessment facade or failure type.
-
-Acceptance needs zero-effect, active-noise, and nonzero-effect controls. Nonzero controls must fail
-after treatment-term removal, sign reversal, or arm reversal. Tests must also cover child-seed
-replay, retained refit failures, all-failure behavior, persistence, dataframe backends, pre-fit
-refusals, and unchanged behavior for the four existing refuters.
-
-Sharma and Kiciman (2020) supply the refutation framework. The maintained DoWhy dummy refuter at
-revision `2116d5c` supplies secondary control-flow evidence for independent noise and
-`f(W) + h(A)`. It assumes a normal rule below 100 draws and does not retain failed fits. The
-implementation uses the declared empirical rule and failure record above instead.
 
 ### S2. Bootstrap measurement-error validation
 
@@ -156,7 +111,7 @@ answer related questions without refitting a simulated confounder. Acceptance re
 strength identity, active perturbation controls, reproducible refits, and a boundary that states
 which treatment and outcome families the source covers.
 
-The governing sources for S1 to S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
+The governing sources for S2 and S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
 for Causal Inference*, and Sharma, Syrgkanis, Zhang and Kiciman (2021), *DoWhy: Addressing
 Challenges in Expressing and Validating Causal Assumptions*. Read the maintained refuter source
 before fixing the finite-sample comparison rules.
