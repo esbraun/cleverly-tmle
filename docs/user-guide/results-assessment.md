@@ -103,7 +103,35 @@ draws = generated.draws_frame("simulated_outcome")
 That call reports `includes 0.5 yes` on 40 successful refits. Each row in `draws` records the
 child seed, estimate, standard error, family, or refit failure.
 
-Two defaults govern the call, and they are separate objects. `n_replicates` defaults to
+Use bootstrap measurement error to assess estimate stability under declared covariate error.
+The operation samples rows first. It then perturbs original adjustment variables and refits the
+complete estimator.
+
+```python
+from cleverly.validation import BootstrapMeasurementError, RelativeGaussianNoise
+
+measurement = ate_result.diagnostics.refute(
+    tests=("bootstrap_measurement_error",),
+    bootstrap_measurement_error=BootstrapMeasurementError(
+        variables=("W1", "W2"),
+        numeric_noise=RelativeGaussianNoise(standard_deviation=0.1),
+    ),
+    n_replicates=40,
+    random_state=21,
+)
+measurement_draws = measurement.draws_frame("bootstrap_measurement_error")
+```
+
+The numeric multiplier uses each variable's standard deviation in its bootstrap sample.
+Categorical changes act on the original variable and rebuild its complete indicator block.
+Set `categorical_change_probability` on the declaration to control those changes.
+
+The operation compares the original estimate with the empirical refit distribution.
+It can pass or fail because it measures stability under the declared error.
+It stays outside `DEFAULT_TESTS` because every draw resamples, perturbs, and refits.
+Plain bootstrap inference does not add measurement error.
+
+Two defaults govern generated-outcome calls, and they are separate objects. `n_replicates` defaults to
 `DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
 `EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
 refit fails. The example above asks for 40 draws, which is the smallest budget the default rule

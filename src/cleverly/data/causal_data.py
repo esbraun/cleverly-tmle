@@ -903,6 +903,35 @@ class CausalData:
                 )
         return replace(self, outcome=cleaned, family=resolved)
 
+    def with_covariates(
+        self, covariates: Any, *, name: str = "replacement covariates"
+    ) -> CausalData:
+        """Return a copy with a validated complete covariate design.
+
+        Parameters
+        ----------
+        covariates : array-like
+            Complete encoded design with the same shape as the fitted design.
+        name : str
+            Name used in validation errors.
+
+        Returns
+        -------
+        CausalData
+            A replacement that preserves every role and encoding declaration.
+
+        Raises
+        ------
+        DataError
+            If the replacement has the wrong shape or contains non-finite values.
+        """
+        values = np.asarray(covariates, dtype=float)
+        if values.shape != self.covariates.shape:
+            raise DataError(f"{name} has shape {values.shape}, expected {self.covariates.shape}")
+        if not np.all(np.isfinite(values)):
+            raise DataError(f"{name} contains non-finite values")
+        return replace(self, covariates=values)
+
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
         """A copy with one extra covariate column appended."""
         column = np.asarray(values, dtype=float).reshape(-1, 1)
@@ -1078,6 +1107,14 @@ def _encode_covariates(
         if dtype == nw.Boolean:
             blocks.append(column_array(frame, name).reshape(-1, 1))
             out_names.append(name)
+            encodings.append(
+                CategoricalEncoding(
+                    column=name,
+                    levels=(False, True),
+                    dropped_level=False,
+                    generated=(name,),
+                )
+            )
             continue
         values = frame[name].to_numpy()
         levels = tuple(np.unique(values).tolist())

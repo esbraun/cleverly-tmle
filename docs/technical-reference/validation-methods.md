@@ -237,7 +237,7 @@ These fit new models. They cost what a fit costs, multiplied by the number of dr
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships six operations. Five test the implementation. The negative-control outcome tests a design,
+ships seven operations. Six test the implementation. The negative-control outcome tests a design,
 and the paragraph below states its boundary.
 
 | refuter | what it does | what must happen | what it tests |
@@ -248,10 +248,11 @@ and the paragraph below states its boundary.
 | `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws independent Gaussian noise and refits | the empirical draws include zero | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the empirical draws include the declared effect | adjustment and treatment terms in the full pipeline |
+| `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits | the empirical draws include the original estimate | stability under the declared measurement error |
 
 A refuter refits the nuisance models once for each replication. The three default operations use
-five replications each, so `refute()` costs about 15 fits. Generated outcomes use 100 draws by
-default because their decision rule is empirical. `run_all(include_refits=True)` runs `refute()`.
+five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
+default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
 
 `refute()` draws its randomization from the seed of the fit, unless the caller passes
 `random_state`. A fit that carries a seed gives the same refutation on every call. A fit that
@@ -262,9 +263,10 @@ the report again. The seed governs the perturbations and the refits they feed, s
 the report of a fit that carries no seed of its own. The seed applies to a copy of the
 estimator, so a refutation never changes the fit it examines.
 
-Each generated draw derives a child seed from the recorded root seed. The outcome draw and its
+Each empirical draw derives a child seed from the recorded root seed. The perturbation and its
 full refit use that child seed. `report.draws_frame(name)` reports every child seed, estimate,
-standard error, family, and failure.
+standard error, family, and failure. `GeneratedOutcomeRecord` remains an alias for the shared
+`EmpiricalRefitRecord`.
 
 `EmpiricalInclusionRule` uses a two-sided empirical rank and inclusive half-ties. It passes only
 when the empirical probability strictly exceeds alpha, matching the maintained DoWhy convention
@@ -276,6 +278,20 @@ successful fits.
 The rule count and the draw budget are separate defaults. `DEFAULT_OUTCOME_REPLICATES` is 100 and
 sets `n_replicates`. `EmpiricalInclusionRule()` requires 40 successful draws and sets no budget.
 The operation refuses a budget below the rule's minimum before it refits anything.
+
+Bootstrap measurement error uses the same rule against the original estimate. It draws an iid or
+whole-cluster sample through the inference bootstrap design. It perturbs numeric variables with
+mean-zero Gaussian noise after sampling. The noise scale is the declared multiplier times the
+selected variable's bootstrap-sample standard deviation.
+
+The categorical path recovers original logical levels from `CausalData.encodings`. Each changed
+row draws uniformly from the other levels. The operation then rebuilds the complete drop-first
+indicator block. Boolean covariates use the same two-level path.
+
+The operation refuses generated indicator names, unknown variables, selected strata variables,
+and cluster resampling without clusters before the first refit. The first catalog accepts only
+point-treatment `CausalData` results. The report records the declaration, requested draw count,
+resolved mode, rule, estimates, standard errors, child seeds, and failures.
 
 **Alpha is a width here, and not a false-alarm rate.** The rule decides one question. Does the
 declared effect lie inside the central `1 - alpha` of the refit estimates? At the default alpha
@@ -358,6 +374,12 @@ normal rule below 100 draws, which `perform_normal_distribution_test` in
 no `try` block, and its refits run under `joblib.Parallel`, so one failed refit aborts the whole
 refutation. `cleverly` keeps each failed refit as a `ReplicationFailure` record and fails the
 refutation under the rule stated above.
+
+The maintained DoWhy bootstrap refuter at the same revision supplies secondary control-flow
+evidence for measurement-error sampling and refitting. `cleverly` does not copy three defects in
+that source. It uses logical metadata for numeric and categorical variables. It does not reuse a
+Boolean probability array for another categorical variable. It derives a distinct child seed for
+each draw.
 
 A negative-control outcome must have no causal path from treatment. It must also share the relevant
 confounding structure with the primary outcome. A non-null result flags residual bias or a bad

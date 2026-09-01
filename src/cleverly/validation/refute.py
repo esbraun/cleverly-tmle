@@ -48,13 +48,14 @@ Each test refits the model, so a full run costs several times a single fit.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from ..exceptions import CapabilityError
+from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
 from .simulation import ReplicationFailure
@@ -65,13 +66,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "DEFAULT_OUTCOME_REPLICATES",
     "DEFAULT_TESTS",
+    "BootstrapMeasurementError",
     "EmpiricalInclusionRule",
+    "EmpiricalRefitRecord",
     "GaussianAdjustmentOutcome",
     "GaussianIndependentOutcome",
     "GaussianNoise",
     "GeneratedOutcomeRecord",
     "RefutationResult",
     "RefutationTest",
+    "RelativeGaussianNoise",
     "refute",
 ]
 
@@ -122,6 +126,82 @@ class GaussianNoise:
             Independent Gaussian values.
         """
         return np.asarray(rng.normal(self.mean, self.standard_deviation, size=size), dtype=float)
+
+
+@dataclass(frozen=True)
+class RelativeGaussianNoise:
+    """Declare mean-zero numeric noise relative to a sampled variable.
+
+    Parameters
+    ----------
+    standard_deviation : float
+        Nonnegative multiple of the variable's bootstrap-sample standard deviation.
+    """
+
+    standard_deviation: float = 0.1
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.standard_deviation) or self.standard_deviation < 0.0:
+            raise ValueError("relative Gaussian standard_deviation must be finite and nonnegative")
+
+    def draw(self, rng: np.random.Generator, values: Any) -> np.ndarray:
+        """Draw noise on the declared bootstrap-sample scale.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Generator that supplies the draw.
+        values : array-like
+            Sampled numeric variable whose population standard deviation sets the scale.
+
+        Returns
+        -------
+        ndarray
+            One mean-zero Gaussian draw per value.
+        """
+        sample = np.asarray(values, dtype=float).reshape(-1)
+        scale = self.standard_deviation * float(np.std(sample, ddof=0))
+        return np.asarray(rng.normal(0.0, scale, size=sample.size), dtype=float)
+
+
+@dataclass(frozen=True)
+class BootstrapMeasurementError:
+    """Declare bootstrap measurement-error validation for adjustment variables.
+
+    Parameters
+    ----------
+    variables : tuple of str
+        Original logical adjustment-variable names to perturb.
+    numeric_noise : RelativeGaussianNoise
+        Relative law for each selected numeric variable.
+    categorical_change_probability : float
+        Probability that a selected categorical value changes to another level.
+    resampling : {"auto", "iid", "cluster"}
+        Bootstrap unit. ``"auto"`` uses clusters when the fit declares them.
+    """
+
+    variables: tuple[str, ...]
+    numeric_noise: RelativeGaussianNoise = RelativeGaussianNoise()
+    categorical_change_probability: float = 0.1
+    resampling: Resampling = "auto"
+
+    def __post_init__(self) -> None:
+        if isinstance(self.variables, str):
+            raise ValueError("bootstrap measurement error variables must be a sequence of names")
+        object.__setattr__(self, "variables", tuple(self.variables))
+        if not self.variables:
+            raise ValueError("bootstrap measurement error variables must not be empty")
+        if len(set(self.variables)) != len(self.variables):
+            raise ValueError("bootstrap measurement error variables must not repeat")
+        if not all(isinstance(name, str) and name for name in self.variables):
+            raise ValueError("bootstrap measurement error variables must be nonempty names")
+        if type(self.numeric_noise) is not RelativeGaussianNoise:
+            raise ValueError("numeric_noise must be a RelativeGaussianNoise declaration")
+        probability = self.categorical_change_probability
+        if not np.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError("categorical_change_probability must be between zero and one")
+        if self.resampling not in ("auto", "iid", "cluster"):
+            raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
 
 
 @dataclass(frozen=True)
@@ -380,8 +460,8 @@ class EmpiricalInclusionRule:
 
 
 @dataclass(frozen=True)
-class GeneratedOutcomeRecord:
-    """One successful generated-outcome refit.
+class EmpiricalRefitRecord:
+    """One successful empirical refit.
 
     Parameters
     ----------
@@ -405,6 +485,11 @@ class GeneratedOutcomeRecord:
     estimate: float
     std_error: float
     family: str
+
+
+# Compatibility alias. Saved reports and callers that imported the established name keep
+# the same class object while new empirical operations use the generic declaration.
+GeneratedOutcomeRecord = EmpiricalRefitRecord
 
 
 def _format_number(value: float | None) -> str:
@@ -449,8 +534,8 @@ class RefutationTest:
         Immutable outcome-process declaration, for a generated-outcome test.
     rule : EmpiricalInclusionRule or None
         Recorded inclusion rule, for a generated-outcome test.
-    records : tuple of GeneratedOutcomeRecord
-        Successful generated-outcome draws.
+    records : tuple of EmpiricalRefitRecord
+        Successful empirical refit draws.
     failures : tuple of ReplicationFailure
         Failed generated-outcome draws retained by the shared failure contract.
     family : str or None
@@ -462,6 +547,10 @@ class RefutationTest:
         Effect the declared process implies for this test's own contrast direction, and
         ``None`` for an older refuter. It carries the sign of the parameter key: a fit
         that reports code zero against code one declares the negated process effect.
+    requested_draws : int or None
+        Requested empirical draw count.
+    resampling : str or None
+        Resolved bootstrap mode for a bootstrap-based refuter.
     """
 
     name: str
@@ -474,11 +563,13 @@ class RefutationTest:
     standard_errors: tuple[float, ...] = ()
     declaration: Any = None
     rule: EmpiricalInclusionRule | None = None
-    records: tuple[GeneratedOutcomeRecord, ...] = ()
+    records: tuple[EmpiricalRefitRecord, ...] = ()
     failures: tuple[ReplicationFailure, ...] = ()
     family: str | None = None
     empirical_pvalue: float | None = None
     declared_effect: float | None = None
+    requested_draws: int | None = None
+    resampling: str | None = None
 
     @property
     def mean(self) -> float:
@@ -644,6 +735,8 @@ class RefutationResult:
             "successful_draws": [len(test.records) for test in self.tests],
             "failed_draws": [test.n_failed for test in self.tests],
             "empirical_pvalue": [test.empirical_pvalue for test in self.tests],
+            "requested_draws": [test.requested_draws for test in self.tests],
+            "resampling": [test.resampling for test in self.tests],
             "expectation": [test.expectation for test in self.tests],
             "passed": [test.passed for test in self.tests],
         }
@@ -724,6 +817,7 @@ _KNOWN_TESTS = (
     "negative_control_outcome",
     "dummy_outcome",
     "simulated_outcome",
+    "bootstrap_measurement_error",
 )
 _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
@@ -958,6 +1052,208 @@ def _validate_generated_eligibility(
     return value_code, reference_code
 
 
+def _run_empirical_refits(
+    result: Any,
+    *,
+    estimand: str,
+    draws: Sequence[tuple[int, int]],
+    replacement: Callable[[int, int], Any],
+    expected_family: str,
+) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
+    """Run, validate, and retain empirical refits through one failure contract."""
+    records: list[EmpiricalRefitRecord] = []
+    failures: list[ReplicationFailure] = []
+    for replicate, child_seed in draws:
+        prepared = replacement(replicate, child_seed)
+        try:
+            refitted = result.estimator.refit(
+                prepared,
+                intermediate_value=result.intermediate_value,
+                random_state=child_seed,
+            )
+        except Exception as error:  # an estimator failure belongs in the report
+            failures.append(
+                ReplicationFailure(
+                    replicate=replicate,
+                    seed=child_seed,
+                    error_type=type(error).__name__,
+                    message=str(error),
+                )
+            )
+            continue
+        fitted_family = str(refitted.data.family)
+        if fitted_family != expected_family:
+            raise RuntimeError(
+                f"empirical refit reported authoritative family={fitted_family!r}; expected "
+                f"{expected_family!r}"
+            )
+        estimate = refitted[estimand]
+        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.std_error):
+            failures.append(
+                ReplicationFailure(
+                    replicate=replicate,
+                    seed=child_seed,
+                    error_type="ValueError",
+                    message="refitted estimate or standard error is non-finite",
+                )
+            )
+            continue
+        records.append(
+            EmpiricalRefitRecord(
+                replicate=replicate,
+                seed=child_seed,
+                estimand=estimand,
+                estimate=float(estimate.psi),
+                std_error=float(estimate.std_error),
+                family=fitted_family,
+            )
+        )
+    return tuple(records), tuple(failures)
+
+
+def _measurement_encodings(data: Any) -> dict[str, Any]:
+    return {encoding.column: encoding for encoding in data.encodings}
+
+
+def _validate_measurement_error_eligibility(
+    result: Any, declaration: BootstrapMeasurementError, n_replicates: int
+) -> Any:
+    """Validate the complete bootstrap measurement-error request before refitting."""
+    from ..data import CausalData
+
+    data = getattr(result, "data", None)
+    if type(data) is not CausalData:
+        raise CapabilityError(
+            "bootstrap_measurement_error supports point-treatment CausalData results; "
+            f"got result family {type(result).__name__} with data family {type(data).__name__}"
+        )
+    if n_replicates < 1:
+        raise ValueError("n_replicates must be positive")
+    if declaration.resampling == "cluster" and data.cluster is None:
+        raise CapabilityError("resampling='cluster' requires the data to carry cluster ids")
+    selected_strata = set(declaration.variables).intersection(data.strata_names)
+    if selected_strata:
+        raise CapabilityError(
+            "bootstrap_measurement_error cannot perturb selected strata variables while "
+            f"preserving target metadata: {sorted(selected_strata)}"
+        )
+    encodings = _measurement_encodings(data)
+    generated = {
+        name: encoding.column
+        for encoding in data.encodings
+        for name in encoding.generated
+        if name != encoding.column
+    }
+    numeric = set(data.covariate_names).difference(generated)
+    original = numeric.union(encodings)
+    unknown = [name for name in declaration.variables if name not in original]
+    if unknown:
+        indicator = next((name for name in unknown if name in generated), None)
+        if indicator is not None:
+            raise CapabilityError(
+                f"{indicator!r} is a generated indicator for original categorical variable "
+                f"{generated[indicator]!r}; select the original variable"
+            )
+        raise CapabilityError(
+            f"unknown adjustment variables {unknown}; choose from {sorted(original)}"
+        )
+    return data
+
+
+def _categorical_codes(data: Any, encoding: Any) -> np.ndarray:
+    columns = [data.covariate_names.index(name) for name in encoding.generated]
+    block = np.asarray(data.covariates[:, columns], dtype=float)
+    valid = np.all(np.isin(block, (0.0, 1.0)), axis=1) & (np.sum(block, axis=1) <= 1.0)
+    if not np.all(valid):
+        raise RuntimeError(
+            f"encoded block for {encoding.column!r} is not a valid drop-first indicator block"
+        )
+    active = np.argmax(block, axis=1) + 1
+    return np.where(np.sum(block, axis=1) == 0.0, 0, active).astype(np.int64)
+
+
+def _perturb_measurement_error(
+    data: Any, declaration: BootstrapMeasurementError, *, seed: int
+) -> Any:
+    """Perturb sampled adjustment variables and rebuild complete categorical blocks."""
+    rng = np.random.default_rng(seed)
+    values = np.array(data.covariates, dtype=float, copy=True)
+    encodings = _measurement_encodings(data)
+    for name in declaration.variables:
+        encoding = encodings.get(name)
+        if encoding is None:
+            column = data.covariate_names.index(name)
+            values[:, column] += declaration.numeric_noise.draw(rng, values[:, column])
+            continue
+        columns = [data.covariate_names.index(item) for item in encoding.generated]
+        codes = _categorical_codes(data, encoding)
+        change = rng.random(data.n) < declaration.categorical_change_probability
+        if np.any(change):
+            alternatives = rng.integers(0, len(encoding.levels) - 1, size=int(np.sum(change)))
+            current = codes[change]
+            codes[change] = alternatives + (alternatives >= current)
+        rebuilt = np.column_stack(
+            [np.asarray(codes == code, dtype=float) for code in range(1, len(encoding.levels))]
+        )
+        values[:, columns] = rebuilt
+    return data.with_covariates(values, name="measurement-error covariates")
+
+
+def _bootstrap_measurement_error_test(
+    result: Any,
+    *,
+    estimand: str,
+    original: float,
+    declaration: BootstrapMeasurementError,
+    rule: EmpiricalInclusionRule,
+    n_replicates: int,
+    root_seed: int,
+) -> RefutationTest:
+    data = _validate_measurement_error_eligibility(result, declaration, n_replicates)
+    design = _bootstrap_design(
+        data,
+        n_replicates=n_replicates,
+        resampling=declaration.resampling,
+        random_state=root_seed,
+    )
+    draw_by_replicate = {draw.replicate: draw for draw in design.draws}
+    records, failures = _run_empirical_refits(
+        result,
+        estimand=estimand,
+        draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        replacement=lambda replicate, seed: _perturb_measurement_error(
+            design.sample(data, draw_by_replicate[replicate]), declaration, seed=seed
+        ),
+        expected_family=data.family,
+    )
+    values = tuple(item.estimate for item in records)
+    passed, probability, detail = rule.evaluate(values, original, failures)
+    families = {item.family for item in records}
+    family = next(iter(families)) if len(families) == 1 else None
+    if len(families) > 1:
+        passed = False
+        detail = f"successful refits reported inconsistent outcome families {sorted(families)}"
+    return RefutationTest(
+        name="bootstrap_measurement_error",
+        estimand=estimand,
+        original=original,
+        values=values,
+        expectation=f"includes {original:.5g}",
+        passed=passed,
+        detail=detail,
+        standard_errors=tuple(item.std_error for item in records),
+        declaration=declaration,
+        rule=rule,
+        records=records,
+        failures=failures,
+        family=family,
+        empirical_pvalue=probability,
+        declared_effect=original,
+        requested_draws=n_replicates,
+        resampling=design.resampling,
+    )
+
+
 def _generated_outcome_test(
     result: Any,
     *,
@@ -971,56 +1267,17 @@ def _generated_outcome_test(
     value_code: float,
     reference_code: float,
 ) -> RefutationTest:
-    records: list[GeneratedOutcomeRecord] = []
-    failures: list[ReplicationFailure] = []
-    estimator = result.estimator
     data = result.data
-    for index, child_seed in enumerate(_generated_child_seeds(root_seed, name, n_replicates)):
-        generated = process.draw(data, seed=child_seed)
-        replacement = data.with_outcome(generated, family=process.family)
-        try:
-            refitted = estimator.refit(
-                replacement,
-                intermediate_value=result.intermediate_value,
-                random_state=child_seed,
-            )
-        except Exception as error:  # an estimator failure belongs in the report
-            failures.append(
-                ReplicationFailure(
-                    replicate=index,
-                    seed=child_seed,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-            )
-            continue
-        fitted_family = str(refitted.data.family)
-        if fitted_family != process.family:
-            raise RuntimeError(
-                f"{name} refit reported authoritative family={fitted_family!r}; expected "
-                f"the declared process family={process.family!r}"
-            )
-        estimate = refitted[estimand]
-        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.std_error):
-            failures.append(
-                ReplicationFailure(
-                    replicate=index,
-                    seed=child_seed,
-                    error_type="ValueError",
-                    message="refitted estimate or standard error is non-finite",
-                )
-            )
-            continue
-        records.append(
-            GeneratedOutcomeRecord(
-                replicate=index,
-                seed=child_seed,
-                estimand=estimand,
-                estimate=float(estimate.psi),
-                std_error=float(estimate.std_error),
-                family=fitted_family,
-            )
-        )
+    seeds = _generated_child_seeds(root_seed, name, n_replicates)
+    records, failures = _run_empirical_refits(
+        result,
+        estimand=estimand,
+        draws=tuple(enumerate(seeds)),
+        replacement=lambda _replicate, seed: data.with_outcome(
+            process.draw(data, seed=seed), family=process.family
+        ),
+        expected_family=process.family,
+    )
     values = tuple(item.estimate for item in records)
     # The additive treatment term makes the arm contrast linear in the code difference, so
     # the declared effect is the process effect signed by the key's own direction.
@@ -1042,11 +1299,12 @@ def _generated_outcome_test(
         standard_errors=tuple(item.std_error for item in records),
         declaration=process,
         rule=rule,
-        records=tuple(records),
-        failures=tuple(failures),
+        records=records,
+        failures=failures,
         family=family,
         empirical_pvalue=probability,
         declared_effect=declared_effect,
+        requested_draws=n_replicates,
     )
 
 
@@ -1061,6 +1319,8 @@ def refute(
     dummy_outcome: GaussianIndependentOutcome | None = None,
     simulated_outcome: GaussianAdjustmentOutcome | None = None,
     outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    bootstrap_measurement_error: BootstrapMeasurementError | None = None,
+    measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     random_state: int | None = None,
     tolerance: float = 3.0,
 ) -> RefutationResult:
@@ -1088,6 +1348,10 @@ def refute(
         Adjustment-dependent additive process. ``None`` uses the default declaration.
     outcome_rule : EmpiricalInclusionRule
         Recorded rule applied to generated-outcome refits.
+    bootstrap_measurement_error : BootstrapMeasurementError or None
+        Measurement-error declaration. Required when the named test is requested.
+    measurement_error_rule : EmpiricalInclusionRule
+        Recorded rule that compares the original estimate with measurement-error refits.
     random_state : int or None
         Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
         seeded fit gives the same refutation every time.  An unseeded fit draws a seed, and
@@ -1113,8 +1377,12 @@ def refute(
         raise ValueError(
             f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
         )
-    if n_replicates is not None and n_replicates < 1:
-        raise ValueError("n_replicates must be positive")
+    if n_replicates is not None and (
+        isinstance(n_replicates, bool)
+        or not isinstance(n_replicates, (int, np.integer))
+        or n_replicates < 1
+    ):
+        raise ValueError("n_replicates must be positive and an integer")
 
     processes: dict[str, GaussianIndependentOutcome | GaussianAdjustmentOutcome] = {
         "dummy_outcome": (GaussianIndependentOutcome() if dummy_outcome is None else dummy_outcome),
@@ -1136,6 +1404,30 @@ def refute(
         if name in _GENERATED_TESTS:
             contrasts[name] = _validate_generated_eligibility(
                 result, estimand, processes[name], name
+            )
+    measurement_requested = "bootstrap_measurement_error" in requested
+    if measurement_requested:
+        if type(bootstrap_measurement_error) is not BootstrapMeasurementError:
+            raise CapabilityError(
+                "bootstrap_measurement_error requires the exact registered "
+                "BootstrapMeasurementError declaration"
+            )
+        if type(measurement_error_rule) is not EmpiricalInclusionRule:
+            raise CapabilityError(
+                "bootstrap_measurement_error requires the exact registered "
+                "EmpiricalInclusionRule declaration"
+            )
+        measurement_budget = (
+            n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
+        )
+        _validate_measurement_error_eligibility(
+            result, bootstrap_measurement_error, measurement_budget
+        )
+        if measurement_budget < measurement_error_rule.minimum_draws:
+            raise CapabilityError(
+                f"bootstrap_measurement_error was asked for {measurement_budget} draw(s) "
+                f"under a rule that requires {measurement_error_rule.minimum_draws}; raise "
+                "n_replicates or declare a rule with a smaller minimum_draws"
             )
     if generated_requested:
         # A draw budget below the rule's own floor can only end in "too few draws", and the
@@ -1178,7 +1470,7 @@ def refute(
             if n_replicates is not None
             else (
                 DEFAULT_OUTCOME_REPLICATES
-                if name in _GENERATED_TESTS
+                if name in _GENERATED_TESTS or name == "bootstrap_measurement_error"
                 else _DEFAULT_LEGACY_REPLICATES
             )
         )
@@ -1290,7 +1582,7 @@ def refute(
                 )
             )
 
-        else:
+        elif name in _GENERATED_TESTS:
             outcomes.append(
                 _generated_outcome_test(
                     result,
@@ -1303,6 +1595,20 @@ def refute(
                     root_seed=seed,
                     value_code=contrasts[name][0],
                     reference_code=contrasts[name][1],
+                )
+            )
+        else:
+            # The preflight above proves the declaration's exact type.
+            assert bootstrap_measurement_error is not None
+            outcomes.append(
+                _bootstrap_measurement_error_test(
+                    result,
+                    estimand=estimand,
+                    original=original,
+                    declaration=bootstrap_measurement_error,
+                    rule=measurement_error_rule,
+                    n_replicates=replicate_count,
+                    root_seed=seed,
                 )
             )
 

@@ -13,9 +13,8 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Bootstrap measurement-error validation | source audit complete; implementation planned | existing refit and result-assessment contracts | [S2](#s2-bootstrap-measurement-error-validation) |
-| 1.2 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
-| 1.3 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
+| 1.1 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
+| 1.2 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
@@ -85,65 +84,9 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next three items extend the post-fit assessment surface. The DoWhy
+records completed studies. The next two items extend the post-fit assessment surface. The DoWhy
 paper supplies the refutation framework and names these tests. Its maintained source supplies
 secondary implementation evidence, not acceptance evidence.
-
-### S2. Bootstrap measurement-error validation
-
-Add `bootstrap_measurement_error` to the existing `refute()` operation. Keep it out of
-`DEFAULT_TESTS` because each draw resamples the data, perturbs it, and refits the complete
-estimator.
-
-Use an immutable `BootstrapMeasurementError` declaration. It names the original adjustment
-variables, a `RelativeGaussianNoise` law, a categorical change probability, and the bootstrap
-resampling mode. The numeric law draws mean-zero noise whose standard deviation is a declared
-multiple of the selected variable's bootstrap-sample standard deviation.
-
-Draw an n-out-of-n bootstrap sample through the existing iid or whole-cluster bootstrap contract.
-Perturb the selected adjustment variables after sampling, then refit every nuisance and targeting
-step. Plain bootstrap inference stays separate because it estimates sampling uncertainty without
-the measurement-error perturbation.
-
-Perturb a categorical variable at its original logical-variable level. A changed row draws
-uniformly from the other declared levels, then the operation rebuilds the complete indicator
-block. Treat a logical Boolean covariate as a two-level categorical variable. Do not mutate one
-encoded indicator independently of its block.
-
-Compare the original point estimate with the empirical refit distribution through the existing
-inclusive-half-tie `EmpiricalInclusionRule`. A probability equal to alpha fails. Too few successful
-draws or any failed refit also fails under the recorded rule. Active perturbation may pass or fail,
-because the operation measures stability instead of enforcing an arbitrary effect-size tolerance.
-
-Record one root seed and one child seed per draw. The result names the selected variables, both
-noise declarations, requested bootstrap size, resolved resampling mode, comparison rule,
-successful estimates, standard errors, and retained refit failures. Use one generic refit record
-and runner for generated-outcome and measurement-error operations. Preserve the existing
-generated-outcome record name as a compatibility alias.
-
-Reuse one validated complete-covariate replacement seam on `CausalData`. Reuse one internal
-bootstrap design for this operation and `run_bootstrap()`, while keeping perturbation out of the
-inference API. Preserve the existing bootstrap draw order, weight normalization, cluster behavior,
-assessment cache, persistence, backend routing, and headline result.
-
-Refuse invalid declarations before the first refit. This includes empty, repeated, or unknown
-variables; generated indicator names instead of original categorical names; invalid numeric noise,
-change probability, resampling mode, or draw count; cluster resampling without clusters; and a
-selected strata variable whose target metadata the operation cannot perturb coherently. The first
-catalog accepts point-treatment `CausalData` results and refuses unsupported result families by
-name.
-
-Acceptance requires deterministic zero-noise parity with plain bootstrap sampling. It also needs
-active numeric noise, active Boolean and multi-level categorical changes, indicator validity,
-whole-cluster sampling, seed replay, distinct child draws, retained failures, persistence, cache,
-and pandas and polars controls. Deliberate mutations that disable numeric scaling or categorical
-switching must make their controls fail. Existing refuters and bootstrap inference stay unchanged.
-
-Sharma and Kiciman (2020) supply the refutation framework. The maintained DoWhy bootstrap refuter
-at revision `2116d5c` supplies secondary control-flow evidence. Three source defects are not part
-of this contract: its numeric dtype expression recognizes only float-like names, its categorical
-branch reuses a probability array from the Boolean branch, and every simulation receives the same
-random state. The implementation uses explicit logical metadata and derived child seeds instead.
 
 ### S3. Simulated unobserved-confounder sensitivity
 
@@ -156,7 +99,7 @@ answer related questions without refitting a simulated confounder. Acceptance re
 strength identity, active perturbation controls, reproducible refits, and a boundary that states
 which treatment and outcome families the source covers.
 
-The governing sources for S2 and S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
+The governing sources for S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
 for Causal Inference*, and Sharma, Syrgkanis, Zhang and Kiciman (2021), *DoWhy: Addressing
 Challenges in Expressing and Validating Causal Assumptions*. Read the maintained refuter source
 before fixing the finite-sample comparison rules.

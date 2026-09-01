@@ -118,7 +118,10 @@ categorized API tables.
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.RelativeGaussianNoise
+   cleverly.validation.BootstrapMeasurementError
    cleverly.validation.EmpiricalInclusionRule
+   cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.GeneratedOutcomeRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult

@@ -21,7 +21,12 @@ from cleverly import (
 )
 from cleverly.datasets import make_longitudinal, make_nonlinear_ate
 from cleverly.estimators.serialize import dumps, loads, save
-from cleverly.validation import EmpiricalInclusionRule, GaussianIndependentOutcome
+from cleverly.validation import (
+    BootstrapMeasurementError,
+    EmpiricalInclusionRule,
+    GaussianIndependentOutcome,
+    RelativeGaussianNoise,
+)
 
 
 @pytest.fixture
@@ -82,6 +87,29 @@ def test_generated_outcome_cache_and_records_survive_round_trip(point_result) ->
     cached = restored.diagnostics.refute(**kwargs)
     assert cached == report
     assert cached["dummy_outcome"].child_seeds == report["dummy_outcome"].child_seeds
+
+
+def test_measurement_error_cache_and_records_survive_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
+    kwargs = {
+        "tests": ("bootstrap_measurement_error",),
+        "bootstrap_measurement_error": BootstrapMeasurementError(
+            ("W1",), numeric_noise=RelativeGaussianNoise(0.0)
+        ),
+        "n_replicates": 4,
+        "measurement_error_rule": EmpiricalInclusionRule(alpha=0.5, minimum_draws=4),
+        "random_state": 17,
+    }
+    report = point_result.diagnostics.refute(**kwargs)
+    assert point_result.diagnostics.refute(**kwargs) is report
+    assert point_result["ate"].psi == report["bootstrap_measurement_error"].original
+
+    restored = loads(dumps(point_result))
+    cached = restored.diagnostics.refute(**kwargs)
+    assert cached == report
+    assert (
+        cached["bootstrap_measurement_error"].child_seeds
+        == report["bootstrap_measurement_error"].child_seeds
+    )
 
 
 def test_byte_round_trip_matches_file_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
