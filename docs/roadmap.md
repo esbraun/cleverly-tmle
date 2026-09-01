@@ -13,7 +13,7 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Simulated unobserved-confounder sensitivity | published support; source audit | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
+| 1.1 | Simulated unobserved-confounder sensitivity | source audit complete; implementation planned | existing sensitivity and refit contracts | [S3](#s3-simulated-unobserved-confounder-sensitivity) |
 | 1.2 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
@@ -90,19 +90,139 @@ secondary implementation evidence, not acceptance evidence.
 
 ### S3. Simulated unobserved-confounder sensitivity
 
-Add a latent-variable simulation whose strength against treatment and outcome is explicit. Report
-the estimate over the declared strength grid and calibrate the grid against observed covariates
-where the source supports that comparison.
+#### Purpose and scientific boundary
 
-Do not relabel the existing omitted-variable bound, robustness value, or E-value. Those methods
-answer related questions without refitting a simulated confounder. Acceptance requires a zero-
-strength identity, active perturbation controls, reproducible refits, and a boundary that states
-which treatment and outcome families the source covers.
+Add a qualitative stress surface for a simulated common cause. The surface reports how point
+estimates move across an explicit treatment-strength and outcome-strength grid.
 
-The governing sources for S3 are Sharma and Kiciman (2020), *DoWhy: An End-to-End Library
-for Causal Inference*, and Sharma, Syrgkanis, Zhang and Kiciman (2021), *DoWhy: Addressing
-Challenges in Expressing and Validating Causal Assumptions*. Read the maintained refuter source
-before fixing the finite-sample comparison rules.
+The governing sources are Sharma and Kiciman (2020) and Sharma et al. (2021). They name this
+common-cause simulation and state its qualitative role. They do not derive a sensitivity bound,
+calibration formula, corrected estimate, or inferential test.
+
+The result must not report a p-value, confidence interval, corrected estimate, bound, robustness
+value, threshold, or pass/fail verdict. It must not relabel the existing omitted-variable bound,
+robustness value, or E-value. Those methods answer different questions without simulated refits.
+
+The maintained DoWhy refuter source at commit
+`2116d5cbace5a057937e03b2efba95c13140cc4c` supplies secondary finite-sample conventions. The
+published papers remain the scientific authority.
+
+#### Supported scope and refusals
+
+The first implementation supports backdoor-identified marginal ATEs with binary treatment. It
+supports Gaussian outcomes through a linear latent perturbation. It supports binomial outcomes
+through a binary-flip perturbation.
+
+The surface can replay ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE results.
+It supports pandas and Polars data. Numeric observed covariates can calibrate the declared grid.
+
+Validation must refuse every unsupported request before the first refit. The initial boundary
+refuses these compositions:
+
+- multi-arm or continuous treatment;
+- ATT, ATC, arm means, ratios, conditional effects, regimes, and MSM targets;
+- stochastic, incremental, and modified treatment interventions;
+- controlled direct effects and other intermediate-variable fits;
+- missing outcomes and longitudinal results;
+- observation weights, clustering, and repeated cross-fitting;
+- restored results without replay state; and
+- categorical observed-covariate calibration.
+
+DoWhy includes a continuous linear exposure contrast. `cleverly` exposes modified treatment
+policies instead, so that construction does not support this public surface. DoWhy zeros one
+encoded categorical column, which does not define a coherent logical-covariate benchmark.
+
+#### Public contracts
+
+Add immutable `ConfounderStrengthGrid`, `ObservedConfounderCalibration`,
+`SimulatedConfoundingCell`, and `SimulatedConfoundingResult` contracts. Add the
+`simulated_confounding()` function and the matching sensitivity-facade method.
+
+The grid declares treatment and outcome strengths explicitly. Flip-based strengths accept values
+from zero through 0.5. Values above 0.5 do not give a monotone degradation scale.
+
+The result records the estimand, original estimate, declared grid, and perturbation laws. It also
+records treatment and outcome families, successful cells, retained failures, and calibration
+rows. It records root, latent, and refit seeds.
+
+The result exposes `complete`, `to_frame()`, `calibration_frame()`, and `summary()`. Frames must
+preserve the fitted result's dataframe backend. Cached surfaces must survive result persistence.
+
+Register the operation in `SENSITIVITY_ROUTES`. Declare it as an expensive refit operation with a
+required grid. A bare `run_all()` must never launch it.
+
+#### Finite-sample construction
+
+The implementation must follow this sequence:
+
+1. Validate the full request and the supported-result boundary.
+2. Resolve one root seed through the shared assessment seed convention.
+3. Derive separate latent-variable and refit seeds, and record all three seeds.
+4. Draw one row-level standard-normal latent vector.
+5. Reuse that vector and one refit seed for every grid cell.
+6. Construct every grid cell from the original data.
+7. Flip treatment where the latent value exceeds the declared normal-tail threshold.
+8. For Gaussian outcomes, subtract the signed outcome strength times the latent value.
+9. For binomial outcomes, apply the same normal-tail flip construction.
+10. Refit the complete estimator through the existing `TMLE.refit()` path.
+11. Anchor the zero-strength cell to the original estimate without a refit.
+12. Store each successful estimate and its displacement from the original estimate.
+13. Retain a structured `ReplicationFailure` for each failed cell.
+
+The exact zero anchor must hold even when stochastic learners produced the original result. Common
+latent and refit seeds isolate strength changes from random draws and fold assignments. Original-
+data construction prevents one cell from contaminating another.
+
+#### Observed-covariate calibration
+
+Calibration reproduces the maintained source's scale only for numeric adjustment covariates. It
+standardizes the complete adjustment design.
+
+For binary treatment or outcome, fit the source-style logistic model. Set one selected standardized
+column to zero, then report the fraction of class predictions that change.
+
+For a Gaussian variable, report `corr(W_j, V) * sd(V)`. Keep the sign because the source formula
+is directional.
+
+Report calibration rows beside the declared grid. Do not select or modify the grid automatically.
+Label calibration as model-dependent secondary implementation provenance. It is not partial
+R-squared and does not reuse the omitted-variable `benchmark()` contract.
+
+#### Source discrepancies and DRY constraints
+
+Do not copy these maintained-source behaviours:
+
+- serial cells can accumulate mutations through shared data;
+- parallel jobs can consume a shared mutable random generator in scheduling order;
+- the zero cell refits and can differ from the original estimate;
+- automatic ranges can omit zero or the upper endpoint;
+- linear calibration can present signed endpoints as unsigned strength;
+- categorical calibration acts on individual encoded columns; and
+- one failed refit can abort the surface without a structured record.
+
+Reuse `CausalData.with_treatment()`, `CausalData.with_outcome()`, `TMLE.refit()`, assessment
+caching, persistence, backend frame emission, `ParameterKey`, and `ReplicationFailure`. Extract
+one shared root-seed resolver only if current assessment seed results remain bit-for-bit identical.
+
+Do not reuse omitted-variable formulas, refutation verdicts, `EmpiricalInclusionRule`, retargeting,
+or bootstrap machinery. These contracts answer different scientific questions.
+
+#### Acceptance evidence
+
+Focused tests must pin the exact zero identity and zero refit count. Active witnesses must cover
+treatment-only, outcome-only, and joint perturbations for both outcome families.
+
+Mutation controls must detect the Gaussian sign and each flip mask. Tests must pin common latent
+draws, common refit folds, original-data-per-cell construction, and seed replay.
+
+Tests must retain ordinary fit failures and treatment-arm-loss failures. They must prove that the
+original result and arrays do not change.
+
+Tests must compare numeric calibration with hand-computed formulas. They must refuse categorical
+calibration and every unsupported composition before refitting.
+
+Tests must cover pandas and Polars frames, assessment caching, and persistence. Existing refuter
+and omitted-variable benchmark seed results must remain unchanged.
 
 ## Detailed implementation contracts
 
