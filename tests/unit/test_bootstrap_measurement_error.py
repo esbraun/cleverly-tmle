@@ -290,6 +290,32 @@ class TestPreflightRefusals:
             )
         assert estimator.calls == []
 
+    def test_incomplete_categorical_block_refuses_before_refit(self) -> None:
+        group = np.tile(["a", "b", "c"], 20)
+        frame = pd.DataFrame(
+            {
+                "Y": np.linspace(-1.0, 1.0, 60),
+                "A": np.tile([0, 1], 30),
+                "duplicate_b": group == "b",
+                "group": group,
+            }
+        )
+        with pytest.warns(UserWarning, match="group__b"):
+            data = CausalData.from_frame(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=("duplicate_b", "group"),
+            )
+        assert "group__b" not in data.covariate_names
+        assert "group__c" in data.covariate_names
+        estimator = _RecordingEstimator()
+
+        with pytest.raises(CapabilityError, match=r"group.*incomplete.*group__b"):
+            _run(data, BootstrapMeasurementError(("group",)), estimator=estimator)
+
+        assert estimator.calls == []
+
     def test_invalid_budget_and_missing_declaration_refuse_before_refit(self) -> None:
         result = _result(_data())
         with pytest.raises(CapabilityError, match="declaration"):

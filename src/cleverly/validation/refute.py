@@ -1165,6 +1165,18 @@ def _validate_measurement_error_eligibility(
         raise CapabilityError(
             f"unknown adjustment variables {unknown}; choose from {sorted(original)}"
         )
+    retained = set(data.covariate_names)
+    for name in declaration.variables:
+        encoding = encodings.get(name)
+        if encoding is None:
+            continue
+        missing = [indicator for indicator in encoding.generated if indicator not in retained]
+        if missing:
+            raise CapabilityError(
+                "bootstrap_measurement_error cannot perturb categorical variable "
+                f"{name!r} because duplicate-column removal left its encoded block "
+                f"incomplete; missing indicators {missing}"
+            )
     return data
 
 
