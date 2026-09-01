@@ -15,6 +15,22 @@ html[data-theme="light"] {
   max-width: 62rem;
 }
 
+/* The theme splits the header into a col-lg-3 brand column and a col-lg-9 item
+   column. The brand column then holds a quarter of the width whatever the brand
+   needs, which leaves the header links too little room and wraps them onto a
+   second row. Size both columns to their content instead. */
+@media (min-width: 992px) {
+  .bd-header .navbar-header-items__start.col-lg-3 {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .bd-header .navbar-header-items.col-lg-9 {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
+
 .cleverly-hero {
   background:
     radial-gradient(circle at 88% 18%, rgb(8 127 140 / 16%), transparent 34%),
@@ -244,70 +260,103 @@ html[data-theme="dark"] .cleverly-workflow li {
   font-weight: 600;
 }
 
-.cleverly-sidebar-toggle {
+.cleverly-sidebar-panel-header,
+.cleverly-sidebar-tab {
+  display: none;
+}
+
+.cleverly-sidebar-hide,
+.cleverly-sidebar-tab {
   align-items: center;
   background: transparent;
   border: 1px solid var(--pst-color-border);
   border-radius: 0.25rem;
   color: var(--pst-color-text-muted);
-  height: 2rem;
   justify-content: center;
-  width: 2rem;
 }
 
-.cleverly-sidebar-toggle:hover {
+.cleverly-sidebar-hide:hover,
+.cleverly-sidebar-tab:hover {
   border-color: var(--pst-color-primary);
   color: var(--pst-color-primary);
 }
 
-.cleverly-sidebar-toggle:focus-visible {
+.cleverly-sidebar-hide:focus-visible,
+.cleverly-sidebar-tab:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--pst-color-primary) 45%, transparent);
   outline-offset: 2px;
 }
 
-.cleverly-sidebar-control {
-  display: none;
+.cleverly-sidebar-hide {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+}
+
+.cleverly-sidebar-panel-header {
+  background: var(--pst-color-background);
+  flex: 0 0 auto;
+  padding: 0.25rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.cleverly-sidebar-panel-header--primary {
+  justify-content: flex-end;
+}
+
+.cleverly-sidebar-panel-header--secondary {
+  justify-content: flex-start;
+}
+
+.cleverly-sidebar-tab {
+  background: var(--pst-color-surface);
+  height: 2.75rem;
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2rem;
+  z-index: 1010;
+}
+
+.cleverly-sidebar-tab--primary {
+  border-left: 0;
+  border-radius: 0 0.35rem 0.35rem 0;
+  left: 0;
+}
+
+.cleverly-sidebar-tab--secondary {
+  border-radius: 0.35rem 0 0 0.35rem;
+  border-right: 0;
+  right: 0;
 }
 
 @media (min-width: 960px) {
-  .bd-header-article {
-    position: relative;
-  }
-
-  .bd-header-article .header-article__inner {
-    padding-left: 3rem;
-  }
-
-  .cleverly-sidebar-control--primary {
-    display: block;
-    left: 0.5rem;
-    position: absolute;
-    top: 0.35rem;
-    width: auto;
-    z-index: 3;
+  .cleverly-sidebar-panel-header--primary {
+    display: flex;
   }
 
   html.cleverly-primary-sidebar-collapsed #pst-primary-sidebar {
     display: none;
   }
+
+  html.cleverly-primary-sidebar-collapsed .cleverly-sidebar-tab--primary {
+    display: flex;
+  }
 }
 
 @media (min-width: 1200px) {
-  .bd-header-article .header-article__inner {
-    padding-right: 3rem;
-  }
-
-  .cleverly-sidebar-control--secondary {
-    display: block;
-    position: absolute;
-    right: 0.5rem;
-    top: 0.35rem;
-    width: auto;
-    z-index: 3;
+  .cleverly-sidebar-panel-header--secondary {
+    display: flex;
   }
 
   html.cleverly-secondary-sidebar-collapsed #pst-secondary-sidebar {
     display: none;
+  }
+
+  html.cleverly-secondary-sidebar-collapsed .cleverly-sidebar-tab--secondary {
+    display: flex;
   }
 }
 

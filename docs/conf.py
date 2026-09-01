@@ -95,6 +95,10 @@ html_css_files = ["custom.css"]
 html_js_files = ["custom.js"]
 html_theme_options = {
     "github_url": "https://github.com/esbraun/cleverly-tmle",
+    # The navbar brand does not shrink or wrap. The full html_title is 329 px
+    # wide, which pushes the header links onto a second row under about 1350 px
+    # and leaves the brand overlapping the first link.
+    "logo": {"text": "cleverly"},
     "show_nav_level": 2,
     "show_toc_level": 2,
     "navigation_with_keys": False,
