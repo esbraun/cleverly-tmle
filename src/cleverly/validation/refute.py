@@ -792,11 +792,19 @@ class RefutationResult:
         for test in self.tests:
             if test.declaration is not None:
                 lines.append("")
-                lines.append(
-                    f"{test.name}: process={test.declaration.name}; family={test.family}; "
-                    f"effect={_format_number(test.declared_effect)}; "
-                    f"successful={len(test.records)}; failed={test.n_failed}"
-                )
+                if isinstance(test.declaration, BootstrapMeasurementError):
+                    variables = ", ".join(test.declaration.variables)
+                    lines.append(
+                        f"{test.name}: variables={variables}; resampling={test.resampling}; "
+                        f"original={_format_number(test.declared_effect)}; "
+                        f"successful={len(test.records)}; failed={test.n_failed}"
+                    )
+                else:
+                    lines.append(
+                        f"{test.name}: process={test.declaration.name}; family={test.family}; "
+                        f"effect={_format_number(test.declared_effect)}; "
+                        f"successful={len(test.records)}; failed={test.n_failed}"
+                    )
                 lines.append(f"rule: {test.detail}")
             if not test.passed and test.declaration is None:
                 lines.append("")

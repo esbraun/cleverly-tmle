@@ -250,6 +250,18 @@ class TestBootstrapAndPerturbation:
         assert test.n_failed == 1
         assert test.failures[0].replicate == 1
 
+    def test_report_summary_and_repr_describe_measurement_error(self) -> None:
+        report, _ = _run(
+            _data(),
+            BootstrapMeasurementError(("numeric", "group"), resampling="iid"),
+        )
+
+        summary = report.summary()
+        assert "bootstrap_measurement_error: variables=numeric, group" in summary
+        assert "resampling=iid" in summary
+        assert "original=29.5" in summary
+        assert repr(report) == summary
+
 
 class TestPreflightRefusals:
     @pytest.mark.parametrize("variables", [("missing",), ("group__b",)])
