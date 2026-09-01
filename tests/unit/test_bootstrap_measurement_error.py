@@ -27,6 +27,45 @@ def _rule(draws: int) -> EmpiricalInclusionRule:
     return EmpiricalInclusionRule(alpha=2.0 / draws, minimum_draws=draws)
 
 
+def _child_seeds(seed: int, draws: int) -> tuple[int, ...]:
+    return tuple(
+        int(sequence.generate_state(1)[0]) for sequence in np.random.SeedSequence(seed).spawn(draws)
+    )
+
+
+def _categorical_perturbation(
+    data: CausalData,
+    declaration: BootstrapMeasurementError,
+    seed: int,
+    *,
+    deterministic_alternatives: bool = False,
+    reuse_change_mask: bool = False,
+) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    expected = data.covariates.copy()
+    first_mask: np.ndarray | None = None
+    for encoding in data.encodings:
+        if encoding.column not in declaration.variables:
+            continue
+        columns = [data.covariate_names.index(name) for name in encoding.generated]
+        block = data.covariates[:, columns]
+        total = np.sum(block, axis=1)
+        codes = np.where(total == 0.0, 0, np.argmax(block, axis=1) + 1)
+        drawn_mask = rng.random(data.n) < declaration.categorical_change_probability
+        change = first_mask if reuse_change_mask and first_mask is not None else drawn_mask
+        first_mask = change
+        if deterministic_alternatives:
+            codes[change] = (codes[change] + 1) % len(encoding.levels)
+        else:
+            alternatives = rng.integers(0, len(encoding.levels) - 1, size=int(np.sum(change)))
+            current = codes[change]
+            codes[change] = alternatives + (alternatives >= current)
+        expected[:, columns] = np.column_stack(
+            [np.asarray(codes == code, dtype=float) for code in range(1, len(encoding.levels))]
+        )
+    return expected
+
+
 @dataclass
 class _RecordingEstimator:
     random_state: int | None = 0
@@ -171,19 +210,40 @@ class TestBootstrapAndPerturbation:
         for expected, (_, actual) in zip(plain, estimator.calls, strict=True):
             assert np.array_equal(actual.covariates, expected)
 
-    def test_numeric_noise_scales_with_each_sample_and_mutation_is_visible(self) -> None:
+    def test_numeric_noise_uses_each_sample_scale_and_recorded_child_seed(self) -> None:
         data = _data()
         active = BootstrapMeasurementError(("numeric",), numeric_noise=RelativeGaussianNoise(0.5))
-        _, active_estimator = _run(data, active)
+        report, active_estimator = _run(data, active)
         zero = BootstrapMeasurementError(("numeric",), numeric_noise=RelativeGaussianNoise(0.0))
         _, zero_estimator = _run(data, zero)
-        differences = [
-            active_data.covariates[:, 0] - zero_data.covariates[:, 0]
-            for (_, active_data), (_, zero_data) in zip(
-                active_estimator.calls, zero_estimator.calls, strict=True
+        test = report["bootstrap_measurement_error"]
+        assert test.child_seeds == _child_seeds(17, 4)
+        constant_seed = test.child_seeds[0]
+        original_scale = float(np.std(data.covariates[:, 0], ddof=0))
+        for child_seed, (_, active_data), (_, sample) in zip(
+            test.child_seeds, active_estimator.calls, zero_estimator.calls, strict=True
+        ):
+            values = sample.covariates[:, 0]
+            sample_scale = float(np.std(values, ddof=0))
+            expected = np.random.default_rng(child_seed).normal(
+                0.0,
+                0.5 * sample_scale,
+                size=sample.n,
             )
-        ]
-        assert all(float(np.std(delta)) > 1.0 for delta in differences)
+            assert np.array_equal(active_data.covariates[:, 0], values + expected)
+            original_scale_mutation = np.random.default_rng(child_seed).normal(
+                0.0, 0.5 * original_scale, size=sample.n
+            )
+            assert not np.array_equal(
+                active_data.covariates[:, 0], values + original_scale_mutation
+            )
+            if child_seed != constant_seed:
+                constant_seed_mutation = np.random.default_rng(constant_seed).normal(
+                    0.0, 0.5 * sample_scale, size=sample.n
+                )
+                assert not np.array_equal(
+                    active_data.covariates[:, 0], values + constant_seed_mutation
+                )
 
     def test_boolean_and_multilevel_changes_rebuild_valid_indicator_blocks(self) -> None:
         data = _data()
@@ -215,6 +275,31 @@ class TestBootstrapAndPerturbation:
                 np.argmax(original_group, axis=1) + 1,
             )
             assert np.all(group_codes != original_codes)
+
+    def test_intermediate_categorical_changes_use_seeded_masks_and_alternatives(self) -> None:
+        data = _data()
+        probability = 0.35
+        active = BootstrapMeasurementError(
+            ("flag", "group"), categorical_change_probability=probability
+        )
+        report, active_estimator = _run(data, active)
+        zero = BootstrapMeasurementError(("flag", "group"), categorical_change_probability=0.0)
+        _, zero_estimator = _run(data, zero)
+
+        test = report["bootstrap_measurement_error"]
+        for child_seed, (_, active_data), (_, sample) in zip(
+            test.child_seeds, active_estimator.calls, zero_estimator.calls, strict=True
+        ):
+            expected = _categorical_perturbation(sample, active, child_seed)
+            assert np.array_equal(active_data.covariates, expected)
+            deterministic_mutation = _categorical_perturbation(
+                sample, active, child_seed, deterministic_alternatives=True
+            )
+            assert not np.array_equal(active_data.covariates, deterministic_mutation)
+            reused_mask_mutation = _categorical_perturbation(
+                sample, active, child_seed, reuse_change_mask=True
+            )
+            assert not np.array_equal(active_data.covariates, reused_mask_mutation)
 
     def test_cluster_samples_keep_whole_clusters_and_report_resolved_mode(self) -> None:
         data = _data(clusters=True)
