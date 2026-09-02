@@ -7,6 +7,7 @@ The design owns the observed columns. The estimand owns the causal question.
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 frame, truth = make_nonlinear_ate(n=2_000, seed=7)
 study = CausalStudy(
@@ -35,7 +36,11 @@ interpretation, the nuisance functions required, and the supported estimation me
 ## Estimate and inspect
 
 ```python
-result = effect.estimate(random_state=7)
+result = effect.estimate(
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=7,
+)
 
 print(result.summary())
 estimate = result["ate"]

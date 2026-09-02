@@ -56,40 +56,23 @@ def _check_source_matches_checkout() -> None:
     )
 
 
-#: Why a ``legacy_study`` does not run, in the message a skipped test prints.
-LEGACY_STUDY_REASON = (
-    "superseded repeated-sampling study: deprecated pending a registered evidence row. "
-    "Run with --run-legacy-studies. See docs/development/testing-strategy.md"
-)
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--run-legacy-studies",
-        action="store_true",
-        default=False,
-        help="run the deprecated repeated-sampling studies that registered rows will replace",
-    )
-
-
 def pytest_configure(config: pytest.Config) -> None:
     _check_source_matches_checkout()
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip the deprecated studies rather than deleting them.
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Keep one study's evidence checks on one xdist worker.
 
-    They are the only repeated-sampling evidence several design families have, so removing
-    them now would drop that evidence silently.  Skipping says the same thing out loud: the
-    claim is no longer checked, and it comes back when a registered row establishes it.  The
-    opt-in flag keeps them runnable for whoever is building that row.
+    The evidence module reads and summarizes the same immutable artifacts in several tests.
+    Grouping by registered study lets its process-local caches remove that duplicate work.
+    A serial run ignores the marker, so grouping changes scheduling and not correctness.
     """
-    if config.getoption("--run-legacy-studies"):
-        return
-    skip = pytest.mark.skip(reason=LEGACY_STUDY_REASON)
     for item in items:
-        if "legacy_study" in item.keywords:
-            item.add_marker(skip)
+        if item.path.name != "test_method_evidence.py" or not hasattr(item, "callspec"):
+            continue
+        study = item.callspec.params.get("study")
+        if study is not None:
+            item.add_marker(pytest.mark.xdist_group(study.slug))
 
 
 class _AdaptiveMean(BaseEstimator):

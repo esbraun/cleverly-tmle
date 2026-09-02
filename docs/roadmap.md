@@ -249,7 +249,7 @@ Nested evidence uses nonconstant two- and three-stage laws and rejects reversed 
 products, all-starred products, wrong signs, and masks. Missingness evidence makes observation
 depend on treatment/history and proves unobserved rows receive the correct plug-in update.
 Longitudinal evidence covers dynamic-history restriction, third-arm categorical mutations,
-treatment/censoring products, clusters, repeats, and persistence. Named slow studies cover point
+treatment/censoring products, clusters, repeats, and persistence. Registered studies cover point
 means/ATE under both union-model halves, direct consistency and coverage, static/dynamic regimen
 means, and weak overlap with thresholds fixed before the final run.
 
@@ -258,7 +258,7 @@ single-stage parity; direct single-stage learning; nested and missingness compos
 longitudinal adapters; then persistence, assessment, documentation, and the secondary fixture. No
 commit merges independently. Handoff requires the enabled/refused catalog, source locators,
 implementation revision and discrepancies, evidence instruments, local commands/results, and
-path-based reasons for omitted slow studies.
+path-based reasons for omitted validation studies.
 
 ### I1. Optional DoWhy integration
 
@@ -307,7 +307,7 @@ inference only after its influence contribution is implemented and tested.
 
 Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
 modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
-contribution, and contrast construction, plus named slow oracle-efficiency and stability studies.
+contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
 
 ### R2. Evidence-gated Riesz catalog expansion
 

@@ -73,8 +73,8 @@ on real data. It compares several estimators on one question and stores its exec
 
 ## What the code gate checks
 
-Documentation code is syntax-checked and executed. Numerical behavior is enforced by the ordinary
-fast and named slow tests in the [evidence manifest](../technical-reference/evidence.md). A runnable
+Documentation code is syntax-checked and executed. Numerical behavior is enforced by fast tests
+and registered studies in the [evidence manifest](../technical-reference/evidence.md). A runnable
 example is not evidence that a real study satisfies its causal assumptions.
 
 ```{toctree}

@@ -11,7 +11,7 @@ The full guides live in the documentation site.
 | setup, branch names, the checks, documentation and docstring rules | [Contributing](https://esbraun.github.io/cleverly-tmle/development/contributing.html) |
 | the commit style, the pull request body, what CI does and does not check | [Pull requests](https://esbraun.github.io/cleverly-tmle/development/pull-requests.html) |
 | alpha versions, package checks, tags, and Trusted Publishing | [Releases](https://esbraun.github.io/cleverly-tmle/development/releases.html) |
-| which tier a change has to satisfy | [Test tiers and gates](https://esbraun.github.io/cleverly-tmle/development/testing-strategy.html) |
+| which checks a change needs | [Fast tests and validation studies](https://esbraun.github.io/cleverly-tmle/development/testing-strategy.html) |
 | designing and registering a validation study | [Method benchmarking strategy](https://esbraun.github.io/cleverly-tmle/development/method-benchmarking.html) |
 
 The sources are `docs/development/contributing.md` and `docs/development/pull-requests.md`.
@@ -32,13 +32,14 @@ ruff check .
 ruff format --check .
 python -m tests.prose
 mypy
-pytest -m "not slow" -q
+pytest -q -n auto --dist loadgroup
 sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions, which mirror the
 CI jobs. `nox -s docs` runs the last command in an isolated environment, which is what CI uses. Run
-one test tier at a time, because each tier expects the whole machine.
+the test suite before you open a pull request. A selected study regeneration expects the whole
+machine, so do not run it beside the test suite.
 
 `python -m tests.prose` reports on the reader-facing prose. It changes nothing and it fails
 nothing. Fix each finding, or record `accepted: <reason>` against it in `tests/prose-report.md`.

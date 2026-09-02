@@ -1,8 +1,8 @@
 r"""Every fenced ``python`` example in the documentation parses.
 
 **Not an executable tier, and deliberately not.**  Documentation examples are explanatory
-material rather than correctness evidence: behavior belongs in the ordinary fast tier or in
-a named slow statistical study (``docs/architecture-invariants.md``).  Compiling a block is
+material rather than correctness evidence: behavior belongs in the fast suite or in a registered
+validation study (``docs/architecture-invariants.md``). Compiling a block is
 not running it -- no import is executed, no estimator is fitted, no fixture is needed -- so
 this stays a static check of the prose while restoring the one guarantee that was lost with
 the executable tier.

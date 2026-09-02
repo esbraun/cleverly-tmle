@@ -1,7 +1,7 @@
 """Task automation for cleverly.
 
-The sessions mirror CI. Statistical validation is manual; registered reader-facing
-documentation examples execute in the fast test tier.
+The sessions mirror CI. Registered studies run through their own regeneration commands;
+reader-facing documentation examples execute in the fast test suite.
 """
 
 from __future__ import annotations
@@ -72,39 +72,18 @@ def docs(session: nox.Session) -> None:
 
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
-    """Fast tier: unit, integration, and end-to-end tests except statistical studies."""
+    """Fast unit, integration, end-to-end, documentation, and artifact tests."""
     session.install("-e", ".[dev]")
     # ``-n auto`` as CI runs it, with the worker count sized from the cores this process may
     # actually use. The inner ``n_jobs=2`` on simulation studies balances the long-test tail
     # under xdist, so a session without xdist is not the same tier.
     session.run(
         "pytest",
-        "-m",
-        "not slow",
         "-q",
         "-n",
         "auto",
-        *session.posargs,
-        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
-    )
-
-
-@nox.session
-def slow(session: nox.Session) -> None:
-    """Re-execute the committed evidence artefacts: property cells, refits, resampling bounds.
-
-    Not the old statistical tier.  Those studies are deprecated and skipped; see
-    ``docs/development/testing-strategy.md``.  Add ``-- --run-legacy-studies`` to run one while
-    building the registered row that replaces it.
-    """
-    session.install("-e", ".[dev]")
-    session.run(
-        "pytest",
-        "-m",
-        "slow",
-        "-q",
-        "-n",
-        "auto",
+        "--dist",
+        "loadgroup",
         *session.posargs,
         env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
     )

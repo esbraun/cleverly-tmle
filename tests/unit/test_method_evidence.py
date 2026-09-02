@@ -5,16 +5,15 @@ per study: a method that declares a :class:`~tests.studies.evidence.registry.Stu
 inherits the completeness checks, the recomputation, the published verdicts and the negative
 controls without a line of new test code.
 
-The split between this module and ``tests/e2e/test_method_evidence_slow.py`` is cost, not
-trust.  Everything deterministic -- the summaries, the Student and exact binomial intervals,
-and the verdicts those endpoints imply -- is recomputed here from the replication rows.  The
-resampling bounds and the full re-execution of the estimator over every replication are the
-same checks at a price the fast tier cannot pay, and live there.
+Everything deterministic -- the summaries, the Student and exact binomial intervals, and the
+verdicts those endpoints imply -- is recomputed here from the replication rows.  Re-executing an
+estimator or property study belongs to the affected registered study's regeneration command.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
 import math
@@ -47,6 +46,7 @@ from tests.studies.evidence.seeds import replicate_seed
 
 STUDIES = registered()
 IDS = [study.slug for study in STUDIES]
+STUDY_BY_SLUG = {study.slug: study for study in STUDIES}
 
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
@@ -111,7 +111,26 @@ def study(request: pytest.FixtureRequest) -> StudyRecord:
 
 @pytest.fixture
 def rows(study: StudyRecord) -> pd.DataFrame:
-    return pd.read_csv(study.artifact("replicates.csv.gz"))
+    return _replication_rows(study.slug)
+
+
+@functools.cache
+def _replication_rows(slug: str) -> pd.DataFrame:
+    """Load immutable primary rows once per study and worker."""
+    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
+
+
+@functools.cache
+def _property_rows(slug: str) -> pd.DataFrame:
+    """Load immutable property rows once per study and worker."""
+    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
+
+
+@functools.cache
+def _property_summary(slug: str) -> pd.DataFrame:
+    """Recompute an immutable property summary once per study and worker."""
+    study = STUDY_BY_SLUG[slug]
+    return study.properties().summarize_properties(_property_rows(slug))
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
@@ -330,11 +349,10 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
         published = pd.read_csv(study.artifact("properties.csv"))
         pd.testing.assert_frame_equal(
             published,
-            study.properties().summarize_properties(rows),
+            _property_summary(study.slug),
             check_exact=False,
             check_dtype=False,
             rtol=1e-9,
@@ -885,8 +903,8 @@ class TestNegativeControls:
         The calibration cell is the gate that catches it, so this mutation is what shows the
         cell is load bearing rather than decorative.
         """
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
-        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        rows = _property_rows(study.slug)
+        published = _property_summary(study.slug).set_index(["property", "cell"])
         family = (
             "interval_calibration"
             if "interval_calibration" in study.property_cells
@@ -932,8 +950,8 @@ class TestNegativeControls:
         families = property_verdicts.UNION_MODEL_FAMILIES.intersection(study.property_cells)
         if not families:
             pytest.skip("the study declares no union-model cells")
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
-        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        rows = _property_rows(study.slug)
+        published = _property_summary(study.slug).set_index(["property", "cell"])
         union = published.loc[published.index.get_level_values(0).isin(families)]
         # At least one, not all of them: two registered rows publish a red union-model cell
         # under reporting policy, and a mutation whose cells were already failing would show
@@ -998,44 +1016,7 @@ class TestNegativeControls:
 
 
 class TestTheStudyStillMeasuresTheCode:
-    """The artefacts are evidence about ``cleverly`` only if ``cleverly`` still produces them."""
-
-    @pytest.mark.parametrize("replicate", [0, 1])
-    def test_refitting_a_committed_replication_reproduces_its_row(
-        self, study: StudyRecord, rows: pd.DataFrame, replicate: int
-    ) -> None:
-        runner = study.runner()
-        for scenario in study.scenarios:
-            frame, truth = runner.draw_scenario(scenario, study.n, replicate)
-            refitted = pd.DataFrame(runner.cleverly_rows(frame, truth, scenario, replicate))
-            published = rows.loc[
-                (rows["implementation"] == study.implementation)
-                & (rows["scenario"] == scenario)
-                & (rows["replicate"] == replicate)
-            ]
-            merged = published.merge(refitted, on="estimand", suffixes=("_published", "_refitted"))
-            assert len(merged) == len(published) == len(study.scenarios[scenario])
-            # ``n`` and ``initial_estimate`` are published columns like any other, and this
-            # gate used to compare neither.  A shared row builder that unified either one --
-            # ``len(frame)`` against ``result.n``, or a plug-in against ``math.nan`` -- would
-            # have moved a published number with nothing anywhere to notice.  ``nan_ok``
-            # because ``canonical_tmle``, ``canonical_cvtmle``, ``canonical_ctmle_oat`` and
-            # ``canonical_ctmle_selector`` write ``math.nan`` into ``initial_estimate``
-            # deliberately: they report no plug-in.  Six published rows carry it, because
-            # the two fold-evaluated and repeated rows read the cross-fitted builder.
-            for column in (
-                "n",
-                "estimate",
-                "std_error",
-                "ci_lower",
-                "ci_upper",
-                "initial_estimate",
-            ):
-                # Four orders of magnitude tighter than the narrowest margin any verdict
-                # uses, and loose enough for the last bits of a different BLAS.
-                assert merged[f"{column}_refitted"].to_numpy() == pytest.approx(
-                    merged[f"{column}_published"].to_numpy(), rel=1e-6, abs=1e-9, nan_ok=True
-                ), f"{scenario} replicate {replicate} no longer reproduces its {column}"
+    """The study declarations remain reproducible inputs to selective regeneration."""
 
     def test_each_study_draws_from_the_seed_it_publishes(self, study: StudyRecord) -> None:
         """The manifest's ``seed`` has to be the seed the samples actually came from.

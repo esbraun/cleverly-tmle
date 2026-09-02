@@ -87,7 +87,7 @@ jobs:
       # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
       # static documentation checks -- links resolve, every `python` fence parses. Neither
       # executes an example, and both are cheap, so there is no documentation dispatch.
-      - run: pytest -m "not slow" -q -n auto
+      - run: pytest -q -n auto --dist loadgroup
 
   # One backend at a time, which the `tests` job above cannot check: it installs `.[dev]`,
   # which pulls pandas *and* polars, so the single-backend and neither-installed branches of

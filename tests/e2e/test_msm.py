@@ -121,7 +121,7 @@ class TestItRecoversTheProjection:
     def test_each_coefficient_covers_its_population_value(self, fitted) -> None:
         """Two standard errors of the closed-form projection, on one fit.
 
-        A coverage *claim* would need replications and belongs in the slow tier; this is
+        A coverage *claim* needs a registered study; this is
         the weaker statement that the point estimate is in the right place at all, which
         is what catches a wrong scale, a dropped weight or a transposed design.
         """
