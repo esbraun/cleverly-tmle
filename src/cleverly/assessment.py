@@ -329,6 +329,9 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
     "evalue": SensitivityRoute("evalue", "evalue"),
     "missingness": SensitivityRoute("missingness", "missingness_tilt"),
     "tipping_gamma": SensitivityRoute("missingness", "tipping_gamma", needs_estimand=True),
+    "simulated_confounding": SensitivityRoute(
+        "simulated_confounding", "simulated_confounding", needs_estimand=True
+    ),
 }
 
 
@@ -2057,6 +2060,25 @@ class SensitivityFacade(_CapabilityFacade):
                 requires_arguments=("covariates",),
                 family=family,
             ),
+            _capability(
+                "simulated_confounding",
+                artifacts=("fitted estimator configuration", "analysis data"),
+                execution="refit",
+                deterministic=False,
+                cost="expensive",
+                interpretation="point-estimate movement under a simulated common cause",
+                available=benchmarkable,
+                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
+                reason=(
+                    None
+                    if benchmarkable
+                    else "no longitudinal simulated-confounder perturbation law is implemented"
+                    if longitudinal
+                    else "simulation requires a replayable point-treatment estimator"
+                ),
+                requires_arguments=("grid",),
+                family=family,
+            ),
             standard(
                 "contour",
                 artifacts=("fitted representer", "outcome residuals"),
@@ -2200,6 +2222,26 @@ class SensitivityFacade(_CapabilityFacade):
         cleverly.sensitivity.contour_data : The same grid as a free function.
         """
         return self._dispatch("contour", args, kwargs)
+
+    def simulated_confounding(self, *args: Any, **kwargs: Any) -> Any:
+        """Refit across a simulated common-cause strength grid.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Forwarded to :func:`cleverly.sensitivity.simulated_confounding`, without its
+            first argument, which this facade supplies from the fitted result.
+
+        Returns
+        -------
+        SimulatedConfoundingResult
+            Qualitative point-estimate movements and retained cell failures.
+
+        See Also
+        --------
+        cleverly.sensitivity.simulated_confounding : The same surface as a free function.
+        """
+        return self._dispatch("simulated_confounding", args, kwargs)
 
     def evalue(self, *args: Any, **kwargs: Any) -> Any:
         """Return an E-value on the risk-ratio scale.

@@ -65,6 +65,7 @@ import numpy as np
 from ..exceptions import CapabilityError
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..utils.frames import emit_frame
+from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from .simulation import ReplicationFailure
 
@@ -852,15 +853,6 @@ _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
 
-def _resolve_seed(result: Any, random_state: int | None) -> int:
-    estimator = result.estimator
-    if random_state is not None:
-        return int(random_state)
-    if estimator.random_state is not None:
-        return int(estimator.random_state)
-    return int(np.random.SeedSequence().generate_state(1)[0])
-
-
 def _generated_child_seeds(root_seed: int, name: str, count: int) -> tuple[int, ...]:
     sequence = np.random.SeedSequence([root_seed, _CHILD_SEED_TAGS[name]])
     return tuple(int(child.generate_state(1)[0]) for child in sequence.spawn(count))
@@ -1574,7 +1566,7 @@ def refute(
     # below.  A perturbation is only half of a refutation: ``refit`` re-learns the
     # nuisances, and an estimator with no ``random_state`` redraws its folds every time, so
     # seeding the draws alone would leave the report unrepeatable.
-    seed = _resolve_seed(result, random_state)
+    seed = resolve_assessment_seed(result, random_state)
     rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []

@@ -455,6 +455,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "PositivityReport": "field",
     "RefutationResult": "field",
     "ScoreCheck": "field",
+    "SimulatedConfoundingResult": "field",
     "SupportReport": "field",
     "TMLEResult": "container",
     "TMLEResultSet": "container",

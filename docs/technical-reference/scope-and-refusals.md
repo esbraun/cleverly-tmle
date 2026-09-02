@@ -38,6 +38,7 @@ rather than implying the request was ill-posed.
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one |
+| the simulated common-cause surface on a longitudinal, weighted, clustered, missing-outcome, intermediate-variable, or repeated fit | [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface). It names every composition the surface refuses, and it gives each one a `kind` |
 
 Which multi-arm surfaces are covered, and which four are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
@@ -99,10 +100,11 @@ Two more share another. **A nuisance that sits inside the estimand is not a knob
 on an incremental fit, or fitting a shift's `cap` from the data, moves the target rather than
 regularising the estimator.
 
-Two method entries carry their own detailed refusal tables, each with a `kind` column naming which
-of the three sections above the row belongs to:
-[marginal structural models](msm-projections.md#variations) and
-[longitudinal TMLE](longitudinal-tmle.md#variations).
+Three method entries carry their own detailed refusal tables, each with a `kind` column naming
+which of the three sections above the row belongs to:
+[marginal structural models](msm-projections.md#variations),
+[longitudinal TMLE](longitudinal-tmle.md#variations), and
+[the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface).
 
 ## Where a multi-valued treatment is supported
 
@@ -124,6 +126,7 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism, selected against one nonredundant vector. See the [standing decision](../architecture-invariants.md#targets-interventions-and-variants) |
 | `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](longitudinal-tmle.md#the-algorithm-as-implemented). Each node owns its level set, and the clever covariate selects the assigned label's probability |
 | positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast, and each reads its arms from the parameter's structured index rather than assuming two |
+| simulated common-cause sensitivity | not written for this composition | the source-audited surface uses a binary flip probability and a marginal ATE. Multi-arm and continuous treatments require a different perturbation and contrast contract. Its [complete refusal table](validation-methods.md#simulated-common-cause-stress-surface) names every other composition it refuses |
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`. The multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one |
 | stochastic categorical policies and continuous doses at a longitudinal node | a different question | both change the intervention *density* rather than which label is assigned, so neither is the parameter the sequential regression identifies |

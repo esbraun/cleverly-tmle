@@ -162,15 +162,16 @@ cached ones. `run_all` excludes both by default, and each skipped row names the 
 
 ## Sensitivity to untestable assumptions
 
-Identification rests on assumptions that no diagnostic can test. These instruments do not test them
-either. Each one puts a number on how wrong an assumption would have to be before the conclusion
-changes.
+Identification rests on assumptions that no diagnostic can test. These instruments do not test
+them either. Some derive a formal scale. The simulated surface reports point-estimate movement
+under a declared perturbation instead.
 
 | instrument | the assumption it stresses | the number it reports | what it assumes to report it |
 | --- | --- | --- | --- |
 | omitted-variable bounds | no unmeasured confounding | the largest bias an unmeasured confounder of declared strength can produce | the confounder acts through the outcome regression and the treatment mechanism, with declared partial-$R^2$ strength in each |
 | robustness value | no unmeasured confounding | the single strength at which the conclusion flips | that the two strengths are equal |
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
+| simulated common cause | no unmeasured confounding | point-estimate displacement across a declared strength grid | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the minimum risk-ratio association with both treatment and outcome that explains away the effect | a risk-ratio scale |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
@@ -192,6 +193,102 @@ because the median bound needs its own influence function.
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
 
 `benchmark()` is the only member of this group that refits.
+
+### Simulated common-cause stress surface
+
+**Why.** An analyst can inspect whether a fitted ATE moves under a plausible latent common cause.
+Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its qualitative limits.
+
+**What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
+at every declared treatment-strength and outcome-strength pair. Each cell also reports
+`induced_treatment_association`, the realised correlation between the latent vector and the
+treatment of that cell. The operation gives no corrected estimate, bound, p-value, confidence
+interval, robustness value, threshold, or pass/fail result.
+
+**How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
+and one refit seed across the complete grid. Each cell starts from the original data.
+
+For treatment strength $k_A$, the operation flips binary treatment when
+$U \geq \Phi^{-1}(1-k_A)$. Gaussian outcomes use $Y' = Y-k_YU$. Binomial outcomes use the same
+tail-flip construction as treatment. Flip strengths range from zero through 0.5.
+
+The treatment law is non-differential misclassification. It flips a treated row and an untreated
+row in the same latent tail. The association it induces between $U$ and the treatment therefore
+depends on the treated fraction $\pi$. Write $q = \pi + (1-2\pi)k_A$ for the perturbed treated
+fraction. When $A$ is drawn independently of $U$, the induced correlation is
+
+$$
+\operatorname{corr}(A', U) = \frac{(1-2\pi)\,\phi(\Phi^{-1}(1-k_A))}{\sqrt{q(1-q)}}.
+$$
+
+| treated fraction $\pi$ | $k_A = 0.1$ | $k_A = 0.3$ | $k_A = 0.5$ |
+| --- | --- | --- | --- |
+| 0.2 | +0.240 | +0.430 | +0.479 |
+| 0.35 | +0.108 | +0.210 | +0.239 |
+| 0.5 | +0.000 | +0.000 | +0.000 |
+| 0.65 | -0.108 | -0.210 | -0.239 |
+| 0.8 | -0.240 | -0.430 | -0.479 |
+
+A 500,000-row simulation reproduces every entry to within 0.005. That bound is the Monte Carlo
+error at that sample size. On a balanced design the treatment axis induces no association with
+$U$. It moves the estimate through misclassification of the treatment alone. Above a treated
+fraction of one half the sign reverses.
+
+Sharma and Kiciman (2020) prescribe this construction, so the law does not change. The surface
+instead reports what the law achieved on your data. Every cell carries the realised correlation
+between the latent vector and its own treatment, in `induced_treatment_association`. Read that
+value before you read a movement along the treatment axis as confounding. A cell near the anchor
+value moved the estimate by misclassification of the treatment alone. The table above gives the
+population value each cell approaches.
+
+The surface measures the correlation on the analysis data, so the reported value carries the
+treated fraction of your own fit. The `(0, 0)` anchor cell measures the original treatment, which
+gives the null level of the same data. A cell that loses one arm reports no association, because
+the correlation of a constant treatment is undefined. A failed cell keeps the association of the
+treatment the surface built for it.
+
+The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
+remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
+original estimate.
+
+The first surface supports a backdoor-identified marginal ATE with binary treatment. It supports
+Gaussian and binomial outcomes. It replays ordinary TMLE, collaborative TMLE, and complete-outcome
+DR-TMLE with one cross-fitting draw.
+
+**Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column names
+the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) the row belongs to.
+
+| refused | kind | why |
+| --- | --- | --- |
+| a longitudinal result | not written yet | no longitudinal perturbation law is implemented |
+| multi-arm and continuous treatment | not written yet | a flip probability defines no contrast on either |
+| a missing outcome | not written yet | the surface has no missingness law and no observation refit |
+| a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
+| observation weights | not written yet | a weighted target population needs its own displacement rule |
+| a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
+| `repeats > 1` | not written yet | no rule states how a median across draws should move |
+| identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
+| ATT, ATC, arm means, ratios, and conditional strata | not written yet | the audited source boundary covers the marginal ATE only |
+| a regime, and a stochastic, incremental, modified-policy, or MSM parameter | a different question | each names a different intervention with its own influence curve |
+| a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
+
+The surface also refuses a result with no replay state, a result with no identification metadata,
+and a constant benchmark covariate. Each is a statement about the object you hold.
+
+Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
+For a binary variable, it reports the class-prediction change after one standardized column is set
+to zero. For a Gaussian variable, it reports `corr(W_j, V) * sd(V)`.
+
+The Gaussian calibration is signed. It carries the covariate's own direction of association with
+the outcome. The outcome axis subtracts, so an outcome strength of $k_Y$ calibrates at $-k_Y$ under
+the same rule. To match a covariate that calibrates at $+c$, declare an outcome strength of $-c$.
+
+Calibration does not select or modify the grid. It is not partial R-squared and does not reuse the
+omitted-variable `benchmark()` scale.
+
+The maintained source is pinned at revision `2116d5c`. The implementation does not copy its
+cumulative cell mutations, schedule-dependent random draws, non-exact zero refit, automatic
+ranges, categorical encoded-column deletion, or unstructured failure behavior.
 
 ### E-value
 

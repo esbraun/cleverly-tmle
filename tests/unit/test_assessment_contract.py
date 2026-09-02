@@ -24,6 +24,7 @@ from cleverly import (
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.sensitivity import ConfounderStrengthGrid
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
@@ -186,6 +187,18 @@ def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_resu
         longitudinal_result.sensitivity.omitted_confounding()
 
 
+def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law(  # type: ignore[no-untyped-def]
+    longitudinal_result,
+) -> None:
+    capability = longitudinal_result.sensitivity.capability("simulated_confounding")
+    assert capability.reason == (
+        "no longitudinal simulated-confounder perturbation law is implemented"
+    )
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError, match=re.escape(capability.reason)):
+        longitudinal_result.sensitivity.simulated_confounding(grid=grid)
+
+
 def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]
     longitudinal_result,
 ) -> None:
@@ -308,7 +321,15 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         """``run_all`` must learn this from the row, not from the operation's name."""
         rows = {row.operation: row for row in point_result.sensitivity.capabilities}
         assert rows["benchmark"].requires_arguments == ("covariates",)
+        assert rows["simulated_confounding"].requires_arguments == ("grid",)
         assert rows["omitted_confounding"].requires_arguments == ()
+
+    def test_simulated_surface_is_never_launched_implicitly(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(include_refits=True)
+        item = report["simulated_confounding"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert "grid" in item.detail
+        assert any("simulated_confounding" in step for step in item.next_steps)
 
     def test_every_argument_free_row_really_is_argument_free(self, point_result) -> None:  # type: ignore[no-untyped-def]
         """The gate that would have caught this: call what the report claims it can call."""

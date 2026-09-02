@@ -213,6 +213,19 @@ previous reader had is not a citation; a page number is.
   E-value*.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
+- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
+  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. Pages 3–4 describe a simulated
+  common cause correlated with treatment and outcome. The paper supports a qualitative stress
+  surface. It does not derive sensitivity-adjusted inference or a calibration formula.
+- Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
+  Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518). Pages 4–6 state that these
+  analyses require plausible domain values and cannot validate identification from observed data.
+- The maintained DoWhy simulated common-cause refuter, source at commit
+  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py).
+  It supplies secondary finite-sample conventions only. `cleverly` uses original data per cell,
+  one shared latent vector, common refit seeds, an exact zero anchor, explicit grids, and retained
+  failures. It does not copy automatic ranges, categorical encoded-column deletion, or cumulative
+  mutation of shared data.
 
 ## Negative controls
 
@@ -227,8 +240,8 @@ previous reader had is not a citation; a page number is.
 - Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
   Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
   framework and describes outcome, bootstrap, and unobserved-confounder refutations. It supports
-  the shipped generated-outcome and bootstrap measurement-error refutations. Roadmap item S3
-  cites it separately, and that citation supports no other shipped claim.
+  the shipped generated-outcome and bootstrap measurement-error refutations. The sensitivity
+  section records its separate simulated common-cause role.
 - The maintained DoWhy dummy outcome refuter, source at commit
   [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/dummy_outcome_refuter.py).
   It supplies secondary control-flow evidence for independent noise and `f(W) + h(A)`. Two of its
@@ -305,11 +318,6 @@ These sources locate methods in the [main roadmap](roadmap.md#main-roadmap). A r
 does not support a shipped claim. The readiness label on each item states the remaining source
 work.
 
-- Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
-  Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518), ICML 2021 Workshop on the
-  Neglected Assumptions in Causal Inference. The paper states the limits of validation from
-  observed data and separates refutation tests from sensitivity analysis. Cited by roadmap item
-  S3.
 - Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
   longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
   10.1093/biomet/asae044. The paper defines multi-period sensitivity models and observed-data
