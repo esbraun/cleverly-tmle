@@ -29,6 +29,7 @@ from cleverly.sensitivity.simulated_confounding import (
     _flip_mask,
     _gaussian_outcome,
     _latent_child_seed,
+    _treatment_association,
 )
 
 
@@ -386,6 +387,13 @@ def test_failed_refits_and_arm_loss_remain_visible(
     assert "deliberate refit failure" in failed.failures[0].message
     assert failed.cells[1].estimate is None
     assert failed.failures[0].seed == failed.root_seed == 23
+    # The surface built this cell's treatment before the refit raised, so the cell keeps
+    # its association. Cell 1 carries treatment strength zero, so it reports the baseline.
+    failed_latent = np.random.default_rng(failed.latent_seed).normal(size=gaussian_result.data.n)
+    assert failed.cells[1].induced_treatment_association == pytest.approx(
+        _treatment_association(failed_latent, gaussian_result.data.treatment)
+    )
+    assert failed.cells[1].induced_treatment_association is not None
 
     replay_calls = _record_refits(gaussian_result, monkeypatch, fail_call=1)
     replay = simulated_confounding(
@@ -413,6 +421,12 @@ def test_failed_refits_and_arm_loss_remain_visible(
     assert arm_loss.failures[0].error_type == "DataError"
     assert "must keep every arm" in arm_loss.failures[0].message
     assert arm_loss.failures[0].seed == arm_loss.root_seed == 53
+    # The arm-loss cell holds a constant treatment, whose correlation is undefined, so the
+    # zero-variance guard reports ``None``. The anchor of the same surface reports the
+    # strong association this constructed treatment has with the latent vector.
+    assert float(np.std(_flip_binary(treatment, _flip_mask(latent, 0.5)))) == 0.0
+    assert arm_loss.cells[1].induced_treatment_association is None
+    assert (arm_loss.cells[0].induced_treatment_association or 0.0) > 0.5
 
     replay_arm_loss = simulated_confounding(
         arm_loss_result,
@@ -528,6 +542,7 @@ def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
         "outcome_strength",
         "estimate",
         "displacement",
+        "induced_treatment_association",
         "error_type",
         "message",
     ]
@@ -599,6 +614,7 @@ def test_polars_frames_carry_estimates_displacements_and_failure_detail(
         "outcome_strength",
         "estimate",
         "displacement",
+        "induced_treatment_association",
         "error_type",
         "message",
     ]
@@ -904,3 +920,179 @@ def test_result_contract_has_no_inferential_or_verdict_fields(gaussian_result: A
     ):
         assert not hasattr(surface, prohibited)
     assert "qualitative" in surface.summary()
+
+
+def _treated_fraction_fit(fraction: float, *, n: int = 800, seed: int = 5) -> Any:
+    """Fit one design whose treated fraction is chosen, not inherited from a generator.
+
+    ``make_linear_ate`` draws a near-balanced treatment, and the induced association is a
+    function of the treated fraction, so the contrast needs an arm the shipped generators
+    do not produce. The size is 800 rows because a balanced design reports a sample
+    correlation around zero, and its noise floor at 120 rows overlaps the imbalanced
+    signal.
+    """
+    rng = np.random.default_rng(seed)
+    covariate = rng.normal(size=n)
+    treatment = (rng.random(n) < fraction).astype(float)
+    outcome = 0.5 * covariate + treatment + rng.normal(size=n)
+    frame = pd.DataFrame({"W1": covariate, "A": treatment, "Y": outcome})
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1",)),
+    )
+    return study.identify(ATE()).estimate(
+        method="tmle",
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def balanced_result() -> Any:
+    return _treated_fraction_fit(0.5)
+
+
+@pytest.fixture(scope="module")
+def low_treated_result() -> Any:
+    return _treated_fraction_fit(0.2)
+
+
+@pytest.fixture(scope="module")
+def high_treated_result() -> Any:
+    return _treated_fraction_fit(0.8)
+
+
+def _association_grid() -> ConfounderStrengthGrid:
+    return ConfounderStrengthGrid(treatment=(0.0, 0.1, 0.3), outcome=(0.0,))
+
+
+def test_a_balanced_design_reports_no_induced_treatment_association(
+    balanced_result: Any, low_treated_result: Any
+) -> None:
+    """Contrast a balanced arm against an imbalanced arm on one latent draw.
+
+    The treatment flip is non-differential misclassification. It flips a treated row and
+    an untreated row in the same latent tail, so the association it induces depends on
+    the treated fraction. A balanced design therefore reports no association, and its
+    movement along the treatment axis is misclassification and not confounding.
+    """
+    grid = _association_grid()
+    balanced = simulated_confounding(balanced_result, grid=grid, random_state=21)
+    imbalanced = simulated_confounding(low_treated_result, grid=grid, random_state=21)
+
+    assert balanced_result.data.treated_fraction == pytest.approx(0.49375)
+    assert low_treated_result.data.treated_fraction == pytest.approx(0.2025)
+    assert balanced.complete and imbalanced.complete
+    assert balanced.latent_seed == imbalanced.latent_seed
+
+    # Measured values, not a direction. At a treated fraction of 0.2 the population
+    # correlation is +0.240 at strength 0.1 and +0.430 at strength 0.3, which the
+    # technical reference derives. A balanced design has a population correlation of
+    # zero, so what it reports here is the sample noise floor of 800 rows.
+    assert [cell.induced_treatment_association for cell in balanced.cells] == [
+        pytest.approx(0.0421, abs=5e-4),
+        pytest.approx(0.0734, abs=5e-4),
+        pytest.approx(0.0267, abs=5e-4),
+    ]
+    assert [cell.induced_treatment_association for cell in imbalanced.cells] == [
+        pytest.approx(0.0486, abs=5e-4),
+        pytest.approx(0.3243, abs=5e-4),
+        pytest.approx(0.4489, abs=5e-4),
+    ]
+
+    # The honest bounds around those numbers. Over 200 seeds a balanced design of 800
+    # rows never passed 0.093, and the imbalanced value at strength 0.3 never fell
+    # below 0.30.
+    for cell in balanced.cells[1:]:
+        assert cell.induced_treatment_association is not None
+        assert abs(cell.induced_treatment_association) < 0.12
+    assert abs(imbalanced.cells[1].induced_treatment_association or 0.0) > 0.18
+    assert abs(imbalanced.cells[2].induced_treatment_association or 0.0) > 0.30
+
+    # Both designs move along the treatment axis. The association is what separates
+    # misclassification from confounding, and the movement alone does not.
+    assert abs(balanced.cells[2].displacement or 0.0) > 0.02
+    assert abs(imbalanced.cells[2].displacement or 0.0) > 0.02
+
+
+def test_the_anchor_cell_reports_the_unperturbed_baseline(low_treated_result: Any) -> None:
+    """The anchor reports ``corr(latent, A)`` on the original treatment.
+
+    The anchor cell perturbs nothing, so its value is the null level of the same data
+    under the same latent draw. A reader compares every other cell against it.
+    """
+    surface = simulated_confounding(low_treated_result, grid=_association_grid(), random_state=21)
+    latent = np.random.default_rng(surface.latent_seed).normal(size=low_treated_result.data.n)
+    expected = float(np.corrcoef(latent, low_treated_result.data.treatment)[0, 1])
+
+    assert surface.cells[0].treatment_strength == 0.0
+    assert surface.cells[0].induced_treatment_association == pytest.approx(expected, rel=1e-12)
+    assert _treatment_association(latent, low_treated_result.data.treatment) == expected
+
+    # Non-vacuity. The treatment is drawn independently of the latent vector, so the
+    # baseline is near zero and every perturbed cell sits far above it.
+    assert abs(expected) < 0.12
+    for cell in surface.cells[1:]:
+        assert abs(cell.induced_treatment_association or 0.0) > abs(expected) + 0.2
+
+
+def test_the_induced_association_reverses_sign_across_a_treated_fraction_of_one_half(
+    low_treated_result: Any, high_treated_result: Any
+) -> None:
+    """Above a treated fraction of one half the flip induces the opposite association.
+
+    The same tail moves more treated rows to control than control rows to treated once
+    the treated arm is the larger arm. The magnitude stays near symmetric around one
+    half.
+    """
+    grid = _association_grid()
+    low = simulated_confounding(low_treated_result, grid=grid, random_state=21)
+    high = simulated_confounding(high_treated_result, grid=grid, random_state=21)
+
+    assert low_treated_result.data.treated_fraction == pytest.approx(0.2025)
+    assert high_treated_result.data.treated_fraction == pytest.approx(0.79875)
+    assert low.cells[1].induced_treatment_association == pytest.approx(0.3243, abs=5e-4)
+    assert high.cells[1].induced_treatment_association == pytest.approx(-0.2593, abs=5e-4)
+    assert low.cells[2].induced_treatment_association == pytest.approx(0.4489, abs=5e-4)
+    assert high.cells[2].induced_treatment_association == pytest.approx(-0.4288, abs=5e-4)
+
+    for lower, upper in zip(low.cells[1:], high.cells[1:], strict=True):
+        assert (lower.induced_treatment_association or 0.0) > 0.15
+        assert (upper.induced_treatment_association or 0.0) < -0.15
+
+    # Both anchors carry the same near-zero baseline, so the reversal belongs to the
+    # perturbation and not to the two data sets.
+    assert abs(low.cells[0].induced_treatment_association or 0.0) < 0.12
+    assert abs(high.cells[0].induced_treatment_association or 0.0) < 0.12
+
+
+def test_the_frame_and_the_summary_carry_the_induced_association(
+    low_treated_result: Any,
+) -> None:
+    surface = simulated_confounding(low_treated_result, grid=_association_grid(), random_state=21)
+    frame = surface.to_frame()
+    text = surface.summary()
+
+    assert list(frame.columns) == [
+        "treatment_strength",
+        "outcome_strength",
+        "estimate",
+        "displacement",
+        "induced_treatment_association",
+        "error_type",
+        "message",
+    ]
+    assert list(frame["induced_treatment_association"]) == [
+        pytest.approx(cell.induced_treatment_association) for cell in surface.cells
+    ]
+    assert frame["induced_treatment_association"][2] == pytest.approx(0.4489, abs=5e-4)
+
+    assert "induced association" in text
+    assert "+0.4489" in text
+    assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
+    assert "misclassification and not by confounding" in text
+    assert "qualitative" in text

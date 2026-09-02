@@ -106,6 +106,12 @@ class SimulatedConfoundingCell:
         Refitted estimate. ``None`` when the cell failed.
     displacement : float or None
         Estimate minus the original estimate. ``None`` when the cell failed.
+    induced_treatment_association : float or None
+        Pearson correlation between the shared latent vector and the treatment of this
+        cell, measured on the analysis data. The anchor cell reports the original
+        treatment, which gives the null level of the same data. Every other cell reports
+        the perturbed treatment. The value is ``None`` when that treatment has zero
+        standard deviation, and when a cell failed before the surface built it.
     failure : ReplicationFailure or None
         Structured refit or replacement failure retained for this cell.
     """
@@ -114,6 +120,7 @@ class SimulatedConfoundingCell:
     outcome_strength: float
     estimate: float | None
     displacement: float | None
+    induced_treatment_association: float | None = None
     failure: ReplicationFailure | None = None
 
 
@@ -192,13 +199,17 @@ class SimulatedConfoundingResult:
         Returns
         -------
         dataframe
-            Estimates, displacements, and retained failure details.
+            Estimates, displacements, induced treatment associations, and retained
+            failure details.
         """
         payload = {
             "treatment_strength": [cell.treatment_strength for cell in self.cells],
             "outcome_strength": [cell.outcome_strength for cell in self.cells],
             "estimate": [cell.estimate for cell in self.cells],
             "displacement": [cell.displacement for cell in self.cells],
+            "induced_treatment_association": [
+                cell.induced_treatment_association for cell in self.cells
+            ],
             "error_type": [
                 None if cell.failure is None else cell.failure.error_type for cell in self.cells
             ],
@@ -231,10 +242,13 @@ class SimulatedConfoundingResult:
         Returns
         -------
         str
-            Original estimate, seeds, perturbation laws, and cell movements.
+            Original estimate, seeds, perturbation laws, cell movements, and the
+            induced treatment association of each cell.
         """
         rows = []
         for cell in self.cells:
+            association = cell.induced_treatment_association
+            reported = "n/a" if association is None else f"{association:+.4f}"
             if cell.failure is None:
                 rows.append(
                     [
@@ -242,6 +256,7 @@ class SimulatedConfoundingResult:
                         f"{cell.outcome_strength:.4g}",
                         f"{cell.estimate:.5g}",
                         f"{cell.displacement:+.5g}",
+                        reported,
                     ]
                 )
             else:
@@ -251,6 +266,7 @@ class SimulatedConfoundingResult:
                         f"{cell.outcome_strength:.4g}",
                         "failed",
                         cell.failure.error_type,
+                        reported,
                     ]
                 )
         return "\n".join(
@@ -265,9 +281,20 @@ class SimulatedConfoundingResult:
                 self.outcome_law,
                 "",
                 format_table(
-                    ["treatment strength", "outcome strength", "estimate", "movement"], rows
+                    [
+                        "treatment strength",
+                        "outcome strength",
+                        "estimate",
+                        "movement",
+                        "induced association",
+                    ],
+                    rows,
                 ),
                 "",
+                "The induced association is the correlation between the latent vector and the "
+                "treatment of the cell.",
+                "An association near zero says the treatment axis moved the estimate by "
+                "misclassification and not by confounding.",
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
         )
@@ -472,6 +499,32 @@ def _flip_binary(values: np.ndarray[Any, Any], mask: np.ndarray[Any, Any]) -> np
     return np.where(mask, 1.0 - values, values)
 
 
+def _treatment_association(
+    latent: np.ndarray[Any, Any], treatment: np.ndarray[Any, Any]
+) -> float | None:
+    """Report the realised correlation between the latent vector and one treatment.
+
+    The tail flip is non-differential misclassification, so the association it induces
+    depends on the treated fraction. A balanced design reaches zero association, where
+    the treatment axis moves the estimate by misclassification alone.
+
+    Parameters
+    ----------
+    latent : ndarray
+        Shared latent vector drawn for the complete surface.
+    treatment : ndarray
+        Original or perturbed binary treatment of one cell.
+
+    Returns
+    -------
+    float or None
+        Pearson correlation, or ``None`` when the treatment has zero standard deviation.
+    """
+    if float(np.std(treatment)) == 0.0:
+        return None
+    return float(np.corrcoef(latent, treatment)[0, 1])
+
+
 def _gaussian_outcome(
     values: np.ndarray[Any, Any], latent: np.ndarray[Any, Any], strength: float
 ) -> np.ndarray[Any, Any]:
@@ -553,8 +606,9 @@ def simulated_confounding(
     Returns
     -------
     SimulatedConfoundingResult
-        Point-estimate movements and retained cell failures. The result has no verdict
-        or sensitivity-adjusted inference.
+        Point-estimate movements, the induced treatment association of each cell, and
+        retained cell failures. The result has no verdict or sensitivity-adjusted
+        inference.
 
     See Also
     --------
@@ -569,6 +623,12 @@ def simulated_confounding(
     When the original fit declared no ``random_state``, the surface cannot reproduce the
     folds of that fit, so movement near the anchor can still carry a fold artifact. An
     explicit ``random_state`` other than the seed of the fit has the same effect.
+
+    Each cell reports ``induced_treatment_association``. It is the correlation between the
+    shared latent vector and the treatment of that cell. The treatment flip is
+    non-differential misclassification, so the association it induces depends on the
+    treated fraction. A balanced design reports an association near zero, where the
+    treatment axis moves the estimate by misclassification and not by confounding.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
@@ -594,11 +654,24 @@ def simulated_confounding(
     ):
         if treatment_strength == 0.0 and outcome_strength == 0.0:
             cells.append(
-                SimulatedConfoundingCell(treatment_strength, outcome_strength, original, 0.0)
+                SimulatedConfoundingCell(
+                    treatment_strength=treatment_strength,
+                    outcome_strength=outcome_strength,
+                    estimate=original,
+                    displacement=0.0,
+                    induced_treatment_association=_treatment_association(
+                        latent, result.data.treatment
+                    ),
+                )
             )
             continue
+        # A cell reports the association of the treatment the surface built for it, even
+        # when the cell later fails.  An arm-loss cell reaches the zero-variance guard and
+        # reports ``None``, because a constant treatment has no correlation.
+        association: float | None = None
         try:
             treatment = _flip_binary(result.data.treatment, _flip_mask(latent, treatment_strength))
+            association = _treatment_association(latent, treatment)
             replacement = result.data.with_treatment(treatment)
             if result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)
@@ -613,20 +686,22 @@ def simulated_confounding(
             estimate = float(refitted[estimand].psi)
             cells.append(
                 SimulatedConfoundingCell(
-                    treatment_strength,
-                    outcome_strength,
-                    estimate,
-                    estimate - original,
+                    treatment_strength=treatment_strength,
+                    outcome_strength=outcome_strength,
+                    estimate=estimate,
+                    displacement=estimate - original,
+                    induced_treatment_association=association,
                 )
             )
         except Exception as error:
             cells.append(
                 SimulatedConfoundingCell(
-                    treatment_strength,
-                    outcome_strength,
-                    None,
-                    None,
-                    ReplicationFailure(
+                    treatment_strength=treatment_strength,
+                    outcome_strength=outcome_strength,
+                    estimate=None,
+                    displacement=None,
+                    induced_treatment_association=association,
+                    failure=ReplicationFailure(
                         replicate=cell_index,
                         seed=root_seed,
                         error_type=type(error).__name__,

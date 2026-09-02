@@ -200,8 +200,10 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its qualitative limits.
 
 **What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
-at every declared treatment-strength and outcome-strength pair. It gives no corrected estimate,
-bound, p-value, confidence interval, robustness value, threshold, or pass/fail result.
+at every declared treatment-strength and outcome-strength pair. Each cell also reports
+`induced_treatment_association`, the realised correlation between the latent vector and the
+treatment of that cell. The operation gives no corrected estimate, bound, p-value, confidence
+interval, robustness value, threshold, or pass/fail result.
 
 **How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
 and one refit seed across the complete grid. Each cell starts from the original data.
@@ -232,8 +234,18 @@ error at that sample size. On a balanced design the treatment axis induces no as
 $U$. It moves the estimate through misclassification of the treatment alone. Above a treated
 fraction of one half the sign reverses.
 
-Read a movement along the treatment axis as misclassification and not as confounding. Sharma and
-Kiciman (2020) prescribe this construction, so the law does not change.
+Sharma and Kiciman (2020) prescribe this construction, so the law does not change. The surface
+instead reports what the law achieved on your data. Every cell carries the realised correlation
+between the latent vector and its own treatment, in `induced_treatment_association`. Read that
+value before you read a movement along the treatment axis as confounding. A cell near the anchor
+value moved the estimate by misclassification of the treatment alone. The table above gives the
+population value each cell approaches.
+
+The surface measures the correlation on the analysis data, so the reported value carries the
+treated fraction of your own fit. The `(0, 0)` anchor cell measures the original treatment, which
+gives the null level of the same data. A cell that loses one arm reports no association, because
+the correlation of a constant treatment is undefined. A failed cell keeps the association of the
+treatment the surface built for it.
 
 The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the

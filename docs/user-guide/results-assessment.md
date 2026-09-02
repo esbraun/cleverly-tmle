@@ -186,6 +186,11 @@ latent variable and the treatment depends on the treated fraction. That associat
 balanced design. The technical reference
 [measures it](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface).
 
+Each cell reports its own realised association in `induced_treatment_association`. The frame
+carries the same value in a column of that name, and `summary()` prints it. Check the column
+before you read a movement along the treatment axis as confounding. A cell near the anchor value
+moved the estimate by misclassification of the treatment alone.
+
 The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
 original estimate exactly.
 
