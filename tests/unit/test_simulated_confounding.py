@@ -12,8 +12,9 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly import ATE, ATT, CausalStudy, CollaborativeTMLEMethod, PointTreatment
 from cleverly.datasets import make_binary_outcome, make_linear_ate
+from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity import (
     ConfounderStrengthGrid,
@@ -30,7 +31,13 @@ from cleverly.sensitivity.simulated_confounding import (
 )
 
 
-def _fit(*, family: str = "gaussian", backend: str = "pandas", seed: int = 7) -> Any:
+def _fit(
+    *,
+    family: str = "gaussian",
+    backend: str = "pandas",
+    seed: int = 7,
+    method: str = "tmle",
+) -> Any:
     if family == "gaussian":
         frame, _ = make_linear_ate(n=120, seed=seed, backend=backend)
         covariates = ("W1", "W2", "W3", "W4")
@@ -43,7 +50,14 @@ def _fit(*, family: str = "gaussian", backend: str = "pandas", seed: int = 7) ->
         frame,
         design=PointTreatment(outcome="Y", treatment="A", adjustment=covariates),
     )
+    configured_method: Any = method
+    if method == "collaborative_tmle":
+        configured_method = CollaborativeTMLEMethod(
+            selection_folds=2,
+            selection_inner_folds=2,
+        )
     return study.identify(ATE()).estimate(
+        method=configured_method,
         outcome_learner=outcome_learner,
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=2,
@@ -90,6 +104,41 @@ def _record_refits(
 
 def _grid() -> ConfounderStrengthGrid:
     return ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+
+
+def _with_functional(result: Any, **changes: Any) -> Any:
+    functional = replace(result.identified_effect.functional, **changes)
+    identified = replace(result.identified_effect, functional=functional)
+    return replace(result, identified_effect=identified)
+
+
+class _UnsupportedTMLE(TMLE):
+    """A near-miss estimator used to pin the exact supported-type boundary."""
+
+
+@pytest.mark.parametrize(
+    ("method", "estimator_name"),
+    [
+        ("tmle", "TMLE"),
+        ("collaborative_tmle", "CTMLE"),
+        ("drtmle", "DRTMLE"),
+    ],
+)
+def test_each_supported_estimator_runs_a_real_refit_surface(
+    method: str, estimator_name: str
+) -> None:
+    result = _fit(method=method)
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        random_state=29,
+    )
+
+    assert type(result.estimator).__name__ == estimator_name
+    assert not result.data.has_missing_outcome
+    assert surface.complete
+    assert len(surface.cells) == 2
+    assert surface.cells[1].estimate is not None
 
 
 def test_zero_anchor_common_randomness_and_original_data_per_cell(
@@ -279,18 +328,22 @@ def test_frames_follow_pandas_and_polars_backends(gaussian_result: Any) -> None:
     assert type(polars_surface.calibration_frame()).__module__.startswith("polars")
 
 
-def test_grid_validation_and_binomial_boundary(binomial_result: Any) -> None:
+def test_grid_validation_and_binomial_boundary(
+    binomial_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with pytest.raises(ValueError, match="contain zero"):
         ConfounderStrengthGrid(treatment=(0.1,), outcome=(0.0,))
     with pytest.raises(ValueError, match=r"between 0 and 0\.5"):
         ConfounderStrengthGrid(treatment=(0.0, 0.6), outcome=(0.0,))
     with pytest.raises(ValueError, match="duplicates"):
         ConfounderStrengthGrid(treatment=(0.0, -0.0), outcome=(0.0,))
+    calls = _record_refits(binomial_result, monkeypatch)
     with pytest.raises(ValueError, match="binomial outcome strengths"):
         simulated_confounding(
             binomial_result,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.6)),
         )
+    assert calls == []
 
 
 @pytest.mark.parametrize("estimand", ["att", "atc", "ey1", "rr", "or", "ate_regime", "msm"])
@@ -322,8 +375,20 @@ def test_unsupported_estimands_are_refused_before_refit(
         ("cluster", "clustered"),
         ("repeats", "repeated cross-fitting"),
         ("restored", "replayable"),
+        ("estimator", "supports ordinary TMLE"),
+        ("outcome-family", "outcome family"),
+        ("identification", "identification metadata"),
+        ("functional-type", "backdoor-identified marginal ATE"),
+        ("provider", "explicit-adjustment backdoor provenance"),
+        ("key", "structured parameter key"),
+        ("provenance", "inconsistent registered ATE identification provenance"),
+        ("declared-provenance", "inconsistent registered ATE identification provenance"),
+        ("target-provenance", "inconsistent registered ATE identification provenance"),
         ("conditional", "marginal ATE"),
-        ("regime", "marginal arm-indexed ATE"),
+        ("stochastic", "marginal arm-indexed ATE"),
+        ("incremental", "marginal arm-indexed ATE"),
+        ("modified", "marginal arm-indexed ATE"),
+        ("msm", "marginal arm-indexed ATE"),
     ],
 )
 def test_unsupported_compositions_are_refused_before_refit(
@@ -352,13 +417,55 @@ def test_unsupported_compositions_are_refused_before_refit(
         result = replace(result, repeats=result.repeats * 2)
     elif change == "restored":
         result = replace(result, estimator=None)
+    elif change == "estimator":
+        result = replace(result, estimator=_UnsupportedTMLE())
+    elif change == "outcome-family":
+        data = replace(data, family="poisson")
+    elif change == "identification":
+        result = replace(result, identified_effect=None)
+    elif change == "functional-type":
+        identified = replace(result.identified_effect, functional=SimpleNamespace())
+        result = replace(result, identified_effect=identified)
+    elif change == "provider":
+        identified = replace(result.identified_effect, provider=SimpleNamespace())
+        result = replace(result, identified_effect=identified)
+    elif change == "key":
+        result = replace(result, parameter_keys={"ate": SimpleNamespace()})
+    elif change == "provenance":
+        identification = replace(
+            result.identified_effect.identification,
+            references=("unregistered identification",),
+        )
+        identified = replace(result.identified_effect, identification=identification)
+        result = replace(result, identified_effect=identified)
+    elif change == "declared-provenance":
+        identified = replace(result.identified_effect, estimand=ATT())
+        result = replace(result, identified_effect=identified)
+    elif change == "target-provenance":
+        result = _with_functional(result, target="att")
     elif change == "conditional":
         key = replace(result.parameter_keys["ate"], stratum=(0,))
         result = replace(result, parameter_keys={"ate": key})
-    elif change == "regime":
-        functional = replace(result.identified_effect.functional, axis="regime")
-        identified = replace(result.identified_effect, functional=functional)
-        result = replace(result, identified_effect=identified)
+    elif change == "stochastic":
+        result = _with_functional(
+            result,
+            axis="regime",
+            interventions=(object(),),
+        )
+    elif change == "incremental":
+        result = _with_functional(
+            result,
+            axis="ipsi",
+            interventions=(object(),),
+        )
+    elif change == "modified":
+        result = _with_functional(
+            result,
+            axis="shift",
+            interventions=(object(),),
+        )
+    elif change == "msm":
+        result = _with_functional(result, axis="msm", msm=object())
     result = replace(result, data=data)
     calls = [] if result.estimator is None else _record_refits(result, monkeypatch)
     with pytest.raises(CapabilityError, match=message):
@@ -366,27 +473,56 @@ def test_unsupported_compositions_are_refused_before_refit(
     assert calls == []
 
 
-def test_categorical_calibration_is_refused_before_refit(
-    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("change", "benchmark_covariates", "error_type", "message"),
+    [
+        ("categorical", ("G",), CapabilityError, "categorical covariate"),
+        ("constant", ("W1",), CapabilityError, "constant covariate"),
+        ("non-string", ("W1", 1), TypeError, "only column names"),
+        ("duplicate", ("W1", "W1"), ValueError, "contains duplicates"),
+        ("unknown", ("unknown",), ValueError, "is unavailable"),
+    ],
+)
+def test_invalid_calibrations_are_refused_before_refit(
+    gaussian_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    benchmark_covariates: Any,
+    error_type: type[Exception],
+    message: str,
 ) -> None:
     from cleverly.data.causal_data import CategoricalEncoding
 
-    data = replace(
-        gaussian_result.data,
-        encodings=(CategoricalEncoding("G", ("a", "b"), "a", ("G_b",)),),
-    )
+    data = gaussian_result.data
+    if change == "categorical":
+        data = replace(
+            data,
+            encodings=(CategoricalEncoding("G", ("a", "b"), "a", ("G_b",)),),
+        )
+    elif change == "constant":
+        covariates = data.covariates.copy()
+        covariates[:, data.covariate_names.index("W1")] = 1.0
+        data = replace(data, covariates=covariates)
     result = replace(gaussian_result, data=data)
     calls = _record_refits(result, monkeypatch)
-    with pytest.raises(CapabilityError, match="categorical covariate"):
-        simulated_confounding(result, grid=_grid(), benchmark_covariates=("G",))
+    with pytest.raises(error_type, match=message):
+        simulated_confounding(
+            result,
+            grid=_grid(),
+            benchmark_covariates=benchmark_covariates,
+        )
     assert calls == []
 
 
-def test_non_result_and_ambiguous_alias_are_refused(gaussian_result: Any) -> None:
+def test_non_result_and_ambiguous_alias_are_refused(
+    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with pytest.raises(CapabilityError, match="TMLEResult"):
         simulated_confounding(SimpleNamespace(), grid=_grid())
+    calls = _record_refits(gaussian_result, monkeypatch)
     with pytest.raises(ValueError, match="unavailable"):
         simulated_confounding(gaussian_result, estimand="unknown", grid=_grid())
+    assert calls == []
 
 
 def test_result_contract_has_no_inferential_or_verdict_fields(gaussian_result: Any) -> None:
