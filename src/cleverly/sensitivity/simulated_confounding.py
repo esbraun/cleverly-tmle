@@ -2,8 +2,8 @@
 
 The surface perturbs treatment and outcome through one shared latent vector, then
 refits the complete estimator at each declared strength pair. It describes movement
-of the fitted point estimate. It does not provide a bound, corrected estimate, test,
-or sensitivity-adjusted interval.
+of the fitted estimate on the scale ``movement_scale`` names. It does not provide a
+bound, corrected estimate, test, or sensitivity-adjusted interval.
 """
 
 from __future__ import annotations
@@ -205,8 +205,8 @@ class SimulatedConfoundingResult:
         Returns
         -------
         dataframe
-            Estimates, displacements, induced treatment associations, and retained
-            failure details.
+            Estimates, the movement scale of the displacement, displacements, induced
+            treatment associations, and retained failure details.
         """
         payload = {
             "treatment_strength": [cell.treatment_strength for cell in self.cells],
@@ -462,8 +462,8 @@ def _validate_binary_parameter_state(
         raise CapabilityError(
             "simulated_confounding found inconsistent registered binary parameter metadata"
         )
-    estimate = result.estimates[estimand]
     if target in {"rr", "or"}:
+        estimate = result.estimates[estimand]
         if result.data.family != "binomial":
             raise CapabilityError(
                 "simulated_confounding supports a risk ratio or odds ratio for a binary "
@@ -491,6 +491,14 @@ def _validate_binary_parameter_state(
             raise CapabilityError(
                 "simulated_confounding needs a finite positive ratio and stored log-scale estimate"
             )
+        # Exact equality holds because every site that builds a ratio ``ParameterEstimate``
+        # derives ``psi = float(np.exp(log_psi))``: ``targets.builtin._ratio_contrasts``,
+        # ``inference.influence.ratio_estimates`` and ``median_estimates``,
+        # ``estimators.tmle._average_over_folds``, ``estimators.base`` and
+        # ``longitudinal.estimator`` for the exponentiated coefficient view.  This check pins
+        # that construction invariant.  An engine that ever computes the two independently
+        # must relax it to a tolerance here, rather than leave the caller a refusal they
+        # cannot act on.
         if float(np.exp(inference_value)) != float(estimate.psi):
             raise CapabilityError(
                 "simulated_confounding found inconsistent reported and log-scale ratio estimates"
@@ -997,9 +1005,9 @@ def simulated_confounding(
     Returns
     -------
     SimulatedConfoundingResult
-        Point-estimate movements, the induced treatment association of each cell, and
-        retained cell failures. The result has no verdict or sensitivity-adjusted
-        inference.
+        Estimate movements on the scale ``movement_scale`` names, the induced treatment
+        association of each cell, and retained cell failures. The result has no verdict
+        or sensitivity-adjusted inference.
 
     See Also
     --------

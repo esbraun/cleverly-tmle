@@ -171,6 +171,26 @@ def _fit_ratio(
     )
 
 
+def _fit_att(*, seed: int = 7) -> Any:
+    frame, _ = make_linear_ate(n=120, seed=seed)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3", "W4"),
+        ),
+    )
+    return study.identify(ATT()).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
 @pytest.fixture(scope="module")
 def gaussian_result() -> Any:
     return _fit()
@@ -199,6 +219,11 @@ def risk_ratio_result() -> Any:
 @pytest.fixture(scope="module")
 def odds_ratio_result() -> Any:
     return _fit_ratio(target="or")
+
+
+@pytest.fixture(scope="module")
+def att_result() -> Any:
+    return _fit_att()
 
 
 _TWO_POLICIES = (
@@ -1415,43 +1440,60 @@ def test_unsupported_estimands_are_refused_before_refit(
 
 
 @pytest.mark.parametrize(
-    "layer",
+    ("target", "fixture_name"),
+    [("rr", "risk_ratio_result"), ("or", "odds_ratio_result")],
+)
+@pytest.mark.parametrize(
+    ("layer", "message"),
     [
-        "key-alias",
-        "key-direction",
-        "functional",
-        "typed",
-        "estimator",
-        "evidence",
-        "registry",
-        "outcome-family",
-        "estimate-name",
-        "estimate-scale",
-        "missing-log",
-        "inconsistent-log",
+        ("key-alias", "inconsistent registered binary parameter metadata"),
+        ("key-direction", "inconsistent registered binary parameter metadata"),
+        ("functional", "inconsistent registered binary parameter metadata"),
+        ("typed", "inconsistent registered binary parameter metadata"),
+        ("estimator", "inconsistent registered binary parameter metadata"),
+        ("evidence", "inconsistent registered binary parameter metadata"),
+        ("registry", "inconsistent registered ratio target metadata"),
+        ("outcome-family", "risk ratio or odds ratio for a binary"),
+        ("estimate-name", "inconsistent ratio-scale estimate metadata"),
+        ("estimate-scale", "inconsistent ratio-scale estimate metadata"),
+        ("missing-log", "needs the stored log-scale estimate for a ratio contrast"),
+        ("degenerate-ratio", "finite positive ratio"),
+        ("overflowed-ratio", "finite positive ratio"),
+        ("inconsistent-log", "inconsistent reported and log-scale ratio estimates"),
     ],
 )
 def test_ratio_checks_every_structured_layer_before_the_latent_draw(
-    risk_ratio_result: Any,
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    fixture_name: str,
     layer: str,
+    message: str,
 ) -> None:
-    """A ratio request must agree across identification, fitting, and reporting state."""
-    result = risk_ratio_result
+    """A ratio request must agree across identification, fitting, and reporting state.
+
+    Each layer pins its own refusal, so one guard cannot stand in for another. Both
+    ratios run every layer, because the typed-estimand gate reads the requested target.
+    """
+    result = request.getfixturevalue(fixture_name)
+    other = "or" if target == "rr" else "rr"
     if layer in {"key-alias", "key-direction"}:
-        key = result.parameter_keys["rr"]
+        key = result.parameter_keys[target]
         key = (
-            replace(key, alias="or")
+            replace(key, alias=other)
             if layer == "key-alias"
             else replace(key, value=key.reference, reference=key.value)
         )
-        result = replace(result, parameter_keys={"rr": key})
+        result = replace(result, parameter_keys={target: key})
     elif layer == "functional":
         result = _with_functional(result, target="ate")
     elif layer == "typed":
         result = replace(
             result,
-            identified_effect=replace(result.identified_effect, estimand=OddsRatio()),
+            identified_effect=replace(
+                result.identified_effect,
+                estimand=OddsRatio() if target == "rr" else RiskRatio(),
+            ),
         )
     elif layer == "estimator":
         estimator = copy(result.estimator)
@@ -1469,21 +1511,31 @@ def test_ratio_checks_every_structured_layer_before_the_latent_draw(
     elif layer == "registry":
         from cleverly.targets import TARGETS
 
-        monkeypatch.setitem(TARGETS, "rr", replace(TARGETS["rr"], scale="difference"))
+        monkeypatch.setitem(TARGETS, target, replace(TARGETS[target], scale="difference"))
     elif layer == "outcome-family":
         result = replace(result, data=replace(result.data, family="gaussian"))
     else:
-        estimate = result["rr"]
+        estimate = result[target]
         if layer == "estimate-name":
-            estimate = replace(estimate, name="or")
+            estimate = replace(estimate, name=other)
         elif layer == "estimate-scale":
             estimate = replace(estimate, scale="difference")
         elif layer == "missing-log":
             estimate = replace(estimate, log_psi=None)
+        elif layer == "degenerate-ratio":
+            # The shape a boundary counterfactual risk produces: a zero ratio, whose log
+            # is not finite. The finiteness guard has to fire, because ``exp(-inf)`` is
+            # exactly ``0.0`` and the equality check below would accept the pair.
+            estimate = replace(estimate, psi=0.0, log_psi=float("-inf"))
+        elif layer == "overflowed-ratio":
+            # A finite log whose exponential overflows. Of the three clauses in that guard
+            # this is the only one a nonfinite log cannot also trip, so it needs its own
+            # witness. Without it the ``psi`` finiteness test could be deleted unnoticed.
+            estimate = replace(estimate, psi=float("inf"), log_psi=1000.0)
         else:
             assert estimate.log_psi is not None
             estimate = replace(estimate, log_psi=estimate.log_psi + 0.25)
-        result = replace(result, estimates={"rr": estimate})
+        result = replace(result, estimates={target: estimate})
 
     monkeypatch.setattr(
         result.estimator,
@@ -1497,10 +1549,10 @@ def test_ratio_checks_every_structured_layer_before_the_latent_draw(
         lambda _: pytest.fail("refused before the latent draw"),
     )
 
-    with pytest.raises(CapabilityError, match="simulated_confounding"):
+    with pytest.raises(CapabilityError, match=message):
         simulated_confounding(
             result,
-            estimand="rr",
+            estimand=target,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
 
@@ -2325,6 +2377,23 @@ def test_the_facade_substitutes_only_a_sole_binary_mean(
         binary_means_result.sensitivity.simulated_confounding(grid=grid)
 
 
+def test_the_facade_names_the_source_boundary_for_a_sole_att(att_result: Any) -> None:
+    """An ``att``-only fit reads the boundary refusal, not a missing-``ate`` message.
+
+    The ratio-aware default names no candidate here, so the linear parameter set supplies
+    ``"att"``. Without that fall-through the facade keeps the ``"ate"`` default, and the
+    caller is told to pass ``"att"``, which then raises a different refusal.
+    """
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    assert list(att_result.estimates) == ["att"]
+
+    with pytest.raises(CapabilityError) as excinfo:
+        att_result.sensitivity.simulated_confounding(grid=grid)
+
+    assert "outside its source boundary" in str(excinfo.value)
+    assert "is unavailable" not in str(excinfo.value)
+
+
 def test_continuous_strengths_are_signed_and_outcome_bounds_follow_the_family(
     continuous_gaussian_result: Any,
     continuous_binomial_result: Any,
@@ -2805,6 +2874,8 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     assert frame["induced_treatment_association"][2] == pytest.approx(0.4489, abs=5e-4)
 
     assert "induced association" in text
+    assert surface.movement_scale == "estimate_difference"
+    assert "movement (estimate difference)" in text
     assert "+0.4489" in text
     assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
     assert "misclassification and not by confounding" in text

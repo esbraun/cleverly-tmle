@@ -321,9 +321,9 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 The shipped stress surface covers binary marginal means, differences, risk ratios, and odds ratios.
 It replays ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE for those parameters.
-Ratio surfaces require a binary outcome. The other binary surfaces support Gaussian and binomial
-outcomes. The continuous compositions report one named marginal `ey_shift` policy mean or
-`ate_shift` contrast under exact ordinary TMLE. All compositions use one cross-fitting draw.
+The continuous compositions report one named marginal `ey_shift` policy mean or `ate_shift`
+contrast under exact ordinary TMLE. Ratio surfaces require a binomial outcome. Every other
+composition supports Gaussian and binomial outcomes. All compositions use one cross-fitting draw.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths

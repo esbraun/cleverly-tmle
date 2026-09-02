@@ -2094,7 +2094,7 @@ class SensitivityFacade(_CapabilityFacade):
                 execution="refit",
                 deterministic=False,
                 cost="expensive",
-                interpretation="point-estimate movement under a simulated common cause",
+                interpretation="estimate movement under a simulated common cause",
                 available=benchmarkable,
                 status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
                 reason=(
@@ -2265,7 +2265,8 @@ class SensitivityFacade(_CapabilityFacade):
         Returns
         -------
         SimulatedConfoundingResult
-            Qualitative point-estimate movements and retained cell failures.
+            Qualitative estimate movements on the scale of the surface, and retained cell
+            failures.
 
         See Also
         --------
@@ -2363,10 +2364,35 @@ class SensitivityFacade(_CapabilityFacade):
         first would answer about ``ey1`` on an ``ey1``/``ey0`` fit, silently returning a
         statement about a counterfactual mean to someone who asked about an effect.
 
-        When it is ambiguous this returns the arguments untouched and the analysis refuses
-        for itself -- :func:`~cleverly.sensitivity.omitted_variable.resolve_parameter` and
-        :func:`~cleverly.sensitivity.missingness.missingness_tilt` both already name every
-        estimand they could have answered for.
+        ``simulated_confounding`` also answers for the two ratio contrasts, which are not
+        linear functionals and so are absent from the linear set every other operation
+        reads.  It consults its own eligible set first, and falls back to the linear set
+        when that set does not name exactly one parameter.  The fallback is what keeps an
+        ``att``-only fit on the path that supplies ``"att"``, so the caller reads the
+        accurate source-boundary refusal rather than one about a missing ``"ate"``.
+
+        When the choice stays ambiguous this returns the arguments untouched and the
+        analysis refuses for itself.
+        :func:`~cleverly.sensitivity.omitted_variable.resolve_parameter` and
+        :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
+        they could have answered for.
+        :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
+        its own ``"ate"`` default instead, and lists every reported estimand, so its message
+        can name a parameter that a second explicit call would then decline.
+
+        Parameters
+        ----------
+        operation : str
+            Routed sensitivity operation, which selects the eligible parameter set.
+        args : tuple
+            Positional arguments the caller gave the facade method.
+        kwargs : dict
+            Keyword arguments the caller gave the facade method.
+
+        Returns
+        -------
+        tuple
+            The original positional arguments, or a one-element tuple naming the estimand.
         """
         if args or "estimand" in kwargs or "ate" in self._result.estimates:
             return args
@@ -2374,7 +2400,8 @@ class SensitivityFacade(_CapabilityFacade):
             from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
 
             binary_candidates = _eligible_binary_parameter_names(self._result)
-            return (binary_candidates[0],) if len(binary_candidates) == 1 else args
+            if len(binary_candidates) == 1:
+                return (binary_candidates[0],)
         from .sensitivity._parameters import arm_parameters
 
         known = arm_parameters(self._result)

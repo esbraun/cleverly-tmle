@@ -38,10 +38,10 @@ previous reader had is not a citation; a page number is.
   `R/tmle3_Update.R` selects the
   `"validation"` likelihood when `cvtmle=TRUE` and fits one update to the stacked
   validation predictions; `R/Param_TSM.R` evaluates the treatment-specific mean and its
-  influence curve from those validation likelihood values. Used as an implementation
-  reference, not as an oracle for the estimand derivation or as a moving specification.
-  `R/delta_functions.R` defines the log-risk and log-odds contrasts used by the simulated
-  confounding movement contract. Levy (2018) is the stable marker for the default stacked
+  influence curve from those validation likelihood values. `R/delta_functions.R` defines the
+  log-risk and log-odds contrasts. Used as an implementation reference, not as an oracle for the
+  estimand derivation or as a moving specification. The simulated-confounding surface reports its
+  ratio movement on the same log scale. Levy (2018) is the stable marker for the default stacked
   construction.
 - The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
   here at [`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).

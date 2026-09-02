@@ -163,15 +163,16 @@ cached ones. `run_all` excludes both by default, and each skipped row names the 
 ## Sensitivity to untestable assumptions
 
 Identification rests on assumptions that no diagnostic can test. These instruments do not test
-them either. Some derive a formal scale. The simulated surface reports point-estimate movement
-under a declared perturbation instead.
+them either. Some derive a formal scale. The simulated surface reports estimate movement
+under a declared perturbation instead. Its `movement_scale` field names the scale of that
+movement, which is additive for a difference and logarithmic for a ratio.
 
 | instrument | the assumption it stresses | the number it reports | what it assumes to report it |
 | --- | --- | --- | --- |
 | omitted-variable bounds | no unmeasured confounding | the largest bias an unmeasured confounder of declared strength can produce | the confounder acts through the outcome regression and the treatment mechanism, with declared partial-$R^2$ strength in each |
 | robustness value | no unmeasured confounding | the single strength at which the conclusion flips | that the two strengths are equal |
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
-| simulated common cause | no unmeasured confounding | point-estimate displacement across a declared strength grid | a supported latent perturbation family and plausible declared strengths |
+| simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the minimum risk-ratio association with both treatment and outcome that explains away the effect | a risk-ratio scale |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
@@ -201,8 +202,9 @@ common cause. Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021
 qualitative limits.
 
 **What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
-at every declared strength pair. `movement_scale` states how to read that displacement. Additive
-parameters use `estimate_difference`. Ratios use `log_ratio` and the signed displacement
+at every declared strength pair. `movement_scale` states how to read that displacement.
+The frame from `to_frame()` carries it as a column on every surface, additive and ratio alike.
+Additive parameters use `estimate_difference`. Ratios use `log_ratio` and the signed displacement
 
 $$
 \log(\widehat\psi_{\mathrm{refit}})-\log(\widehat\psi_{\mathrm{original}}).
@@ -286,7 +288,7 @@ association of the treatment the surface built for it.
 
 The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
-original estimate.
+original estimate, on the scale `movement_scale` names.
 
 The surface supports five source-backed composition rows with one cross-fitting draw. Ratio
 surfaces require a binomial outcome. The other rows support Gaussian and binomial outcomes.
