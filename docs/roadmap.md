@@ -330,6 +330,30 @@ fixed while each cell replaces the observed dose and refits the estimator. Conti
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
 
+#### Next increment: continuous modified-treatment-policy means
+
+The pinned DoWhy direct simulation mutates the treatment and outcome, then refits the same named
+parameter. Its treatment and outcome laws do not require that parameter to compare two policies.
+The existing modified-treatment-policy evidence already covers each `ey_shift[...]` policy mean.
+
+Extend `simulated_confounding()` to one explicitly named marginal `ey_shift[...]` mean under exact
+ordinary TMLE. Keep the policies fixed while each cell replaces the dose and outcome. Report the
+refitted policy mean and its signed displacement from the original mean. Keep the result
+qualitative, with no corrected estimate, bound, test, interval, robustness value, or verdict.
+
+Share the continuous policy-state validation for `ey_shift` and `ate_shift`. Require agreement
+across the typed estimand, normalized functional, replay estimator, fitted shift state, and
+structured parameter key. Validate the complete request before the latent draw or first refit.
+Reuse the existing perturbation, calibration, cell, failure, seed, cache, and serialization paths.
+
+Acceptance requires the exact zero anchor and a nonzero shifted-policy witness. It also requires
+the selected policy alias, policy metadata, original-data-per-cell behavior, common randomness,
+signed displacement, retained failures, and pre-fit refusal ordering. Keep every other S5 refusal.
+Update the user guide, technical contract, and final roadmap state in the implementation commit.
+
+No registered validation study applies. This increment changes assessment request validation and
+selection only. It does not change policy estimation, targeting, the influence curve, or inference.
+
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
 [F8](#f8-multi-arm-simulated-confounding-stress-surface).
