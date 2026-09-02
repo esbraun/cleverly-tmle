@@ -222,10 +222,11 @@ previous reader had is not a citation; a page number is.
   analyses require plausible domain values and cannot validate identification from observed data.
 - The maintained DoWhy simulated common-cause refuter, source at commit
   [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py).
-  It supplies secondary finite-sample conventions only. `cleverly` uses original data per cell,
-  one shared latent vector, common refit seeds, an exact zero anchor, explicit grids, and retained
-  failures. It does not copy automatic ranges, categorical encoded-column deletion, or cumulative
-  mutation of shared data.
+  Its direct simulation branches supply the binary tail flip, $A'=A+k_AU$, $Y'=Y-k_YU$, and the
+  binomial outcome tail flip. These are secondary finite-sample conventions only. `cleverly` uses
+  original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,
+  explicit grids, and retained failures. It does not copy automatic ranges, categorical
+  encoded-column deletion, or cumulative mutation of shared data.
 
 ## Negative controls
 

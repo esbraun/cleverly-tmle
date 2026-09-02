@@ -196,8 +196,9 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 ### Simulated common-cause stress surface
 
-**Why.** An analyst can inspect whether a fitted ATE moves under a plausible latent common cause.
-Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its qualitative limits.
+**Why.** An analyst can inspect whether a fitted additive contrast moves under a plausible latent
+common cause. Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its
+qualitative limits.
 
 **What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
 at every declared treatment-strength and outcome-strength pair. Each cell also reports
@@ -208,9 +209,11 @@ interval, robustness value, threshold, or pass/fail result.
 **How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
 and one refit seed across the complete grid. Each cell starts from the original data.
 
-For treatment strength $k_A$, the operation flips binary treatment when
-$U \geq \Phi^{-1}(1-k_A)$. Gaussian outcomes use $Y' = Y-k_YU$. Binomial outcomes use the same
-tail-flip construction as treatment. Flip strengths range from zero through 0.5.
+For binary treatment strength $k_A$, the operation flips treatment when
+$U \geq \Phi^{-1}(1-k_A)$. A continuous treatment uses $A' = A+k_AU$. Gaussian outcomes use
+$Y' = Y-k_YU$. Binomial outcomes use the same tail-flip construction as binary treatment.
+Flip strengths range from zero through 0.5. Continuous treatment strengths are signed finite
+coefficients.
 
 The treatment law is non-differential misclassification. It flips a treated row and an untreated
 row in the same latent tail. The association it induces between $U$ and the treatment therefore
@@ -241,19 +244,27 @@ value before you read a movement along the treatment axis as confounding. A cell
 value moved the estimate by misclassification of the treatment alone. The table above gives the
 population value each cell approaches.
 
-The surface measures the correlation on the analysis data, so the reported value carries the
-treated fraction of your own fit. The `(0, 0)` anchor cell measures the original treatment, which
-gives the null level of the same data. A cell that loses one arm reports no association, because
-the correlation of a constant treatment is undefined. A failed cell keeps the association of the
+The surface measures the correlation on the analysis data. For binary treatment, the value carries
+the treated fraction of your own fit. For continuous treatment, the value reports what
+$A'=A+k_AU$ achieved on your dose distribution. The `(0, 0)` anchor cell measures the original
+treatment, which gives the null level of the same data. A cell with constant treatment reports no
+association, because its correlation is undefined. A failed cell keeps the association of the
 treatment the surface built for it.
 
 The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
 
-The first surface supports a backdoor-identified marginal ATE with binary treatment. It supports
-Gaussian and binomial outcomes. It replays ordinary TMLE, collaborative TMLE, and complete-outcome
-DR-TMLE with one cross-fitting draw.
+The surface supports two source-backed compositions. Both support Gaussian and binomial outcomes
+with one cross-fitting draw.
+
+| treatment | additive contrast | replayed estimator |
+| --- | --- | --- |
+| binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
+
+The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
+the observed dose and outcome before the complete refit.
 
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column names
 the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) the row belongs to.
@@ -261,7 +272,7 @@ the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal)
 | refused | kind | why |
 | --- | --- | --- |
 | a longitudinal result | not written yet | no longitudinal perturbation law is implemented |
-| multi-arm and continuous treatment | not written yet | a flip probability defines no contrast on either |
+| multi-arm treatment | not written yet | no source-backed category-valued perturbation defines the contrast |
 | a missing outcome | not written yet | the surface has no missingness law and no observation refit |
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
 | observation weights | not written yet | a weighted target population needs its own displacement rule |
@@ -269,7 +280,8 @@ the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal)
 | `repeats > 1` | not written yet | no rule states how a median across draws should move |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, arm means, ratios, and conditional strata | not written yet | the audited source boundary covers the marginal ATE only |
-| a regime, and a stochastic, incremental, modified-policy, or MSM parameter | a different question | each names a different intervention with its own influence curve |
+| a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
+| modified-policy means, conditional modified-policy contrasts, C-TMLE, and DR-TMLE | not written yet | the continuous source boundary covers one marginal additive contrast under exact ordinary TMLE |
 | a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
@@ -277,7 +289,7 @@ and a constant benchmark covariate. Each is a statement about the object you hol
 
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set
-to zero. For a Gaussian variable, it reports `corr(W_j, V) * sd(V)`.
+to zero. For a Gaussian outcome or continuous dose, it reports `corr(W_j, V) * sd(V)`.
 
 The Gaussian calibration is signed. It carries the covariate's own direction of association with
 the outcome. The outcome axis subtracts, so an outcome strength of $k_Y$ calibrates at $-k_Y$ under

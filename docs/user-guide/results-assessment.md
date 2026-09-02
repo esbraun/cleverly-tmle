@@ -177,9 +177,57 @@ movements = surface.to_frame()
 calibration = surface.calibration_frame()
 ```
 
-The operation draws one shared latent variable. It flips the treatment in the upper latent tail. A
-Gaussian outcome subtracts the outcome strength times the latent value. A binomial outcome flips in
-the same tail.
+The operation draws one shared latent variable. For binary treatment, it flips the treatment in the
+upper latent tail. A Gaussian outcome subtracts the outcome strength times the latent value. A
+binomial outcome flips in the same tail.
+
+A continuous-dose fit uses signed treatment strengths. Pass the exact modified-policy contrast
+alias because a continuous result has no bare `ate` parameter.
+
+```python
+from cleverly import ModifiedTreatmentPolicyEffect
+from cleverly.datasets import make_shift_dose
+from cleverly.interventions import Shift
+
+shift_frame, _ = make_shift_dose(n=200, seed=21)
+shift_study = CausalStudy(
+    shift_frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3"),
+        treatment_kind="continuous",
+    ),
+)
+shift_result = shift_study.estimate(
+    ModifiedTreatmentPolicyEffect(
+        shifts=(
+            Shift(0.0, cap=3.0, name="natural course"),
+            Shift(0.5, cap=3.0, name="up half"),
+        )
+    ),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    n_folds=2,
+    learner_folds=2,
+    random_state=21,
+    simultaneous=False,
+)
+shift_alias = "ate_shift[up half vs natural course]"
+shift_surface = shift_result.sensitivity.simulated_confounding(
+    estimand=shift_alias,
+    grid=ConfounderStrengthGrid(
+        treatment=(-0.25, 0.0, 0.25),
+        outcome=(0.0, 0.25, 0.50),
+    ),
+    benchmark_covariates=("W1", "W2"),
+    random_state=21,
+)
+```
+
+The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
+fixed during each ordinary-TMLE refit. The outcome laws and common-randomness contract stay the
+same as the binary surface.
 
 The treatment flip is non-differential misclassification. The association it induces between the
 latent variable and the treatment depends on the treated fraction. That association is zero on a
@@ -188,8 +236,9 @@ balanced design. The technical reference
 
 Each cell reports its own realised association in `induced_treatment_association`. The frame
 carries the same value in a column of that name, and `summary()` prints it. Check the column
-before you read a movement along the treatment axis as confounding. A cell near the anchor value
-moved the estimate by misclassification of the treatment alone.
+before you read a binary treatment movement as confounding. A value near the anchor can reflect
+misclassification alone. On a continuous fit, the value reports the association that the linear
+dose perturbation achieved.
 
 The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
 original estimate exactly.

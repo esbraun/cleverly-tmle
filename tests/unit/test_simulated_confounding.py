@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+from copy import copy
 from dataclasses import replace
 from statistics import NormalDist
 from types import SimpleNamespace
@@ -13,10 +15,18 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from cleverly import ATE, ATT, CausalStudy, CollaborativeTMLEMethod, PointTreatment
-from cleverly.datasets import make_binary_outcome, make_linear_ate
+from cleverly import (
+    ATE,
+    ATT,
+    CausalStudy,
+    CollaborativeTMLEMethod,
+    ModifiedTreatmentPolicyEffect,
+    PointTreatment,
+)
+from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
+from cleverly.interventions import Shift
 from cleverly.sensitivity import (
     ConfounderStrengthGrid,
     SimulatedConfoundingResult,
@@ -25,10 +35,13 @@ from cleverly.sensitivity import (
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity.simulated_confounding import (
     _binary_calibration,
+    _continuous_calibration,
     _flip_binary,
     _flip_mask,
     _gaussian_outcome,
     _latent_child_seed,
+    _linear_treatment,
+    _perturb_treatment,
     _treatment_association,
 )
 
@@ -79,6 +92,56 @@ def binomial_result() -> Any:
     return _fit(family="binomial")
 
 
+def _fit_continuous(*, family: str = "gaussian", seed: int = 7) -> Any:
+    frame, _ = make_shift_dose(n=120, seed=seed)
+    if family == "binomial":
+        frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(float)
+        outcome_learner: Any = LogisticRegression(max_iter=1000)
+    else:
+        outcome_learner = LinearRegression()
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+            treatment_kind="continuous",
+        ),
+    )
+    return study.identify(
+        ModifiedTreatmentPolicyEffect(
+            shifts=(
+                Shift(0.0, cap=3.0, name="natural course"),
+                Shift(0.5, cap=3.0, name="up half"),
+            )
+        )
+    ).estimate(
+        method="tmle",
+        outcome_learner=outcome_learner,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def continuous_gaussian_result() -> Any:
+    return _fit_continuous()
+
+
+@pytest.fixture(scope="module")
+def continuous_binomial_result() -> Any:
+    return _fit_continuous(family="binomial")
+
+
+def _shift_alias(result: Any) -> str:
+    aliases = [name for name in result.estimates if name.startswith("ate_shift[")]
+    assert len(aliases) == 1
+    return aliases[0]
+
+
 def _record_refits(
     result: Any, monkeypatch: pytest.MonkeyPatch, *, fail_call: int | None = None
 ) -> list[tuple[Any, int | None]]:
@@ -99,6 +162,30 @@ def _record_refits(
         psi = float(np.mean(treated) - np.mean(control))
         estimate = replace(result["ate"], psi=psi)
         return replace(result, data=data, estimates={"ate": estimate})
+
+    monkeypatch.setattr(result.estimator, "refit", refit)
+    return calls
+
+
+def _record_continuous_refits(
+    result: Any, monkeypatch: pytest.MonkeyPatch, *, fail_call: int | None = None
+) -> list[tuple[Any, int | None]]:
+    calls: list[tuple[Any, int | None]] = []
+    alias = _shift_alias(result)
+
+    def refit(
+        data: Any,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        del intermediate_value
+        calls.append((data, random_state))
+        if fail_call is not None and len(calls) == fail_call:
+            raise RuntimeError("deliberate continuous refit failure")
+        psi = float(np.mean(data.treatment * data.outcome))
+        estimate = replace(result[alias], psi=psi)
+        return replace(result, data=data, estimates={alias: estimate})
 
     monkeypatch.setattr(result.estimator, "refit", refit)
     return calls
@@ -221,6 +308,202 @@ def test_gaussian_sign_and_each_flip_mask_are_active_mutation_controls() -> None
     assert np.array_equal(gaussian, values - 0.5 * latent)
     assert not np.array_equal(gaussian, sign_reversed)
     assert not np.array_equal(_flip_binary(values, mask), disabled_mask)
+
+
+def test_continuous_treatment_sign_and_dispatch_are_active_mutation_controls() -> None:
+    treatment = np.array([-1.0, 0.0, 2.0, 4.0])
+    latent = np.array([-2.0, -0.25, 0.5, 3.0])
+    shifted = _linear_treatment(treatment, latent, 0.4)
+
+    assert np.array_equal(shifted, treatment + 0.4 * latent)
+    assert not np.array_equal(shifted, treatment - 0.4 * latent)
+    assert np.array_equal(_perturb_treatment(treatment, latent, 0.4, "continuous"), shifted)
+
+    binary = np.array([0.0, 1.0, 0.0, 1.0])
+    assert np.array_equal(
+        _perturb_treatment(binary, latent, 0.25, "binary"),
+        _flip_binary(binary, _flip_mask(latent, 0.25)),
+    )
+
+
+@pytest.mark.parametrize("family", ["gaussian", "binomial"])
+def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
+    family: str,
+    continuous_gaussian_result: Any,
+    continuous_binomial_result: Any,
+) -> None:
+    result = continuous_gaussian_result if family == "gaussian" else continuous_binomial_result
+    alias = _shift_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.2)),
+        random_state=29,
+    )
+
+    assert type(result.estimator) is TMLE
+    assert surface.complete
+    assert surface.estimand == alias
+    assert surface.treatment_family == "continuous"
+    assert surface.outcome_family == family
+    assert surface.cells[0].estimate == result[alias].psi
+    assert surface.cells[0].displacement == 0.0
+    assert any(abs(cell.displacement or 0.0) > 1e-4 for cell in surface.cells[1:])
+    assert "adds signed strength" in surface.treatment_law
+    assert "what the continuous linear perturbation achieved" in surface.summary()
+
+
+def test_continuous_zero_anchor_common_randomness_and_original_data_per_cell(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    original_treatment = result.data.treatment.copy()
+    original_outcome = result.data.outcome.copy()
+    calls = _record_continuous_refits(result, monkeypatch)
+    grid = ConfounderStrengthGrid(
+        treatment=(0.0, -0.3),
+        outcome=(0.0, 0.4),
+    )
+
+    surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=19)
+
+    assert surface.cells[0].estimate == result[alias].psi
+    assert surface.cells[0].displacement == 0.0
+    assert len(calls) == 3
+    assert {seed for _, seed in calls} == {surface.root_seed}
+    latent = np.random.default_rng(surface.latent_seed).normal(size=result.data.n)
+    expected_treatment = original_treatment - 0.3 * latent
+    expected_outcome = original_outcome - 0.4 * latent
+
+    assert not np.array_equal(expected_treatment, original_treatment)
+    assert not np.array_equal(expected_outcome, original_outcome)
+    assert np.array_equal(calls[0][0].treatment, original_treatment)
+    assert np.array_equal(calls[0][0].outcome, expected_outcome)
+    assert np.array_equal(calls[1][0].treatment, expected_treatment)
+    assert np.array_equal(calls[1][0].outcome, original_outcome)
+    assert np.array_equal(calls[2][0].treatment, expected_treatment)
+    assert np.array_equal(calls[2][0].outcome, expected_outcome)
+    assert np.array_equal(result.data.treatment, original_treatment)
+    assert np.array_equal(result.data.outcome, original_outcome)
+
+    for index, (data, _) in enumerate(calls, start=1):
+        expected = float(np.mean(data.treatment * data.outcome))
+        assert surface.cells[index].estimate == pytest.approx(expected)
+        assert surface.cells[index].displacement == pytest.approx(expected - result[alias].psi)
+
+    # Each sign and the joint path have a distinct nonzero witness. A no-op treatment,
+    # reversed outcome sign, or cumulative mutation across cells breaks these values.
+    assert surface.cells[1].displacement is not None
+    assert surface.cells[2].displacement is not None
+    assert surface.cells[3].displacement is not None
+    assert len({round(cell.displacement or 0.0, 8) for cell in surface.cells}) == 4
+
+    expected_association = float(np.corrcoef(latent, expected_treatment)[0, 1])
+    assert surface.cells[2].induced_treatment_association == pytest.approx(
+        expected_association, rel=1e-12
+    )
+    assert surface.cells[3].induced_treatment_association == pytest.approx(
+        expected_association, rel=1e-12
+    )
+
+
+def test_continuous_binomial_outcome_uses_the_existing_tail_mask(
+    continuous_binomial_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = continuous_binomial_result
+    alias = _shift_alias(result)
+    calls = _record_continuous_refits(result, monkeypatch)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    latent = np.random.default_rng(surface.latent_seed).normal(size=result.data.n)
+    expected_treatment = result.data.treatment + 0.2 * latent
+    expected_outcome = _flip_binary(result.data.outcome, _flip_mask(latent, 0.3))
+
+    assert np.array_equal(calls[0][0].outcome, expected_outcome)
+    assert np.array_equal(calls[1][0].treatment, expected_treatment)
+    assert np.array_equal(calls[2][0].treatment, expected_treatment)
+    assert np.array_equal(calls[2][0].outcome, expected_outcome)
+    assert int(_flip_mask(latent, 0.3).sum()) > 0
+
+
+def test_continuous_real_refit_recomputes_the_active_cap_on_perturbed_dose(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    policies = tuple(result.identified_effect.functional.interventions)
+    original_refit = result.estimator.refit
+    original_shifts = result.nuisance.shifts
+    assert original_shifts is not None
+    assert int(original_shifts.capped[:, 1].sum()) > 0
+    witnessed: list[Any] = []
+
+    def checked_refit(
+        data: Any,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        refitted = original_refit(
+            data,
+            intermediate_value=intermediate_value,
+            random_state=random_state,
+        )
+        shifts = refitted.nuisance.shifts
+        assert shifts is not None
+        expected_shifted = np.column_stack([policy.apply(data.treatment)[0] for policy in policies])
+        expected_capped = np.column_stack([policy.apply(data.treatment)[1] for policy in policies])
+        assert np.array_equal(shifts.shifted, expected_shifted)
+        assert np.array_equal(shifts.capped, expected_capped)
+        assert int(expected_capped[:, 1].sum()) > 0
+        witnessed.append(data)
+        return refitted
+
+    monkeypatch.setattr(result.estimator, "refit", checked_refit)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 1.0), outcome=(0.0,)),
+        random_state=29,
+    )
+
+    assert surface.complete
+    assert len(witnessed) == 1
+    assert not np.array_equal(witnessed[0].treatment, result.data.treatment)
+    assert not np.array_equal(
+        policies[1].apply(witnessed[0].treatment)[1], original_shifts.capped[:, 1]
+    )
+
+
+def test_continuous_calibration_uses_the_signed_standardized_coefficient(
+    continuous_gaussian_result: Any,
+) -> None:
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        benchmark_covariates=("W1",),
+    )
+    rows = {row.role: row for row in surface.calibrations}
+    index = result.data.covariate_names.index("W1")
+
+    assert rows["treatment"].family == "gaussian"
+    assert rows["treatment"].method == "signed standardized marginal coefficient"
+    assert rows["treatment"].strength == pytest.approx(
+        _continuous_calibration(result.data.covariates[:, index], result.data.treatment),
+        rel=1e-12,
+    )
+    assert rows["outcome"].strength == pytest.approx(
+        _continuous_calibration(result.data.covariates[:, index], result.data.outcome),
+        rel=1e-12,
+    )
 
 
 def test_tiny_positive_flip_strength_uses_the_stable_upper_tail() -> None:
@@ -634,11 +917,14 @@ def test_grid_validation_and_binomial_boundary(
 ) -> None:
     with pytest.raises(ValueError, match="contain zero"):
         ConfounderStrengthGrid(treatment=(0.1,), outcome=(0.0,))
-    with pytest.raises(ValueError, match=r"between 0 and 0\.5"):
-        ConfounderStrengthGrid(treatment=(0.0, 0.6), outcome=(0.0,))
     with pytest.raises(ValueError, match="duplicates"):
         ConfounderStrengthGrid(treatment=(0.0, -0.0), outcome=(0.0,))
     calls = _record_refits(binomial_result, monkeypatch)
+    with pytest.raises(ValueError, match="binary treatment strengths"):
+        simulated_confounding(
+            binomial_result,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.6), outcome=(0.0,)),
+        )
     with pytest.raises(ValueError, match="binomial outcome strengths"):
         simulated_confounding(
             binomial_result,
@@ -668,8 +954,7 @@ def test_unsupported_estimands_are_refused_before_refit(
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ("multi-arm", "binary treatment"),
-        ("continuous", "binary treatment"),
+        ("multi-arm", "category-valued perturbation law"),
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
         ("weights", "observation-weighted"),
@@ -702,8 +987,6 @@ def test_unsupported_compositions_are_refused_before_refit(
     data = result.data
     if change == "multi-arm":
         data = replace(data, treatment_levels=(0, 1, 2))
-    elif change == "continuous":
-        data = replace(data, treatment_kind="continuous", treatment_levels=())
     elif change == "missing":
         observed = data.observed.copy()
         observed[0] = False
@@ -823,6 +1106,231 @@ def test_non_result_and_ambiguous_alias_are_refused(
     calls = _record_refits(gaussian_result, monkeypatch)
     with pytest.raises(ValueError, match="unavailable"):
         simulated_confounding(gaussian_result, estimand="unknown", grid=_grid())
+    assert calls == []
+
+
+def test_continuous_requires_an_explicit_shift_alias_before_refit(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _record_continuous_refits(continuous_gaussian_result, monkeypatch)
+    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias"):
+        simulated_confounding(
+            continuous_gaussian_result,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+    assert calls == []
+
+
+def test_continuous_strengths_are_signed_and_outcome_bounds_follow_the_family(
+    continuous_gaussian_result: Any,
+    continuous_binomial_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gaussian_calls = _record_continuous_refits(continuous_gaussian_result, monkeypatch)
+    gaussian = simulated_confounding(
+        continuous_gaussian_result,
+        estimand=_shift_alias(continuous_gaussian_result),
+        grid=ConfounderStrengthGrid(treatment=(0.0, -0.75, 0.8), outcome=(0.0, -0.6)),
+    )
+    assert gaussian.complete
+    assert len(gaussian_calls) == 5
+
+    binomial_calls = _record_continuous_refits(continuous_binomial_result, monkeypatch)
+    with pytest.raises(ValueError, match="binomial outcome strengths"):
+        simulated_confounding(
+            continuous_binomial_result,
+            estimand=_shift_alias(continuous_binomial_result),
+            grid=ConfounderStrengthGrid(treatment=(0.0, -0.75, 0.8), outcome=(0.0, -0.1)),
+        )
+    assert binomial_calls == []
+
+
+def test_continuous_retains_refit_failure_and_replays_seed(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+    calls = _record_continuous_refits(result, monkeypatch, fail_call=1)
+    failed = simulated_confounding(result, estimand=alias, grid=grid, random_state=23)
+
+    assert len(calls) == 1
+    assert not failed.complete
+    assert failed.cells[1].failure is not None
+    assert failed.cells[1].failure.error_type == "RuntimeError"
+    assert failed.cells[1].failure.seed == failed.root_seed
+    assert failed.cells[1].induced_treatment_association is not None
+
+    replay_calls = _record_continuous_refits(result, monkeypatch)
+    replayed = simulated_confounding(
+        result, estimand=alias, grid=grid, random_state=failed.root_seed
+    )
+    assert len(replay_calls) == 1
+    assert replayed.latent_seed == failed.latent_seed
+    assert np.array_equal(replay_calls[0][0].treatment, calls[0][0].treatment)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ("collaborative", "exact ordinary TMLE"),
+        ("key-estimand", "only a marginal ate_shift"),
+        ("key-axis", "only a marginal ate_shift"),
+        ("conditional", "only a marginal ate_shift"),
+        ("key-alias", "structured shift metadata"),
+        ("key-value", "structured shift metadata"),
+        ("fitted-names", "structured shift metadata"),
+        ("fitted-deltas", "structured shift metadata"),
+        ("fitted-reference", "structured shift metadata"),
+        ("fitted-shifted", "structured shift metadata"),
+        ("fitted-capped", "structured shift metadata"),
+        ("functional-name", "structured shift metadata"),
+        ("functional-delta", "structured shift metadata"),
+        ("functional-cap", "structured shift metadata"),
+        ("functional-reference", "structured shift metadata"),
+        ("typed-delta", "structured shift metadata"),
+        ("typed-cap", "structured shift metadata"),
+        ("typed-reference", "structured shift metadata"),
+        ("estimator-delta", "structured shift metadata"),
+        ("estimator-cap", "structured shift metadata"),
+        ("estimator-reference", "structured shift metadata"),
+        ("provenance", "registered ate_shift identification provenance"),
+        ("declared-provenance", "registered ate_shift identification provenance"),
+        ("target-provenance", "registered ate_shift identification provenance"),
+        ("arm-axis", "modified-treatment-policy contrast"),
+    ],
+)
+def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
+    continuous_gaussian_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    message: str,
+) -> None:
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    if change == "collaborative":
+        result = replace(result, estimator=_UnsupportedTMLE())
+    elif change in {"key-estimand", "key-axis", "conditional", "key-alias", "key-value"}:
+        key = result.parameter_keys[alias]
+        if change == "key-estimand":
+            key = replace(key, estimand="ate")
+        elif change == "key-axis":
+            key = replace(key, axis="arm")
+        elif change == "conditional":
+            key = replace(key, stratum=(0,))
+        elif change == "key-alias":
+            key = replace(key, alias="ate_shift[wrong vs natural course]")
+        else:
+            key = replace(key, value="natural course")
+        result = replace(result, parameter_keys={alias: key})
+    elif change in {
+        "fitted-names",
+        "fitted-deltas",
+        "fitted-reference",
+        "fitted-shifted",
+        "fitted-capped",
+    }:
+        shifts = result.nuisance.shifts
+        assert shifts is not None
+        if change == "fitted-names":
+            shifts = replace(shifts, names=("natural course", "wrong"))
+        elif change == "fitted-deltas":
+            shifts = replace(shifts, deltas=(0.0, 0.75))
+        elif change == "fitted-reference":
+            shifts = replace(shifts, reference=1.0)
+        elif change == "fitted-shifted":
+            shifted = shifts.shifted.copy()
+            shifted[:, 1] += 0.25
+            shifts = replace(shifts, shifted=shifted)
+        else:
+            capped = shifts.capped.copy()
+            capped[:, 1] = ~capped[:, 1]
+            shifts = replace(shifts, capped=capped)
+        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
+        result = replace(result, repeats=(repeat,))
+    elif change in {"functional-name", "functional-delta", "functional-cap"}:
+        interventions = list(result.identified_effect.functional.interventions)
+        if change == "functional-name":
+            interventions[1] = replace(interventions[1], name="wrong")
+        elif change == "functional-delta":
+            interventions[1] = replace(interventions[1], delta=0.75)
+        else:
+            interventions[1] = replace(interventions[1], cap=2.0)
+        result = _with_functional(result, interventions=tuple(interventions))
+    elif change == "functional-reference":
+        result = _with_functional(result, reference="up half")
+    elif change in {"typed-delta", "typed-cap", "typed-reference"}:
+        typed = result.identified_effect.estimand
+        if change == "typed-reference":
+            typed = replace(typed, reference="up half")
+        else:
+            policies = list(typed.shifts)
+            policies[1] = replace(
+                policies[1],
+                **({"delta": 0.75} if change == "typed-delta" else {"cap": 2.0}),
+            )
+            typed = replace(typed, shifts=tuple(policies))
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, estimand=typed),
+        )
+    elif change in {"estimator-delta", "estimator-cap", "estimator-reference"}:
+        estimator = copy(result.estimator)
+        if change == "estimator-reference":
+            estimator.reference = "up half"
+        else:
+            policies = list(estimator.shifts)
+            policies[1] = replace(
+                policies[1],
+                **({"delta": 0.75} if change == "estimator-delta" else {"cap": 2.0}),
+            )
+            estimator.shifts = tuple(policies)
+        result = replace(result, estimator=estimator)
+    elif change == "provenance":
+        identification = replace(
+            result.identified_effect.identification,
+            references=("unregistered identification",),
+        )
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, identification=identification),
+        )
+    elif change == "declared-provenance":
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, estimand=ATE()),
+        )
+    elif change == "target-provenance":
+        result = _with_functional(result, target="ate")
+    else:
+        result = _with_functional(result, axis="arm")
+
+    calls = _record_continuous_refits(result, monkeypatch)
+    with pytest.raises(CapabilityError, match=message):
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+    assert calls == []
+
+
+def test_multi_arm_refusal_precedes_the_latent_draw(
+    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = replace(
+        gaussian_result,
+        data=replace(gaussian_result.data, treatment_levels=(0, 1, 2)),
+    )
+    calls = _record_refits(result, monkeypatch)
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+
+    def forbidden_seed(_: int) -> int:
+        raise AssertionError("latent seed requested before multi-arm refusal")
+
+    monkeypatch.setattr(module, "_latent_child_seed", forbidden_seed)
+    with pytest.raises(CapabilityError, match="category-valued perturbation law"):
+        simulated_confounding(result, grid=_grid())
     assert calls == []
 
 

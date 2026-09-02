@@ -15,12 +15,14 @@ from cleverly import (
     ATE,
     CausalStudy,
     LongitudinalTreatment,
+    ModifiedTreatmentPolicyEffect,
     PointTreatment,
     RegimeContrast,
     load,
 )
-from cleverly.datasets import make_longitudinal, make_nonlinear_ate
+from cleverly.datasets import make_longitudinal, make_nonlinear_ate, make_shift_dose
 from cleverly.estimators.serialize import dumps, loads, save
+from cleverly.interventions import Shift
 from cleverly.sensitivity import ConfounderStrengthGrid
 from cleverly.validation import (
     BootstrapMeasurementError,
@@ -74,6 +76,35 @@ def categorical_point_result():  # type: ignore[no-untyped-def]
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
+        learner_folds=2,
+        random_state=7,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture
+def continuous_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_shift_dose(n=120, seed=7)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+            treatment_kind="continuous",
+        ),
+    )
+    return study.identify(
+        ModifiedTreatmentPolicyEffect(
+            shifts=(
+                Shift(0.0, cap=10.0, name="natural course"),
+                Shift(0.5, cap=10.0, name="up half"),
+            )
+        )
+    ).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
         learner_folds=2,
         random_state=7,
         simultaneous=False,
@@ -144,6 +175,32 @@ def test_simulated_confounding_cache_survives_round_trip(point_result) -> None: 
     assert replayed.calibrations == report.calibrations
     assert replayed.latent_seed == report.latent_seed
     assert replayed.refit_seed == report.refit_seed == report.root_seed
+
+
+def test_continuous_simulated_confounding_cache_survives_round_trip(
+    continuous_result,
+) -> None:  # type: ignore[no-untyped-def]
+    alias = next(name for name in continuous_result.estimates if name.startswith("ate_shift["))
+    kwargs = {
+        "estimand": alias,
+        "grid": ConfounderStrengthGrid(treatment=(0.0, -0.2), outcome=(0.0, 0.3)),
+        "benchmark_covariates": ("W1",),
+        "random_state": 17,
+    }
+    report = continuous_result.sensitivity.simulated_confounding(**kwargs)
+    assert continuous_result.sensitivity.simulated_confounding(**kwargs) is report
+    assert report.complete
+    assert report.treatment_family == "continuous"
+    assert len(report.cells) == 4
+    assert any(abs(cell.displacement or 0.0) > 1e-4 for cell in report.cells[1:])
+    assert report.calibrations[0].family == "gaussian"
+
+    restored = loads(dumps(continuous_result))
+    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert replayed == report
+    assert replayed.cells == report.cells
+    assert replayed.calibrations == report.calibrations
+    assert replayed.latent_seed == report.latent_seed
 
 
 def test_measurement_error_cache_and_records_survive_round_trip(categorical_point_result) -> None:  # type: ignore[no-untyped-def]
