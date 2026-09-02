@@ -548,9 +548,9 @@ def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
 
 
 def test_repeated_surface_retains_a_complete_refit_failure(
-    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repeated = replace(gaussian_result, repeats=gaussian_result.repeats * 3)
+    repeated = _fit(repeats=3)
     calls = _record_refits(repeated, monkeypatch, fail_call=1)
     surface = simulated_confounding(
         repeated,
@@ -562,6 +562,46 @@ def test_repeated_surface_retains_a_complete_refit_failure(
     assert surface.n_repeats == 3
     assert surface.cells[1].failure is not None
     assert surface.cells[1].failure.error_type == "RuntimeError"
+
+
+@pytest.mark.parametrize("layer", ["stored", "config", "estimator"])
+def test_repeat_provenance_checks_each_count_before_the_latent_draw(
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    result = _fit(repeats=3)
+    if layer == "stored":
+        result = replace(result, repeats=result.repeats[:1])
+    elif layer == "config":
+        result = replace(
+            result,
+            config=replace(
+                result.config,
+                crossfit=replace(result.config.crossfit, repeats=1),
+            ),
+        )
+    else:
+        estimator = copy(result.estimator)
+        estimator.repeats = 1
+        result = replace(result, estimator=estimator)
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+
+    with pytest.raises(CapabilityError, match="consistent repeated-cross-fitting provenance"):
+        simulated_confounding(
+            result,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
 
 
 @pytest.mark.parametrize(

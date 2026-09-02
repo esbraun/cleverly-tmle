@@ -33,12 +33,13 @@ previous reader had is not a citation; a page number is.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
-  Journal* 21(1):C1-C68. Definition 3.3 defines repeated sample splitting. Equation (3.14)
-  reports the median point and the median within-partition variance plus squared split
+  Journal* 21(1):C1-C68. Definition 3.3 defines the coordinatewise median point;
+  Equation (3.14) defines the median of the within-partition variance plus squared split
   displacement.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1612-1640](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1612-L1640).
-  The `_estimator_pooling` median branch implements the same point and variance calculation.
+  The `calculate_joint_estimate` median branch implements the same point and variance
+  calculation.
   It is secondary aggregation evidence and not a comparator for the complete estimator.
 - Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
   distinguishes the original fold-wise plug-in evaluation from the common targeting

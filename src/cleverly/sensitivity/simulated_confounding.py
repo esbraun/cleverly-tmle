@@ -667,6 +667,19 @@ def _validate_request(
             "simulated_confounding needs a replayable fitted estimator; this restored or "
             "legacy result has no estimator configuration"
         )
+    stored_repeats = result.n_repeats
+    configured_repeats = result.config.crossfit.repeats
+    replay_repeats = estimator.repeats
+    if (
+        stored_repeats < 1
+        or stored_repeats != configured_repeats
+        or stored_repeats != replay_repeats
+    ):
+        raise CapabilityError(
+            "simulated_confounding needs consistent repeated-cross-fitting provenance; "
+            f"the stored result has {stored_repeats} draw(s), its configuration declares "
+            f"{configured_repeats}, and the replay estimator declares {replay_repeats}"
+        )
     data = result.data
     if data.is_continuous_treatment:
         treatment_family: Literal["binary", "continuous"] = "continuous"
