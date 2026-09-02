@@ -229,16 +229,22 @@ The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified trea
 fixed during each ordinary-TMLE refit. The outcome laws and common-randomness contract stay the
 same as the binary surface.
 
-The treatment flip is non-differential misclassification. The association it induces between the
-latent variable and the treatment depends on the treated fraction. That association is zero on a
-balanced design. The technical reference
+On a binary fit, the treatment flip is non-differential misclassification. The association it
+induces between the latent variable and the treatment depends on the treated fraction. That
+association is zero on a balanced design. The technical reference
 [measures it](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface).
 
 Each cell reports its own realised association in `induced_treatment_association`. The frame
-carries the same value in a column of that name, and `summary()` prints it. Check the column
-before you read a binary treatment movement as confounding. A value near the anchor can reflect
-misclassification alone. On a continuous fit, the value reports the association that the linear
-dose perturbation achieved.
+carries the same value in a column of that name, and `summary()` prints it. On a binary fit, check
+the column before you read a treatment movement as confounding. A value near the anchor can
+reflect misclassification alone.
+
+On a continuous fit, the latent variable changes the dose by construction, so the association
+grows with the treatment strength. A confounding path also needs the latent variable to enter the
+outcome, and only a nonzero outcome strength puts it there. A cell in the zero outcome-strength
+column therefore carries no confounding path, whatever its association. Its movement reports the
+dose perturbation alone. The technical reference states the same
+[reading rule](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface).
 
 The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
 original estimate exactly.

@@ -18,8 +18,10 @@ from sklearn.preprocessing import StandardScaler
 from cleverly import (
     ATE,
     ATT,
+    AssessmentStatus,
     CausalStudy,
     CollaborativeTMLEMethod,
+    ModifiedTreatmentPolicy,
     ModifiedTreatmentPolicyEffect,
     PointTreatment,
 )
@@ -92,7 +94,20 @@ def binomial_result() -> Any:
     return _fit(family="binomial")
 
 
-def _fit_continuous(*, family: str = "gaussian", seed: int = 7) -> Any:
+_TWO_POLICIES = (
+    Shift(0.0, cap=3.0, name="natural course"),
+    Shift(0.5, cap=3.0, name="up half"),
+)
+_THREE_POLICIES = (*_TWO_POLICIES, Shift(1.0, cap=3.0, name="up one"))
+
+
+def _fit_continuous(
+    *,
+    family: str = "gaussian",
+    seed: int = 7,
+    policies: tuple[Shift, ...] = _TWO_POLICIES,
+    means: bool = False,
+) -> Any:
     frame, _ = make_shift_dose(n=120, seed=seed)
     if family == "binomial":
         frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(float)
@@ -108,14 +123,12 @@ def _fit_continuous(*, family: str = "gaussian", seed: int = 7) -> Any:
             treatment_kind="continuous",
         ),
     )
-    return study.identify(
-        ModifiedTreatmentPolicyEffect(
-            shifts=(
-                Shift(0.0, cap=3.0, name="natural course"),
-                Shift(0.5, cap=3.0, name="up half"),
-            )
-        )
-    ).estimate(
+    estimand: Any = (
+        ModifiedTreatmentPolicy(shifts=policies)
+        if means
+        else ModifiedTreatmentPolicyEffect(shifts=policies)
+    )
+    return study.identify(estimand).estimate(
         method="tmle",
         outcome_learner=outcome_learner,
         treatment_learner=LogisticRegression(max_iter=1000),
@@ -134,6 +147,16 @@ def continuous_gaussian_result() -> Any:
 @pytest.fixture(scope="module")
 def continuous_binomial_result() -> Any:
     return _fit_continuous(family="binomial")
+
+
+@pytest.fixture(scope="module")
+def three_policy_result() -> Any:
+    return _fit_continuous(policies=_THREE_POLICIES)
+
+
+@pytest.fixture(scope="module")
+def continuous_means_result() -> Any:
+    return _fit_continuous(means=True)
 
 
 def _shift_alias(result: Any) -> str:
@@ -168,10 +191,14 @@ def _record_refits(
 
 
 def _record_continuous_refits(
-    result: Any, monkeypatch: pytest.MonkeyPatch, *, fail_call: int | None = None
+    result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fail_call: int | None = None,
+    alias: str | None = None,
 ) -> list[tuple[Any, int | None]]:
     calls: list[tuple[Any, int | None]] = []
-    alias = _shift_alias(result)
+    alias = _shift_alias(result) if alias is None else alias
 
     def refit(
         data: Any,
@@ -350,7 +377,63 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 1e-4 for cell in surface.cells[1:])
     assert "adds signed strength" in surface.treatment_law
-    assert "what the continuous linear perturbation achieved" in surface.summary()
+    summary = surface.summary()
+    assert "what the continuous linear perturbation achieved" in summary
+    # The reading guard. A zero outcome strength leaves the latent vector out of the
+    # outcome, so that column carries no confounding path whatever its association.
+    assert "no confounding path" in summary
+    assert "dose perturbation alone" in summary
+
+
+def test_continuous_real_refit_moves_with_the_signed_dose_and_outcome_laws(
+    continuous_gaussian_result: Any,
+) -> None:
+    """Pin the direction of both axes on the real estimator rather than on a spy.
+
+    Every other signed continuous check replaces ``TMLE.refit`` with a spy, so the sign
+    and the axis assignment of the real path rest on this test alone. The gates below are
+    signed, and their margins sit far above numerical noise, so a swap of the two axes, a
+    reversed ``A' = A + k_A U`` sign, or a reversed ``Y' = Y - k_Y U`` sign fails one of
+    them. ``random_state`` equals the seed of the fit, so the anchor and every cell share
+    the cross-fitting folds and no movement here is a fold artifact.
+    """
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 1.0), outcome=(0.0, 0.5)),
+        random_state=7,
+    )
+    anchor, outcome_only, treatment_only, joint = surface.cells
+
+    assert surface.complete
+    assert (anchor.treatment_strength, anchor.outcome_strength) == (0.0, 0.0)
+    assert (outcome_only.treatment_strength, outcome_only.outcome_strength) == (0.0, 0.5)
+    assert (treatment_only.treatment_strength, treatment_only.outcome_strength) == (1.0, 0.0)
+    assert (joint.treatment_strength, joint.outcome_strength) == (1.0, 0.5)
+
+    # ``A' = A + k_A U`` raises the latent-treatment correlation of this fixture from
+    # about +0.06 at the anchor to about +0.70 at ``k_A = 1``. A reversed sign gives about
+    # -0.70, and an untouched treatment stays at the anchor level.
+    assert anchor.induced_treatment_association is not None
+    assert abs(anchor.induced_treatment_association) < 0.2
+    assert treatment_only.induced_treatment_association is not None
+    assert treatment_only.induced_treatment_association > 0.4
+    assert joint.induced_treatment_association == treatment_only.induced_treatment_association
+
+    # The dose axis alone moves this fit by about -0.26 and the outcome axis alone by
+    # about -0.012, so a surface that read the two strengths in the wrong order fails
+    # both of these gates.
+    assert treatment_only.displacement is not None
+    assert treatment_only.displacement < -0.1
+    assert outcome_only.displacement is not None
+    assert abs(outcome_only.displacement) < 0.05
+
+    # ``Y' = Y - k_Y U`` adds about -0.081 on top of the dose movement. A reversed outcome
+    # sign carries the joint cell back toward the anchor instead.
+    assert joint.displacement is not None
+    assert joint.displacement < treatment_only.displacement - 0.02
 
 
 def test_continuous_zero_anchor_common_randomness_and_original_data_per_cell(
@@ -925,6 +1008,15 @@ def test_grid_validation_and_binomial_boundary(
             binomial_result,
             grid=ConfounderStrengthGrid(treatment=(0.0, 0.6), outcome=(0.0,)),
         )
+    # The lower bound needs its own witness.  Without it a negative binary strength
+    # reaches ``_flip_mask``, where ``NormalDist().inv_cdf`` raises inside the per-cell
+    # try block.  The surface would then hand back a partially complete result with a
+    # retained failure, rather than refuse before the latent draw and the refit.
+    with pytest.raises(ValueError, match="binary treatment strengths"):
+        simulated_confounding(
+            binomial_result,
+            grid=ConfounderStrengthGrid(treatment=(0.0, -0.1), outcome=(0.0,)),
+        )
     with pytest.raises(ValueError, match="binomial outcome strengths"):
         simulated_confounding(
             binomial_result,
@@ -1112,13 +1204,177 @@ def test_non_result_and_ambiguous_alias_are_refused(
 def test_continuous_requires_an_explicit_shift_alias_before_refit(
     continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A mutation control on the alias filter, run against a fabricated alias set.
+
+    No real fit reports ``ate_shift`` and ``ey_shift`` together. Declaring ``shifts=``
+    fixes one axis, so a ``ModifiedTreatmentPolicyEffect`` fit reports contrasts only and
+    a ``ModifiedTreatmentPolicy`` fit reports levels only. This test fabricates the mixed
+    set to hold the filter's predicate: it fails if the filter keeps every alias, if it
+    keeps the wrong one, or if it drops all of them.
+    ``test_a_means_only_fit_names_no_alias_the_surface_refuses`` covers the reachable
+    fit whose filtered list is empty.
+    """
     calls = _record_continuous_refits(continuous_gaussian_result, monkeypatch)
-    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias"):
+    alias = _shift_alias(continuous_gaussian_result)
+    # The refusal must name only the aliases it accepts. ``ey_shift`` is a level rather
+    # than a contrast, and the same function refuses it a few lines further on, so the
+    # unfiltered ``list(result.estimates)`` pointed the caller at a refused option.
+    with_level = replace(
+        continuous_gaussian_result,
+        estimates={
+            **continuous_gaussian_result.estimates,
+            "ey_shift[up half]": continuous_gaussian_result[alias],
+        },
+    )
+    assert "ey_shift[up half]" in with_level.estimates
+
+    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
         simulated_confounding(
-            continuous_gaussian_result,
+            with_level,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
+    assert alias in str(refusal.value)
+    assert "ey_shift" not in str(refusal.value)
     assert calls == []
+
+
+def test_a_means_only_fit_names_no_alias_the_surface_refuses(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reachable empty branch of the alias filter, on a levels-only fit.
+
+    ``ModifiedTreatmentPolicy`` reports ``ey_shift[...]`` levels and no contrast, so the
+    admissible list is empty and the refusal must say the fit reports none. Without the
+    filter this same fit printed
+    ``choose one of ['ey_shift[natural course]', 'ey_shift[up half]']``, which named two
+    options the same function refuses two lines later.
+    """
+    result = continuous_means_result
+    assert sorted(result.estimates) == ["ey_shift[natural course]", "ey_shift[up half]"]
+    assert not [name for name in result.estimates if name.startswith("ate_shift[")]
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+
+    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
+        simulated_confounding(
+            result,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+    message = str(refusal.value)
+    assert "ey_shift" not in message
+    assert message.endswith("this fit reports none")
+
+
+def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
+    gaussian_result: Any, continuous_gaussian_result: Any
+) -> None:
+    """Pin the rendered refusal, which ``requires_arguments`` alone does not cover.
+
+    ``simulated_confounding`` on a continuous fit is the first row in the package that
+    declares two arguments, and a bare ``", ".join`` rendered "an explicit grid, estimand
+    argument". That is singular for two names, and it reads as one argument called
+    "grid, estimand". The single-argument wording is unchanged, so this test pins both.
+    """
+
+    def rendered(result: Any) -> Any:
+        report = result.sensitivity.run_all(include_refits=True)
+        return next(item for item in report.items if item.name == "simulated_confounding")
+
+    binary = rendered(gaussian_result)
+    assert binary.status is AssessmentStatus.UNAVAILABLE
+    assert binary.detail == (
+        "needs an explicit grid argument, which a combined report has no basis to choose"
+    )
+    assert binary.next_steps == (
+        "call result.sensitivity.simulated_confounding() directly with grid",
+    )
+
+    continuous = rendered(continuous_gaussian_result)
+    assert continuous.status is AssessmentStatus.UNAVAILABLE
+    assert continuous.detail == (
+        "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
+    )
+    assert continuous.next_steps == (
+        "call result.sensitivity.simulated_confounding() directly with grid and estimand",
+    )
+
+
+def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_base(
+    three_policy_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A contrast against a fitted non-reference policy has no reachable alias.
+
+    ``_difference_against_reference`` names every ``ate_shift`` alias against the fitted
+    reference, so a three-policy fit reports no ``ate_shift[up one vs up half]`` and a
+    caller who asks for one meets the ``estimand is unavailable`` refusal first. The
+    ``key.reference != fitted_reference`` guard therefore needs fabricated metadata to
+    reach, which the second half of this test supplies. The first half pins the
+    three-policy accept path, which a caller can reach and no other test covers.
+    """
+    result = three_policy_result
+    aliases = sorted(name for name in result.estimates if name.startswith("ate_shift["))
+    assert aliases == [
+        "ate_shift[up half vs natural course]",
+        "ate_shift[up one vs natural course]",
+    ]
+    fitted = result.nuisance.shifts
+    assert fitted is not None
+    assert fitted.names == ("natural course", "up half", "up one")
+    assert fitted.names[int(fitted.reference)] == "natural course"
+
+    calls = _record_continuous_refits(result, monkeypatch, alias=aliases[1])
+    surface = simulated_confounding(
+        result,
+        estimand=aliases[1],
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0,)),
+        random_state=19,
+    )
+    assert surface.complete
+    assert surface.estimand == aliases[1]
+    assert len(calls) == 1
+
+    # The unreachable branch, reached with fabricated metadata. The alias, its value, and
+    # the name the surface rebuilds from them all agree here, so the reference clause is
+    # the only one that can refuse this request.
+    contrast = "ate_shift[up one vs up half]"
+    key = replace(result.parameter_keys[aliases[1]], alias=contrast, reference="up half")
+    assert key.value == "up one"
+    fabricated = replace(
+        result,
+        estimates={contrast: result[aliases[1]]},
+        parameter_keys={contrast: key},
+    )
+    with pytest.raises(CapabilityError, match="structured shift metadata"):
+        simulated_confounding(
+            fabricated,
+            estimand=contrast,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+    assert len(calls) == 1
+
+
+def test_the_capability_row_declares_the_continuous_estimand_requirement(
+    gaussian_result: Any, continuous_gaussian_result: Any
+) -> None:
+    """``run_all`` learns the requirement from the row, and the row is fit-dependent.
+
+    A continuous fit refuses the bare ``ate`` default, so its caller must pass ``grid``
+    and ``estimand`` both. A binary fit needs ``grid`` alone.
+    """
+
+    def rows(result: Any) -> dict[str, Any]:
+        return {row.operation: row for row in result.sensitivity.capabilities}
+
+    binary = rows(gaussian_result)
+    continuous = rows(continuous_gaussian_result)
+
+    assert binary["simulated_confounding"].requires_arguments == ("grid",)
+    assert continuous["simulated_confounding"].requires_arguments == ("grid", "estimand")
+    assert binary["benchmark"].requires_arguments == continuous["benchmark"].requires_arguments
 
 
 def test_continuous_strengths_are_signed_and_outcome_bounds_follow_the_family(

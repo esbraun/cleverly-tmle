@@ -43,8 +43,9 @@ class ConfounderStrengthGrid:
     Parameters
     ----------
     treatment : tuple of float
-        Treatment perturbation strengths. Binary-treatment values are flip probabilities
-        from zero through 0.5. Continuous-treatment values are signed linear coefficients.
+        Treatment perturbation strengths. Continuous-treatment values are signed linear
+        coefficients. Binary-treatment values are checked as flip probabilities from zero
+        through 0.5 when the surface runs.
     outcome : tuple of float
         Outcome perturbation strengths. Gaussian strengths are signed. Binomial
         strengths are checked as flip probabilities when the surface runs.
@@ -297,7 +298,9 @@ class SimulatedConfoundingResult:
                     "misclassification and not by confounding."
                     if self.treatment_family == "binary"
                     else "The association reports what the continuous linear perturbation "
-                    "achieved on these data."
+                    "achieved on these data. A cell whose outcome strength is zero has no "
+                    "confounding path, whatever its association, and reports dose perturbation "
+                    "alone."
                 ),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
@@ -428,9 +431,13 @@ def _validate_request(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
     if treatment_family == "continuous" and estimand == "ate":
+        # Only the ``ate_shift[...]`` aliases pass the checks below, so naming an
+        # ``ey_shift[...]`` alias here would point the caller at an option this same
+        # function refuses a few lines later.
+        admissible = [name for name in result.estimates if name.startswith("ate_shift[")]
+        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(
-            "continuous simulated_confounding requires an explicit ate_shift[...] alias; "
-            f"choose one of {list(result.estimates)}"
+            f"continuous simulated_confounding requires an explicit ate_shift[...] alias; {detail}"
         )
     if estimand not in result.estimates:
         raise ValueError(
@@ -770,7 +777,12 @@ def simulated_confounding(
     non-differential misclassification. Its induced association depends on the treated
     fraction. A balanced design reports an association near zero. For continuous
     treatment, the operation applies ``A' = A + k_A U`` and reports the correlation that
-    linear perturbation achieves on the analysis data.
+    linear perturbation achieves on the analysis data. That association grows with the
+    treatment strength by construction, so it is not on its own evidence of confounding.
+    A confounding path also needs the latent vector in the outcome, which happens only at
+    a nonzero outcome strength. A cell whose outcome strength is zero therefore has no
+    confounding path, whatever its association, and its movement reports dose perturbation
+    alone.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")

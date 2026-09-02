@@ -215,6 +215,10 @@ $Y' = Y-k_YU$. Binomial outcomes use the same tail-flip construction as binary t
 Flip strengths range from zero through 0.5. Continuous treatment strengths are signed finite
 coefficients.
 
+**The binary treatment axis.** The misclassification analysis below, its closed form, and the
+treated-fraction table describe the binary tail flip only. The continuous law follows in its own
+block.
+
 The treatment law is non-differential misclassification. It flips a treated row and an untreated
 row in the same latent tail. The association it induces between $U$ and the treatment therefore
 depends on the treated fraction $\pi$. Write $q = \pi + (1-2\pi)k_A$ for the perturbed treated
@@ -244,12 +248,18 @@ value before you read a movement along the treatment axis as confounding. A cell
 value moved the estimate by misclassification of the treatment alone. The table above gives the
 population value each cell approaches.
 
-The surface measures the correlation on the analysis data. For binary treatment, the value carries
-the treated fraction of your own fit. For continuous treatment, the value reports what
-$A'=A+k_AU$ achieved on your dose distribution. The `(0, 0)` anchor cell measures the original
-treatment, which gives the null level of the same data. A cell with constant treatment reports no
-association, because its correlation is undefined. A failed cell keeps the association of the
-treatment the surface built for it.
+**The continuous treatment axis.** Under the continuous law, $U$ changes the dose by construction,
+so $\operatorname{corr}(U, A')$ grows with $k_A$. A confounding path also needs $U$ to enter the
+outcome. That happens only when the outcome strength is nonzero. A cell in the zero
+outcome-strength column therefore carries no confounding path, whatever its association. Its
+movement reports dose perturbation alone.
+
+**The reported association.** The surface measures the correlation on the analysis data. For binary
+treatment, the value carries the treated fraction of your own fit. For continuous treatment, the
+value reports what $A'=A+k_AU$ achieved on your dose distribution. The `(0, 0)` anchor cell
+measures the original treatment, which gives the null level of the same data. A cell with constant
+treatment reports no association, because its correlation is undefined. A failed cell keeps the
+association of the treatment the surface built for it.
 
 The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
@@ -266,13 +276,14 @@ with one cross-fitting draw.
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
 the observed dose and outcome before the complete refit.
 
-**Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column names
-the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) the row belongs to.
+**Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
+vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
+`waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 
 | refused | kind | why |
 | --- | --- | --- |
 | a longitudinal result | not written yet | no longitudinal perturbation law is implemented |
-| multi-arm treatment | not written yet | no source-backed category-valued perturbation defines the contrast |
+| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See the [future investigation](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | a missing outcome | not written yet | the surface has no missingness law and no observation refit |
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
 | observation weights | not written yet | a weighted target population needs its own displacement rule |
@@ -292,8 +303,16 @@ For a binary variable, it reports the class-prediction change after one standard
 to zero. For a Gaussian outcome or continuous dose, it reports `corr(W_j, V) * sd(V)`.
 
 The Gaussian calibration is signed. It carries the covariate's own direction of association with
-the outcome. The outcome axis subtracts, so an outcome strength of $k_Y$ calibrates at $-k_Y$ under
-the same rule. To match a covariate that calibrates at $+c$, declare an outcome strength of $-c$.
+the outcome or with the dose. Each axis converts a calibrated value into a declared strength by its
+own rule, because the two perturbation laws carry opposite signs.
+
+| axis | law | conversion |
+| --- | --- | --- |
+| outcome | $Y'=Y-k_YU$ | the law subtracts, so an outcome strength of $k_Y$ calibrates at $-k_Y$. To match a covariate that calibrates at $+c$, declare an outcome strength of $-c$ |
+| treatment, continuous dose | $A'=A+k_AU$ | the law adds, so a treatment strength of $k_A$ calibrates at $+k_A$. To match a covariate that calibrates at $+c$, declare a treatment strength of $+c$ |
+
+A binary treatment or a binomial outcome has no such conversion. Its calibration is the
+class-prediction change fraction, which carries no sign.
 
 Calibration does not select or modify the grid. It is not partial R-squared and does not reuse the
 omitted-variable `benchmark()` scale.

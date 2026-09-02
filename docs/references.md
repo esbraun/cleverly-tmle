@@ -227,6 +227,16 @@ previous reader had is not a citation; a page number is.
   original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,
   explicit grids, and retained failures. It does not copy automatic ranges, categorical
   encoded-column deletion, or cumulative mutation of shared data.
+- Hu, Zou, Gu, Ji, Lopez & Kale (2022), [*A flexible sensitivity analysis approach for unmeasured
+  confounding with multiple treatments and a binary outcome with application to SEER-Medicare lung
+  cancer data*](https://doi.org/10.1214/21-AOAS1530), *The Annals of Applied Statistics*
+  16(2):1014–1037, DOI 10.1214/21-AOAS1530. The paper supplies a Monte Carlo sensitivity analysis
+  for multiple treatments and a binary outcome. It keeps the treatment fixed and adjusts the
+  potential outcomes through confounding functions, inside a Bayesian nested multiple-imputation
+  procedure. The abstract on page 1014 states that scope. The method encodes the impact of
+  unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
+  The paper does not perturb the treatment variable. It therefore supplies no category-valued
+  latent treatment perturbation and no refit law for this surface. Cited by roadmap item F8.
 
 ## Negative controls
 

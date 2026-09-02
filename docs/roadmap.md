@@ -331,16 +331,18 @@ are finite signed coefficients. Numeric covariate calibration uses the signed st
 marginal coefficient for the dose.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
-contrast contract.
+contrast contract. The table below omits multi-arm treatment, which waits on published theory as
+[F8](#f8-multi-arm-simulated-confounding-stress-surface).
 
-| refused family | perturbation law it still needs |
+| refused family | what it still needs |
 | --- | --- |
 | weighted or clustered design | a perturbation that respects the sampling law |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
 | ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
 | ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
-| conditional strata | a per-stratum surface that shares one latent draw |
+| conditional strata, for an arm contrast or a modified-policy contrast | a per-stratum contrast contract that shares one latent draw |
+| modified-policy means, such as `ey_shift[...]` | a contrast contract for one policy mean. The continuous perturbation law already applies |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
 | categorical covariate calibration | a logical-covariate benchmark that does not zero one encoded column |
