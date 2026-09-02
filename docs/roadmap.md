@@ -34,6 +34,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | investigation | missing published result | current boundary | details |
 | --- | --- | --- | --- |
 | Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips and continuous linear dose perturbations only | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
+| Clustered simulated-confounding stress surface | a source-backed choice of row-level, cluster-level, or mixed latent perturbation and its interpretation | row-level iid perturbations on unclustered fits only | [F9](#f9-clustered-simulated-confounding-stress-surface) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
@@ -319,38 +320,69 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ### S5. Expand simulated confounding to the remaining estimands and estimators
 
-The shipped stress surface covers binary marginal means, differences, risk ratios, and odds ratios.
-It replays ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE for those parameters.
-The continuous compositions report one named marginal `ey_shift` policy mean or `ate_shift`
-contrast under exact ordinary TMLE. Ratio surfaces require a binomial outcome. Every other
-composition supports Gaussian and binomial outcomes. All compositions keep the fitted estimator's
-repeat count and coordinatewise-median aggregation.
+The [technical contract](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
+item remains active until each source-backed composition ships or moves to a named theory stop.
 
-The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
-fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
-are finite signed coefficients. Numeric covariate calibration uses the signed standardized
-marginal coefficient for the dose.
+#### Next increment: fixed-observation-weight stress surfaces
 
-Sharma and Kiciman (2020) govern the qualitative stress question. The pinned DoWhy source supplies
-the binary and continuous perturbations, followed by a complete estimator refit. Chernozhukov et
-al. (2018), Definition 3.3 and equation (3.14), govern the fixed-repeat median report. The pinned
-zEpid repeated cross-fit TMLE supplies secondary implementation evidence for that aggregation.
+Allow fixed probability weights for every ordinary-TMLE composition that the surface already
+supports. Treat them as a fixed empirical row-mass vector, not as a replayed sampling design. Keep
+each normalized weight attached to its row during treatment and outcome replacement. Each
+non-anchor cell then runs the existing complete estimator refit under the unchanged vector.
 
-Each non-anchor cell calls the replay estimator once, so the estimator owns the repeat loop and
-median aggregation. The surface records the repeat count and `coordinatewise_median` provenance.
-Additive cells compare reported median estimates. Ratio cells compare reported median log
-estimates.
+This increment composes two existing contracts. Sharma and Kiciman (2020) and pinned DoWhy commit
+`2116d5c` supply one independent normal draw per row, the treatment and outcome perturbations, and
+the complete refit. Gruber and van der Laan (2012) and CRAN `tmle` 2.1.1 at commit `f8d88a0`
+supply weighted point-treatment fitting. Pinned R `lmtp` 1.5.4 supplies the same weight routing for
+modified treatment policies. These implementations use weights in nuisance fitting, targeting,
+plug-in means, and influence curves.
 
-Use one latent vector for the complete strength grid. Reuse the root seed for each complete refit.
-This rule gives every non-anchor cell the same repeat seed sequence. It does not promise identical realised
-folds after treatment or outcome perturbation. Treatment-stratified or outcome-stratified splitting
-can assign different folds when a perturbed variable changes.
+The fixed weights define the tilted law $dP_w=w\,dP/E_P[w]$. If $U$ is independent of $O$ under
+$P$, the joint tilt factorizes as $dP_w(O)\,d\Phi(U)$. The existing row-level latent law therefore
+stays independent and standard normal under the weighted target. No new treatment or outcome
+perturbation is introduced.
 
-The root seed reproduces the folds of the original fit only when it equals that fit's seed. The
-helper `resolve_assessment_seed` returns an explicit `random_state` first and the fit's own seed
-second. An unseeded fit draws a fresh seed instead. The `TMLE.refit` path then rebuilds every fold
-under that different seed. The anchor keeps the original folds, so movement near the anchor can
-carry a fold artifact.
+Each cell reports the same parameter functional on its perturbed weighted empirical law. This
+conditional empirical-tilt statement does not claim that the operation reproduces the original
+selection mechanism. Additive cells compare reported estimates. Ratio cells compare reported log
+estimates. The result records an unweighted or `fixed_empirical_tilt` target measure.
+
+Measure the induced treatment association under the same weighted empirical law. Numeric
+calibration also uses that law for scaling, model fitting, prediction-change fractions,
+correlations, and standard deviations. Keep the current unweighted arithmetic unchanged when all
+weights equal one.
+
+Do not duplicate the perturbation or refit loop. `CausalData.with_treatment` and
+`CausalData.with_outcome` already preserve the normalized weights and immutable `WeightSpec`.
+`TMLE.refit` already routes those weights through the complete estimator. The surface only removes
+the fixed-weight refusal and makes its descriptive measurements weight-aware.
+
+Continue the pre-draw refusal for estimated weights. The fitted result stores the realized weights
+but not the model that produced them. It therefore cannot determine whether a treatment or outcome
+perturbation requires the weights to be re-estimated.
+
+Continue the pre-draw refusal for weighted collaborative TMLE and weighted DR-TMLE. The pinned
+weighted comparators cover ordinary TMLE only. This increment does not use ordinary weighted
+evidence to claim parity for another estimator.
+
+Acceptance requires constant-weight identity with the unweighted surface and invariance to a
+common weight scale. A nonuniform-weight mutation must change a surface whose target depends on
+the weights. Each successful cell must equal a manual weighted refit under the recorded seed.
+
+Tests must also prove that every replacement keeps the weight vector and `WeightSpec`. They must
+cover weighted treatment association, weighted numeric calibration, repeats, retained failures,
+cache replay, and persistence. Estimated weights and clusters must still refuse before a latent
+draw or refit.
+
+Update the user guide and technical contract. Record the DoWhy and CRAN `tmle` source locators and
+the pinned `lmtp` locator. Record their boundary: none implements this combined surface. Hartman
+and Huang's survey-weight sensitivity analysis changes the weight error and answers a different
+question, so it does not govern this increment.
+
+No registered validation study needs regeneration. This increment changes assessment routing and
+descriptive measurements only. It does not change an estimator, nuisance fit, target, influence
+curve, interval, study input, or published verdict.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
@@ -358,7 +390,8 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 
 | refused family | what it still needs |
 | --- | --- |
-| weighted or clustered design | a perturbation that respects the sampling law |
+| fixed observation weights with collaborative TMLE or DR-TMLE | estimator-specific weighted perturb-and-refit evidence |
+| estimated observation weights | replayable weight-model provenance and a refit rule |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
 | ATT and ATC | a law that fixes which observed-treatment population the parameter conditions on when the flip moves membership |
@@ -381,12 +414,6 @@ The shipped result records its movement scale. Additive parameters use the refit
 the original estimate. Ratio parameters use the difference between their stored log estimates.
 Each ratio cell still reports its point estimate on the ratio scale.
 
-Carry forward or fix one measured property of the shipped treatment axis. The prescribed
-upper-tail flip is non-differential misclassification, so the induced treatment-confounder
-association depends on treatment prevalence. That association vanishes when the treated fraction
-is one half. Its sign reverses above one half. At treatment strength 0.3, the induced correlation
-is +0.43 at `P(A=1)=0.2`, +0.0004 at 0.5, and -0.43 at 0.8.
-
 Refuse each added composition before the first refit until its law exists. That is the contract
 the shipped surface already keeps. It validates the complete request before it draws the latent
 vector or refits the estimator.
@@ -406,6 +433,21 @@ Wait for a published law that maps a shared latent variable and a $K$-level trea
 declared support. The law must name the assessed contrast, remain invariant to label order, and
 define the achieved treatment-confounder association. Until then, retain the multi-arm pre-fit
 refusal. Do not reuse a binary flip by choosing two arm codes.
+
+### F9. Clustered simulated-confounding stress surface
+
+The pinned DoWhy implementation draws one independent latent value per row. It does not accept a
+cluster identifier or define a cluster-level perturbation. Pinned `lmtp` preserves identifiers in
+folds and inference, but it does not define a simulated-common-cause surface.
+
+Ou, Tang and Chang (2023), arXiv:2301.12396v1, model unmeasured cluster effects through mixed
+models and derive a different bias correction. Their construction does not perturb treatment and
+outcome before a complete TMLE refit. It does not choose between row-level, cluster-level, and
+mixed latent causes for this surface.
+
+Wait for a published or canonical construction that defines that choice and its interpretation.
+Until then, retain the clustered pre-fit refusal. Do not infer a shared cluster draw from grouped
+folds or cluster-robust variance, because those contracts govern estimator dependence only.
 
 ## Longitudinal contracts
 
