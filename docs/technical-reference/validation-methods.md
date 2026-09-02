@@ -196,7 +196,7 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 ### Simulated common-cause stress surface
 
-**Why.** An analyst can inspect whether a fitted additive contrast moves under a plausible latent
+**Why.** An analyst can inspect whether a fitted additive parameter moves under a plausible latent
 common cause. Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its
 qualitative limits.
 
@@ -254,6 +254,15 @@ outcome. That happens only when the outcome strength is nonzero. A cell in the z
 outcome-strength column therefore carries no confounding path, whatever its association. Its
 movement reports dose perturbation alone.
 
+**The zero treatment-strength column.** A cell at $k_A=0$ leaves $U$ out of the treatment, so it
+carries no confounding path either. Its movement reports the outcome perturbation alone. The
+Gaussian law $Y'=Y-k_YU$ is a level shift, and the surface draws $U$ uncentred. An
+`ate_shift[...]` contrast subtracts one policy mean from the other, so it removes most of that
+level and the column stays small. An `ey_shift[...]` policy mean keeps it, so read the $k_A=0$
+column of a policy-mean surface as an artifact of the outcome law.
+`tests/unit/test_simulated_confounding.py::test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit`
+measures both columns on one fit.
+
 **The reported association.** The surface measures the correlation on the analysis data. For binary
 treatment, the value carries the treated fraction of your own fit. For continuous treatment, the
 value reports what $A'=A+k_AU$ achieved on your dose distribution. The `(0, 0)` anchor cell
@@ -265,12 +274,13 @@ The `(0, 0)` cell returns the original estimate without a refit. A failed replac
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
 
-The surface supports two source-backed compositions. Both support Gaussian and binomial outcomes
+The surface supports three source-backed compositions. All support Gaussian and binomial outcomes
 with one cross-fitting draw.
 
-| treatment | additive contrast | replayed estimator |
+| treatment | additive parameter | replayed estimator |
 | --- | --- | --- |
 | binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
@@ -292,7 +302,8 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, arm means, ratios, and conditional strata | not written yet | the audited source boundary covers the marginal ATE only |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
-| modified-policy means, conditional modified-policy contrasts, C-TMLE, and DR-TMLE | not written yet | the continuous source boundary covers one marginal additive contrast under exact ordinary TMLE |
+| a conditional modified-policy mean or contrast, C-TMLE, and DR-TMLE, on the continuous path | not written yet | the continuous source boundary covers one marginal additive parameter under exact ordinary TMLE |
+| the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,

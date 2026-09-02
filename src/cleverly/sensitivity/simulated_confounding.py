@@ -131,7 +131,8 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE alias or named modified-policy contrast alias.
+        Marginal binary-treatment ATE alias, named modified-policy mean alias, or named
+        modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
     grid : ConfounderStrengthGrid
@@ -293,17 +294,32 @@ class SimulatedConfoundingResult:
                 "",
                 "The induced association is the correlation between the latent vector and the "
                 "treatment of the cell.",
-                (
-                    "An association near zero says the treatment axis moved the estimate by "
-                    "misclassification and not by confounding."
-                    if self.treatment_family == "binary"
-                    else "The association reports what the continuous linear perturbation "
-                    "achieved on these data. A cell whose outcome strength is zero has no "
-                    "confounding path, whatever its association, and reports dose perturbation "
-                    "alone."
-                ),
+                *self._reading_guard(),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
+        )
+
+    def _reading_guard(self) -> tuple[str, ...]:
+        """Return the lines that say which cells carry a confounding path."""
+        if self.treatment_family == "binary":
+            return (
+                "An association near zero says the treatment axis moved the estimate by "
+                "misclassification and not by confounding.",
+            )
+        outcome_axis = (
+            "Its movement reports the outcome level shift alone. A policy mean keeps that "
+            "level shift, and a contrast removes most of it. A small residual stays, "
+            "because each cell refits the outcome regression."
+            if self.outcome_family == "gaussian"
+            else "Its movement reports the outcome perturbation alone. The tail "
+            "perturbation attenuates the fitted outcome regression. A policy mean and a "
+            "contrast both move with that attenuation."
+        )
+        return (
+            "The association reports what the continuous linear perturbation achieved on "
+            "these data. A cell whose outcome strength is zero has no confounding path, "
+            "whatever its association, and reports dose perturbation alone.",
+            f"A cell whose treatment strength is zero also has no confounding path. {outcome_axis}",
         )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -334,6 +350,133 @@ class _ValidatedRequest:
     treatment_family: Literal["binary", "continuous"]
 
 
+def _validate_continuous_policy_state(
+    result: Any,
+    estimand: str,
+    key: Any,
+    identified: Any,
+    functional: Any,
+    estimator: Any,
+) -> None:
+    """Require one coherent modified-policy request across every stored layer."""
+    from ..interventions.shift import Shift
+    from ..study import ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
+    from ..targets import TARGETS
+    from ..targets.base import parameter_name
+
+    target = key.estimand
+    typed_estimand = identified.estimand
+    typed_type = {
+        "ey_shift": ModifiedTreatmentPolicy,
+        "ate_shift": ModifiedTreatmentPolicyEffect,
+    }.get(target)
+    if typed_type is None or type(typed_estimand) is not typed_type:
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent registered modified-policy "
+            "identification provenance"
+        )
+    typed_state: Any = typed_estimand
+    typed_policies = tuple(typed_state.shifts)
+    typed_reference = typed_state.reference
+
+    declared_policies = tuple(functional.interventions)
+    replay_policies = tuple(estimator.shifts)
+    if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent structured shift metadata"
+        )
+    declared_names = tuple(shift.name for shift in declared_policies)
+    declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
+    declared_reference = declared_names[0] if functional.reference is None else functional.reference
+    fitted_shifts = result.nuisance.shifts
+    fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
+    fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
+    fitted_reference = None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
+    expected_alias = parameter_name(
+        target,
+        arm=key.value,
+        versus=key.reference if target == "ate_shift" else None,
+    )
+    expected_shifted = np.column_stack(
+        [shift.apply(result.data.treatment)[0] for shift in declared_policies]
+    )
+    expected_capped = np.column_stack(
+        [shift.apply(result.data.treatment)[1] for shift in declared_policies]
+    )
+    expected_reference = fitted_reference if target == "ate_shift" else None
+    if (
+        fitted_shifts is None
+        or typed_policies != declared_policies
+        or typed_reference != functional.reference
+        or replay_policies != declared_policies
+        or estimator.reference != functional.reference
+        or fitted_names != declared_names
+        or fitted_deltas != declared_deltas
+        or fitted_reference != declared_reference
+        or not np.array_equal(fitted_shifts.shifted, expected_shifted)
+        or not np.array_equal(fitted_shifts.capped, expected_capped)
+        or key.alias != estimand
+        or key.value not in fitted_names
+        or key.reference != expected_reference
+        or expected_alias != estimand
+    ):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent structured shift metadata"
+        )
+
+    registered = TARGETS.get(target)
+    declared = getattr(typed_estimand, "name", None)
+    if (
+        functional.target != target
+        or declared != target
+        or registered is None
+        or identified.identification != registered.identification
+    ):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent registered modified-policy "
+            "identification provenance"
+        )
+
+    # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its
+    # counterfactual treatment has no dependence on the dose a common cause would move.
+    # The treatment axis of such a surface is identically zero, and the outcome axis
+    # reports the level shift ``Y' = Y - k_Y U`` alone.  An ``ate_shift`` contrast that
+    # uses the same policy as its reference keeps treatment dependence, so it stays.
+    if target == "ey_shift":
+        selected = declared_policies[declared_names.index(key.value)]
+        if float(selected.delta) == 0.0:
+            raise CapabilityError(
+                f"continuous simulated_confounding refuses the policy mean {estimand!r}; a "
+                "zero-delta policy is the natural course, its mean is E[Y], and it carries no "
+                "counterfactual treatment dependence for a simulated common cause to move. "
+                "Select a nonzero-delta ey_shift[...] mean, or an ate_shift[...] contrast "
+                "that uses the natural course as its reference"
+            )
+
+
+def _zero_delta_policy_means(functional: Any) -> frozenset[str]:
+    """Name every ``ey_shift`` alias whose policy is the zero-delta natural course.
+
+    Parameters
+    ----------
+    functional : BackdoorMeanContrast
+        Identification functional of the fitted result.
+
+    Returns
+    -------
+    frozenset of str
+        Aliases the selection message must not advertise, because each one names a
+        policy mean the surface refuses.
+    """
+    aliases = set()
+    for policy in functional.interventions:
+        delta = getattr(policy, "delta", None)
+        name = getattr(policy, "name", None)
+        if isinstance(name, str) and isinstance(delta, Real) and float(delta) == 0.0:
+            aliases.add(f"ey_shift[{name}]")
+    return frozenset(aliases)
+
+
 def _validate_request(
     result: Any,
     estimand: str,
@@ -345,15 +488,12 @@ def _validate_request(
     from ..estimators.ctmle import CTMLE
     from ..estimators.drtmle import DRTMLE
     from ..estimators.tmle import TMLE
-    from ..interventions.shift import Shift
     from ..study import (
         BackdoorMeanContrast,
         ExplicitAdjustmentProvider,
-        ModifiedTreatmentPolicyEffect,
         ParameterKey,
     )
     from ..targets import TARGETS
-    from ..targets.base import parameter_name
 
     if type(result) is not TMLEResult:
         raise CapabilityError(
@@ -431,18 +571,28 @@ def _validate_request(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
     if treatment_family == "continuous" and estimand == "ate":
-        # Only the ``ate_shift[...]`` aliases pass the checks below, so naming an
-        # ``ey_shift[...]`` alias here would point the caller at an option this same
-        # function refuses a few lines later.
-        admissible = [name for name in result.estimates if name.startswith("ate_shift[")]
+        vacuous = _zero_delta_policy_means(functional)
+        admissible = [
+            name
+            for name in result.estimates
+            if name.startswith(("ey_shift[", "ate_shift[")) and name not in vacuous
+        ]
         detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(
-            f"continuous simulated_confounding requires an explicit ate_shift[...] alias; {detail}"
+            "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
+            f"or ate_shift[...] contrast alias; {detail}"
         )
     if estimand not in result.estimates:
-        raise ValueError(
-            f"estimand {estimand!r} is unavailable; choose one of {list(result.estimates)}"
+        # A continuous fit can report the zero-delta natural-course mean, which the next
+        # call refuses.  Advertising it here hands the caller a refused alias.
+        vacuous = (
+            _zero_delta_policy_means(functional)
+            if treatment_family == "continuous"
+            else frozenset()
         )
+        admissible = [name for name in result.estimates if name not in vacuous]
+        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
+        raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
         raise CapabilityError(
@@ -484,73 +634,19 @@ def _validate_request(
         ):
             raise CapabilityError(
                 "continuous simulated_confounding supports a marginal modified-treatment-policy "
-                "contrast, not an arm, regimen, stochastic, incremental, or MSM parameter"
+                "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter"
             )
-        if key.estimand != "ate_shift" or key.axis != "shift" or key.stratum is not None:
-            raise CapabilityError(
-                "continuous simulated_confounding supports only a marginal ate_shift contrast; "
-                "means, conditional strata, and other parameters are outside its source boundary"
-            )
-        declared_policies = tuple(functional.interventions)
-        replay_policies = tuple(estimator.shifts)
-        if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent structured shift metadata"
-            )
-        declared_names = tuple(shift.name for shift in declared_policies)
-        declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
-        declared_reference = (
-            declared_names[0] if functional.reference is None else functional.reference
-        )
-        typed_estimand = identified.estimand
-        if type(typed_estimand) is not ModifiedTreatmentPolicyEffect:
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent registered ate_shift "
-                "identification provenance"
-            )
-        fitted_shifts = result.nuisance.shifts
-        fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
-        fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
-        fitted_reference = (
-            None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
-        )
-        expected_alias = parameter_name("ate_shift", arm=key.value, versus=key.reference)
-        expected_shifted = np.column_stack(
-            [shift.apply(data.treatment)[0] for shift in declared_policies]
-        )
-        expected_capped = np.column_stack(
-            [shift.apply(data.treatment)[1] for shift in declared_policies]
-        )
         if (
-            fitted_shifts is None
-            or tuple(typed_estimand.shifts) != declared_policies
-            or typed_estimand.reference != functional.reference
-            or replay_policies != declared_policies
-            or estimator.reference != functional.reference
-            or fitted_names != declared_names
-            or fitted_deltas != declared_deltas
-            or fitted_reference != declared_reference
-            or not np.array_equal(fitted_shifts.shifted, expected_shifted)
-            or not np.array_equal(fitted_shifts.capped, expected_capped)
-            or key.alias != estimand
-            or key.value not in fitted_names
-            or key.reference != fitted_reference
-            or expected_alias != estimand
+            key.estimand not in {"ey_shift", "ate_shift"}
+            or key.axis != "shift"
+            or key.stratum is not None
         ):
             raise CapabilityError(
-                "continuous simulated_confounding found inconsistent structured shift metadata"
+                "continuous simulated_confounding supports only a marginal ey_shift policy mean "
+                "or ate_shift contrast; conditional strata and other parameters are outside its "
+                "source boundary"
             )
-        registered = TARGETS.get("ate_shift")
-        if (
-            functional.target != "ate_shift"
-            or declared != "ate_shift"
-            or registered is None
-            or identified.identification != registered.identification
-        ):
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent registered ate_shift "
-                "identification provenance"
-            )
+        _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
     names = tuple(
         [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
@@ -734,16 +830,16 @@ def simulated_confounding(
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
 ) -> SimulatedConfoundingResult:
-    """Refit an additive contrast across a simulated common-cause strength grid.
+    """Refit an additive parameter across a simulated common-cause strength grid.
 
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE or continuous
-        modified-treatment-policy effect fit.
+        Replayable backdoor-identified marginal binary-treatment ATE, continuous
+        modified-treatment-policy mean, or continuous modified-policy effect fit.
     estimand : str
-        Additive contrast alias to report. A continuous fit requires an explicit
-        ``ate_shift[...]`` alias.
+        Additive parameter alias to report. A continuous fit requires an explicit
+        ``ey_shift[...]`` alias of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -783,6 +879,17 @@ def simulated_confounding(
     a nonzero outcome strength. A cell whose outcome strength is zero therefore has no
     confounding path, whatever its association, and its movement reports dose perturbation
     alone.
+
+    The zero treatment-strength column carries no confounding path either, because the
+    latent vector never reaches the treatment there. For a Gaussian outcome that column
+    reports the level shift ``Y' = Y - k_Y U`` alone. The level shift largely cancels in
+    an ``ate_shift`` contrast. A policy mean keeps it, so read the zero treatment-strength
+    column of an ``ey_shift`` surface as an artifact of the outcome law.
+
+    A zero-delta shift is the natural course, its policy mean is ``E[Y]``, and it has no
+    counterfactual treatment dependence. ``simulated_confounding`` refuses that mean before
+    it draws the latent vector. It still accepts an ``ate_shift`` contrast that uses the
+    natural course as its reference.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")

@@ -1989,7 +1989,7 @@ class SensitivityFacade(_CapabilityFacade):
         )
         benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit,
-        # so a continuous-fit caller must pass an explicit ``ate_shift[...]`` alias too.
+        # so a continuous-fit caller must pass an explicit modified-policy alias too.
         continuous = not longitudinal and bool(
             getattr(self._result.data, "is_continuous_treatment", False)
         )

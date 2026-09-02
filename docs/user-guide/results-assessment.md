@@ -181,8 +181,8 @@ The operation draws one shared latent variable. For binary treatment, it flips t
 upper latent tail. A Gaussian outcome subtracts the outcome strength times the latent value. A
 binomial outcome flips in the same tail.
 
-A continuous-dose fit uses signed treatment strengths. Pass the exact modified-policy contrast
-alias because a continuous result has no bare `ate` parameter.
+A continuous-dose fit uses signed treatment strengths. Pass one exact modified-policy mean or
+contrast alias because a continuous result has no bare `ate` parameter.
 
 ```python
 from cleverly import ModifiedTreatmentPolicyEffect
@@ -225,6 +225,14 @@ shift_surface = shift_result.sensitivity.simulated_confounding(
 )
 ```
 
+A `ModifiedTreatmentPolicy` fit reports policy means instead. Select one mean with an alias such
+as `ey_shift[up half]`. The surface reports that mean and its signed displacement in each cell.
+
+Select a policy whose `delta` is nonzero. A zero-delta shift assigns every unit its own dose, so
+its mean is $E[Y]$ and no common cause can move it through the treatment. The surface refuses that
+mean by name. It still accepts an `ate_shift[...]` contrast that uses the zero-delta policy as its
+reference, because the contrast keeps its treatment dependence.
+
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed during each ordinary-TMLE refit. The outcome laws and common-randomness contract stay the
 same as the binary surface.
@@ -245,6 +253,12 @@ outcome, and only a nonzero outcome strength puts it there. A cell in the zero o
 column therefore carries no confounding path, whatever its association. Its movement reports the
 dose perturbation alone. The technical reference states the same
 [reading rule](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface).
+
+The zero treatment-strength column carries no confounding path either. Its movement reports the
+outcome perturbation alone. The Gaussian outcome law subtracts a level from every row, and an
+`ate_shift[...]` contrast removes most of that level. An `ey_shift[...]` policy mean keeps it, so
+read the zero treatment-strength column of a policy-mean surface as an artifact of the outcome
+law.
 
 The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
 original estimate exactly.

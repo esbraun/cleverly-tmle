@@ -159,10 +159,21 @@ def continuous_means_result() -> Any:
     return _fit_continuous(means=True)
 
 
+@pytest.fixture(scope="module")
+def continuous_binomial_means_result() -> Any:
+    return _fit_continuous(family="binomial", means=True)
+
+
 def _shift_alias(result: Any) -> str:
     aliases = [name for name in result.estimates if name.startswith("ate_shift[")]
     assert len(aliases) == 1
     return aliases[0]
+
+
+def _mean_alias(result: Any, policy: str = "up half") -> str:
+    alias = f"ey_shift[{policy}]"
+    assert alias in result.estimates
+    return alias
 
 
 def _record_refits(
@@ -383,6 +394,13 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     # outcome, so that column carries no confounding path whatever its association.
     assert "no confounding path" in summary
     assert "dose perturbation alone" in summary
+    # The symmetric half. A zero treatment strength leaves the latent vector out of the
+    # treatment, so that column reports the outcome law alone.
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    if family == "gaussian":
+        assert "a contrast removes most of it" in summary
+    else:
+        assert "attenuates the fitted outcome regression" in summary
 
 
 def test_continuous_real_refit_moves_with_the_signed_dose_and_outcome_laws(
@@ -1196,29 +1214,30 @@ def test_non_result_and_ambiguous_alias_are_refused(
     with pytest.raises(CapabilityError, match="TMLEResult"):
         simulated_confounding(SimpleNamespace(), grid=_grid())
     calls = _record_refits(gaussian_result, monkeypatch)
-    with pytest.raises(ValueError, match="unavailable"):
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_zero_delta_policy_means",
+        lambda _: pytest.fail("a binary fit declares no shift policy to filter"),
+    )
+    with pytest.raises(ValueError, match="unavailable") as refusal:
         simulated_confounding(gaussian_result, estimand="unknown", grid=_grid())
+    assert str(refusal.value) == (
+        f"estimand 'unknown' is unavailable; choose one of {list(gaussian_result.estimates)}"
+    )
     assert calls == []
 
 
-def test_continuous_requires_an_explicit_shift_alias_before_refit(
+def test_continuous_requires_an_explicit_policy_parameter_alias_before_refit(
     continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A mutation control on the alias filter, run against a fabricated alias set.
 
-    No real fit reports ``ate_shift`` and ``ey_shift`` together. Declaring ``shifts=``
-    fixes one axis, so a ``ModifiedTreatmentPolicyEffect`` fit reports contrasts only and
-    a ``ModifiedTreatmentPolicy`` fit reports levels only. This test fabricates the mixed
-    set to hold the filter's predicate: it fails if the filter keeps every alias, if it
-    keeps the wrong one, or if it drops all of them.
-    ``test_a_means_only_fit_names_no_alias_the_surface_refuses`` covers the reachable
-    fit whose filtered list is empty.
+    No real fit reports ``ate_shift`` and ``ey_shift`` together. This test fabricates
+    the mixed set to hold the filter's two accepted prefixes.
     """
     calls = _record_continuous_refits(continuous_gaussian_result, monkeypatch)
     alias = _shift_alias(continuous_gaussian_result)
-    # The refusal must name only the aliases it accepts. ``ey_shift`` is a level rather
-    # than a contrast, and the same function refuses it a few lines further on, so the
-    # unfiltered ``list(result.estimates)`` pointed the caller at a refused option.
     with_level = replace(
         continuous_gaussian_result,
         estimates={
@@ -1228,26 +1247,23 @@ def test_continuous_requires_an_explicit_shift_alias_before_refit(
     )
     assert "ey_shift[up half]" in with_level.estimates
 
-    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             with_level,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
     assert alias in str(refusal.value)
-    assert "ey_shift" not in str(refusal.value)
+    assert "ey_shift[up half]" in str(refusal.value)
     assert calls == []
 
 
-def test_a_means_only_fit_names_no_alias_the_surface_refuses(
+def test_a_means_only_fit_requires_selection_and_names_the_available_means(
     continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reachable empty branch of the alias filter, on a levels-only fit.
+    """The default cannot select one mean, and it advertises only an admissible one.
 
-    ``ModifiedTreatmentPolicy`` reports ``ey_shift[...]`` levels and no contrast, so the
-    admissible list is empty and the refusal must say the fit reports none. Without the
-    filter this same fit printed
-    ``choose one of ['ey_shift[natural course]', 'ey_shift[up half]']``, which named two
-    options the same function refuses two lines later.
+    The fit reports two policy means. The surface refuses the zero-delta one, so naming
+    it here would offer the reader a parameter that the next call rejects.
     """
     result = continuous_means_result
     assert sorted(result.estimates) == ["ey_shift[natural course]", "ey_shift[up half]"]
@@ -1258,15 +1274,344 @@ def test_a_means_only_fit_names_no_alias_the_surface_refuses(
         lambda *args, **kwargs: pytest.fail("refused before any refit"),
     )
 
-    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             result,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
 
     message = str(refusal.value)
-    assert "ey_shift" not in message
-    assert message.endswith("this fit reports none")
+    assert "ey_shift[up half]" in message
+    assert "ey_shift[natural course]" not in message
+
+
+def test_an_unavailable_alias_never_advertises_the_refused_natural_course_mean(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mistyped alias must not be answered with a mean that the next call refuses.
+
+    ``ey_shift[natural course]`` names the zero-delta policy, and the surface refuses its
+    mean. The availability message filters that alias for the same reason the selection
+    message does.
+    """
+    result = continuous_means_result
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+
+    with pytest.raises(ValueError, match="is unavailable") as refusal:
+        simulated_confounding(
+            result,
+            estimand="ey_shif[up half]",
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+    message = str(refusal.value)
+    assert "choose one of ['ey_shift[up half]']" in message
+    assert "ey_shift[natural course]" not in message
+
+
+def test_an_unavailable_alias_reports_none_when_the_filter_empties_the_list(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty list must read as an absence, not as a choice.
+
+    This fabricated fit reports the zero-delta mean alone. The filter removes it, so the
+    message states that the fit reports no admissible alias.
+    """
+    result = continuous_means_result
+    natural = _mean_alias(result, policy="natural course")
+    fabricated = replace(result, estimates={natural: result[natural]})
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+
+    with pytest.raises(ValueError, match="this fit reports none") as refusal:
+        simulated_confounding(
+            fabricated,
+            estimand=_mean_alias(result),
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+    assert "choose one of" not in str(refusal.value)
+
+
+def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A zero-delta shift is the identity map, so its mean carries no treatment path.
+
+    ``d_delta(a, w)`` returns ``a`` on both branches at ``delta == 0``, whatever the cap.
+    The mean of that policy is ``E[Y]``, and the treatment axis of the surface is
+    identically zero. Without this refusal an analyst reads the outcome level shift of
+    that column as robustness evidence for a parameter no common cause can move.
+    """
+    result = continuous_means_result
+    alias = _mean_alias(result, policy="natural course")
+    natural = result.identified_effect.functional.interventions[0]
+    assert natural.name == "natural course"
+    assert natural.delta == 0.0
+    assert result[alias].psi == float(np.mean(result.data.outcome))
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+
+    with pytest.raises(CapabilityError, match="natural course") as refusal:
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2)),
+        )
+
+    message = str(refusal.value)
+    assert alias in message
+    assert "E[Y]" in message
+    assert "no counterfactual treatment dependence" in message
+
+
+def test_a_contrast_against_the_natural_course_stays_accepted(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deliberate-mutation control that stops the zero-delta refusal over-firing.
+
+    The shipped continuous composition contrasts a shifted policy against the natural
+    course, so the refused zero-delta policy is its reference. That contrast keeps
+    counterfactual treatment dependence, and the surface has to accept it.
+    """
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    assert alias == "ate_shift[up half vs natural course]"
+    reference = result.identified_effect.functional.interventions[0]
+    assert reference.name == "natural course"
+    assert reference.delta == 0.0
+    calls = _record_continuous_refits(result, monkeypatch, alias=alias)
+
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2)),
+        random_state=19,
+    )
+
+    assert surface.complete
+    assert surface.estimand == alias
+    assert len(calls) == 3
+
+
+def test_continuous_policy_mean_reuses_the_grid_and_refit_paths(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin selection, the exact anchor, common randomness, and a nonzero mean witness."""
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    calls = _record_continuous_refits(result, monkeypatch, alias=alias)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=19)
+
+    assert surface.estimand == alias
+    assert surface.cells[0].estimate == result[alias].psi
+    assert surface.cells[0].displacement == 0.0
+    assert len(calls) == 3
+    outcome_only, treatment_only, both = (call[0] for call in calls)
+    np.testing.assert_array_equal(outcome_only.treatment, result.data.treatment)
+    np.testing.assert_array_equal(treatment_only.outcome, result.data.outcome)
+    np.testing.assert_array_equal(both.treatment, treatment_only.treatment)
+    np.testing.assert_array_equal(both.outcome, outcome_only.outcome)
+    np.testing.assert_allclose(
+        (treatment_only.treatment - result.data.treatment) / 0.3,
+        -(outcome_only.outcome - result.data.outcome) / 0.2,
+    )
+    for cell, (data, _) in zip(surface.cells[1:], calls, strict=True):
+        expected = float(np.mean(data.treatment * data.outcome))
+        assert cell.estimate == pytest.approx(expected)
+        assert cell.displacement == pytest.approx(expected - result[alias].psi)
+    assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
+
+
+def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
+    continuous_means_result: Any,
+) -> None:
+    """Anchor the policy-mean composition on the real estimator rather than on a spy.
+
+    Every other ``ey_shift`` check replaces ``TMLE.refit`` with a spy that returns
+    ``mean(A * Y)``. That fake answers the treatment axis by construction, so it would
+    pass on a mean the real estimator never moves. The gated cell below carries a nonzero
+    treatment strength and a nonzero outcome strength, because those are the two axes a
+    confounding path needs. ``random_state`` equals the seed of the fit, so the anchor and
+    every cell share the cross-fitting folds and no movement here is a fold artifact.
+    """
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 1.0), outcome=(0.0, 0.5)),
+        random_state=7,
+    )
+    anchor, outcome_only, treatment_only, joint = surface.cells
+
+    assert type(result.estimator) is TMLE
+    assert surface.complete
+    assert surface.estimand == alias
+    assert surface.treatment_family == "continuous"
+    assert anchor.estimate == result[alias].psi
+    assert anchor.displacement == 0.0
+
+    # ``A' = A + k_A U`` raises the latent-treatment correlation from about +0.063 at the
+    # anchor to about +0.698 at ``k_A = 1``, so the treatment axis reached this fit.
+    assert anchor.induced_treatment_association is not None
+    assert abs(anchor.induced_treatment_association) < 0.2
+    assert treatment_only.induced_treatment_association is not None
+    assert treatment_only.induced_treatment_association > 0.4
+
+    # The confounded cell moves this mean by about -0.383, which is far above the
+    # numerical noise of a repeated fit under one seed.
+    assert (joint.treatment_strength, joint.outcome_strength) == (1.0, 0.5)
+    assert joint.displacement is not None
+    assert abs(joint.displacement) > 0.1
+
+    # The zero treatment-strength cell moves by about -0.050 under the level shift alone,
+    # and the confounded cell has to sit below it.
+    assert outcome_only.displacement is not None
+    assert treatment_only.displacement is not None
+    assert joint.displacement < outcome_only.displacement
+    assert joint.displacement < treatment_only.displacement
+
+    # The symmetric reading guard. The level shift does not cancel in a mean, so the
+    # summary has to say that the zero treatment-strength column is an artifact.
+    summary = surface.summary()
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
+
+
+@pytest.mark.parametrize(
+    ("fixture", "family", "shape"),
+    [
+        ("continuous_means_result", "gaussian", "mean"),
+        ("continuous_gaussian_result", "gaussian", "contrast"),
+        ("continuous_binomial_means_result", "binomial", "mean"),
+        ("continuous_binomial_result", "binomial", "contrast"),
+    ],
+)
+def test_the_reading_guard_follows_the_outcome_family_of_the_fit(
+    request: pytest.FixtureRequest, fixture: str, family: str, shape: str
+) -> None:
+    """The outcome axis of the guard reads the outcome family, not the estimand alone.
+
+    The binomial law flips ``Y`` in the upper latent tail, which maps
+    ``E[Y'|a,w] = p + (1 - 2p) E[Y|a,w]``. That map attenuates the fitted outcome
+    regression. It is not a level shift, and a contrast does not cancel it. A guard that
+    branched on the estimand alone printed the Gaussian sentence on a binomial fit, and
+    that sentence contradicted the ``outcome_law`` line of its own summary.
+    """
+    result = request.getfixturevalue(fixture)
+    alias = _mean_alias(result) if shape == "mean" else _shift_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        random_state=7,
+    )
+    summary = surface.summary()
+
+    assert surface.outcome_family == family
+    assert surface.outcome_law in summary
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    if family == "gaussian":
+        assert "subtracts signed strength" in surface.outcome_law
+        assert "Its movement reports the outcome level shift alone" in summary
+        assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
+        assert "A small residual stays" in summary
+    else:
+        assert "flipped in the declared upper latent-normal tail" in surface.outcome_law
+        assert "Its movement reports the outcome perturbation alone" in summary
+        assert "attenuates the fitted outcome regression" in summary
+        assert "level shift" not in summary
+        assert "cancel" not in summary
+
+
+def test_continuous_policy_mean_retains_a_refit_failure(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alias = _mean_alias(continuous_means_result)
+    _record_continuous_refits(continuous_means_result, monkeypatch, alias=alias, fail_call=1)
+    surface = simulated_confounding(
+        continuous_means_result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,)),
+        random_state=23,
+    )
+    assert surface.cells[1].failure is not None
+    assert surface.cells[1].failure.error_type == "RuntimeError"
+
+
+@pytest.mark.parametrize("layer", ["key", "functional", "typed", "estimator", "fitted"])
+def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
+    continuous_means_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    if layer == "key":
+        key = replace(result.parameter_keys[alias], value="wrong")
+        result = replace(result, parameter_keys={**result.parameter_keys, alias: key})
+    elif layer == "functional":
+        policies = list(result.identified_effect.functional.interventions)
+        policies[1] = replace(policies[1], delta=0.75)
+        result = _with_functional(result, interventions=tuple(policies))
+    elif layer == "typed":
+        typed = result.identified_effect.estimand
+        policies = list(typed.shifts)
+        policies[1] = replace(policies[1], delta=0.75)
+        result = replace(
+            result,
+            identified_effect=replace(
+                result.identified_effect, estimand=replace(typed, shifts=tuple(policies))
+            ),
+        )
+    elif layer == "estimator":
+        estimator = copy(result.estimator)
+        policies = list(estimator.shifts)
+        policies[1] = replace(policies[1], delta=0.75)
+        estimator.shifts = tuple(policies)
+        result = replace(result, estimator=estimator)
+    else:
+        shifts = result.nuisance.shifts
+        assert shifts is not None
+        shifts = replace(shifts, deltas=(0.0, 0.75))
+        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
+        result = replace(result, repeats=(repeat,))
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match="structured shift metadata"):
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
 
 
 def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
@@ -1430,9 +1775,9 @@ def test_continuous_retains_refit_failure_and_replays_seed(
     ("change", "message"),
     [
         ("collaborative", "exact ordinary TMLE"),
-        ("key-estimand", "only a marginal ate_shift"),
-        ("key-axis", "only a marginal ate_shift"),
-        ("conditional", "only a marginal ate_shift"),
+        ("key-estimand", "only a marginal ey_shift policy mean or ate_shift contrast"),
+        ("key-axis", "only a marginal ey_shift policy mean or ate_shift contrast"),
+        ("conditional", "only a marginal ey_shift policy mean or ate_shift contrast"),
         ("key-alias", "structured shift metadata"),
         ("key-value", "structured shift metadata"),
         ("fitted-names", "structured shift metadata"),
@@ -1450,10 +1795,10 @@ def test_continuous_retains_refit_failure_and_replays_seed(
         ("estimator-delta", "structured shift metadata"),
         ("estimator-cap", "structured shift metadata"),
         ("estimator-reference", "structured shift metadata"),
-        ("provenance", "registered ate_shift identification provenance"),
-        ("declared-provenance", "registered ate_shift identification provenance"),
-        ("target-provenance", "registered ate_shift identification provenance"),
-        ("arm-axis", "modified-treatment-policy contrast"),
+        ("provenance", "registered modified-policy identification provenance"),
+        ("declared-provenance", "registered modified-policy identification provenance"),
+        ("target-provenance", "registered modified-policy identification provenance"),
+        ("arm-axis", "modified-treatment-policy parameter"),
     ],
 )
 def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
