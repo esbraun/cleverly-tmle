@@ -324,66 +324,6 @@ The [technical contract](technical-reference/validation-methods.md#simulated-com
 records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
-#### Next increment: fixed-observation-weight stress surfaces
-
-Allow fixed probability weights for every ordinary-TMLE composition that the surface already
-supports. Treat them as a fixed empirical row-mass vector, not as a replayed sampling design. Keep
-each normalized weight attached to its row during treatment and outcome replacement. Each
-non-anchor cell then runs the existing complete estimator refit under the unchanged vector.
-
-This increment composes two existing contracts. Sharma and Kiciman (2020) and pinned DoWhy commit
-`2116d5c` supply one independent normal draw per row, the treatment and outcome perturbations, and
-the complete refit. Gruber and van der Laan (2012) and CRAN `tmle` 2.1.1 at commit `f8d88a0`
-supply weighted point-treatment fitting. Pinned R `lmtp` 1.5.4 supplies the same weight routing for
-modified treatment policies. These implementations use weights in nuisance fitting, targeting,
-plug-in means, and influence curves.
-
-The fixed weights define the tilted law $dP_w=w\,dP/E_P[w]$. If $U$ is independent of $O$ under
-$P$, the joint tilt factorizes as $dP_w(O)\,d\Phi(U)$. The existing row-level latent law therefore
-stays independent and standard normal under the weighted target. No new treatment or outcome
-perturbation is introduced.
-
-Each cell reports the same parameter functional on its perturbed weighted empirical law. This
-conditional empirical-tilt statement does not claim that the operation reproduces the original
-selection mechanism. Additive cells compare reported estimates. Ratio cells compare reported log
-estimates. The result records an unweighted or `fixed_empirical_tilt` target measure.
-
-Measure the induced treatment association under the same weighted empirical law. Numeric
-calibration also uses that law for scaling, model fitting, prediction-change fractions,
-correlations, and standard deviations. Keep the current unweighted arithmetic unchanged when all
-weights equal one.
-
-Do not duplicate the perturbation or refit loop. `CausalData.with_treatment` and
-`CausalData.with_outcome` already preserve the normalized weights and immutable `WeightSpec`.
-`TMLE.refit` already routes those weights through the complete estimator. The surface only removes
-the fixed-weight refusal and makes its descriptive measurements weight-aware.
-
-Continue the pre-draw refusal for estimated weights. The fitted result stores the realized weights
-but not the model that produced them. It therefore cannot determine whether a treatment or outcome
-perturbation requires the weights to be re-estimated.
-
-Continue the pre-draw refusal for weighted collaborative TMLE and weighted DR-TMLE. The pinned
-weighted comparators cover ordinary TMLE only. This increment does not use ordinary weighted
-evidence to claim parity for another estimator.
-
-Acceptance requires constant-weight identity with the unweighted surface and invariance to a
-common weight scale. A nonuniform-weight mutation must change a surface whose target depends on
-the weights. Each successful cell must equal a manual weighted refit under the recorded seed.
-
-Tests must also prove that every replacement keeps the weight vector and `WeightSpec`. They must
-cover weighted treatment association, weighted numeric calibration, repeats, retained failures,
-cache replay, and persistence. Estimated weights and clusters must still refuse before a latent
-draw or refit.
-
-Update the user guide and technical contract. Record the DoWhy and CRAN `tmle` source locators and
-the pinned `lmtp` locator. Record their boundary: none implements this combined surface. Hartman
-and Huang's survey-weight sensitivity analysis changes the weight error and answers a different
-question, so it does not govern this increment.
-
-No registered validation study needs regeneration. This increment changes assessment routing and
-descriptive measurements only. It does not change an estimator, nuisance fit, target, influence
-curve, interval, study input, or published verdict.
-
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
 [F8](#f8-multi-arm-simulated-confounding-stress-surface).

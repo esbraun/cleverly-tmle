@@ -222,6 +222,10 @@ Each cell also reports `induced_treatment_association`. This value is the realis
 between the latent vector and the treatment of that cell. The operation gives no corrected
 estimate, bound, p-value, confidence interval, robustness value, threshold, or pass/fail result.
 
+`target_measure` records how the operation reads the analysis rows. It is `unweighted` when the
+fit declares no weights. It is `fixed_empirical_tilt` when the fit declares fixed weights.
+`weight_report` carries the weight kind, column, scale, effective size, and concentration measures.
+
 **How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
 and one refit seed across the complete grid. Each cell starts from the original data.
 
@@ -301,6 +305,9 @@ Ratio surfaces require a binomial outcome. The other rows support Gaussian and b
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
+Every ordinary-TMLE row accepts fixed probability weights. The collaborative-TMLE and DR-TMLE
+rows accept unweighted fits only.
+
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
 repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
 median estimate with the original median estimate. Ratio displacement compares their median log
@@ -327,6 +334,19 @@ and the stored log estimate before the latent draw. A ratio-only result needs on
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
 the observed dose and outcome before the complete refit.
 
+**Fixed observation weights.** Ordinary-TMLE surfaces accept declared fixed probability weights
+for every row in the support table. The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps
+each normalized weight on its original row during both replacements and every complete refit.
+
+The latent vector stays independent and standard normal under this conditional empirical tilt.
+Each cell reports the same parameter functional on its perturbed weighted empirical law. This
+statement does not claim that the operation reproduces the sampling or selection mechanism.
+
+The induced treatment association uses weighted means, variances, and covariance. Numeric
+calibration also uses weighted scaling, model fitting, prediction-change fractions, and moments.
+Constant weights use the exact unweighted calculation path. A common weight scale changes neither
+the surface cells nor their descriptive measurements.
+
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
 `waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
@@ -337,8 +357,9 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See the [future investigation](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | a missing outcome | not written yet | the surface has no missingness law and no observation refit |
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
-| observation weights | not written yet | a weighted target population needs its own displacement rule |
-| a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
+| estimated observation weights | not written yet | the result lacks the fitted weight model needed after a perturbation |
+| fixed observation weights with collaborative TMLE or DR-TMLE | not written yet | the weighted evidence covers ordinary TMLE only |
+| a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See the [future investigation](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, and strata need a shared per-stratum contract |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
@@ -354,6 +375,7 @@ must state the same number. Each is a statement about the object you hold.
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set
 to zero. For a Gaussian outcome or continuous dose, it reports `corr(W_j, V) * sd(V)`.
+All terms use $P_w$ when the fit declares fixed probability weights.
 
 The Gaussian calibration is signed. It carries the covariate's own direction of association with
 the outcome or with the dose. Each axis converts a calibrated value into a declared strength by its

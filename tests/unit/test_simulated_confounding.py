@@ -60,6 +60,9 @@ def _fit(
     seed: int = 7,
     method: str = "tmle",
     repeats: int = 1,
+    weight_scale: float | None = None,
+    weights_estimated: bool = False,
+    constant_weights: bool = False,
 ) -> Any:
     if family == "gaussian":
         frame, _ = make_linear_ate(n=120, seed=seed, backend=backend)
@@ -69,9 +72,22 @@ def _fit(
         frame, _ = make_binary_outcome(n=120, seed=seed, backend=backend)
         covariates = ("W1", "W2", "W3")
         outcome_learner = LogisticRegression(max_iter=1000)
+    weight_name = None
+    if weight_scale is not None:
+        weight_name = "weight"
+        relative_weights = (
+            np.ones(len(frame)) if constant_weights else np.linspace(0.5, 1.5, len(frame))
+        )
+        frame[weight_name] = weight_scale * relative_weights
     study = CausalStudy(
         frame,
-        design=PointTreatment(outcome="Y", treatment="A", adjustment=covariates),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=covariates,
+            weights=weight_name,
+            weights_estimated=weights_estimated,
+        ),
     )
     configured_method: Any = method
     if method == "collaborative_tmle":
@@ -97,6 +113,7 @@ def _fit_binary_mean(
     method: str = "tmle",
     seed: int = 7,
     family: str = "gaussian",
+    weight_scale: float | None = None,
 ) -> Any:
     if family == "binomial":
         frame, _ = make_binary_outcome(n=120, seed=seed)
@@ -106,12 +123,17 @@ def _fit_binary_mean(
         frame, _ = make_linear_ate(n=120, seed=seed)
         covariates = ("W1", "W2", "W3", "W4")
         outcome_learner = LinearRegression()
+    weight_name = None
+    if weight_scale is not None:
+        weight_name = "weight"
+        frame[weight_name] = weight_scale * np.linspace(0.5, 1.5, len(frame))
     study = CausalStudy(
         frame,
         design=PointTreatment(
             outcome="Y",
             treatment="A",
             adjustment=covariates,
+            weights=weight_name,
         ),
     )
     configured_method: Any = method
@@ -141,14 +163,20 @@ def _fit_ratio(
     seed: int = 7,
     reference: float | None = None,
     repeats: int = 1,
+    weight_scale: float | None = None,
 ) -> Any:
     frame, _ = make_binary_outcome(n=120, seed=seed)
+    weight_name = None
+    if weight_scale is not None:
+        weight_name = "weight"
+        frame[weight_name] = weight_scale * np.linspace(0.5, 1.5, len(frame))
     study = CausalStudy(
         frame,
         design=PointTreatment(
             outcome="Y",
             treatment="A",
             adjustment=("W1", "W2", "W3"),
+            weights=weight_name,
         ),
     )
     configured_method: Any = method
@@ -245,6 +273,7 @@ def _fit_continuous(
     policies: tuple[Shift, ...] = _TWO_POLICIES,
     means: bool = False,
     repeats: int = 1,
+    weight_scale: float | None = None,
 ) -> Any:
     frame, _ = make_shift_dose(n=120, seed=seed)
     if family == "binomial":
@@ -252,6 +281,10 @@ def _fit_continuous(
         outcome_learner: Any = LogisticRegression(max_iter=1000)
     else:
         outcome_learner = LinearRegression()
+    weight_name = None
+    if weight_scale is not None:
+        weight_name = "weight"
+        frame[weight_name] = weight_scale * np.linspace(0.5, 1.5, len(frame))
     study = CausalStudy(
         frame,
         design=PointTreatment(
@@ -259,6 +292,7 @@ def _fit_continuous(
             treatment="A",
             adjustment=("W1", "W2", "W3"),
             treatment_kind="continuous",
+            weights=weight_name,
         ),
     )
     estimand: Any = (
@@ -576,6 +610,320 @@ def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
     assert replayed == surface
     assert replayed.n_repeats == 3
     assert replayed.repeat_aggregation == "coordinatewise_median"
+
+
+def test_fixed_weight_surface_repeats_cache_and_serialization_round_trip() -> None:
+    result = _fit(repeats=3, weight_scale=4.0)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        "benchmark_covariates": ("W1",),
+        "random_state": 31,
+    }
+    surface = result.sensitivity.simulated_confounding(**kwargs)
+
+    assert result.sensitivity.simulated_confounding(**kwargs) is surface
+    assert surface.target_measure == "fixed_empirical_tilt"
+    assert surface.weight_report == result.data.weight_report()
+    assert surface.weight_report.name == "weight"
+    assert surface.n_repeats == 3
+
+    restored = loads(dumps(result))
+    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert replayed == surface
+    assert replayed.weight_report == restored.data.weight_report()
+    assert replayed.target_measure == "fixed_empirical_tilt"
+
+
+def test_fixed_weights_preserve_every_replacement_and_equal_a_manual_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _fit(weight_scale=2.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+
+    assert surface.cells[3].estimate == manual["ate"].psi
+    assert surface.cells[3].displacement == (
+        manual["ate"].inference_value - result["ate"].inference_value
+    )
+
+    calls = _record_refits(result, monkeypatch, fail_call=2)
+    retained = simulated_confounding(result, grid=grid, random_state=31)
+    assert len(calls) == 3
+    assert not retained.complete
+    assert retained.cells[2].failure is not None
+    assert retained.cells[2].induced_treatment_association is not None
+    for replacement, seed in calls:
+        assert seed == retained.root_seed
+        assert np.array_equal(replacement.weights, result.data.weights)
+        assert replacement.weight_spec is result.data.weight_spec
+        assert replacement.weights_name == result.data.weights_name == "weight"
+
+
+def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> None:
+    unweighted = _fit()
+    constant = _fit(weight_scale=7.0, constant_weights=True)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        "benchmark_covariates": ("W1", "W2"),
+        "random_state": 7,
+    }
+    plain_surface = simulated_confounding(unweighted, **kwargs)
+    fixed_surface = simulated_confounding(constant, **kwargs)
+
+    assert unweighted["ate"].psi == constant["ate"].psi
+    assert unweighted["ate"].inference_value == constant["ate"].inference_value
+    assert fixed_surface.cells == plain_surface.cells
+    assert fixed_surface.calibrations == plain_surface.calibrations
+    assert plain_surface.target_measure == "unweighted"
+    assert fixed_surface.target_measure == "fixed_empirical_tilt"
+    assert not fixed_surface.weight_report.is_weighted
+    assert "target measure: fixed_empirical_tilt" in fixed_surface.summary()
+
+
+def test_fixed_weight_surface_is_invariant_to_a_common_weight_scale() -> None:
+    unit_scale = _fit(weight_scale=1.0)
+    larger_scale = _fit(weight_scale=13.0)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        "benchmark_covariates": ("W1",),
+        "random_state": 7,
+    }
+    left = simulated_confounding(unit_scale, **kwargs)
+    right = simulated_confounding(larger_scale, **kwargs)
+
+    assert left.target_measure == right.target_measure == "fixed_empirical_tilt"
+    assert left.weight_report.scale == pytest.approx(1.0)
+    assert right.weight_report.scale == pytest.approx(13.0)
+    assert left.weight_report.effective_n == pytest.approx(right.weight_report.effective_n)
+    for left_cell, right_cell in zip(left.cells, right.cells, strict=True):
+        assert left_cell.estimate == pytest.approx(right_cell.estimate, abs=1e-12)
+        assert left_cell.displacement == pytest.approx(right_cell.displacement, abs=1e-12)
+        assert left_cell.induced_treatment_association == pytest.approx(
+            right_cell.induced_treatment_association, abs=1e-12
+        )
+    for left_row, right_row in zip(left.calibrations, right.calibrations, strict=True):
+        assert left_row.strength == pytest.approx(right_row.strength, abs=1e-12)
+
+
+def test_nonuniform_weights_change_a_weight_dependent_surface() -> None:
+    plain = simulated_confounding(
+        _fit(),
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        random_state=7,
+    )
+    tilted = simulated_confounding(
+        _fit(weight_scale=1.0),
+        grid=plain.grid,
+        random_state=7,
+    )
+
+    assert tilted.original_estimate != pytest.approx(plain.original_estimate, abs=1e-5)
+    assert any(
+        weighted.estimate != pytest.approx(unweighted.estimate, abs=1e-5)
+        for unweighted, weighted in zip(plain.cells, tilted.cells, strict=True)
+    )
+
+
+def test_fixed_weights_run_every_supported_ordinary_tmle_parameter_surface() -> None:
+    multiple_means = _fit_binary_mean(treatment=None, weight_scale=1.0)
+    cases = [
+        (_fit(weight_scale=1.0), ("ate",)),
+        (_fit_binary_mean(treatment=1.0, weight_scale=1.0), ("ey1",)),
+        (_fit_binary_mean(treatment=0.0, weight_scale=1.0), ("ey0",)),
+        (multiple_means, tuple(multiple_means.estimates)),
+        (_fit_ratio(target="rr", weight_scale=1.0), ("rr",)),
+        (_fit_ratio(target="or", weight_scale=1.0), ("or",)),
+    ]
+    continuous_contrast = _fit_continuous(weight_scale=1.0)
+    continuous_mean = _fit_continuous(weight_scale=1.0, means=True)
+    cases.extend(
+        [
+            (continuous_contrast, (_shift_alias(continuous_contrast),)),
+            (continuous_mean, (_mean_alias(continuous_mean),)),
+        ]
+    )
+
+    exercised: set[str] = set()
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))
+    for result, aliases in cases:
+        for alias in aliases:
+            surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=7)
+            assert surface.complete
+            assert surface.target_measure == "fixed_empirical_tilt"
+            assert surface.weight_report == result.data.weight_report()
+            assert surface.cells[0].estimate == result[alias].psi
+            assert surface.cells[1].estimate is not None
+            exercised.add(result.parameter_keys[alias].estimand)
+
+    assert exercised == {"ate", "ey", "ey1", "ey0", "rr", "or", "ey_shift", "ate_shift"}
+
+
+def _manual_weighted_correlation(left: Any, right: Any, weights: Any) -> float:
+    left_centered = left - np.average(left, weights=weights)
+    right_centered = right - np.average(right, weights=weights)
+    covariance = np.average(left_centered * right_centered, weights=weights)
+    return float(
+        covariance
+        / np.sqrt(
+            np.average(left_centered**2, weights=weights)
+            * np.average(right_centered**2, weights=weights)
+        )
+    )
+
+
+def test_fixed_weight_association_uses_the_tilted_empirical_law() -> None:
+    result = _fit(weight_scale=1.0)
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,)),
+        random_state=19,
+    )
+    latent = np.random.default_rng(surface.latent_seed).normal(size=result.data.n)
+    perturbed = _perturb_treatment(result.data.treatment, latent, 0.2, "binary")
+
+    expected_anchor = _manual_weighted_correlation(
+        latent, result.data.treatment, result.data.weights
+    )
+    expected_perturbed = _manual_weighted_correlation(latent, perturbed, result.data.weights)
+    assert surface.cells[0].induced_treatment_association == pytest.approx(expected_anchor)
+    assert surface.cells[1].induced_treatment_association == pytest.approx(expected_perturbed)
+    assert surface.cells[1].induced_treatment_association != pytest.approx(
+        float(np.corrcoef(latent, perturbed)[0, 1]), abs=1e-5
+    )
+
+
+def _manual_weighted_binary_calibration(result: Any, role: str, index: int) -> float:
+    scaler = StandardScaler().fit(result.data.covariates, sample_weight=result.data.weights)
+    design = scaler.transform(result.data.covariates)
+    target = result.data.treatment if role == "treatment" else result.data.outcome
+    model = LogisticRegression(max_iter=1000).fit(design, target, sample_weight=result.data.weights)
+    baseline = model.predict(design)
+    removed = design.copy()
+    removed[:, index] = 0.0
+    return float(np.average(model.predict(removed) != baseline, weights=result.data.weights))
+
+
+def _manual_weighted_continuous_calibration(result: Any, role: str, index: int) -> float:
+    covariate = result.data.covariates[:, index]
+    target = result.data.treatment if role == "treatment" else result.data.outcome
+    correlation = _manual_weighted_correlation(covariate, target, result.data.weights)
+    target_centered = target - np.average(target, weights=result.data.weights)
+    target_sd = np.sqrt(np.average(target_centered**2, weights=result.data.weights))
+    return float(correlation * target_sd)
+
+
+@pytest.mark.parametrize("family", ["gaussian", "binomial"])
+def test_fixed_weight_binary_calibration_uses_weighted_fit_scaling_and_fraction(
+    family: str,
+) -> None:
+    result = _fit(family=family, weight_scale=1.0)
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        benchmark_covariates=("W1",),
+        random_state=7,
+    )
+    rows = {row.role: row for row in surface.calibrations}
+    index = result.data.covariate_names.index("W1")
+
+    assert rows["treatment"].strength == pytest.approx(
+        _manual_weighted_binary_calibration(result, "treatment", index)
+    )
+    if family == "binomial":
+        assert rows["outcome"].strength == pytest.approx(
+            _manual_weighted_binary_calibration(result, "outcome", index)
+        )
+    else:
+        assert rows["outcome"].strength == pytest.approx(
+            _manual_weighted_continuous_calibration(result, "outcome", index)
+        )
+
+
+def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scales() -> None:
+    result = _fit_continuous(weight_scale=1.0)
+    surface = simulated_confounding(
+        result,
+        estimand=_shift_alias(result),
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        benchmark_covariates=("W1",),
+        random_state=7,
+    )
+    rows = {row.role: row for row in surface.calibrations}
+    index = result.data.covariate_names.index("W1")
+
+    for role in ("treatment", "outcome"):
+        assert rows[role].strength == pytest.approx(
+            _manual_weighted_continuous_calibration(result, role, index)
+        )
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("estimated", "cannot replay estimated observation weights"),
+        ("collaborative", "fixed observation weights with ordinary TMLE only"),
+        ("drtmle", "fixed observation weights with ordinary TMLE only"),
+        ("cluster", "clustered fits"),
+        ("kind", "fixed probability weights only"),
+        ("name", "column and WeightSpec names disagree"),
+        ("unnamed", "without a declared weight column"),
+    ],
+)
+def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    message: str,
+) -> None:
+    method = case if case in {"collaborative", "drtmle"} else "tmle"
+    if method == "collaborative":
+        method = "collaborative_tmle"
+    result = _fit(
+        method=method,
+        weight_scale=1.0,
+        weights_estimated=case == "estimated",
+    )
+    if case == "cluster":
+        result = replace(
+            result,
+            data=replace(result.data, cluster=np.arange(result.data.n), cluster_name="id"),
+        )
+    elif case == "kind":
+        result = replace(
+            result,
+            data=replace(
+                result.data,
+                weight_spec=replace(result.data.weight_spec, kind="frequency"),  # type: ignore[arg-type]
+            ),
+        )
+    elif case == "name":
+        result = replace(
+            result,
+            data=replace(result.data, weight_spec=replace(result.data.weight_spec, name="wrong")),
+        )
+    elif case == "unnamed":
+        result = replace(
+            result,
+            data=replace(
+                result.data,
+                weights_name=None,
+                weight_spec=replace(result.data.weight_spec, name=None),
+            ),
+        )
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match=message):
+        simulated_confounding(result, grid=_grid())
 
 
 def test_repeated_surface_retains_a_complete_refit_failure(
@@ -1914,7 +2262,6 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
         ("multi-arm", "category-valued perturbation law"),
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
-        ("weights", "observation-weighted"),
         ("cluster", "clustered"),
         ("restored", "replayable"),
         ("estimator", "supports ordinary TMLE"),
@@ -1949,8 +2296,6 @@ def test_unsupported_compositions_are_refused_before_refit(
         data = replace(data, observed=observed)
     elif change == "intermediate":
         data = replace(data, intermediate=np.zeros(data.n), intermediate_name="Z")
-    elif change == "weights":
-        data = replace(data, weights_name="weight")
     elif change == "cluster":
         data = replace(data, cluster=np.arange(data.n), cluster_name="id")
     elif change == "restored":
