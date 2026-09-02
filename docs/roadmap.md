@@ -341,10 +341,15 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 | longitudinal fit | a per-node law |
 | ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
 | ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
-| conditional strata, for an arm contrast or a modified-policy contrast | a per-stratum contrast contract that shares one latent draw |
+| conditional strata, for an arm contrast, a modified-policy mean, or a modified-policy contrast | a per-stratum contract that shares one latent draw |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
 | categorical covariate calibration | a logical-covariate benchmark that does not zero one encoded column |
+
+One refusal belongs to no row above. The surface refuses the policy mean of a zero-delta shift.
+That policy assigns every unit its own dose, so its mean is the mean of the observed outcome. No
+common cause moves it through the treatment, so no expansion can add it. The `ate_shift` contrast
+that uses the same policy as its reference stays supported.
 
 Sharma and Kiciman (2020) and Sharma et al. (2021) fix the qualitative role of this diagnostic.
 They derive no bound, no calibration formula, and no inferential test. Every expansion stays
@@ -352,7 +357,7 @@ qualitative. It must not report a bound, a corrected estimate, a p-value, a conf
 robustness value, or a pass/fail verdict.
 
 The shipped result reports movement as the refitted estimate minus the original estimate. That
-scale suits an additive contrast. A ratio target needs its own movement definition before it
+scale suits an additive parameter. A ratio target needs its own movement definition before it
 joins this surface.
 
 Carry forward or fix one measured property of the shipped treatment axis. The prescribed

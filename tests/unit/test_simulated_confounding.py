@@ -389,6 +389,10 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     # outcome, so that column carries no confounding path whatever its association.
     assert "no confounding path" in summary
     assert "dose perturbation alone" in summary
+    # The symmetric half. A zero treatment strength leaves the latent vector out of the
+    # treatment, so that column reports the outcome law alone.
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    assert "which a contrast largely cancels" in summary
 
 
 def test_continuous_real_refit_moves_with_the_signed_dose_and_outcome_laws(
@@ -1239,7 +1243,11 @@ def test_continuous_requires_an_explicit_policy_parameter_alias_before_refit(
 def test_a_means_only_fit_requires_selection_and_names_the_available_means(
     continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The default cannot select one policy mean from a levels-only fit."""
+    """The default cannot select one mean, and it advertises only an admissible one.
+
+    The fit reports two policy means. The surface refuses the zero-delta one, so naming
+    it here would offer the reader a parameter that the next call rejects.
+    """
     result = continuous_means_result
     assert sorted(result.estimates) == ["ey_shift[natural course]", "ey_shift[up half]"]
     assert not [name for name in result.estimates if name.startswith("ate_shift[")]
@@ -1256,8 +1264,78 @@ def test_a_means_only_fit_requires_selection_and_names_the_available_means(
         )
 
     message = str(refusal.value)
-    assert "ey_shift[natural course]" in message
     assert "ey_shift[up half]" in message
+    assert "ey_shift[natural course]" not in message
+
+
+def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A zero-delta shift is the identity map, so its mean carries no treatment path.
+
+    ``d_delta(a, w)`` returns ``a`` on both branches at ``delta == 0``, whatever the cap.
+    The mean of that policy is ``E[Y]``, and the treatment axis of the surface is
+    identically zero. Without this refusal an analyst reads the outcome level shift of
+    that column as robustness evidence for a parameter no common cause can move.
+    """
+    result = continuous_means_result
+    alias = _mean_alias(result, policy="natural course")
+    natural = result.identified_effect.functional.interventions[0]
+    assert natural.name == "natural course"
+    assert natural.delta == 0.0
+    assert result[alias].psi == float(np.mean(result.data.outcome))
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+
+    with pytest.raises(CapabilityError, match="natural course") as refusal:
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2)),
+        )
+
+    message = str(refusal.value)
+    assert alias in message
+    assert "E[Y]" in message
+    assert "no counterfactual treatment dependence" in message
+
+
+def test_a_contrast_against_the_natural_course_stays_accepted(
+    continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deliberate-mutation control that stops the zero-delta refusal over-firing.
+
+    The shipped continuous composition contrasts a shifted policy against the natural
+    course, so the refused zero-delta policy is its reference. That contrast keeps
+    counterfactual treatment dependence, and the surface has to accept it.
+    """
+    result = continuous_gaussian_result
+    alias = _shift_alias(result)
+    assert alias == "ate_shift[up half vs natural course]"
+    reference = result.identified_effect.functional.interventions[0]
+    assert reference.name == "natural course"
+    assert reference.delta == 0.0
+    calls = _record_continuous_refits(result, monkeypatch, alias=alias)
+
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2)),
+        random_state=19,
+    )
+
+    assert surface.complete
+    assert surface.estimand == alias
+    assert len(calls) == 3
 
 
 def test_continuous_policy_mean_reuses_the_grid_and_refit_paths(
@@ -1288,6 +1366,62 @@ def test_continuous_policy_mean_reuses_the_grid_and_refit_paths(
         assert cell.estimate == pytest.approx(expected)
         assert cell.displacement == pytest.approx(expected - result[alias].psi)
     assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
+
+
+def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
+    continuous_means_result: Any,
+) -> None:
+    """Anchor the policy-mean composition on the real estimator rather than on a spy.
+
+    Every other ``ey_shift`` check replaces ``TMLE.refit`` with a spy that returns
+    ``mean(A * Y)``. That fake answers the treatment axis by construction, so it would
+    pass on a mean the real estimator never moves. The gated cell below carries a nonzero
+    treatment strength and a nonzero outcome strength, because those are the two axes a
+    confounding path needs. ``random_state`` equals the seed of the fit, so the anchor and
+    every cell share the cross-fitting folds and no movement here is a fold artifact.
+    """
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 1.0), outcome=(0.0, 0.5)),
+        random_state=7,
+    )
+    anchor, outcome_only, treatment_only, joint = surface.cells
+
+    assert type(result.estimator) is TMLE
+    assert surface.complete
+    assert surface.estimand == alias
+    assert surface.treatment_family == "continuous"
+    assert anchor.estimate == result[alias].psi
+    assert anchor.displacement == 0.0
+
+    # ``A' = A + k_A U`` raises the latent-treatment correlation from about +0.063 at the
+    # anchor to about +0.698 at ``k_A = 1``, so the treatment axis reached this fit.
+    assert anchor.induced_treatment_association is not None
+    assert abs(anchor.induced_treatment_association) < 0.2
+    assert treatment_only.induced_treatment_association is not None
+    assert treatment_only.induced_treatment_association > 0.4
+
+    # The confounded cell moves this mean by about -0.383, which is far above the
+    # numerical noise of a repeated fit under one seed.
+    assert (joint.treatment_strength, joint.outcome_strength) == (1.0, 0.5)
+    assert joint.displacement is not None
+    assert abs(joint.displacement) > 0.1
+
+    # The zero treatment-strength cell moves by about -0.050 under the level shift alone,
+    # and the confounded cell has to sit below it.
+    assert outcome_only.displacement is not None
+    assert treatment_only.displacement is not None
+    assert joint.displacement < outcome_only.displacement
+    assert joint.displacement < treatment_only.displacement
+
+    # The symmetric reading guard. The level shift does not cancel in a mean, so the
+    # summary has to say that the zero treatment-strength column is an artifact.
+    summary = surface.summary()
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    assert "A policy mean keeps that level shift, and a contrast cancels it" in summary
 
 
 def test_continuous_policy_mean_retains_a_refit_failure(

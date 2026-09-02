@@ -294,17 +294,30 @@ class SimulatedConfoundingResult:
                 "",
                 "The induced association is the correlation between the latent vector and the "
                 "treatment of the cell.",
-                (
-                    "An association near zero says the treatment axis moved the estimate by "
-                    "misclassification and not by confounding."
-                    if self.treatment_family == "binary"
-                    else "The association reports what the continuous linear perturbation "
-                    "achieved on these data. A cell whose outcome strength is zero has no "
-                    "confounding path, whatever its association, and reports dose perturbation "
-                    "alone."
-                ),
+                *self._reading_guard(),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
+        )
+
+    def _reading_guard(self) -> tuple[str, ...]:
+        """Return the lines that say which cells carry a confounding path."""
+        if self.treatment_family == "binary":
+            return (
+                "An association near zero says the treatment axis moved the estimate by "
+                "misclassification and not by confounding.",
+            )
+        outcome_axis = (
+            "Its movement reports the outcome level shift alone. A policy mean keeps that "
+            "level shift, and a contrast cancels it."
+            if self.estimand.startswith("ey_shift[")
+            else "Its movement reports the outcome perturbation alone, which a contrast "
+            "largely cancels."
+        )
+        return (
+            "The association reports what the continuous linear perturbation achieved on "
+            "these data. A cell whose outcome strength is zero has no confounding path, "
+            "whatever its association, and reports dose perturbation alone.",
+            f"A cell whose treatment strength is zero also has no confounding path. {outcome_axis}",
         )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -422,6 +435,45 @@ def _validate_continuous_policy_state(
             "identification provenance"
         )
 
+    # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its
+    # counterfactual treatment has no dependence on the dose a common cause would move.
+    # The treatment axis of such a surface is identically zero, and the outcome axis
+    # reports the level shift ``Y' = Y - k_Y U`` alone.  An ``ate_shift`` contrast that
+    # uses the same policy as its reference keeps treatment dependence, so it stays.
+    if target == "ey_shift":
+        selected = declared_policies[declared_names.index(key.value)]
+        if float(selected.delta) == 0.0:
+            raise CapabilityError(
+                f"continuous simulated_confounding refuses the policy mean {estimand!r}; a "
+                "zero-delta policy is the natural course, its mean is E[Y], and it carries no "
+                "counterfactual treatment dependence for a simulated common cause to move. "
+                "Select a nonzero-delta ey_shift[...] mean, or an ate_shift[...] contrast "
+                "that uses the natural course as its reference"
+            )
+
+
+def _zero_delta_policy_means(functional: Any) -> frozenset[str]:
+    """Name every ``ey_shift`` alias whose policy is the zero-delta natural course.
+
+    Parameters
+    ----------
+    functional : BackdoorMeanContrast
+        Identification functional of the fitted result.
+
+    Returns
+    -------
+    frozenset of str
+        Aliases the selection message must not advertise, because each one names a
+        policy mean the surface refuses.
+    """
+    aliases = set()
+    for policy in functional.interventions:
+        delta = getattr(policy, "delta", None)
+        name = getattr(policy, "name", None)
+        if isinstance(name, str) and isinstance(delta, Real) and float(delta) == 0.0:
+            aliases.add(f"ey_shift[{name}]")
+    return frozenset(aliases)
+
 
 def _validate_request(
     result: Any,
@@ -517,8 +569,11 @@ def _validate_request(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
     if treatment_family == "continuous" and estimand == "ate":
+        vacuous = _zero_delta_policy_means(functional)
         admissible = [
-            name for name in result.estimates if name.startswith(("ey_shift[", "ate_shift["))
+            name
+            for name in result.estimates
+            if name.startswith(("ey_shift[", "ate_shift[")) and name not in vacuous
         ]
         detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(
@@ -775,7 +830,7 @@ def simulated_confounding(
         modified-treatment-policy mean, or continuous modified-policy effect fit.
     estimand : str
         Additive parameter alias to report. A continuous fit requires an explicit
-        ``ey_shift[...]`` or ``ate_shift[...]`` alias.
+        ``ey_shift[...]`` alias of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -815,6 +870,17 @@ def simulated_confounding(
     a nonzero outcome strength. A cell whose outcome strength is zero therefore has no
     confounding path, whatever its association, and its movement reports dose perturbation
     alone.
+
+    The zero treatment-strength column carries no confounding path either, because the
+    latent vector never reaches the treatment there. For a Gaussian outcome that column
+    reports the level shift ``Y' = Y - k_Y U`` alone. The level shift largely cancels in
+    an ``ate_shift`` contrast. A policy mean keeps it, so read the zero treatment-strength
+    column of an ``ey_shift`` surface as an artifact of the outcome law.
+
+    A zero-delta shift is the natural course, its policy mean is ``E[Y]``, and it has no
+    counterfactual treatment dependence. ``simulated_confounding`` refuses that mean before
+    it draws the latent vector. It still accepts an ``ate_shift`` contrast that uses the
+    natural course as its reference.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
