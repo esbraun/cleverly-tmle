@@ -13,7 +13,8 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
+| 1.1 | Expand simulated confounding to the remaining estimands and estimators | published support; per-composition source audit | shipped point-treatment stress surface and its refusal boundary | [S5](#s5-expand-simulated-confounding-to-the-remaining-estimands-and-estimators) |
+| 1.2 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
@@ -83,8 +84,10 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next item extends post-fit assessment to longitudinal sensitivity.
-Tan (2025) supplies its multi-period sensitivity models and observed-data bound construction.
+records completed studies. The next item expands the simulated confounding surface to the
+remaining estimands and estimators. The item after it extends post-fit assessment to longitudinal
+sensitivity. Tan (2025) supplies the multi-period sensitivity models and the observed-data bound
+construction for that later item.
 
 ## Detailed implementation contracts
 
@@ -312,6 +315,46 @@ Expand target by target after the engine lands. Mediation, additional longitudin
 sampling designs, and other nested functionals each require a governing derivation, typed adapter,
 registry entry, evidence row, refusal boundary, documentation, and applicable statistical study.
 Do not expose a generic engine capability as a certified causal estimand.
+
+### S5. Expand simulated confounding to the remaining estimands and estimators
+
+The shipped stress surface covers a backdoor-identified marginal ATE with binary treatment. It
+covers a Gaussian or a binomial outcome. It replays ordinary TMLE, collaborative TMLE, and
+complete-outcome DR-TMLE. Expand that surface one composition at a time. Each composition needs
+its own perturbation law, because the binary flip does not transfer to it.
+
+| refused family | perturbation law it still needs |
+| --- | --- |
+| multi-arm treatment | a contrast-specific perturbation and a category-valued latent map |
+| continuous treatment | a shift law, which `cleverly` expresses as a modified treatment policy |
+| weighted or clustered design | a perturbation that respects the sampling law |
+| missing-outcome fit | a joint observation and outcome perturbation |
+| longitudinal fit | a per-node law |
+| ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
+| ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
+| conditional strata | a per-stratum surface that shares one latent draw |
+| controlled direct effects | a law for the intermediate node as well as the treatment node |
+| regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
+| categorical covariate calibration | a logical-covariate benchmark that does not zero one encoded column |
+
+Sharma and Kiciman (2020) and Sharma et al. (2021) fix the qualitative role of this diagnostic.
+They derive no bound, no calibration formula, and no inferential test. Every expansion stays
+qualitative. It must not report a bound, a corrected estimate, a p-value, a confidence interval, a
+robustness value, or a pass/fail verdict.
+
+The shipped result reports movement as the refitted estimate minus the original estimate. That
+scale suits an additive contrast. A ratio target needs its own movement definition before it
+joins this surface.
+
+Carry forward or fix one measured property of the shipped treatment axis. The prescribed
+upper-tail flip is non-differential misclassification, so the induced treatment-confounder
+association depends on treatment prevalence. That association vanishes when the treated fraction
+is one half. Its sign reverses above one half. At treatment strength 0.3, the induced correlation
+is +0.43 at `P(A=1)=0.2`, +0.0004 at 0.5, and -0.43 at 0.8.
+
+Refuse each added composition before the first refit until its law exists. That is the contract
+the shipped surface already keeps. It validates the complete request before it draws the latent
+vector or refits the estimator.
 
 ## Longitudinal contracts
 
