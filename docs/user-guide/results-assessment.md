@@ -186,6 +186,11 @@ that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[
 Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
 while the operation perturbs the observed treatment and outcome.
 
+A binary `RiskRatio` or `OddsRatio` fit also needs only the grid. Each cell reports the refitted
+ratio in `estimate`. Its `displacement` is the refitted log ratio minus the original log ratio.
+The surface and its frame record `movement_scale="log_ratio"`. Exponentiate a displacement to get
+the refitted ratio divided by the original ratio.
+
 A continuous-dose fit uses signed treatment strengths. Pass one exact modified-policy mean or
 contrast alias because a continuous result has no bare `ate` parameter.
 
@@ -266,7 +271,7 @@ read the zero treatment-strength column of a policy-mean surface as an artifact 
 law.
 
 The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
-original estimate exactly.
+original estimate exactly. Additive surfaces record `movement_scale="estimate_difference"`.
 
 Read the output as a qualitative stress surface. It is not a corrected estimate, bound, p-value,
 confidence interval, robustness value, or pass/fail result. Calibration reports model-dependent

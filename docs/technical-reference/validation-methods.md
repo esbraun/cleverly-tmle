@@ -196,15 +196,29 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 ### Simulated common-cause stress surface
 
-**Why.** An analyst can inspect whether a fitted additive parameter moves under a plausible latent
+**Why.** An analyst can inspect whether a fitted marginal parameter moves under a plausible latent
 common cause. Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its
 qualitative limits.
 
 **What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
-at every declared treatment-strength and outcome-strength pair. Each cell also reports
-`induced_treatment_association`, the realised correlation between the latent vector and the
-treatment of that cell. The operation gives no corrected estimate, bound, p-value, confidence
-interval, robustness value, threshold, or pass/fail result.
+at every declared strength pair. `movement_scale` states how to read that displacement. Additive
+parameters use `estimate_difference`. Ratios use `log_ratio` and the signed displacement
+
+$$
+\log(\widehat\psi_{\mathrm{refit}})-\log(\widehat\psi_{\mathrm{original}}).
+$$
+
+Its exponential is the refitted ratio divided by the original ratio. Each ratio cell keeps its
+point estimate on the ratio scale. Gruber and van der Laan (2012), Section 2.1 and Section 2.7,
+define the ratios and their log-scale intervals. Appendix A gives their log-scale influence
+curves. The pinned `tmle3` `R/delta_functions.R` source uses the same contrasts.
+
+Neither source defines a simulated-confounding displacement. The log difference is this package's
+descriptive movement convention, not a paper-derived sensitivity measure.
+
+Each cell also reports `induced_treatment_association`. This value is the realised correlation
+between the latent vector and the treatment of that cell. The operation gives no corrected
+estimate, bound, p-value, confidence interval, robustness value, threshold, or pass/fail result.
 
 **How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
 and one refit seed across the complete grid. Each cell starts from the original data.
@@ -274,19 +288,23 @@ The `(0, 0)` cell returns the original estimate without a refit. A failed replac
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
 
-The surface supports four source-backed compositions. All support Gaussian and binomial outcomes
-with one cross-fitting draw.
+The surface supports five source-backed composition rows with one cross-fitting draw. Ratio
+surfaces require a binomial outcome. The other rows support Gaussian and binomial outcomes.
 
-| treatment | additive parameter | replayed estimator |
+| treatment | parameter | replayed estimator |
 | --- | --- | --- |
 | binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
 The binary mean path keeps the named counterfactual arm fixed. Each cell replaces only the
 observed treatment and outcome before the complete refit. A sole reported mean needs only the
 grid. A fit that reports several means also needs one explicit alias.
+
+The binary ratio path keeps the numerator and denominator arms fixed. It validates their direction
+and the stored log estimate before the latent draw. A ratio-only result needs only the grid.
 
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
 the observed dose and outcome before the complete refit.
@@ -305,7 +323,7 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
 | `repeats > 1` | not written yet | no rule states how a median across draws should move |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
-| ATT, ATC, ratios, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, ratios need a multiplicative movement scale, and strata need a shared per-stratum contract |
+| ATT, ATC, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, and strata need a shared per-stratum contract |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
 | conditional modified-policy parameters, continuous-treatment C-TMLE, and continuous-treatment DR-TMLE | not written yet | the continuous source boundary covers one marginal additive parameter under exact ordinary TMLE |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |

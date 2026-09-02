@@ -2340,7 +2340,7 @@ class SensitivityFacade(_CapabilityFacade):
         if route.needs_estimand:
             # Before the cache key, so an implicit call and the explicit call it resolves
             # to share one entry rather than computing the same bound twice.
-            args = self._with_default_parameter(args, kwargs)
+            args = self._with_default_parameter(operation, args, kwargs)
         module = importlib.import_module(f".sensitivity.{route.module}", __package__)
         function = getattr(module, route.function)
         return _cached(
@@ -2352,7 +2352,7 @@ class SensitivityFacade(_CapabilityFacade):
         )
 
     def _with_default_parameter(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+        self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> tuple[Any, ...]:
         """Supply the estimand only when the fit leaves no choice about which one.
 
@@ -2370,6 +2370,11 @@ class SensitivityFacade(_CapabilityFacade):
         """
         if args or "estimand" in kwargs or "ate" in self._result.estimates:
             return args
+        if operation == "simulated_confounding":
+            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+
+            binary_candidates = _eligible_binary_parameter_names(self._result)
+            return (binary_candidates[0],) if len(binary_candidates) == 1 else args
         from .sensitivity._parameters import arm_parameters
 
         known = arm_parameters(self._result)

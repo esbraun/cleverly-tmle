@@ -105,7 +105,8 @@ class SimulatedConfoundingCell:
     estimate : float or None
         Refitted estimate. ``None`` when the cell failed.
     displacement : float or None
-        Estimate minus the original estimate. ``None`` when the cell failed.
+        Refitted minus original value on the surface's movement scale. ``None`` when
+        the cell failed.
     induced_treatment_association : float or None
         Pearson correlation between the shared latent vector and the treatment of this
         cell, measured on the analysis data. The anchor cell reports the original
@@ -131,10 +132,13 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE or counterfactual-mean alias, named
-        modified-policy mean alias, or named modified-policy contrast alias.
+        Marginal binary-treatment ATE, counterfactual-mean, risk-ratio, or odds-ratio
+        alias, named modified-policy mean alias, or named modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
+    movement_scale : {"estimate_difference", "log_ratio"}
+        Scale used for the signed displacement. Ratio estimates use their stored log
+        value. Other estimates use their reported value.
     grid : ConfounderStrengthGrid
         Explicit strength pairs evaluated by the surface.
     cells : tuple of SimulatedConfoundingCell
@@ -167,6 +171,7 @@ class SimulatedConfoundingResult:
 
     estimand: str
     original_estimate: float
+    movement_scale: Literal["estimate_difference", "log_ratio"]
     grid: ConfounderStrengthGrid
     cells: tuple[SimulatedConfoundingCell, ...]
     calibrations: tuple[ObservedConfounderCalibration, ...]
@@ -206,6 +211,7 @@ class SimulatedConfoundingResult:
         payload = {
             "treatment_strength": [cell.treatment_strength for cell in self.cells],
             "outcome_strength": [cell.outcome_strength for cell in self.cells],
+            "movement_scale": [self.movement_scale for _ in self.cells],
             "estimate": [cell.estimate for cell in self.cells],
             "displacement": [cell.displacement for cell in self.cells],
             "induced_treatment_association": [
@@ -286,7 +292,7 @@ class SimulatedConfoundingResult:
                         "treatment strength",
                         "outcome strength",
                         "estimate",
-                        "movement",
+                        f"movement ({self.movement_scale.replace('_', ' ')})",
                         "induced association",
                     ],
                     rows,
@@ -348,9 +354,10 @@ class _ValidatedRequest:
     estimator: Any
     calibration_names: tuple[str, ...]
     treatment_family: Literal["binary", "continuous"]
+    movement_scale: Literal["estimate_difference", "log_ratio"]
 
 
-_BINARY_PARAMETER_TARGETS = frozenset({"ate", "ey", "ey1", "ey0"})
+_BINARY_PARAMETER_TARGETS = frozenset({"ate", "ey", "ey1", "ey0", "rr", "or"})
 
 
 def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
@@ -382,7 +389,7 @@ def _validate_binary_parameter_state(
     estimator: Any,
 ) -> None:
     """Require one coherent marginal binary parameter across every stored layer."""
-    from ..study import ATE, CounterfactualMean
+    from ..study import ATE, CounterfactualMean, OddsRatio, RiskRatio
     from ..targets import TARGETS
     from ..targets.base import parameter_name
 
@@ -419,6 +426,25 @@ def _validate_binary_parameter_state(
                 else typed_estimand.treatment == key.value == expected_value
             )
         )
+    elif (
+        target in {"rr", "or"}
+        and type(typed_estimand)
+        is {
+            "rr": RiskRatio,
+            "or": OddsRatio,
+        }[target]
+    ):
+        typed_ratio: Any = typed_estimand
+        expected_alias = parameter_name(target)
+        fitted_reference = result.data.arm_label(result.config.reference_arm)
+        fitted_values = tuple(level for level in levels if level != fitted_reference)
+        metadata_matches = (
+            len(fitted_values) == 1
+            and key.value == fitted_values[0]
+            and key.reference == fitted_reference
+            and typed_ratio.reference in (None, key.reference)
+            and functional.reference == typed_ratio.reference
+        )
 
     registered = TARGETS.get(target)
     replay_targets = tuple(getattr(estimator, "estimands", ()))
@@ -436,6 +462,39 @@ def _validate_binary_parameter_state(
         raise CapabilityError(
             "simulated_confounding found inconsistent registered binary parameter metadata"
         )
+    estimate = result.estimates[estimand]
+    if target in {"rr", "or"}:
+        if result.data.family != "binomial":
+            raise CapabilityError(
+                "simulated_confounding supports a risk ratio or odds ratio for a binary "
+                "outcome only"
+            )
+        if estimate.name != estimand or estimate.scale != "ratio":
+            raise CapabilityError(
+                "simulated_confounding found inconsistent ratio-scale estimate metadata"
+            )
+        if (
+            registered.scale != "ratio"
+            or registered.requires_family != "binomial"
+            or registered.parameter_axis != "arm"
+        ):
+            raise CapabilityError(
+                "simulated_confounding found inconsistent registered ratio target metadata"
+            )
+        try:
+            inference_value = estimate.inference_value
+        except ValueError as error:
+            raise CapabilityError(
+                "simulated_confounding needs the stored log-scale estimate for a ratio contrast"
+            ) from error
+        if not np.isfinite(inference_value) or not np.isfinite(estimate.psi) or estimate.psi <= 0.0:
+            raise CapabilityError(
+                "simulated_confounding needs a finite positive ratio and stored log-scale estimate"
+            )
+        if float(np.exp(inference_value)) != float(estimate.psi):
+            raise CapabilityError(
+                "simulated_confounding found inconsistent reported and log-scale ratio estimates"
+            )
 
 
 def _validate_continuous_policy_state(
@@ -649,7 +708,7 @@ def _validate_request(
     functional = identified.functional
     if type(functional) is not BackdoorMeanContrast:
         raise CapabilityError(
-            "simulated_confounding supports a backdoor-identified marginal additive parameter; "
+            "simulated_confounding supports a backdoor-identified marginal parameter; "
             f"got {type(functional).__name__}"
         )
     provider = getattr(identified, "provider", None)
@@ -693,7 +752,7 @@ def _validate_request(
             or functional.msm is not None
         ):
             raise CapabilityError(
-                "simulated_confounding supports a marginal arm-indexed additive parameter, "
+                "simulated_confounding supports a marginal arm-indexed parameter, "
                 "not a regimen, stochastic, incremental, modified-policy, or MSM parameter"
             )
         if (
@@ -702,9 +761,9 @@ def _validate_request(
             or key.stratum is not None
         ):
             raise CapabilityError(
-                "simulated_confounding supports only a marginal ATE or counterfactual arm mean; "
-                "ATT, ATC, ratios, conditional strata, and other parameters are outside its "
-                "source boundary"
+                "simulated_confounding supports only a marginal ATE, counterfactual arm mean, "
+                "risk ratio, or odds ratio; ATT, ATC, conditional strata, and other parameters "
+                "are outside its source boundary"
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
@@ -756,7 +815,10 @@ def _validate_request(
             raise CapabilityError(
                 f"simulated_confounding cannot calibrate constant covariate {name!r}"
             )
-    return _ValidatedRequest(estimator, names, treatment_family)
+    movement_scale: Literal["estimate_difference", "log_ratio"] = (
+        "log_ratio" if key.estimand in {"rr", "or"} else "estimate_difference"
+    )
+    return _ValidatedRequest(estimator, names, treatment_family, movement_scale)
 
 
 _LATENT_SEED_TAG = 3
@@ -912,19 +974,19 @@ def simulated_confounding(
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
 ) -> SimulatedConfoundingResult:
-    """Refit an additive parameter across a simulated common-cause strength grid.
+    """Refit a marginal parameter across a simulated common-cause strength grid.
 
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE or
-        counterfactual mean, continuous modified-treatment-policy mean, or continuous
-        modified-policy effect fit.
+        Replayable backdoor-identified marginal binary-treatment ATE, counterfactual
+        mean, risk ratio, or odds ratio, continuous modified-treatment-policy mean, or
+        continuous modified-policy effect fit.
     estimand : str
-        Additive parameter alias to report. The free function needs an explicit ``ey1``,
-        ``ey0``, or ``ey[...]`` alias for a binary counterfactual mean. A continuous fit
-        requires an explicit ``ey_shift[...]`` alias of a nonzero-delta policy, or an
-        ``ate_shift[...]`` alias.
+        Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
+        or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
+        ``rr`` or ``or``. A continuous fit requires an explicit ``ey_shift[...]`` alias
+        of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -992,7 +1054,9 @@ def simulated_confounding(
     refit_seed = root_seed
     latent_seed = _latent_child_seed(root_seed)
     latent = np.random.default_rng(latent_seed).normal(size=result.data.n)
-    original = float(result[estimand].psi)
+    original_parameter = result[estimand]
+    original = float(original_parameter.psi)
+    original_inference = original_parameter.inference_value
     cells: list[SimulatedConfoundingCell] = []
 
     for cell_index, (treatment_strength, outcome_strength) in enumerate(
@@ -1034,13 +1098,14 @@ def simulated_confounding(
                 name="simulated-confounding outcome",
             )
             refitted = request.estimator.refit(replacement, random_state=refit_seed)
-            estimate = float(refitted[estimand].psi)
+            refitted_parameter = refitted[estimand]
+            estimate = float(refitted_parameter.psi)
             cells.append(
                 SimulatedConfoundingCell(
                     treatment_strength=treatment_strength,
                     outcome_strength=outcome_strength,
                     estimate=estimate,
-                    displacement=estimate - original,
+                    displacement=refitted_parameter.inference_value - original_inference,
                     induced_treatment_association=association,
                 )
             )
@@ -1064,6 +1129,7 @@ def simulated_confounding(
     return SimulatedConfoundingResult(
         estimand=estimand,
         original_estimate=original,
+        movement_scale=request.movement_scale,
         grid=grid,
         cells=tuple(cells),
         calibrations=calibrations,

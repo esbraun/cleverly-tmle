@@ -22,9 +22,12 @@ from cleverly import (
     CausalStudy,
     CollaborativeTMLEMethod,
     CounterfactualMean,
+    DRTMLEMethod,
     ModifiedTreatmentPolicy,
     ModifiedTreatmentPolicyEffect,
+    OddsRatio,
     PointTreatment,
+    RiskRatio,
 )
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
 from cleverly.estimators import TMLE
@@ -128,6 +131,46 @@ def _fit_binary_mean(
     )
 
 
+def _fit_ratio(
+    *,
+    target: str,
+    method: str = "tmle",
+    seed: int = 7,
+    reference: float | None = None,
+) -> Any:
+    frame, _ = make_binary_outcome(n=120, seed=seed)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+        ),
+    )
+    configured_method: Any = method
+    if method == "collaborative_tmle":
+        configured_method = CollaborativeTMLEMethod(
+            selection_folds=2,
+            selection_inner_folds=2,
+            selection_estimand=target,
+        )
+    elif method == "drtmle":
+        configured_method = DRTMLEMethod(
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        )
+    estimand = RiskRatio(reference=reference) if target == "rr" else OddsRatio(reference=reference)
+    return study.identify(estimand).estimate(
+        method=configured_method,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
 @pytest.fixture(scope="module")
 def gaussian_result() -> Any:
     return _fit()
@@ -146,6 +189,16 @@ def binary_mean_result() -> Any:
 @pytest.fixture(scope="module")
 def binary_means_result() -> Any:
     return _fit_binary_mean(treatment=None)
+
+
+@pytest.fixture(scope="module")
+def risk_ratio_result() -> Any:
+    return _fit_ratio(target="rr")
+
+
+@pytest.fixture(scope="module")
+def odds_ratio_result() -> Any:
+    return _fit_ratio(target="or")
 
 
 _TWO_POLICIES = (
@@ -255,6 +308,39 @@ def _record_refits(
     return calls
 
 
+def _record_ratio_refits(
+    result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    target: str,
+    fail_call: int | None = None,
+) -> list[tuple[Any, int | None]]:
+    calls: list[tuple[Any, int | None]] = []
+
+    def refit(
+        data: Any,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        del intermediate_value
+        calls.append((data, random_state))
+        if fail_call is not None and len(calls) == fail_call:
+            raise RuntimeError("deliberate ratio refit failure")
+        treated = float(np.mean(data.outcome[data.treatment == 1.0]))
+        control = float(np.mean(data.outcome[data.treatment == 0.0]))
+        ratio = (
+            treated / control
+            if target == "rr"
+            else (treated / (1.0 - treated)) / (control / (1.0 - control))
+        )
+        estimate = replace(result[target], psi=ratio, log_psi=float(np.log(ratio)))
+        return replace(result, data=data, estimates={target: estimate})
+
+    monkeypatch.setattr(result.estimator, "refit", refit)
+    return calls
+
+
 def _record_continuous_refits(
     result: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -334,6 +420,136 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert displacement < -0.3
     assert surface.cells[1].estimate == pytest.approx(result["ate"].psi + displacement)
     assert surface.successful_cells == surface.cells
+
+
+@pytest.mark.parametrize(
+    ("method", "estimator_name"),
+    [("tmle", "TMLE"), ("collaborative_tmle", "CTMLE"), ("drtmle", "DRTMLE")],
+)
+@pytest.mark.parametrize("target", ["rr", "or"])
+def test_each_ratio_runs_a_real_log_movement_surface(
+    method: str,
+    estimator_name: str,
+    target: str,
+) -> None:
+    """Both ratios keep raw estimates while all three engines move on the log scale."""
+    result = _fit_ratio(target=target, method=method)
+    surface = simulated_confounding(
+        result,
+        estimand=target,
+        grid=_grid(),
+        random_state=7,
+    )
+
+    assert type(result.estimator).__name__ == estimator_name
+    assert surface.complete
+    assert surface.estimand == target
+    assert surface.original_estimate == result[target].psi
+    assert surface.movement_scale == "log_ratio"
+    assert set(surface.to_frame()["movement_scale"]) == {"log_ratio"}
+    assert "movement (log ratio)" in surface.summary()
+    assert surface.cells[0].estimate == result[target].psi
+    assert surface.cells[0].displacement == 0.0
+    assert any(abs(cell.displacement or 0.0) > 0.01 for cell in surface.cells[1:])
+
+    witness = surface.cells[1]
+    assert witness.estimate is not None
+    assert witness.displacement == pytest.approx(
+        np.log(witness.estimate) - result[target].inference_value
+    )
+    assert witness.displacement != pytest.approx(witness.estimate - result[target].psi, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    ("target", "fixture_name"),
+    [("rr", "risk_ratio_result"), ("or", "odds_ratio_result")],
+)
+def test_reversing_the_ratio_contrast_inverts_estimates_and_log_movements(
+    request: pytest.FixtureRequest,
+    target: str,
+    fixture_name: str,
+) -> None:
+    """A direction mutation must invert the ratio and negate each log displacement."""
+    forward = request.getfixturevalue(fixture_name)
+    reverse = _fit_ratio(target=target, reference=1.0)
+    forward_surface = simulated_confounding(
+        forward,
+        estimand=target,
+        grid=_grid(),
+        random_state=7,
+    )
+    reverse_surface = simulated_confounding(
+        reverse,
+        estimand=target,
+        grid=_grid(),
+        random_state=7,
+    )
+
+    assert reverse.parameter_keys[target].value == forward.parameter_keys[target].reference
+    assert reverse.parameter_keys[target].reference == forward.parameter_keys[target].value
+    assert reverse[target].psi == pytest.approx(1.0 / forward[target].psi)
+    for forward_cell, reverse_cell in zip(
+        forward_surface.cells,
+        reverse_surface.cells,
+        strict=True,
+    ):
+        assert forward_cell.estimate is not None
+        assert reverse_cell.estimate == pytest.approx(1.0 / forward_cell.estimate)
+        assert reverse_cell.displacement == pytest.approx(-forward_cell.displacement)
+
+
+def test_ratio_facade_selects_its_sole_parameter_and_preserves_the_cache(
+    risk_ratio_result: Any,
+) -> None:
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    capability = risk_ratio_result.sensitivity.capability("simulated_confounding")
+
+    surface = risk_ratio_result.sensitivity.simulated_confounding(grid=grid)
+
+    assert capability.requires_arguments == ("grid",)
+    assert surface.estimand == "rr"
+    assert surface.movement_scale == "log_ratio"
+    assert risk_ratio_result.sensitivity.simulated_confounding(grid=grid) is surface
+
+
+def test_ratio_cells_reuse_original_data_common_randomness_and_retain_failures(
+    risk_ratio_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _record_ratio_refits(
+        risk_ratio_result,
+        monkeypatch,
+        target="rr",
+        fail_call=2,
+    )
+    surface = simulated_confounding(
+        risk_ratio_result,
+        estimand="rr",
+        grid=_grid(),
+        random_state=19,
+    )
+
+    assert len(calls) == 3
+    assert all(seed == surface.root_seed for _, seed in calls)
+    assert not surface.complete
+    assert surface.cells[2].failure is not None
+    assert surface.cells[2].failure.error_type == "RuntimeError"
+    assert surface.cells[2].failure.message == "deliberate ratio refit failure"
+    latent = np.random.default_rng(surface.latent_seed).normal(size=risk_ratio_result.data.n)
+    expected_outcome = _flip_binary(
+        risk_ratio_result.data.outcome,
+        _flip_mask(latent, 0.2),
+    )
+    expected_treatment = _flip_binary(
+        risk_ratio_result.data.treatment,
+        _flip_mask(latent, 0.1),
+    )
+    assert np.array_equal(calls[0][0].treatment, risk_ratio_result.data.treatment)
+    assert np.array_equal(calls[0][0].outcome, expected_outcome)
+    assert np.array_equal(calls[1][0].treatment, expected_treatment)
+    assert np.array_equal(calls[1][0].outcome, risk_ratio_result.data.outcome)
+    assert np.array_equal(calls[2][0].treatment, expected_treatment)
+    assert np.array_equal(calls[2][0].outcome, expected_outcome)
 
 
 @pytest.mark.parametrize(
@@ -1058,6 +1274,7 @@ def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
     assert list(frame.columns) == [
         "treatment_strength",
         "outcome_strength",
+        "movement_scale",
         "estimate",
         "displacement",
         "induced_treatment_association",
@@ -1067,6 +1284,7 @@ def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
     assert len(frame) == 4
     assert list(frame["treatment_strength"]) == [0.0, 0.0, 0.1, 0.1]
     assert list(frame["outcome_strength"]) == [0.0, 0.2, 0.0, 0.2]
+    assert list(frame["movement_scale"]) == ["estimate_difference"] * 4
 
     # Row 0 is the anchor and row 2 is the deliberate failure. Row 1 refit successfully,
     # so its estimate and displacement must carry real numbers.
@@ -1130,6 +1348,7 @@ def test_polars_frames_carry_estimates_displacements_and_failure_detail(
     assert frame.columns == [
         "treatment_strength",
         "outcome_strength",
+        "movement_scale",
         "estimate",
         "displacement",
         "induced_treatment_association",
@@ -1177,7 +1396,7 @@ def test_grid_validation_and_binomial_boundary(
     assert calls == []
 
 
-@pytest.mark.parametrize("estimand", ["att", "atc", "rr", "or", "ate_regime", "msm"])
+@pytest.mark.parametrize("estimand", ["att", "atc", "ate_regime", "msm"])
 def test_unsupported_estimands_are_refused_before_refit(
     gaussian_result: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -1190,9 +1409,100 @@ def test_unsupported_estimands_are_refused_before_refit(
         parameter_keys={estimand: replace(key, alias=estimand)},
     )
     calls = _record_refits(altered, monkeypatch)
-    with pytest.raises(CapabilityError, match="only a marginal ATE or counterfactual arm mean"):
+    with pytest.raises(CapabilityError, match="only a marginal ATE, counterfactual arm mean"):
         simulated_confounding(altered, estimand=estimand, grid=_grid())
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [
+        "key-alias",
+        "key-direction",
+        "functional",
+        "typed",
+        "estimator",
+        "evidence",
+        "registry",
+        "outcome-family",
+        "estimate-name",
+        "estimate-scale",
+        "missing-log",
+        "inconsistent-log",
+    ],
+)
+def test_ratio_checks_every_structured_layer_before_the_latent_draw(
+    risk_ratio_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    """A ratio request must agree across identification, fitting, and reporting state."""
+    result = risk_ratio_result
+    if layer in {"key-alias", "key-direction"}:
+        key = result.parameter_keys["rr"]
+        key = (
+            replace(key, alias="or")
+            if layer == "key-alias"
+            else replace(key, value=key.reference, reference=key.value)
+        )
+        result = replace(result, parameter_keys={"rr": key})
+    elif layer == "functional":
+        result = _with_functional(result, target="ate")
+    elif layer == "typed":
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, estimand=OddsRatio()),
+        )
+    elif layer == "estimator":
+        estimator = copy(result.estimator)
+        estimator.estimands = ("ate",)
+        result = replace(result, estimator=estimator)
+    elif layer == "evidence":
+        identification = replace(
+            result.identified_effect.identification,
+            references=("unregistered identification",),
+        )
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, identification=identification),
+        )
+    elif layer == "registry":
+        from cleverly.targets import TARGETS
+
+        monkeypatch.setitem(TARGETS, "rr", replace(TARGETS["rr"], scale="difference"))
+    elif layer == "outcome-family":
+        result = replace(result, data=replace(result.data, family="gaussian"))
+    else:
+        estimate = result["rr"]
+        if layer == "estimate-name":
+            estimate = replace(estimate, name="or")
+        elif layer == "estimate-scale":
+            estimate = replace(estimate, scale="difference")
+        elif layer == "missing-log":
+            estimate = replace(estimate, log_psi=None)
+        else:
+            assert estimate.log_psi is not None
+            estimate = replace(estimate, log_psi=estimate.log_psi + 0.25)
+        result = replace(result, estimates={"rr": estimate})
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+
+    with pytest.raises(CapabilityError, match="simulated_confounding"):
+        simulated_confounding(
+            result,
+            estimand="rr",
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
 
 
 @pytest.mark.parametrize(
@@ -1329,17 +1639,17 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
         ("estimator", "supports ordinary TMLE"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
-        ("functional-type", "backdoor-identified marginal additive parameter"),
+        ("functional-type", "backdoor-identified marginal parameter"),
         ("provider", "explicit-adjustment backdoor provenance"),
         ("key", "structured parameter key"),
         ("provenance", "registered binary parameter metadata"),
         ("declared-provenance", "registered binary parameter metadata"),
         ("target-provenance", "registered binary parameter metadata"),
         ("conditional", "counterfactual arm mean"),
-        ("stochastic", "marginal arm-indexed additive parameter"),
-        ("incremental", "marginal arm-indexed additive parameter"),
-        ("modified", "marginal arm-indexed additive parameter"),
-        ("msm", "marginal arm-indexed additive parameter"),
+        ("stochastic", "marginal arm-indexed parameter"),
+        ("incremental", "marginal arm-indexed parameter"),
+        ("modified", "marginal arm-indexed parameter"),
+        ("msm", "marginal arm-indexed parameter"),
     ],
 )
 def test_unsupported_compositions_are_refused_before_refit(
@@ -2482,6 +2792,7 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     assert list(frame.columns) == [
         "treatment_strength",
         "outcome_strength",
+        "movement_scale",
         "estimate",
         "displacement",
         "induced_treatment_association",
