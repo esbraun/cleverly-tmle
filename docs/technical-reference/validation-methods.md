@@ -338,9 +338,13 @@ the observed dose and outcome before the complete refit.
 for every row in the support table. The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps
 each normalized weight on its original row during both replacements and every complete refit.
 
-The latent vector stays independent and standard normal under this conditional empirical tilt.
-Each cell reports the same parameter functional on its perturbed weighted empirical law. This
-statement does not claim that the operation reproduces the sampling or selection mechanism.
+Conditional on the observed rows and fixed weights, the simulation draws each latent value
+independently from a standard normal law without using either. After that draw, the realized
+weighted empirical distribution is discrete. Its latent marginal need not have weighted mean zero
+or variance one, and chance association with the original treatment need not vanish. The anchor's
+reported association records that finite-sample imbalance. Each cell reports the same parameter
+functional on its perturbed weighted empirical law. This statement does not claim that the
+operation reproduces the sampling or selection mechanism.
 
 The induced treatment association uses weighted means, variances, and covariance. Numeric
 calibration also uses weighted scaling, model fitting, prediction-change fractions, and moments.
