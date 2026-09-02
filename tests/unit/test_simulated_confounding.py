@@ -662,7 +662,9 @@ def test_fixed_weights_preserve_every_replacement_and_equal_a_manual_refit(
 
 def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> None:
     unweighted = _fit()
-    constant = _fit(weight_scale=7.0, constant_weights=True)
+    # This scale normalizes to values just above one on common NumPy builds. It
+    # exercises the same tolerance CausalData uses to classify constant weights.
+    constant = _fit(weight_scale=0.3, constant_weights=True)
     kwargs = {
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
         "benchmark_covariates": ("W1", "W2"),
@@ -671,9 +673,15 @@ def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> N
     plain_surface = simulated_confounding(unweighted, **kwargs)
     fixed_surface = simulated_confounding(constant, **kwargs)
 
-    assert unweighted["ate"].psi == constant["ate"].psi
-    assert unweighted["ate"].inference_value == constant["ate"].inference_value
-    assert fixed_surface.cells == plain_surface.cells
+    assert unweighted["ate"].psi == pytest.approx(constant["ate"].psi, abs=1e-12)
+    assert unweighted["ate"].inference_value == pytest.approx(
+        constant["ate"].inference_value, abs=1e-12
+    )
+    for fixed_cell, plain_cell in zip(fixed_surface.cells, plain_surface.cells, strict=True):
+        assert fixed_cell.estimate == pytest.approx(plain_cell.estimate, abs=1e-12)
+        assert fixed_cell.displacement == pytest.approx(plain_cell.displacement, abs=1e-12)
+        assert fixed_cell.induced_treatment_association == plain_cell.induced_treatment_association
+        assert fixed_cell.failure == plain_cell.failure
     assert fixed_surface.calibrations == plain_surface.calibrations
     assert plain_surface.target_measure == "unweighted"
     assert fixed_surface.target_measure == "fixed_empirical_tilt"

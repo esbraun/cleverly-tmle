@@ -945,7 +945,7 @@ def _perturb_treatment(
 
 def _weights_are_constant(weights: np.ndarray[Any, Any]) -> bool:
     """Return whether weighted calculations must preserve the old arithmetic path."""
-    return bool(np.all(weights == 1.0))
+    return bool(np.allclose(weights, 1.0))
 
 
 def _weighted_std(values: np.ndarray[Any, Any], weights: np.ndarray[Any, Any]) -> float:
