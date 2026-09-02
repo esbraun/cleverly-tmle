@@ -43,7 +43,9 @@ class ConfounderStrengthGrid:
     Parameters
     ----------
     treatment : tuple of float
-        Binary-treatment flip probabilities. Each value is from zero through 0.5.
+        Treatment perturbation strengths. Continuous-treatment values are signed linear
+        coefficients. Binary-treatment values are checked as flip probabilities from zero
+        through 0.5 when the surface runs.
     outcome : tuple of float
         Outcome perturbation strengths. Gaussian strengths are signed. Binomial
         strengths are checked as flip probabilities when the surface runs.
@@ -59,8 +61,6 @@ class ConfounderStrengthGrid:
     def __post_init__(self) -> None:
         treatment = _numeric_strengths(self.treatment, "treatment")
         outcome = _numeric_strengths(self.outcome, "outcome")
-        if any(value < 0.0 or value > 0.5 for value in treatment):
-            raise ValueError("treatment strengths must be between 0 and 0.5")
         if 0.0 not in treatment or 0.0 not in outcome:
             raise ValueError("treatment and outcome strengths must each contain zero")
         object.__setattr__(self, "treatment", treatment)
@@ -99,7 +99,7 @@ class SimulatedConfoundingCell:
     Parameters
     ----------
     treatment_strength : float
-        Declared binary-treatment flip probability.
+        Declared binary flip probability or continuous linear coefficient.
     outcome_strength : float
         Declared outcome perturbation strength.
     estimate : float or None
@@ -131,7 +131,7 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE alias.
+        Marginal binary-treatment ATE alias or named modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
     grid : ConfounderStrengthGrid
@@ -293,8 +293,15 @@ class SimulatedConfoundingResult:
                 "",
                 "The induced association is the correlation between the latent vector and the "
                 "treatment of the cell.",
-                "An association near zero says the treatment axis moved the estimate by "
-                "misclassification and not by confounding.",
+                (
+                    "An association near zero says the treatment axis moved the estimate by "
+                    "misclassification and not by confounding."
+                    if self.treatment_family == "binary"
+                    else "The association reports what the continuous linear perturbation "
+                    "achieved on these data. A cell whose outcome strength is zero has no "
+                    "confounding path, whatever its association, and reports dose perturbation "
+                    "alone."
+                ),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
         )
@@ -320,19 +327,33 @@ def _numeric_strengths(values: Any, role: str) -> tuple[float, ...]:
     return strengths
 
 
+@dataclass(frozen=True)
+class _ValidatedRequest:
+    estimator: Any
+    calibration_names: tuple[str, ...]
+    treatment_family: Literal["binary", "continuous"]
+
+
 def _validate_request(
     result: Any,
     estimand: str,
     grid: ConfounderStrengthGrid,
     benchmark_covariates: Any,
-) -> tuple[Any, tuple[str, ...]]:
+) -> _ValidatedRequest:
     """Validate the complete supported boundary before a refit or random draw."""
     from ..estimators.base import TMLEResult
     from ..estimators.ctmle import CTMLE
     from ..estimators.drtmle import DRTMLE
     from ..estimators.tmle import TMLE
-    from ..study import BackdoorMeanContrast, ExplicitAdjustmentProvider, ParameterKey
+    from ..interventions.shift import Shift
+    from ..study import (
+        BackdoorMeanContrast,
+        ExplicitAdjustmentProvider,
+        ModifiedTreatmentPolicyEffect,
+        ParameterKey,
+    )
     from ..targets import TARGETS
+    from ..targets.base import parameter_name
 
     if type(result) is not TMLEResult:
         raise CapabilityError(
@@ -345,17 +366,28 @@ def _validate_request(
             "simulated_confounding needs a replayable fitted estimator; this restored or "
             "legacy result has no estimator configuration"
         )
-    if type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+    data = result.data
+    if data.is_continuous_treatment:
+        treatment_family: Literal["binary", "continuous"] = "continuous"
+    elif data.is_binary_treatment:
+        treatment_family = "binary"
+    else:
+        raise CapabilityError(
+            "simulated_confounding has no category-valued perturbation law for a multi-arm "
+            "treatment"
+        )
+    if treatment_family == "binary" and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
         raise CapabilityError(
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
             f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
         )
-    data = result.data
-    if data.is_continuous_treatment or not data.is_binary_treatment:
+    if treatment_family == "continuous" and type(estimator) is not TMLE:
         raise CapabilityError(
-            "simulated_confounding requires a binary treatment; continuous and multi-arm "
-            "treatments have no supported flip contrast"
+            "continuous simulated_confounding supports exact ordinary TMLE only; "
+            f"got {type(estimator).__name__}"
         )
+    if treatment_family == "binary" and any(value < 0.0 or value > 0.5 for value in grid.treatment):
+        raise ValueError("binary treatment strengths must be between 0 and 0.5")
     if data.family not in {"gaussian", "binomial"}:
         raise CapabilityError(
             f"simulated_confounding has no perturbation law for outcome family={data.family!r}"
@@ -384,7 +416,7 @@ def _validate_request(
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(
-            "simulated_confounding needs identification metadata for a backdoor marginal ATE; "
+            "simulated_confounding needs identification metadata for a backdoor contrast; "
             "this legacy fit records none"
         )
     functional = identified.functional
@@ -398,15 +430,14 @@ def _validate_request(
         raise CapabilityError(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
-    if (
-        functional.longitudinal
-        or functional.axis != "arm"
-        or functional.interventions
-        or functional.msm is not None
-    ):
-        raise CapabilityError(
-            "simulated_confounding supports a marginal arm-indexed ATE, not a regimen, "
-            "stochastic, incremental, modified-policy, or MSM parameter"
+    if treatment_family == "continuous" and estimand == "ate":
+        # Only the ``ate_shift[...]`` aliases pass the checks below, so naming an
+        # ``ey_shift[...]`` alias here would point the caller at an option this same
+        # function refuses a few lines later.
+        admissible = [name for name in result.estimates if name.startswith("ate_shift[")]
+        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
+        raise ValueError(
+            f"continuous simulated_confounding requires an explicit ate_shift[...] alias; {detail}"
         )
     if estimand not in result.estimates:
         raise ValueError(
@@ -417,22 +448,109 @@ def _validate_request(
         raise CapabilityError(
             f"simulated_confounding needs a structured parameter key for {estimand!r}"
         )
-    if key.estimand != "ate" or key.axis != "arm" or key.stratum is not None:
-        raise CapabilityError(
-            "simulated_confounding supports only a marginal ATE; ATT, ATC, means, ratios, "
-            "conditional strata, and other parameters are outside its source boundary"
-        )
     declared = getattr(getattr(identified, "estimand", None), "name", None)
-    registered = TARGETS.get("ate")
-    if (
-        functional.target != "ate"
-        or declared != "ate"
-        or registered is None
-        or identified.identification != registered.identification
-    ):
-        raise CapabilityError(
-            "simulated_confounding found inconsistent registered ATE identification provenance"
+    if treatment_family == "binary":
+        if (
+            functional.longitudinal
+            or functional.axis != "arm"
+            or functional.interventions
+            or functional.msm is not None
+        ):
+            raise CapabilityError(
+                "simulated_confounding supports a marginal arm-indexed ATE, not a regimen, "
+                "stochastic, incremental, modified-policy, or MSM parameter"
+            )
+        if key.estimand != "ate" or key.axis != "arm" or key.stratum is not None:
+            raise CapabilityError(
+                "simulated_confounding supports only a marginal ATE; ATT, ATC, means, ratios, "
+                "conditional strata, and other parameters are outside its source boundary"
+            )
+        registered = TARGETS.get("ate")
+        if (
+            functional.target != "ate"
+            or declared != "ate"
+            or registered is None
+            or identified.identification != registered.identification
+        ):
+            raise CapabilityError(
+                "simulated_confounding found inconsistent registered ATE identification provenance"
+            )
+    else:
+        if (
+            functional.longitudinal
+            or functional.axis != "shift"
+            or not functional.interventions
+            or functional.msm is not None
+        ):
+            raise CapabilityError(
+                "continuous simulated_confounding supports a marginal modified-treatment-policy "
+                "contrast, not an arm, regimen, stochastic, incremental, or MSM parameter"
+            )
+        if key.estimand != "ate_shift" or key.axis != "shift" or key.stratum is not None:
+            raise CapabilityError(
+                "continuous simulated_confounding supports only a marginal ate_shift contrast; "
+                "means, conditional strata, and other parameters are outside its source boundary"
+            )
+        declared_policies = tuple(functional.interventions)
+        replay_policies = tuple(estimator.shifts)
+        if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
+            raise CapabilityError(
+                "continuous simulated_confounding found inconsistent structured shift metadata"
+            )
+        declared_names = tuple(shift.name for shift in declared_policies)
+        declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
+        declared_reference = (
+            declared_names[0] if functional.reference is None else functional.reference
         )
+        typed_estimand = identified.estimand
+        if type(typed_estimand) is not ModifiedTreatmentPolicyEffect:
+            raise CapabilityError(
+                "continuous simulated_confounding found inconsistent registered ate_shift "
+                "identification provenance"
+            )
+        fitted_shifts = result.nuisance.shifts
+        fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
+        fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
+        fitted_reference = (
+            None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
+        )
+        expected_alias = parameter_name("ate_shift", arm=key.value, versus=key.reference)
+        expected_shifted = np.column_stack(
+            [shift.apply(data.treatment)[0] for shift in declared_policies]
+        )
+        expected_capped = np.column_stack(
+            [shift.apply(data.treatment)[1] for shift in declared_policies]
+        )
+        if (
+            fitted_shifts is None
+            or tuple(typed_estimand.shifts) != declared_policies
+            or typed_estimand.reference != functional.reference
+            or replay_policies != declared_policies
+            or estimator.reference != functional.reference
+            or fitted_names != declared_names
+            or fitted_deltas != declared_deltas
+            or fitted_reference != declared_reference
+            or not np.array_equal(fitted_shifts.shifted, expected_shifted)
+            or not np.array_equal(fitted_shifts.capped, expected_capped)
+            or key.alias != estimand
+            or key.value not in fitted_names
+            or key.reference != fitted_reference
+            or expected_alias != estimand
+        ):
+            raise CapabilityError(
+                "continuous simulated_confounding found inconsistent structured shift metadata"
+            )
+        registered = TARGETS.get("ate_shift")
+        if (
+            functional.target != "ate_shift"
+            or declared != "ate_shift"
+            or registered is None
+            or identified.identification != registered.identification
+        ):
+            raise CapabilityError(
+                "continuous simulated_confounding found inconsistent registered ate_shift "
+                "identification provenance"
+            )
 
     names = tuple(
         [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
@@ -460,7 +578,7 @@ def _validate_request(
             raise CapabilityError(
                 f"simulated_confounding cannot calibrate constant covariate {name!r}"
             )
-    return estimator, names
+    return _ValidatedRequest(estimator, names, treatment_family)
 
 
 _LATENT_SEED_TAG = 3
@@ -499,21 +617,40 @@ def _flip_binary(values: np.ndarray[Any, Any], mask: np.ndarray[Any, Any]) -> np
     return np.where(mask, 1.0 - values, values)
 
 
+def _linear_treatment(
+    values: np.ndarray[Any, Any], latent: np.ndarray[Any, Any], strength: float
+) -> np.ndarray[Any, Any]:
+    """Apply the source-backed continuous treatment perturbation ``A' = A + k_A U``."""
+    return values + strength * latent
+
+
+def _perturb_treatment(
+    values: np.ndarray[Any, Any],
+    latent: np.ndarray[Any, Any],
+    strength: float,
+    family: Literal["binary", "continuous"],
+) -> np.ndarray[Any, Any]:
+    if family == "continuous":
+        return _linear_treatment(values, latent, strength)
+    return _flip_binary(values, _flip_mask(latent, strength))
+
+
 def _treatment_association(
     latent: np.ndarray[Any, Any], treatment: np.ndarray[Any, Any]
 ) -> float | None:
     """Report the realised correlation between the latent vector and one treatment.
 
-    The tail flip is non-differential misclassification, so the association it induces
-    depends on the treated fraction. A balanced design reaches zero association, where
-    the treatment axis moves the estimate by misclassification alone.
+    For a binary tail flip, the association depends on the treated fraction. A balanced
+    design reaches zero association, where the treatment axis moves the estimate by
+    misclassification alone. For a continuous linear perturbation, this is the achieved
+    association between ``U`` and ``A'``.
 
     Parameters
     ----------
     latent : ndarray
         Shared latent vector drawn for the complete surface.
     treatment : ndarray
-        Original or perturbed binary treatment of one cell.
+        Original or perturbed treatment of one cell.
 
     Returns
     -------
@@ -542,6 +679,10 @@ def _binary_calibration(
     return float(np.mean(model.predict(removed) != baseline))
 
 
+def _continuous_calibration(covariate: np.ndarray[Any, Any], target: np.ndarray[Any, Any]) -> float:
+    return float(np.corrcoef(covariate, target)[0, 1] * np.std(target))
+
+
 def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderCalibration, ...]:
     if not names:
         return ()
@@ -550,23 +691,28 @@ def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderC
     rows: list[ObservedConfounderCalibration] = []
     for name in names:
         index = data.covariate_names.index(name)
-        treatment_strength = _binary_calibration(design, data.treatment, index)
+        if data.is_continuous_treatment:
+            treatment_strength = _continuous_calibration(data.covariates[:, index], data.treatment)
+            treatment_family: Literal["binomial", "gaussian"] = "gaussian"
+            treatment_method = "signed standardized marginal coefficient"
+        else:
+            treatment_strength = _binary_calibration(design, data.treatment, index)
+            treatment_family = "binomial"
+            treatment_method = "logistic class-prediction change fraction"
         rows.append(
             ObservedConfounderCalibration(
                 covariate=name,
                 role="treatment",
-                family="binomial",
+                family=treatment_family,
                 strength=treatment_strength,
-                method="logistic class-prediction change fraction",
+                method=treatment_method,
             )
         )
         if data.family == "binomial":
             outcome_strength = _binary_calibration(design, data.outcome, index)
             method = "logistic class-prediction change fraction"
         else:
-            outcome_strength = float(
-                np.corrcoef(data.covariates[:, index], data.outcome)[0, 1] * np.std(data.outcome)
-            )
+            outcome_strength = _continuous_calibration(data.covariates[:, index], data.outcome)
             method = "signed standardized marginal coefficient"
         rows.append(
             ObservedConfounderCalibration(
@@ -588,14 +734,16 @@ def simulated_confounding(
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
 ) -> SimulatedConfoundingResult:
-    """Refit a marginal ATE across a simulated common-cause strength grid.
+    """Refit an additive contrast across a simulated common-cause strength grid.
 
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE fit.
+        Replayable backdoor-identified marginal binary-treatment ATE or continuous
+        modified-treatment-policy effect fit.
     estimand : str
-        ATE alias to report.
+        Additive contrast alias to report. A continuous fit requires an explicit
+        ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -625,15 +773,21 @@ def simulated_confounding(
     explicit ``random_state`` other than the seed of the fit has the same effect.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
-    shared latent vector and the treatment of that cell. The treatment flip is
-    non-differential misclassification, so the association it induces depends on the
-    treated fraction. A balanced design reports an association near zero, where the
-    treatment axis moves the estimate by misclassification and not by confounding.
+    shared latent vector and the treatment of that cell. For binary treatment, the flip is
+    non-differential misclassification. Its induced association depends on the treated
+    fraction. A balanced design reports an association near zero. For continuous
+    treatment, the operation applies ``A' = A + k_A U`` and reports the correlation that
+    linear perturbation achieves on the analysis data. That association grows with the
+    treatment strength by construction, so it is not on its own evidence of confounding.
+    A confounding path also needs the latent vector in the outcome, which happens only at
+    a nonzero outcome strength. A cell whose outcome strength is zero therefore has no
+    confounding path, whatever its association, and its movement reports dose perturbation
+    alone.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
-    estimator, calibration_names = _validate_request(result, estimand, grid, benchmark_covariates)
-    calibrations = _calibrate(result, calibration_names)
+    request = _validate_request(result, estimand, grid, benchmark_covariates)
+    calibrations = _calibrate(result, request.calibration_names)
     root_seed = resolve_assessment_seed(result, random_state)
     # Every cell refits under the root seed, not a spawned child.  The zero-strength
     # anchor is the original fit, which ran under the estimator's own ``random_state``;
@@ -670,7 +824,12 @@ def simulated_confounding(
         # reports ``None``, because a constant treatment has no correlation.
         association: float | None = None
         try:
-            treatment = _flip_binary(result.data.treatment, _flip_mask(latent, treatment_strength))
+            treatment = _perturb_treatment(
+                result.data.treatment,
+                latent,
+                treatment_strength,
+                request.treatment_family,
+            )
             association = _treatment_association(latent, treatment)
             replacement = result.data.with_treatment(treatment)
             if result.data.family == "gaussian":
@@ -682,7 +841,7 @@ def simulated_confounding(
                 family=result.data.family,
                 name="simulated-confounding outcome",
             )
-            refitted = estimator.refit(replacement, random_state=refit_seed)
+            refitted = request.estimator.refit(replacement, random_state=refit_seed)
             estimate = float(refitted[estimand].psi)
             cells.append(
                 SimulatedConfoundingCell(
@@ -719,9 +878,13 @@ def simulated_confounding(
         root_seed=root_seed,
         latent_seed=latent_seed,
         refit_seed=refit_seed,
-        treatment_family="binary",
+        treatment_family=request.treatment_family,
         outcome_family=result.data.family,
-        treatment_law="Treatment is flipped in the declared upper latent-normal tail.",
+        treatment_law=(
+            "Treatment is flipped in the declared upper latent-normal tail."
+            if request.treatment_family == "binary"
+            else "Continuous treatment adds signed strength times the shared latent value."
+        ),
         outcome_law=(
             "Gaussian outcome subtracts signed strength times the shared latent value."
             if result.data.family == "gaussian"

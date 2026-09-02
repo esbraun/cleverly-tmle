@@ -126,7 +126,8 @@ class AssessmentCapability:
     reason : str or None
         Explanation when the operation is not available.
     requires_arguments : tuple of str
-        Caller-supplied arguments that have no default.
+        Arguments the caller must pass. An entry either has no default, or has a
+        default that the operation refuses on this result family.
     """
 
     operation: str
@@ -140,9 +141,12 @@ class AssessmentCapability:
     interpretation: str
     cost: Literal["cheap", "moderate", "expensive"]
     reason: str | None = None
-    #: Arguments the caller must supply for which this operation has no default, so a
-    #: combined report cannot run it. Declared here rather than special-cased by name in
-    #: ``run_all``, which knows nothing about any particular operation.
+    #: Arguments the caller must supply, so a combined report cannot run this operation.
+    #: An entry covers two cases: the operation has no default for it, or the operation
+    #: refuses its own default on this fit. ``simulated_confounding`` is the second case,
+    #: because a continuous fit refuses the bare ``estimand="ate"`` default. Declared
+    #: here rather than special-cased by name in ``run_all``, which knows nothing about
+    #: any particular operation.
     requires_arguments: tuple[str, ...] = ()
 
 
@@ -1316,13 +1320,24 @@ class _CapabilityFacade:
                     # required argument and no default cannot appear in it.  Choosing a
                     # value here -- which covariates to benchmark against -- would be a
                     # scientific choice made silently on the caller's behalf.
-                    needed = ", ".join(capability.requires_arguments)
+                    # A row may declare more than one argument, so the sentence has to
+                    # agree in number.  ``", ".join`` alone rendered "an explicit grid,
+                    # estimand argument", which reads as one argument named "grid,
+                    # estimand".
+                    names = capability.requires_arguments
+                    needed = (
+                        names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+                    )
+                    phrase = (
+                        f"an explicit {needed} argument"
+                        if len(names) == 1
+                        else f"explicit {needed} arguments"
+                    )
                     items.append(
                         AssessmentItem(
                             capability.operation,
                             AssessmentStatus.UNAVAILABLE,
-                            f"needs an explicit {needed} argument, which a combined report "
-                            f"has no basis to choose",
+                            f"needs {phrase}, which a combined report has no basis to choose",
                             (
                                 f"call result.{self._attribute}.{capability.operation}() "
                                 f"directly with {needed}",
@@ -1973,6 +1988,11 @@ class SensitivityFacade(_CapabilityFacade):
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
         benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
+        # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit,
+        # so a continuous-fit caller must pass an explicit ``ate_shift[...]`` alias too.
+        continuous = not longitudinal and bool(
+            getattr(self._result.data, "is_continuous_treatment", False)
+        )
         available = not longitudinal
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
         reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
@@ -2076,7 +2096,7 @@ class SensitivityFacade(_CapabilityFacade):
                     if longitudinal
                     else "simulation requires a replayable point-treatment estimator"
                 ),
-                requires_arguments=("grid",),
+                requires_arguments=("grid", "estimand") if continuous else ("grid",),
                 family=family,
             ),
             standard(
