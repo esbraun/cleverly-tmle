@@ -1,7 +1,7 @@
 # Development reference
 
 This reference contains the contributor path, the forward plan, the durable cross-module decisions
-that constrain it, how the test tiers divide the work, and the strategy used to benchmark
+that constrain it, how fast tests and validation studies divide the work, and the strategy used to benchmark
 statistical methods. It is part of the documentation build but is not the beginner path. Current
 behavior is determined by code and tests. A roadmap entry becomes a release claim only when its
 implementation and its evidence gates land.
@@ -18,6 +18,6 @@ Pull requests <pull-requests>
 Releases <releases>
 Roadmap <../roadmap>
 Architecture invariants <../architecture-invariants>
-Test tiers and gates <testing-strategy>
+Fast tests and validation studies <testing-strategy>
 Method benchmarking strategy <method-benchmarking>
 ```

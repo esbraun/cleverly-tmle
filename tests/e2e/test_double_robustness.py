@@ -36,7 +36,6 @@ from typing import Any
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import SuperLearner
 from cleverly.datasets import DGP, nonlinear_dgp
 from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
@@ -130,40 +129,6 @@ class TestDoubleRobustnessGrid:
         # estimator from one insensitive to its own inputs.
         assert abs(summary.bias) > 4.0 * summary.bias_se
         assert abs(summary.bias) > 0.1
-
-    # 60 CoverageStudy fits, 30 of them at n=2000, to resolve a ratio to +/- 0.1.
-    # Root-n consistency requires many fits and belongs in the slow tier; the
-    # double-robustness grid above it is the deliberate spending in this module.
-    @pytest.mark.legacy_study
-    def test_the_standard_error_shrinks_at_the_root_n_rate(self) -> None:
-        small = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=500, reps=30)["ate"]
-        large = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=2000, reps=30)[
-            "ate"
-        ]
-        # Quadrupling n should halve the standard error.
-        ratio = large.mean_std_error / small.mean_std_error
-        assert ratio == pytest.approx(0.5, abs=0.1)
-
-
-@pytest.mark.legacy_study
-class TestFlexibleLearners:
-    """The practical case for the Super Learner, at sizes the fast tier cannot afford."""
-
-    def test_a_flexible_learner_removes_the_parametric_bias(self) -> None:
-        misspecified = _study(
-            LinearRegression(), LogisticRegression(max_iter=1000), n=1000, reps=60
-        )["ate"]
-        flexible = _study(SuperLearner(), SuperLearner(), n=1000, reps=60)["ate"]
-        # Same estimator, same data: the bias largely disappears once the nuisance
-        # models are able to fit the process.
-        assert abs(flexible.bias) < 0.5 * abs(misspecified.bias)
-
-    def test_bias_shrinks_with_sample_size(self) -> None:
-        small = _study(SuperLearner(), SuperLearner(), n=500, reps=60)["ate"]
-        large = _study(SuperLearner(), SuperLearner(), n=2000, reps=60)["ate"]
-        assert abs(large.bias) < abs(small.bias)
-        # Root-n consistency: sqrt(n) * bias stays bounded rather than growing.
-        assert abs(large.root_n_bias) < 2.0 * max(abs(small.root_n_bias), 0.5)
 
 
 class TestDoubleRobustnessIsNotSymmetricUnderWeakOverlap:

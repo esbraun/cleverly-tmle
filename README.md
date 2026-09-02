@@ -96,7 +96,7 @@ The Sphinx/MyST documentation is published on
 | [Python API](https://esbraun.github.io/cleverly-tmle/api/) | generated signatures, attributes, methods, and return types |
 
 The [development reference](https://esbraun.github.io/cleverly-tmle/development/) contains the
-roadmap, the architecture invariants, the test tiers and gates, and the method-benchmarking
+roadmap, the architecture invariants, the fast-test and validation-study rules, and the method-benchmarking
 strategy. The test-enforced evidence manifest lives in the Technical reference.
 
 ## Implemented analysis families
@@ -156,7 +156,7 @@ ruff check .
 ruff format --check .
 python -m tests.prose
 mypy
-pytest -m "not slow" -q
+pytest -q -n auto --dist loadgroup
 sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
@@ -172,8 +172,9 @@ output and carries no row at all. `tests/prose.py` says which rules were rejecte
 
 The fast tier compiles every Python fence and executes the registered reader-facing guides. It
 also resolves relative links and checks that generated API source represents the root API.
-Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
-relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
+Scientific behavior belongs in ordinary fast tests or registered validation studies. Regenerate
+only the affected studies. Run the relevant checks locally before handoff; a green GitHub Actions
+CI run is the final merge signal.
 
 [CONTRIBUTING.md](https://github.com/esbraun/cleverly-tmle/blob/main/CONTRIBUTING.md) gives the
 branch names, the checks each kind of change needs, and the commit style.

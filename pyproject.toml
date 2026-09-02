@@ -98,10 +98,6 @@ exclude = ["/tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-markers = [
-    "slow: re-execution of the committed evidence artefacts; excluded from the fast CI tier",
-    "legacy_study: superseded repeated-sampling study, skipped unless --run-legacy-studies",
-]
 filterwarnings = [
     "error::RuntimeWarning",
     "ignore::DeprecationWarning",

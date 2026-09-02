@@ -36,7 +36,7 @@ The body carries the argument, and it is often long. Write it to answer four que
 End the body with the gate you ran, in this form.
 
 ```text
-pytest -m "not slow": 5081 passed, 113 skipped.
+pytest: 5081 passed, 47 skipped.
 ```
 
 Add a `Co-Authored-By:` trailer when a tool wrote part of the change.
@@ -56,11 +56,15 @@ survives in the history of `main`.
 
 ## Write the pull request body
 
-State the claim the change makes, and the evidence that supports it. Name the tier you ran. Tell
+State the claim the change makes, and the evidence that supports it. Name the checks you ran. Tell
 the reviewer which file to read first.
 
 For an evidence pull request, name the artifacts that moved and the artifacts that stayed
 byte-identical. A regeneration that changes nothing is a result, and it belongs in the body.
+
+For an implementation pull request, name every registered study that evaluates the changed path.
+Give the regeneration command for each selected study. State why no study applies when the change
+cannot affect a fitted result.
 
 ## What CI runs on your pull request
 
@@ -71,7 +75,7 @@ byte-identical. A regeneration that changes nothing is a result, and it belongs 
 | `lint` | 3.12 | `ruff check .`, and then `ruff format --check .` |
 | `typecheck` | 3.12 | `mypy` |
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
-| `tests` | 3.11, 3.12, 3.13 | `pytest -m "not slow" -q -n auto` |
+| `tests` | 3.11, 3.12, 3.13 | `pytest -q -n auto --dist loadgroup` |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
 | `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
 
@@ -112,7 +116,7 @@ A pull request that regenerates a registered study carries three extra obligatio
    fails on Linux CI.
 
 Read [method benchmarking strategy](method-benchmarking.md) for the study design rules, and
-[test tiers and gates](testing-strategy.md) for how the tiers divide the work.
+[fast tests and validation studies](testing-strategy.md) for how the checks divide the work.
 
 ## Review and merge
 

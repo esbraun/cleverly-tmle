@@ -10,7 +10,7 @@ an otherwise ordinary TMLE; that is the package default and is corroborated by t
 Everything asserted here is an exact algebraic consequence of the construction, so
 these tests fail deterministically rather than statistically.  The claim CV-TMLE
 actually exists to make -- that it keeps nominal coverage where a pooled fit does not
--- needs replications and lives in the slow tier.
+-- needs replications and belongs in a registered study.
 """
 
 from __future__ import annotations

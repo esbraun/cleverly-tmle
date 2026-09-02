@@ -54,7 +54,7 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `ruff check .` | the lint rules in `pyproject.toml` |
 | `ruff format --check .` | formatting, including every Python fence in a Markdown file |
 | `mypy` | types in `src/cleverly` and in `scripts` |
-| `pytest -m "not slow" -q` | the fast tier, which is the default handoff gate |
+| `pytest -q -n auto --dist loadgroup` | the fast suite, which is the default handoff gate |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
 | `python -m build`, then package checks | distribution metadata, contents, and clean installs |
@@ -62,9 +62,8 @@ The remote holds `main` alone. Delete your branch after it merges.
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
 mirror the CI jobs, so a green `nox` run predicts a green pull request.
 
-Run one test tier at a time. Each tier sizes itself from the machine's cores, and running two
-together oversubscribes every core. [Test tiers and gates](testing-strategy.md) explains the design
-behind the commands.
+Do not run a study regeneration beside the fast suite. Each process expects the machine's cores.
+[Fast tests and validation studies](testing-strategy.md) explains the design behind the commands.
 
 Read [releases](releases.md) before you change `src/cleverly/_version.py` or create a tag.
 
@@ -72,16 +71,15 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 
 | your change | run |
 | --- | --- |
-| documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -m "not slow" -q`, `nox -s docs` |
-| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -m "not slow" -q` |
-| a regenerated evidence artifact | the row above. The fast tier recomputes each study's verdicts from the artifacts you commit |
+| documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
+| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
+| a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
 
-The fast tier is the handoff gate for every one of those rows. The registered validation studies
-run inside it, so the statistical evidence is checked in minutes rather than hours.
+The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
+committed artifacts, so the statistical evidence is checked in minutes rather than hours.
 
-The repeated-sampling studies that predate the registered rows are deprecated, and pytest skips
-each one. Do not re-enable one to justify a change. Read
-[test tiers and gates](testing-strategy.md) for how the tiers divide the work.
+Regenerate every registered study that evaluates a result-determining implementation change. Read
+[fast tests and validation studies](testing-strategy.md) to select the affected rows.
 
 ## Write documentation
 

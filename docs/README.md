@@ -38,7 +38,7 @@ These are the documents no reader path introduces on its own.
 | [Implementation validation grid](technical-reference/method-evidence/validation-grid.md) | every registered study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
 | [Implementation validation studies](technical-reference/method-evidence/index.md) | one row per committed test: what it checked, what its own endpoints required, and the verdict |
 | [Method benchmarking strategy](development/method-benchmarking.md) | how R comparisons and independent statistical-property studies are designed, registered, and accepted |
-| [Test tiers and gates](development/testing-strategy.md) | which tier a change has to satisfy, and which deprecated studies no longer run |
+| [Fast tests and validation studies](development/testing-strategy.md) | which checks a change needs, and when to regenerate an affected study |
 | [Contributing](development/contributing.md) | how to set up the project, which checks a change needs, and where each working rule is written down |
 | [Pull requests](development/pull-requests.md) | the commit style, the pull request body, what each CI job checks, and what none of them checks |
 | [Releases](development/releases.md) | the alpha version rule, package gates, tag process, and Trusted Publishing setup |

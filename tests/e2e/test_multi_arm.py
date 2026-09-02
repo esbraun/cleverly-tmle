@@ -1,12 +1,11 @@
 """A three-armed fit end to end: does it recover the truth, and does the rest still work?
 
-Split by cost, following the project's rule that the fast tier buys exactness where it
-can.  The deterministic structural claims -- that a contrast equals the difference of the
+The fast suite buys exactness where it can. The deterministic structural claims -- that a
+contrast equals the difference of the
 means it contrasts, that a round trip changes nothing, that every cross-fitting scheme
 produces the same parameters -- are checked here on a single fit and fail deterministically.
-The one claim that genuinely needs replication, *consistency*, is a ``slow`` study: a
-single fit cannot distinguish an estimator that is unbiased from one that is off by half a
-standard error, and pretending otherwise with one seed would be a coin flip.
+The consistency claim needs replication and belongs in the registered multi-arm study. A single
+fit cannot distinguish an unbiased estimator from one that is off by half a standard error.
 """
 
 from __future__ import annotations
@@ -270,35 +269,3 @@ class TestTheReferenceIsPartOfTheEstimand:
             assert default.estimates[f"ey[{arm}]"].psi == pytest.approx(
                 chosen.estimates[f"ey[{arm}]"].psi, abs=1e-12
             )
-
-
-@pytest.mark.legacy_study
-class TestConsistency:
-    """The claim a single fit cannot make: the estimator is unbiased for every arm.
-
-    Averaged over replications and compared against the Monte Carlo standard error of
-    that average, which is the only comparison that distinguishes "unbiased" from "biased
-    by less than one standard error".  The outcome model is correctly specified by the
-    indicator design for this process (see :func:`~cleverly.datasets.multi_arm_dgp`), so
-    what remains after averaging is sampling error and nothing else.
-    """
-
-    REPLICATIONS = 60
-
-    @pytest.fixture(scope="class")
-    def replicates(self) -> dict[str, np.ndarray]:
-        values: dict[str, list[float]] = {name: [] for name in TRUTH}
-        for replicate in range(self.REPLICATIONS):
-            result = _fit(n=600, seed=1000 + replicate)
-            for name in TRUTH:
-                values[name].append(result.estimates[name].psi)
-        return {name: np.asarray(v, dtype=float) for name, v in values.items()}
-
-    @pytest.mark.parametrize("name", sorted(TRUTH))
-    def test_the_bias_is_within_monte_carlo_error(self, replicates, name: str) -> None:
-        draws = replicates[name]
-        bias = float(draws.mean()) - TRUTH[name]
-        monte_carlo = float(draws.std(ddof=1)) / np.sqrt(draws.size)
-        # Three Monte Carlo standard errors: wide enough that a consistent estimator
-        # passes reliably, narrow enough that a wrong arm denominator does not.
-        assert abs(bias) < 3.0 * monte_carlo, f"{name}: bias {bias:+.4f}, mcse {monte_carlo:.4f}"

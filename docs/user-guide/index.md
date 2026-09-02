@@ -14,8 +14,8 @@ The study design owns the column roles. The estimand owns the causal question. T
 learning, targeting, inference, and runtime settings. That separation is what lets `cleverly`
 refuse an unsupported combination before it fits any nuisance model.
 
-The examples here are explanatory. The behavioural guarantees live in the test tiers, not in an
-example.
+The examples here are explanatory. The behavioural guarantees live in the fast tests and
+registered validation studies, not in an example.
 
 ```{toctree}
 :maxdepth: 2

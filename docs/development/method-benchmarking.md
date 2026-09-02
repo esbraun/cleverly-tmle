@@ -145,7 +145,7 @@ material over-rejection. Positive claims need a control that makes the same inst
 - coverage or standard-error calibration includes deliberately invalid inference; and
 - convergence uses at least three sample sizes and excludes a predeclared slower rate.
 
-Repeated-sampling, large-sample, and flexible-learner claims belong in the named slow study and
+Repeated-sampling, large-sample, and flexible-learner claims belong in a registered study and its
 committed artifacts. Documentation examples never count as statistical evidence.
 
 ## Registration and acceptance
@@ -164,14 +164,15 @@ Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `sum
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting
 failed replications or tuning margins after seeing the result. A regeneration expects the whole
-machine: do not run the Python and R full-core phases concurrently, and do not run the fast and
-slow test tiers concurrently. Documentation quotes measured values through
+machine. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
+beside a study regeneration. Documentation quotes measured values through
 `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
 
 Every evidence row states what it does not cover, including relevant outcome and treatment types,
 missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and
-unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
-complete fast tier, and only the named slow study whose path and assertion can observe the change.
+unsupported estimands. Validate changes with the complete fast suite and every registered study
+whose evaluated path a result-determining change can affect. Record each selected study and its
+regeneration command in the pull request.
 
 ## What makes a study stale
 
@@ -198,11 +199,10 @@ No tool separates the two, so each hash group takes its own position.
 
 The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
 
-Python modules are not gated. Re-execution is what keeps the artifacts honest, and a hash gate
+Python modules are not gated. Selective regeneration keeps the artifacts honest, and a hash gate
 would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
-`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves.
-`pytest -m slow` re-executes each study, so a change that was not result-neutral appears as a
-changed artifact.
+`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves. A
+wrong result-neutral judgment appears as a changed artifact at the next required regeneration.
 
 Reference sources sit between the two. They are gated, because a pinned container is the one input
 a reader cannot re-derive from this repository. Declare a result-neutral difference in

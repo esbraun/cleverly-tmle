@@ -23,8 +23,8 @@ appears in any manifest also fails, on the terms `StudyRecord.accepted_reference
 sets: remove a declaration rather than carry a stale exception. A row whose `current` hash no
 longer matches the file fails too, because the file moved again after the judgement was made.
 
-Each `judgement` is a falsifiable claim, not a waiver. `pytest -m slow` re-executes each study,
-so a result-neutral reason that is wrong shows up as a changed artifact.
+Each `judgement` is a falsifiable claim, not a waiver. The next result-determining regeneration
+exposes a wrong result-neutral reason as a changed artifact.
 
 | source | recorded | current | judgement |
 | --- | --- | --- | --- |

@@ -24,7 +24,7 @@ check limited to documents that build their own data would have run neither.
 *executability*: the assertion is that the block raises nothing.  Nothing here asserts an
 estimate, an interval, or a diagnostic verdict, and nothing here is statistical evidence --
 ``docs/architecture-invariants.md`` keeps that rule, and behaviour shown in a guide still has to
-be covered by an ordinary fast test or a named slow study.  A documented example that runs is a
+be covered by an ordinary fast test or a registered study. A documented example that runs is a
 much weaker claim than a documented example that is right, and only the weaker one is made here.
 
 **The blocks are shrunk, and only in two declared ways.**  :class:`Shrink` rewrites the ``n=``

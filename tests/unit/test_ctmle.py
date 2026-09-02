@@ -2,7 +2,7 @@
 
 These are exact checks on the machinery.  Where a statistical claim is made -- that
 C-TMLE beats TMLE in mean squared error when an instrument is present -- it needs
-replications and lives in the slow tier; what is checked here is that the loss is the
+replications and belongs in a registered study; what is checked here is that the loss is the
 loss it claims to be, that the penalty is what rejects an instrument, and that with
 nothing to select the estimator collapses onto a plain TMLE bit for bit.
 """
@@ -537,7 +537,7 @@ class TestSelection:
         :class:`~cleverly.estimators.ctmle._Selector`'s methods directly and never reach the
         step that chooses among candidates.
 
-        So the variance and RMSE comparisons in the slow tier are not evidence that the
+        So the variance and RMSE comparisons in the registered study are not evidence that the
         collaborative search works; they are evidence that a propensity model containing an
         instrument costs variance, which is a fact about plain TMLE.  The test that does
         discriminate has to make selecting nothing *wrong*, which means taking away the

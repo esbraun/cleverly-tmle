@@ -240,8 +240,7 @@ machine, so it sizes its inner pool from `tests.parallel.available_cores()` rath
 measured `STUDY_JOBS` floor. It must still keep its phases *sequential*. `tests/canonical/tmle3/`
 generates every sample and fits the Python side to completion before it hands the same samples to
 the R container. The two are the same work on the same cores, so overlapping them would leave both
-contending for a machine neither can have. A slow-tier test that is the critical path of
-its tier may take half the budget; the fast tier still leaves inner parallelism alone.
+contending for a machine neither can have. The fast suite leaves inner parallelism alone.
 
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
 a unit, integration, or end-to-end test in the fast tier, or by a registered validation study, and
