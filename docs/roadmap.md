@@ -33,6 +33,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 
 | investigation | missing published result | current boundary | details |
 | --- | --- | --- | --- |
+| Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips only; the next S5 increment adds a continuous linear dose perturbation | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
@@ -323,9 +324,36 @@ covers a Gaussian or a binomial outcome. It replays ordinary TMLE, collaborative
 complete-outcome DR-TMLE. Expand that surface one composition at a time. Each composition needs
 its own perturbation law, because the binary flip does not transfer to it.
 
+#### Next increment: continuous modified-treatment-policy effects
+
+The pinned DoWhy direct simulation supplies a continuous treatment law. It uses one standard-normal
+latent vector and sets $A' = A + k_A U$. Its Gaussian outcome law sets $Y' = Y - k_Y U$, and its
+binomial outcome law uses the existing tail flip. Sharma and Kiciman (2020) support the qualitative
+stress question. They do not turn this construction into sensitivity-adjusted inference.
+
+Implement this increment through the existing `simulated_confounding()` API. Accept an exact
+ordinary-TMLE result for one named marginal `ate_shift` contrast. Keep the declared modified
+treatment policies fixed while each cell replaces the observed dose and refits the estimator.
+Require the explicit contrast alias because a continuous result has no unambiguous `ate` default.
+
+Keep one cell loop for both treatment families. Validate the treatment family first, then dispatch
+only the treatment perturbation. Binary strengths remain flip probabilities from zero through 0.5.
+Continuous strengths are finite signed linear coefficients. Every cell starts from the original
+data and uses one shared latent vector and one refit seed.
+
+Report the realised correlation between $U$ and $A'$ for each continuous cell. Use the signed
+standardized marginal coefficient to calibrate a numeric covariate against a continuous dose.
+Retain the existing logistic prediction-change calibration for binary treatment. Report only the
+refitted estimate and its signed displacement from the original additive contrast.
+
+Acceptance requires nonzero witnesses for the treatment sign, outcome sign, and joint path. It
+also requires the exact zero anchor, original-data-per-cell spies, seed replay, structured shift
+metadata, failure retention, cache persistence, and pre-fit refusals. Binary results and their
+existing mutation controls must remain unchanged. A registered validation study does not apply,
+because this assessment does not change the MTP estimator, influence curve, or inference.
+
 | refused family | perturbation law it still needs |
 | --- | --- |
-| multi-arm treatment | a contrast-specific perturbation and a category-valued latent map |
 | continuous treatment | a shift law, which `cleverly` expresses as a modified treatment policy |
 | weighted or clustered design | a perturbation that respects the sampling law |
 | missing-outcome fit | a joint observation and outcome perturbation |
@@ -355,6 +383,22 @@ is +0.43 at `P(A=1)=0.2`, +0.0004 at 0.5, and -0.43 at 0.8.
 Refuse each added composition before the first refit until its law exists. That is the contract
 the shipped surface already keeps. It validates the complete request before it draws the latent
 vector or refits the estimator.
+
+### F8. Multi-arm simulated-confounding stress surface
+
+The cited DoWhy papers support a qualitative stress analysis. They do not define a multi-arm
+treatment perturbation. The pinned implementation supports a binary tail flip and a continuous
+linear change only. It has no category-valued branch.
+
+Hu et al. (2022), DOI 10.1214/21-AOAS1530, keep treatment fixed and adjust outcomes through
+directional confounding functions. That method does not supply the category-valued refit law that
+this surface needs. A pairwise label swap or a map over numeric arm codes would therefore be a new
+scientific construction.
+
+Wait for a published law that maps a shared latent variable and a $K$-level treatment to the same
+declared support. The law must name the assessed contrast, remain invariant to label order, and
+define the achieved treatment-confounder association. Until then, retain the multi-arm pre-fit
+refusal. Do not reuse a binary flip by choosing two arm codes.
 
 ## Longitudinal contracts
 
