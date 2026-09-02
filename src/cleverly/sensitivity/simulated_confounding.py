@@ -442,7 +442,7 @@ def _child_seeds(root_seed: int) -> tuple[int, int]:
 def _flip_mask(latent: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
     if strength == 0.0:
         return np.zeros(latent.shape, dtype=bool)
-    threshold = NormalDist().inv_cdf(1.0 - strength)
+    threshold = -NormalDist().inv_cdf(strength)
     return latent >= threshold
 
 

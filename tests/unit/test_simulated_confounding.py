@@ -183,6 +183,11 @@ def test_gaussian_sign_and_each_flip_mask_are_active_mutation_controls() -> None
     assert not np.array_equal(_flip_binary(values, mask), disabled_mask)
 
 
+def test_tiny_positive_flip_strength_uses_the_stable_upper_tail() -> None:
+    latent = np.array([0.0, 10.0])
+    assert np.array_equal(_flip_mask(latent, 1e-20), np.array([False, True]))
+
+
 def test_binary_treatment_and_outcome_share_the_exact_latent_masks(
     binomial_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
