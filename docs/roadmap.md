@@ -319,51 +319,16 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ### S5. Expand simulated confounding to the remaining estimands and estimators
 
-The shipped stress surface covers three source-backed compositions. The binary composition reports
-a backdoor-identified marginal ATE. It replays ordinary TMLE, collaborative TMLE, and
-complete-outcome DR-TMLE. The continuous compositions report one named marginal `ey_shift` policy
-mean or `ate_shift` contrast under exact ordinary TMLE. All compositions support Gaussian and
-binomial outcomes with one cross-fitting draw.
+The shipped stress surface covers four source-backed compositions. The binary compositions report
+a backdoor-identified marginal ATE or one named counterfactual arm mean. They replay ordinary TMLE,
+collaborative TMLE, and complete-outcome DR-TMLE. The continuous compositions report one named
+marginal `ey_shift` policy mean or `ate_shift` contrast under exact ordinary TMLE. All compositions
+support Gaussian and binomial outcomes with one cross-fitting draw.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
-
-#### Next increment: binary marginal counterfactual means
-
-The pinned DoWhy direct simulation changes the treatment and outcome, then refits the same named
-parameter. It retains the original treatment and control values during that refit. Sharma and
-Kiciman (2020) support the qualitative stress question. Sharma et al. (2021) state that observed
-data cannot turn the result into a validator of identification.
-
-Extend `simulated_confounding()` to one explicitly selected binary marginal counterfactual mean.
-Accept `ey1`, `ey0`, or one `ey[...]` alias from a replayable `CounterfactualMean` result. Keep the
-intervention arm fixed while each cell replaces the observed treatment and outcome. Report the
-refitted mean and its signed displacement from the original mean.
-
-Support ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE. Their existing evidence
-already covers the counterfactual means. Share one binary parameter-state validator across the ATE
-and arm means. Require agreement across the typed estimand, normalized functional, replay
-estimator, target registry, treatment labels, and structured parameter key.
-
-Reuse the existing perturbation, calibration, cell, failure, seed, cache, and serialization paths.
-Update the assessment capability from the eligible reported parameters. A sole mean needs only the
-grid. A result with several means needs an explicit alias.
-
-Acceptance requires the exact zero anchor and nonzero witnesses for each fixed arm. It also requires
-the selected alias, arm identity, original-data-per-cell behavior, common randomness, signed
-displacement, retained failures, and pre-fit metadata mutations. Keep the ATT and ATC refusals
-because the treatment flip changes their conditioning population. Keep every other S5 refusal.
-
-The implementation commit removes arm means from the refusal table and updates the user and
-technical documentation. It also removes stale text that describes modified-policy means as
-unsupported. Priority 1.1 remains active for the remaining compositions.
-
-No registered validation study applies. This increment changes assessment request validation and
-parameter selection only. It does not change nuisance fitting, targeting, an influence curve, or
-inference. The registered point-TMLE, collaborative-TMLE, and DR-TMLE studies already evaluate the
-selected means.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
@@ -374,7 +339,7 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 | weighted or clustered design | a perturbation that respects the sampling law |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
-| ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
+| ATT and ATC | a law that fixes which observed-treatment population the parameter conditions on when the flip moves membership |
 | ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
 | conditional strata, for an arm contrast, a modified-policy mean, or a modified-policy contrast | a per-stratum contract that shares one latent draw |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |

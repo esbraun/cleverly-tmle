@@ -1988,11 +1988,19 @@ class SensitivityFacade(_CapabilityFacade):
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
         benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
-        # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit,
-        # so a continuous-fit caller must pass an explicit modified-policy alias too.
+        # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
+        # A binary means fit can use the facade's sole-parameter substitution, but a fit
+        # that reports several means needs the caller to choose one.
         continuous = not longitudinal and bool(
             getattr(self._result.data, "is_continuous_treatment", False)
         )
+        if longitudinal or continuous:
+            binary_needs_estimand = False
+        else:
+            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+
+            binary_parameters = _eligible_binary_parameter_names(self._result)
+            binary_needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
         available = not longitudinal
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
         reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
@@ -2096,7 +2104,9 @@ class SensitivityFacade(_CapabilityFacade):
                     if longitudinal
                     else "simulation requires a replayable point-treatment estimator"
                 ),
-                requires_arguments=("grid", "estimand") if continuous else ("grid",),
+                requires_arguments=("grid", "estimand")
+                if continuous or binary_needs_estimand
+                else ("grid",),
                 family=family,
             ),
             standard(

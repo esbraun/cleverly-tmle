@@ -14,6 +14,7 @@ from sklearn.preprocessing import FunctionTransformer
 from cleverly import (
     ATE,
     CausalStudy,
+    CounterfactualMean,
     LongitudinalTreatment,
     ModifiedTreatmentPolicyEffect,
     PointTreatment,
@@ -45,6 +46,28 @@ def point_result():  # type: ignore[no-untyped-def]
     )
     return study.estimate(
         ATE(),
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=3,
+        learner_folds=2,
+        random_state=7,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture
+def binary_mean_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_nonlinear_ate(n=300, seed=7)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3", "W4"),
+        ),
+    )
+    return study.estimate(
+        CounterfactualMean(treatment=1),
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
@@ -175,6 +198,26 @@ def test_simulated_confounding_cache_survives_round_trip(point_result) -> None: 
     assert replayed.calibrations == report.calibrations
     assert replayed.latent_seed == report.latent_seed
     assert replayed.refit_seed == report.refit_seed == report.root_seed
+
+
+def test_binary_mean_simulated_confounding_cache_survives_round_trip(
+    binary_mean_result,
+) -> None:  # type: ignore[no-untyped-def]
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.3)),
+        "random_state": 17,
+    }
+    report = binary_mean_result.sensitivity.simulated_confounding(**kwargs)
+    assert binary_mean_result.sensitivity.simulated_confounding(**kwargs) is report
+    assert report.complete
+    assert report.estimand == "ey1"
+    assert any(abs(cell.displacement or 0.0) > 0.01 for cell in report.cells[1:])
+
+    restored = loads(dumps(binary_mean_result))
+    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert replayed == report
+    assert replayed.cells == report.cells
+    assert replayed.latent_seed == report.latent_seed
 
 
 def test_continuous_simulated_confounding_cache_survives_round_trip(
