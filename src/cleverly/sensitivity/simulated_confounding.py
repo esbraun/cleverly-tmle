@@ -150,9 +150,13 @@ class SimulatedConfoundingResult:
     latent_seed : int
         Tagged child seed used to draw the shared latent vector.
     refit_seed : int
-        Seed reused by every estimator refit. It equals ``root_seed``. A cell that leaves
-        the data unchanged then reproduces the zero-strength anchor exactly, provided the
-        root seed equals the seed of the original fit.
+        Seed reused by every estimator refit. It equals ``root_seed`` and preserves the
+        estimator's repeat seed sequence. Perturbing a stratification variable can still
+        change the realised folds.
+    n_repeats : int
+        Number of complete cross-fitting draws in the original and refitted estimates.
+    repeat_aggregation : {"coordinatewise_median"}
+        Estimator-owned rule used to aggregate the complete cross-fitting draws.
     treatment_family : str
         Treatment family covered by the perturbation law.
     outcome_family : str
@@ -178,6 +182,8 @@ class SimulatedConfoundingResult:
     root_seed: int
     latent_seed: int
     refit_seed: int
+    n_repeats: int
+    repeat_aggregation: Literal["coordinatewise_median"]
     treatment_family: str
     outcome_family: str
     treatment_law: str
@@ -284,6 +290,7 @@ class SimulatedConfoundingResult:
                     f"seeds: root={self.root_seed}, latent={self.latent_seed}, "
                     f"refit={self.refit_seed}"
                 ),
+                (f"cross-fitting: {self.n_repeats} draw(s), aggregation={self.repeat_aggregation}"),
                 self.treatment_law,
                 self.outcome_law,
                 "",
@@ -702,11 +709,6 @@ def _validate_request(
         )
     if data.cluster is not None:
         raise CapabilityError("simulated_confounding does not support clustered fits")
-    if result.n_repeats > 1:
-        raise CapabilityError(
-            "simulated_confounding does not support repeated cross-fitting; fit one split"
-        )
-
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(
@@ -1016,12 +1018,10 @@ def simulated_confounding(
 
     Notes
     -----
-    Every cell refits under the resolved root seed, and the zero-strength anchor is the
-    original fit itself. The two agree on the cross-fitting folds when the root seed
-    equals the seed of the original fit, which is what ``random_state=None`` resolves to.
-    When the original fit declared no ``random_state``, the surface cannot reproduce the
-    folds of that fit, so movement near the anchor can still carry a fold artifact. An
-    explicit ``random_state`` other than the seed of the fit has the same effect.
+    Every non-anchor cell refits under the resolved root seed, and the zero-strength anchor
+    is the original fit itself. The root seed preserves the complete repeat seed sequence.
+    It does not promise identical realised folds. Treatment-stratified or outcome-stratified
+    splitting can change assignments after the surface perturbs that variable.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1051,14 +1051,11 @@ def simulated_confounding(
     request = _validate_request(result, estimand, grid, benchmark_covariates)
     calibrations = _calibrate(result, request.calibration_names)
     root_seed = resolve_assessment_seed(result, random_state)
-    # Every cell refits under the root seed, not a spawned child.  The zero-strength
-    # anchor is the original fit, which ran under the estimator's own ``random_state``;
-    # a child seed would give every other cell different cross-fitting folds and charge
-    # the fold change to the perturbation.  ``TMLE.refit`` returns the original fit
-    # unchanged when the seed it gets equals the estimator's own, so an unperturbed cell
-    # reproduces the anchor exactly.  Same convention as ``cleverly.validation.refute``
-    # and ``cleverly.sensitivity.omitted_variable``.  The latent draw keeps its own
-    # tagged child seed, so the shared latent vector stays independent of the folds.
+    # Every non-anchor cell refits under the root seed, not a spawned child. This preserves
+    # the estimator's repeat seed sequence. It does not freeze realised folds when a
+    # perturbed treatment or outcome supplies a stratification variable. Same convention
+    # as ``cleverly.validation.refute`` and ``cleverly.sensitivity.omitted_variable``. The
+    # latent draw keeps its own tagged child seed, so it stays independent of the splits.
     refit_seed = root_seed
     latent_seed = _latent_child_seed(root_seed)
     latent = np.random.default_rng(latent_seed).normal(size=result.data.n)
@@ -1144,6 +1141,8 @@ def simulated_confounding(
         root_seed=root_seed,
         latent_seed=latent_seed,
         refit_seed=refit_seed,
+        n_repeats=result.n_repeats,
+        repeat_aggregation="coordinatewise_median",
         treatment_family=request.treatment_family,
         outcome_family=result.data.family,
         treatment_law=(

@@ -276,7 +276,7 @@ class TMLE:
 
         Ratios use the log scale. The variance is the median of each draw's variance plus
         its squared displacement from the median point. This is the repeated-splitting
-        rule in Chernozhukov et al. (2018, equation 3.13) and zEpid's cross-fit TMLE.
+        rule in Chernozhukov et al. (2018, equation 3.14) and zEpid's cross-fit TMLE.
         It costs ``R`` times a fit.
 
         A draw redraws *every* split, not only the outer one: the inner cross-validation

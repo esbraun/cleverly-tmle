@@ -177,6 +177,11 @@ movements = surface.to_frame()
 calibration = surface.calibration_frame()
 ```
 
+The surface keeps the fitted estimator's `repeats` setting. Each non-anchor cell runs one complete
+refit, and the estimator combines its draws with a coordinatewise median. Read `surface.n_repeats`
+and `surface.repeat_aggregation` to confirm that provenance. The shared root seed preserves the
+repeat seed sequence. A treatment or outcome perturbation can still change stratified folds.
+
 The operation draws one shared latent variable. For binary treatment, it flips the treatment in the
 upper latent tail. A Gaussian outcome subtracts the outcome strength times the latent value. A
 binomial outcome flips in the same tail.

@@ -30,6 +30,16 @@ previous reader had is not a citation; a page number is.
   page 10, reports intervals for both ratios on the log scale. Appendix A, page 34, gives
   their log-scale influence curves.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
+  [*Double/debiased machine learning for treatment and structural
+  parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
+  Journal* 21(1):C1-C68. Definition 3.3 defines repeated sample splitting. Equation (3.14)
+  reports the median point and the median within-partition variance plus squared split
+  displacement.
+- zEpid 0.9.1, repeated cross-fit aggregation at commit
+  [`16a0f96`, lines 1612-1640](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1612-L1640).
+  The `_estimator_pooling` median branch implements the same point and variance calculation.
+  It is secondary aggregation evidence and not a comparator for the complete estimator.
 - Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
   distinguishes the original fold-wise plug-in evaluation from the common targeting
   regression pooled over validation folds.
@@ -227,8 +237,11 @@ previous reader had is not a citation; a page number is.
 - Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
   Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518). Pages 4–6 state that these
   analyses require plausible domain values and cannot validate identification from observed data.
-- The maintained DoWhy simulated common-cause refuter, source at commit
-  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py).
+- The maintained DoWhy simulated common-cause refuter, source at commit `2116d5c`.
+  [`_include_confounders_effect`, lines 346-419](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L346-L419)
+  supplies the four perturbation branches. [`_simulate_confounders_effect_once`, lines
+  807-844](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L807-L844)
+  applies a complete fit and effect estimate after the perturbation.
   Its direct simulation branches supply the binary tail flip, $A'=A+k_AU$, $Y'=Y-k_YU$, and the
   binomial outcome tail flip. These are secondary finite-sample conventions only. `cleverly` uses
   original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,

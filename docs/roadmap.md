@@ -323,55 +323,28 @@ The shipped stress surface covers binary marginal means, differences, risk ratio
 It replays ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE for those parameters.
 The continuous compositions report one named marginal `ey_shift` policy mean or `ate_shift`
 contrast under exact ordinary TMLE. Ratio surfaces require a binomial outcome. Every other
-composition supports Gaussian and binomial outcomes. All compositions use one cross-fitting draw.
+composition supports Gaussian and binomial outcomes. All compositions keep the fitted estimator's
+repeat count and coordinatewise-median aggregation.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
 
-#### Next increment: repeated-cross-fit stress surfaces
-
-The next increment composes two existing source-backed operations. The simulated common-cause
-surface perturbs the data and refits the complete estimator. Repeated cross-fitting reports the
-coordinatewise median across a fixed number of partition draws.
-
 Sharma and Kiciman (2020) govern the qualitative stress question. The pinned DoWhy source supplies
 the binary and continuous perturbations, followed by a complete estimator refit. Chernozhukov et
 al. (2018), Definition 3.3 and equation (3.14), govern the fixed-repeat median report. The pinned
 zEpid repeated cross-fit TMLE supplies secondary implementation evidence for that aggregation.
 
-Allow `repeats > 1` for every composition that the surface already supports. Keep each fitted
-estimator's existing repeat count and aggregation. A non-anchor cell calls the replay estimator
-once, so the estimator owns the repeat loop. The surface must not duplicate repeat fitting or
-reimplement median aggregation.
+Each non-anchor cell calls the replay estimator once, so the estimator owns the repeat loop and
+median aggregation. The surface records the repeat count and `coordinatewise_median` provenance.
+Additive cells compare reported median estimates. Ratio cells compare reported median log
+estimates.
 
 Use one latent vector for the complete strength grid. Reuse the root seed for each complete refit.
 This rule preserves the estimator's repeat seed sequence. It does not promise identical realised
 folds after treatment or outcome perturbation. Treatment-stratified or outcome-stratified splitting
 can assign different folds when a perturbed variable changes.
-
-Each cell compares two reported aggregates. Additive parameters use the refitted median estimate
-minus the original median estimate. Ratios use the refitted median log estimate minus the original
-median log estimate. The result records the repeat count and `coordinatewise_median` aggregation.
-It does not expose a refitted variance, interval, p-value, bound, robustness value, or verdict.
-
-Acceptance requires a real repeated refit for binary additive and ratio parameters. It also
-requires one continuous modified-policy surface. Ordinary TMLE, collaborative TMLE, and
-complete-outcome DR-TMLE keep their existing supported rows. Tests must prove that each surface
-cell equals the replay estimator's aggregate and not one repeat. They must also cover metadata,
-cache and serialization round trips, common randomness, retained failures, and the remaining
-pre-draw refusals.
-
-The implementation must correct every repeated-median source locator from equation (3.13) to
-equation (3.14). It must also replace claims of identical folds with the repeat-seed rule above.
-The implementation commit removes repeated cross-fitting from the refusal table. Priority 1.1
-stays active for the remaining compositions.
-
-No registered validation study needs regeneration. This increment changes assessment routing and
-descriptive movement only. It does not change repeat construction, nuisance fitting, targeting,
-an influence curve, an interval, a study input, or a verdict. The registered repeated-cross-fit
-study already evaluates the estimator's median report and split-dispersion variance.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
