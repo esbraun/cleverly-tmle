@@ -210,6 +210,16 @@ def test_failed_refits_and_arm_loss_remain_visible(
     assert failed.failures[0].error_type == "RuntimeError"
     assert "deliberate refit failure" in failed.failures[0].message
     assert failed.cells[1].estimate is None
+    assert failed.failures[0].seed == failed.root_seed == 23
+
+    replay_calls = _record_refits(gaussian_result, monkeypatch, fail_call=1)
+    replay = simulated_confounding(
+        gaussian_result,
+        grid=_grid(),
+        random_state=failed.failures[0].seed,
+    )
+    assert len(replay_calls) == 3
+    assert replay.cells[1].failure == failed.cells[1].failure
 
     latent_seed, _ = _child_seeds(53)
     latent = np.random.default_rng(latent_seed).normal(size=gaussian_result.data.n)
@@ -224,6 +234,14 @@ def test_failed_refits_and_arm_loss_remain_visible(
     )
     assert arm_loss.failures[0].error_type == "DataError"
     assert "must keep every arm" in arm_loss.failures[0].message
+    assert arm_loss.failures[0].seed == arm_loss.root_seed == 53
+
+    replay_arm_loss = simulated_confounding(
+        arm_loss_result,
+        grid=arm_loss.grid,
+        random_state=arm_loss.failures[0].seed,
+    )
+    assert replay_arm_loss.cells[1].failure == arm_loss.cells[1].failure
 
 
 def test_numeric_calibration_matches_the_declared_formulas(

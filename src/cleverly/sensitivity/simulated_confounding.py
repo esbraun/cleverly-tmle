@@ -588,7 +588,7 @@ def simulated_confounding(
                     None,
                     ReplicationFailure(
                         replicate=cell_index,
-                        seed=refit_seed,
+                        seed=root_seed,
                         error_type=type(error).__name__,
                         message=str(error),
                     ),
