@@ -330,6 +330,47 @@ fixed while each cell replaces the observed dose and refits the estimator. Conti
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
 
+#### Next increment: binary marginal ratio contrasts
+
+The pinned DoWhy direct simulation keeps the named treatment and control values. It perturbs the
+treatment and outcome, then refits the same effect. The existing binary laws therefore apply to a
+marginal risk ratio or odds ratio without a new perturbation.
+
+Gruber and van der Laan (2012) define the marginal ratios from the two counterfactual risks. Their
+Sections 4 and 5 report inference for both ratios on the log scale. The pinned `tmle3`
+`delta_functions.R` source uses the same log-risk and log-odds contrasts. These sources govern the
+scale, while Sharma and Kiciman (2020) govern the qualitative stress question.
+
+Extend `simulated_confounding()` to a binary-outcome `RiskRatio` or `OddsRatio` result. Report each
+refitted estimate on its ratio scale. Define its signed displacement as
+$\log(\widehat\psi_{\mathrm{refit}})-\log(\widehat\psi_{\mathrm{original}})$. The exponential of
+that displacement is the refitted ratio divided by the original ratio. This convention is
+descriptive. It supplies no corrected ratio, bound, test, interval, robustness value, or verdict.
+
+Support ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE. Require agreement across
+the typed estimand, normalized functional, replay estimator, target registry, treatment labels,
+contrast direction, structured parameter key, and stored log-scale estimate. Validate the complete
+request before the latent draw or first refit.
+
+Keep one perturbation and refit loop. Centralize the inference-scale value so additive parameters
+use their estimate and ratio parameters use their stored log estimate. Store the movement scale on
+the surface and its frame. Keep the raw ratio in each cell's estimate field.
+
+Acceptance requires exact zero anchors and nonzero witnesses for both ratios. It also requires a
+contrast-reversal mutation, a raw-versus-log movement witness, structured metadata mutations,
+original-data-per-cell behavior, common randomness, retained failures, facade selection, and cache
+and serialization round trips. Keep the weighted, clustered, missing-outcome, repeated, ATT, ATC,
+conditional, longitudinal, and intervention-indexed refusals.
+
+The implementation commit removes ratios from the refusal table and updates the user guide,
+technical contract, references, scope table, and final roadmap state. Priority 1.1 remains active
+for the remaining compositions.
+
+No registered validation study applies. This increment changes assessment request validation and
+descriptive movement only. It does not change nuisance fitting, targeting, an influence curve, an
+interval, a study input, or a verdict. Existing point-TMLE, collaborative-TMLE, and DR-TMLE evidence
+already evaluates the two counterfactual risks and their registered smooth contrasts.
+
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
 [F8](#f8-multi-arm-simulated-confounding-stress-surface).
