@@ -257,9 +257,9 @@ movement reports dose perturbation alone.
 **The zero treatment-strength column.** A cell at $k_A=0$ leaves $U$ out of the treatment, so it
 carries no confounding path either. Its movement reports the outcome perturbation alone. The
 Gaussian law $Y'=Y-k_YU$ is a level shift, and the surface draws $U$ uncentred. An
-`ate_shift[...]` contrast differences that level out of both policy means, so the column stays
-small. An `ey_shift[...]` policy mean keeps it, so read the $k_A=0$ column of a policy-mean
-surface as an artifact of the outcome law.
+`ate_shift[...]` contrast subtracts one policy mean from the other, so it removes most of that
+level and the column stays small. An `ey_shift[...]` policy mean keeps it, so read the $k_A=0$
+column of a policy-mean surface as an artifact of the outcome law.
 `tests/unit/test_simulated_confounding.py::test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit`
 measures both columns on one fit.
 

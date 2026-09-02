@@ -159,6 +159,11 @@ def continuous_means_result() -> Any:
     return _fit_continuous(means=True)
 
 
+@pytest.fixture(scope="module")
+def continuous_binomial_means_result() -> Any:
+    return _fit_continuous(family="binomial", means=True)
+
+
 def _shift_alias(result: Any) -> str:
     aliases = [name for name in result.estimates if name.startswith("ate_shift[")]
     assert len(aliases) == 1
@@ -392,7 +397,10 @@ def test_continuous_surface_runs_a_real_ordinary_tmle_refit(
     # The symmetric half. A zero treatment strength leaves the latent vector out of the
     # treatment, so that column reports the outcome law alone.
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
-    assert "which a contrast largely cancels" in summary
+    if family == "gaussian":
+        assert "a contrast removes most of it" in summary
+    else:
+        assert "attenuates the fitted outcome regression" in summary
 
 
 def test_continuous_real_refit_moves_with_the_signed_dose_and_outcome_laws(
@@ -1206,8 +1214,17 @@ def test_non_result_and_ambiguous_alias_are_refused(
     with pytest.raises(CapabilityError, match="TMLEResult"):
         simulated_confounding(SimpleNamespace(), grid=_grid())
     calls = _record_refits(gaussian_result, monkeypatch)
-    with pytest.raises(ValueError, match="unavailable"):
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_zero_delta_policy_means",
+        lambda _: pytest.fail("a binary fit declares no shift policy to filter"),
+    )
+    with pytest.raises(ValueError, match="unavailable") as refusal:
         simulated_confounding(gaussian_result, estimand="unknown", grid=_grid())
+    assert str(refusal.value) == (
+        f"estimand 'unknown' is unavailable; choose one of {list(gaussian_result.estimates)}"
+    )
     assert calls == []
 
 
@@ -1266,6 +1283,61 @@ def test_a_means_only_fit_requires_selection_and_names_the_available_means(
     message = str(refusal.value)
     assert "ey_shift[up half]" in message
     assert "ey_shift[natural course]" not in message
+
+
+def test_an_unavailable_alias_never_advertises_the_refused_natural_course_mean(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mistyped alias must not be answered with a mean that the next call refuses.
+
+    ``ey_shift[natural course]`` names the zero-delta policy, and the surface refuses its
+    mean. The availability message filters that alias for the same reason the selection
+    message does.
+    """
+    result = continuous_means_result
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+
+    with pytest.raises(ValueError, match="is unavailable") as refusal:
+        simulated_confounding(
+            result,
+            estimand="ey_shif[up half]",
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+    message = str(refusal.value)
+    assert "choose one of ['ey_shift[up half]']" in message
+    assert "ey_shift[natural course]" not in message
+
+
+def test_an_unavailable_alias_reports_none_when_the_filter_empties_the_list(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty list must read as an absence, not as a choice.
+
+    This fabricated fit reports the zero-delta mean alone. The filter removes it, so the
+    message states that the fit reports no admissible alias.
+    """
+    result = continuous_means_result
+    natural = _mean_alias(result, policy="natural course")
+    fabricated = replace(result, estimates={natural: result[natural]})
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+
+    with pytest.raises(ValueError, match="this fit reports none") as refusal:
+        simulated_confounding(
+            fabricated,
+            estimand=_mean_alias(result),
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+    assert "choose one of" not in str(refusal.value)
 
 
 def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
@@ -1421,7 +1493,53 @@ def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
     # summary has to say that the zero treatment-strength column is an artifact.
     summary = surface.summary()
     assert "A cell whose treatment strength is zero also has no confounding path" in summary
-    assert "A policy mean keeps that level shift, and a contrast cancels it" in summary
+    assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
+
+
+@pytest.mark.parametrize(
+    ("fixture", "family", "shape"),
+    [
+        ("continuous_means_result", "gaussian", "mean"),
+        ("continuous_gaussian_result", "gaussian", "contrast"),
+        ("continuous_binomial_means_result", "binomial", "mean"),
+        ("continuous_binomial_result", "binomial", "contrast"),
+    ],
+)
+def test_the_reading_guard_follows_the_outcome_family_of_the_fit(
+    request: pytest.FixtureRequest, fixture: str, family: str, shape: str
+) -> None:
+    """The outcome axis of the guard reads the outcome family, not the estimand alone.
+
+    The binomial law flips ``Y`` in the upper latent tail, which maps
+    ``E[Y'|a,w] = p + (1 - 2p) E[Y|a,w]``. That map attenuates the fitted outcome
+    regression. It is not a level shift, and a contrast does not cancel it. A guard that
+    branched on the estimand alone printed the Gaussian sentence on a binomial fit, and
+    that sentence contradicted the ``outcome_law`` line of its own summary.
+    """
+    result = request.getfixturevalue(fixture)
+    alias = _mean_alias(result) if shape == "mean" else _shift_alias(result)
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        random_state=7,
+    )
+    summary = surface.summary()
+
+    assert surface.outcome_family == family
+    assert surface.outcome_law in summary
+    assert "A cell whose treatment strength is zero also has no confounding path" in summary
+    if family == "gaussian":
+        assert "subtracts signed strength" in surface.outcome_law
+        assert "Its movement reports the outcome level shift alone" in summary
+        assert "A policy mean keeps that level shift, and a contrast removes most of it" in summary
+        assert "A small residual stays" in summary
+    else:
+        assert "flipped in the declared upper latent-normal tail" in surface.outcome_law
+        assert "Its movement reports the outcome perturbation alone" in summary
+        assert "attenuates the fitted outcome regression" in summary
+        assert "level shift" not in summary
+        assert "cancel" not in summary
 
 
 def test_continuous_policy_mean_retains_a_refit_failure(

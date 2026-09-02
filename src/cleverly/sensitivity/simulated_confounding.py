@@ -308,10 +308,12 @@ class SimulatedConfoundingResult:
             )
         outcome_axis = (
             "Its movement reports the outcome level shift alone. A policy mean keeps that "
-            "level shift, and a contrast cancels it."
-            if self.estimand.startswith("ey_shift[")
-            else "Its movement reports the outcome perturbation alone, which a contrast "
-            "largely cancels."
+            "level shift, and a contrast removes most of it. A small residual stays, "
+            "because each cell refits the outcome regression."
+            if self.outcome_family == "gaussian"
+            else "Its movement reports the outcome perturbation alone. The tail "
+            "perturbation attenuates the fitted outcome regression. A policy mean and a "
+            "contrast both move with that attenuation."
         )
         return (
             "The association reports what the continuous linear perturbation achieved on "
@@ -581,9 +583,16 @@ def _validate_request(
             f"or ate_shift[...] contrast alias; {detail}"
         )
     if estimand not in result.estimates:
-        raise ValueError(
-            f"estimand {estimand!r} is unavailable; choose one of {list(result.estimates)}"
+        # A continuous fit can report the zero-delta natural-course mean, which the next
+        # call refuses.  Advertising it here hands the caller a refused alias.
+        vacuous = (
+            _zero_delta_policy_means(functional)
+            if treatment_family == "continuous"
+            else frozenset()
         )
+        admissible = [name for name in result.estimates if name not in vacuous]
+        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
+        raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
         raise CapabilityError(

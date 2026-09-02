@@ -256,7 +256,7 @@ dose perturbation alone. The technical reference states the same
 
 The zero treatment-strength column carries no confounding path either. Its movement reports the
 outcome perturbation alone. The Gaussian outcome law subtracts a level from every row, and an
-`ate_shift[...]` contrast differences that level away. An `ey_shift[...]` policy mean keeps it, so
+`ate_shift[...]` contrast removes most of that level. An `ey_shift[...]` policy mean keeps it, so
 read the zero treatment-strength column of a policy-mean surface as an artifact of the outcome
 law.
 
