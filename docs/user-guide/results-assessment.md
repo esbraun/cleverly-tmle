@@ -181,8 +181,8 @@ The operation draws one shared latent variable. For binary treatment, it flips t
 upper latent tail. A Gaussian outcome subtracts the outcome strength times the latent value. A
 binomial outcome flips in the same tail.
 
-A continuous-dose fit uses signed treatment strengths. Pass the exact modified-policy contrast
-alias because a continuous result has no bare `ate` parameter.
+A continuous-dose fit uses signed treatment strengths. Pass one exact modified-policy mean or
+contrast alias because a continuous result has no bare `ate` parameter.
 
 ```python
 from cleverly import ModifiedTreatmentPolicyEffect
@@ -224,6 +224,9 @@ shift_surface = shift_result.sensitivity.simulated_confounding(
     random_state=21,
 )
 ```
+
+A `ModifiedTreatmentPolicy` fit reports policy means instead. Select one mean with an alias such
+as `ey_shift[up half]`. The surface reports that mean and its signed displacement in each cell.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed during each ordinary-TMLE refit. The outcome laws and common-randomness contract stay the

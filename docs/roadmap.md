@@ -319,40 +319,16 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ### S5. Expand simulated confounding to the remaining estimands and estimators
 
-The shipped stress surface covers two source-backed compositions. The binary composition reports a
-backdoor-identified marginal ATE. It replays ordinary TMLE, collaborative TMLE, and complete-outcome
-DR-TMLE. The continuous composition reports one named marginal `ate_shift` contrast under exact
-ordinary TMLE. Both compositions support Gaussian and binomial outcomes with one cross-fitting
-draw.
+The shipped stress surface covers three source-backed compositions. The binary composition reports
+a backdoor-identified marginal ATE. It replays ordinary TMLE, collaborative TMLE, and
+complete-outcome DR-TMLE. The continuous compositions report one named marginal `ey_shift` policy
+mean or `ate_shift` contrast under exact ordinary TMLE. All compositions support Gaussian and
+binomial outcomes with one cross-fitting draw.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
-
-#### Next increment: continuous modified-treatment-policy means
-
-The pinned DoWhy direct simulation mutates the treatment and outcome, then refits the same named
-parameter. Its treatment and outcome laws do not require that parameter to compare two policies.
-The existing modified-treatment-policy evidence already covers each `ey_shift[...]` policy mean.
-
-Extend `simulated_confounding()` to one explicitly named marginal `ey_shift[...]` mean under exact
-ordinary TMLE. Keep the policies fixed while each cell replaces the dose and outcome. Report the
-refitted policy mean and its signed displacement from the original mean. Keep the result
-qualitative, with no corrected estimate, bound, test, interval, robustness value, or verdict.
-
-Share the continuous policy-state validation for `ey_shift` and `ate_shift`. Require agreement
-across the typed estimand, normalized functional, replay estimator, fitted shift state, and
-structured parameter key. Validate the complete request before the latent draw or first refit.
-Reuse the existing perturbation, calibration, cell, failure, seed, cache, and serialization paths.
-
-Acceptance requires the exact zero anchor and a nonzero shifted-policy witness. It also requires
-the selected policy alias, policy metadata, original-data-per-cell behavior, common randomness,
-signed displacement, retained failures, and pre-fit refusal ordering. Keep every other S5 refusal.
-Update the user guide, technical contract, and final roadmap state in the implementation commit.
-
-No registered validation study applies. This increment changes assessment request validation and
-selection only. It does not change policy estimation, targeting, the influence curve, or inference.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as
@@ -366,7 +342,6 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 | ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
 | ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
 | conditional strata, for an arm contrast or a modified-policy contrast | a per-stratum contrast contract that shares one latent draw |
-| modified-policy means, such as `ey_shift[...]` | a contrast contract for one policy mean. The continuous perturbation law already applies |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
 | categorical covariate calibration | a logical-covariate benchmark that does not zero one encoded column |

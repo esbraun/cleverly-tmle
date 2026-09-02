@@ -131,7 +131,8 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE alias or named modified-policy contrast alias.
+        Marginal binary-treatment ATE alias, named modified-policy mean alias, or named
+        modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
     grid : ConfounderStrengthGrid
@@ -334,6 +335,94 @@ class _ValidatedRequest:
     treatment_family: Literal["binary", "continuous"]
 
 
+def _validate_continuous_policy_state(
+    result: Any,
+    estimand: str,
+    key: Any,
+    identified: Any,
+    functional: Any,
+    estimator: Any,
+) -> None:
+    """Require one coherent modified-policy request across every stored layer."""
+    from ..interventions.shift import Shift
+    from ..study import ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
+    from ..targets import TARGETS
+    from ..targets.base import parameter_name
+
+    target = key.estimand
+    typed_estimand = identified.estimand
+    typed_type = {
+        "ey_shift": ModifiedTreatmentPolicy,
+        "ate_shift": ModifiedTreatmentPolicyEffect,
+    }.get(target)
+    if typed_type is None or type(typed_estimand) is not typed_type:
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent registered modified-policy "
+            "identification provenance"
+        )
+    typed_state: Any = typed_estimand
+    typed_policies = tuple(typed_state.shifts)
+    typed_reference = typed_state.reference
+
+    declared_policies = tuple(functional.interventions)
+    replay_policies = tuple(estimator.shifts)
+    if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent structured shift metadata"
+        )
+    declared_names = tuple(shift.name for shift in declared_policies)
+    declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
+    declared_reference = declared_names[0] if functional.reference is None else functional.reference
+    fitted_shifts = result.nuisance.shifts
+    fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
+    fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
+    fitted_reference = None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
+    expected_alias = parameter_name(
+        target,
+        arm=key.value,
+        versus=key.reference if target == "ate_shift" else None,
+    )
+    expected_shifted = np.column_stack(
+        [shift.apply(result.data.treatment)[0] for shift in declared_policies]
+    )
+    expected_capped = np.column_stack(
+        [shift.apply(result.data.treatment)[1] for shift in declared_policies]
+    )
+    expected_reference = fitted_reference if target == "ate_shift" else None
+    if (
+        fitted_shifts is None
+        or typed_policies != declared_policies
+        or typed_reference != functional.reference
+        or replay_policies != declared_policies
+        or estimator.reference != functional.reference
+        or fitted_names != declared_names
+        or fitted_deltas != declared_deltas
+        or fitted_reference != declared_reference
+        or not np.array_equal(fitted_shifts.shifted, expected_shifted)
+        or not np.array_equal(fitted_shifts.capped, expected_capped)
+        or key.alias != estimand
+        or key.value not in fitted_names
+        or key.reference != expected_reference
+        or expected_alias != estimand
+    ):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent structured shift metadata"
+        )
+
+    registered = TARGETS.get(target)
+    declared = getattr(typed_estimand, "name", None)
+    if (
+        functional.target != target
+        or declared != target
+        or registered is None
+        or identified.identification != registered.identification
+    ):
+        raise CapabilityError(
+            "continuous simulated_confounding found inconsistent registered modified-policy "
+            "identification provenance"
+        )
+
+
 def _validate_request(
     result: Any,
     estimand: str,
@@ -345,15 +434,12 @@ def _validate_request(
     from ..estimators.ctmle import CTMLE
     from ..estimators.drtmle import DRTMLE
     from ..estimators.tmle import TMLE
-    from ..interventions.shift import Shift
     from ..study import (
         BackdoorMeanContrast,
         ExplicitAdjustmentProvider,
-        ModifiedTreatmentPolicyEffect,
         ParameterKey,
     )
     from ..targets import TARGETS
-    from ..targets.base import parameter_name
 
     if type(result) is not TMLEResult:
         raise CapabilityError(
@@ -431,13 +517,13 @@ def _validate_request(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
     if treatment_family == "continuous" and estimand == "ate":
-        # Only the ``ate_shift[...]`` aliases pass the checks below, so naming an
-        # ``ey_shift[...]`` alias here would point the caller at an option this same
-        # function refuses a few lines later.
-        admissible = [name for name in result.estimates if name.startswith("ate_shift[")]
+        admissible = [
+            name for name in result.estimates if name.startswith(("ey_shift[", "ate_shift["))
+        ]
         detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(
-            f"continuous simulated_confounding requires an explicit ate_shift[...] alias; {detail}"
+            "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
+            f"or ate_shift[...] contrast alias; {detail}"
         )
     if estimand not in result.estimates:
         raise ValueError(
@@ -484,73 +570,19 @@ def _validate_request(
         ):
             raise CapabilityError(
                 "continuous simulated_confounding supports a marginal modified-treatment-policy "
-                "contrast, not an arm, regimen, stochastic, incremental, or MSM parameter"
+                "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter"
             )
-        if key.estimand != "ate_shift" or key.axis != "shift" or key.stratum is not None:
-            raise CapabilityError(
-                "continuous simulated_confounding supports only a marginal ate_shift contrast; "
-                "means, conditional strata, and other parameters are outside its source boundary"
-            )
-        declared_policies = tuple(functional.interventions)
-        replay_policies = tuple(estimator.shifts)
-        if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent structured shift metadata"
-            )
-        declared_names = tuple(shift.name for shift in declared_policies)
-        declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
-        declared_reference = (
-            declared_names[0] if functional.reference is None else functional.reference
-        )
-        typed_estimand = identified.estimand
-        if type(typed_estimand) is not ModifiedTreatmentPolicyEffect:
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent registered ate_shift "
-                "identification provenance"
-            )
-        fitted_shifts = result.nuisance.shifts
-        fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
-        fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
-        fitted_reference = (
-            None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
-        )
-        expected_alias = parameter_name("ate_shift", arm=key.value, versus=key.reference)
-        expected_shifted = np.column_stack(
-            [shift.apply(data.treatment)[0] for shift in declared_policies]
-        )
-        expected_capped = np.column_stack(
-            [shift.apply(data.treatment)[1] for shift in declared_policies]
-        )
         if (
-            fitted_shifts is None
-            or tuple(typed_estimand.shifts) != declared_policies
-            or typed_estimand.reference != functional.reference
-            or replay_policies != declared_policies
-            or estimator.reference != functional.reference
-            or fitted_names != declared_names
-            or fitted_deltas != declared_deltas
-            or fitted_reference != declared_reference
-            or not np.array_equal(fitted_shifts.shifted, expected_shifted)
-            or not np.array_equal(fitted_shifts.capped, expected_capped)
-            or key.alias != estimand
-            or key.value not in fitted_names
-            or key.reference != fitted_reference
-            or expected_alias != estimand
+            key.estimand not in {"ey_shift", "ate_shift"}
+            or key.axis != "shift"
+            or key.stratum is not None
         ):
             raise CapabilityError(
-                "continuous simulated_confounding found inconsistent structured shift metadata"
+                "continuous simulated_confounding supports only a marginal ey_shift policy mean "
+                "or ate_shift contrast; conditional strata and other parameters are outside its "
+                "source boundary"
             )
-        registered = TARGETS.get("ate_shift")
-        if (
-            functional.target != "ate_shift"
-            or declared != "ate_shift"
-            or registered is None
-            or identified.identification != registered.identification
-        ):
-            raise CapabilityError(
-                "continuous simulated_confounding found inconsistent registered ate_shift "
-                "identification provenance"
-            )
+        _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
     names = tuple(
         [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
@@ -734,16 +766,16 @@ def simulated_confounding(
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
 ) -> SimulatedConfoundingResult:
-    """Refit an additive contrast across a simulated common-cause strength grid.
+    """Refit an additive parameter across a simulated common-cause strength grid.
 
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE or continuous
-        modified-treatment-policy effect fit.
+        Replayable backdoor-identified marginal binary-treatment ATE, continuous
+        modified-treatment-policy mean, or continuous modified-policy effect fit.
     estimand : str
-        Additive contrast alias to report. A continuous fit requires an explicit
-        ``ate_shift[...]`` alias.
+        Additive parameter alias to report. A continuous fit requires an explicit
+        ``ey_shift[...]`` or ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str

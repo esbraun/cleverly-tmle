@@ -165,6 +165,12 @@ def _shift_alias(result: Any) -> str:
     return aliases[0]
 
 
+def _mean_alias(result: Any, policy: str = "up half") -> str:
+    alias = f"ey_shift[{policy}]"
+    assert alias in result.estimates
+    return alias
+
+
 def _record_refits(
     result: Any, monkeypatch: pytest.MonkeyPatch, *, fail_call: int | None = None
 ) -> list[tuple[Any, int | None]]:
@@ -1201,24 +1207,16 @@ def test_non_result_and_ambiguous_alias_are_refused(
     assert calls == []
 
 
-def test_continuous_requires_an_explicit_shift_alias_before_refit(
+def test_continuous_requires_an_explicit_policy_parameter_alias_before_refit(
     continuous_gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A mutation control on the alias filter, run against a fabricated alias set.
 
-    No real fit reports ``ate_shift`` and ``ey_shift`` together. Declaring ``shifts=``
-    fixes one axis, so a ``ModifiedTreatmentPolicyEffect`` fit reports contrasts only and
-    a ``ModifiedTreatmentPolicy`` fit reports levels only. This test fabricates the mixed
-    set to hold the filter's predicate: it fails if the filter keeps every alias, if it
-    keeps the wrong one, or if it drops all of them.
-    ``test_a_means_only_fit_names_no_alias_the_surface_refuses`` covers the reachable
-    fit whose filtered list is empty.
+    No real fit reports ``ate_shift`` and ``ey_shift`` together. This test fabricates
+    the mixed set to hold the filter's two accepted prefixes.
     """
     calls = _record_continuous_refits(continuous_gaussian_result, monkeypatch)
     alias = _shift_alias(continuous_gaussian_result)
-    # The refusal must name only the aliases it accepts. ``ey_shift`` is a level rather
-    # than a contrast, and the same function refuses it a few lines further on, so the
-    # unfiltered ``list(result.estimates)`` pointed the caller at a refused option.
     with_level = replace(
         continuous_gaussian_result,
         estimates={
@@ -1228,27 +1226,20 @@ def test_continuous_requires_an_explicit_shift_alias_before_refit(
     )
     assert "ey_shift[up half]" in with_level.estimates
 
-    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             with_level,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
     assert alias in str(refusal.value)
-    assert "ey_shift" not in str(refusal.value)
+    assert "ey_shift[up half]" in str(refusal.value)
     assert calls == []
 
 
-def test_a_means_only_fit_names_no_alias_the_surface_refuses(
+def test_a_means_only_fit_requires_selection_and_names_the_available_means(
     continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reachable empty branch of the alias filter, on a levels-only fit.
-
-    ``ModifiedTreatmentPolicy`` reports ``ey_shift[...]`` levels and no contrast, so the
-    admissible list is empty and the refusal must say the fit reports none. Without the
-    filter this same fit printed
-    ``choose one of ['ey_shift[natural course]', 'ey_shift[up half]']``, which named two
-    options the same function refuses two lines later.
-    """
+    """The default cannot select one policy mean from a levels-only fit."""
     result = continuous_means_result
     assert sorted(result.estimates) == ["ey_shift[natural course]", "ey_shift[up half]"]
     assert not [name for name in result.estimates if name.startswith("ate_shift[")]
@@ -1258,15 +1249,117 @@ def test_a_means_only_fit_names_no_alias_the_surface_refuses(
         lambda *args, **kwargs: pytest.fail("refused before any refit"),
     )
 
-    with pytest.raises(ValueError, match=r"explicit ate_shift\[\.\.\.\] alias") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             result,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
 
     message = str(refusal.value)
-    assert "ey_shift" not in message
-    assert message.endswith("this fit reports none")
+    assert "ey_shift[natural course]" in message
+    assert "ey_shift[up half]" in message
+
+
+def test_continuous_policy_mean_reuses_the_grid_and_refit_paths(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin selection, the exact anchor, common randomness, and a nonzero mean witness."""
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    calls = _record_continuous_refits(result, monkeypatch, alias=alias)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=19)
+
+    assert surface.estimand == alias
+    assert surface.cells[0].estimate == result[alias].psi
+    assert surface.cells[0].displacement == 0.0
+    assert len(calls) == 3
+    outcome_only, treatment_only, both = (call[0] for call in calls)
+    np.testing.assert_array_equal(outcome_only.treatment, result.data.treatment)
+    np.testing.assert_array_equal(treatment_only.outcome, result.data.outcome)
+    np.testing.assert_array_equal(both.treatment, treatment_only.treatment)
+    np.testing.assert_array_equal(both.outcome, outcome_only.outcome)
+    np.testing.assert_allclose(
+        (treatment_only.treatment - result.data.treatment) / 0.3,
+        -(outcome_only.outcome - result.data.outcome) / 0.2,
+    )
+    for cell, (data, _) in zip(surface.cells[1:], calls, strict=True):
+        expected = float(np.mean(data.treatment * data.outcome))
+        assert cell.estimate == pytest.approx(expected)
+        assert cell.displacement == pytest.approx(expected - result[alias].psi)
+    assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
+
+
+def test_continuous_policy_mean_retains_a_refit_failure(
+    continuous_means_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alias = _mean_alias(continuous_means_result)
+    _record_continuous_refits(continuous_means_result, monkeypatch, alias=alias, fail_call=1)
+    surface = simulated_confounding(
+        continuous_means_result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,)),
+        random_state=23,
+    )
+    assert surface.cells[1].failure is not None
+    assert surface.cells[1].failure.error_type == "RuntimeError"
+
+
+@pytest.mark.parametrize("layer", ["key", "functional", "typed", "estimator", "fitted"])
+def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
+    continuous_means_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    result = continuous_means_result
+    alias = _mean_alias(result)
+    if layer == "key":
+        key = replace(result.parameter_keys[alias], value="wrong")
+        result = replace(result, parameter_keys={**result.parameter_keys, alias: key})
+    elif layer == "functional":
+        policies = list(result.identified_effect.functional.interventions)
+        policies[1] = replace(policies[1], delta=0.75)
+        result = _with_functional(result, interventions=tuple(policies))
+    elif layer == "typed":
+        typed = result.identified_effect.estimand
+        policies = list(typed.shifts)
+        policies[1] = replace(policies[1], delta=0.75)
+        result = replace(
+            result,
+            identified_effect=replace(
+                result.identified_effect, estimand=replace(typed, shifts=tuple(policies))
+            ),
+        )
+    elif layer == "estimator":
+        estimator = copy(result.estimator)
+        policies = list(estimator.shifts)
+        policies[1] = replace(policies[1], delta=0.75)
+        estimator.shifts = tuple(policies)
+        result = replace(result, estimator=estimator)
+    else:
+        shifts = result.nuisance.shifts
+        assert shifts is not None
+        shifts = replace(shifts, deltas=(0.0, 0.75))
+        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
+        result = replace(result, repeats=(repeat,))
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match="structured shift metadata"):
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
 
 
 def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
@@ -1430,9 +1523,9 @@ def test_continuous_retains_refit_failure_and_replays_seed(
     ("change", "message"),
     [
         ("collaborative", "exact ordinary TMLE"),
-        ("key-estimand", "only a marginal ate_shift"),
-        ("key-axis", "only a marginal ate_shift"),
-        ("conditional", "only a marginal ate_shift"),
+        ("key-estimand", "only a marginal ey_shift policy mean or ate_shift contrast"),
+        ("key-axis", "only a marginal ey_shift policy mean or ate_shift contrast"),
+        ("conditional", "only a marginal ey_shift policy mean or ate_shift contrast"),
         ("key-alias", "structured shift metadata"),
         ("key-value", "structured shift metadata"),
         ("fitted-names", "structured shift metadata"),
@@ -1450,10 +1543,10 @@ def test_continuous_retains_refit_failure_and_replays_seed(
         ("estimator-delta", "structured shift metadata"),
         ("estimator-cap", "structured shift metadata"),
         ("estimator-reference", "structured shift metadata"),
-        ("provenance", "registered ate_shift identification provenance"),
-        ("declared-provenance", "registered ate_shift identification provenance"),
-        ("target-provenance", "registered ate_shift identification provenance"),
-        ("arm-axis", "modified-treatment-policy contrast"),
+        ("provenance", "registered modified-policy identification provenance"),
+        ("declared-provenance", "registered modified-policy identification provenance"),
+        ("target-provenance", "registered modified-policy identification provenance"),
+        ("arm-axis", "modified-treatment-policy parameter"),
     ],
 )
 def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(

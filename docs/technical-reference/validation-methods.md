@@ -196,7 +196,7 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 ### Simulated common-cause stress surface
 
-**Why.** An analyst can inspect whether a fitted additive contrast moves under a plausible latent
+**Why.** An analyst can inspect whether a fitted additive parameter moves under a plausible latent
 common cause. Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its
 qualitative limits.
 
@@ -265,12 +265,13 @@ The `(0, 0)` cell returns the original estimate without a refit. A failed replac
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
 
-The surface supports two source-backed compositions. Both support Gaussian and binomial outcomes
+The surface supports three source-backed compositions. All support Gaussian and binomial outcomes
 with one cross-fitting draw.
 
-| treatment | additive contrast | replayed estimator |
+| treatment | additive parameter | replayed estimator |
 | --- | --- | --- |
 | binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
