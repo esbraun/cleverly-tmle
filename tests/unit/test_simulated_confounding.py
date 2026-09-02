@@ -733,6 +733,15 @@ def test_nonuniform_weights_change_a_weight_dependent_surface() -> None:
     )
 
 
+def test_unweighted_estimated_weight_flag_does_not_create_a_weight_refusal() -> None:
+    result = _fit(weights_estimated=True)
+    surface = simulated_confounding(result, grid=_grid(), random_state=7)
+
+    assert result.data.weights_name is None
+    assert surface.target_measure == "unweighted"
+    assert surface.complete
+
+
 def test_fixed_weights_run_every_supported_ordinary_tmle_parameter_surface() -> None:
     multiple_means = _fit_binary_mean(treatment=None, weight_scale=1.0)
     cases = [

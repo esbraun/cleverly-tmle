@@ -739,7 +739,7 @@ def _validate_request(
         raise CapabilityError(
             "simulated_confounding has no controlled-direct-effect or intermediate-variable law"
         )
-    if data.weight_spec.estimated:
+    if data.weights_name is not None and data.weight_spec.estimated:
         raise CapabilityError(
             "simulated_confounding cannot replay estimated observation weights; the fitted "
             "result does not store the model needed to re-estimate them after perturbation"
