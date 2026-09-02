@@ -37,7 +37,7 @@ previous reader had is not a citation; a page number is.
   Equation (3.14) defines the median of the within-partition variance plus squared split
   displacement.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
-  [`16a0f96`, lines 1612-1640](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1612-L1640).
+  [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
   calculation.
   It is secondary aggregation evidence and not a comparator for the complete estimator.

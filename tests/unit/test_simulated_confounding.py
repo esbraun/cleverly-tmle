@@ -439,7 +439,7 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert len(surface.cells) == 2
     assert surface.n_repeats == result.n_repeats == 3
     assert surface.repeat_aggregation == "coordinatewise_median"
-    assert "3 draw(s), aggregation=coordinatewise_median" in surface.summary()
+    assert "cross-fitting: 3 draws, aggregation=coordinatewise_median" in surface.summary()
 
     # The un-monkeypatched path. The anchor is the original fit itself, so it carries the
     # fitted point estimate rather than a refit of unchanged data.
@@ -447,9 +447,12 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert surface.cells[0].estimate == result["ate"].psi
     assert surface.cells[0].displacement == 0.0
 
-    # A flip of the upper 10% latent tail moves this fixture by about -0.61 through -0.64
-    # on all three estimators. The gate sits far below that and far above numerical noise,
-    # and it is signed, so a perturbation that never reaches the refit fails it.
+    # A flip of the upper 10% latent tail moves this fixture by -0.7528 on tmle, -0.6835 on
+    # collaborative_tmle, and -0.6211 on drtmle, all at repeats=3. The surface seed differs
+    # from the seed of the fit, so -0.1050, -0.0140, and -0.0481 of those three are fold
+    # noise rather than the flip. The gate sits far below the remainder and far above
+    # numerical noise, and it is signed, so a perturbation that never reaches the refit
+    # fails it.
     displacement = surface.cells[1].displacement
     assert displacement is not None
     assert displacement < -0.3
@@ -481,15 +484,37 @@ def _manual_repeated_refit(result: Any, surface: Any, *, treatment: float, outco
 
 def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
     result = _fit(repeats=3)
-    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
     surface = simulated_confounding(result, grid=grid, random_state=31)
     manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.0)
-    cell = surface.cells[1]
+    # ``product(treatment, outcome)`` orders the cells (0, 0), (0, 0.2), (0.1, 0), (0.1, 0.2).
+    cell = surface.cells[2]
     per_draw = [repeat.psi["ate"] for repeat in manual.repeats]
 
     assert cell.estimate == manual["ate"].psi == float(np.median(per_draw))
     assert cell.displacement == manual["ate"].inference_value - result["ate"].inference_value
-    assert cell.estimate != per_draw[0]
+    # The surface reports the middle of three distinct draws. Stating the rank keeps the
+    # witness true by construction: ``cell.estimate != per_draw[0]`` holds only when draw
+    # zero is not the middle one, which is a property of the seed and not of the surface.
+    assert len(set(per_draw)) == 3
+    assert sorted(per_draw).index(cell.estimate) == 1
+
+    # The outcome axis runs ``Y' = Y - k_Y U``. Without a nonzero outcome strength every
+    # repeat test would exercise ``_gaussian_outcome`` as an identity transform only.
+    outcome_manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    outcome_cell = surface.cells[3]
+    outcome_per_draw = [repeat.psi["ate"] for repeat in outcome_manual.repeats]
+
+    assert outcome_cell.outcome_strength == 0.2
+    assert outcome_cell.estimate == outcome_manual["ate"].psi == float(np.median(outcome_per_draw))
+    assert (
+        outcome_cell.displacement
+        == outcome_manual["ate"].inference_value - result["ate"].inference_value
+    )
+    assert len(set(outcome_per_draw)) == 3
+    assert sorted(outcome_per_draw).index(outcome_cell.estimate) == 1
+    assert outcome_cell.estimate != cell.estimate
+
     second_manual = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.0)
     assert (
         manual.estimator.crossfit_plan(manual.data).seeds()
@@ -511,7 +536,10 @@ def test_binary_ratio_repeat_surface_equals_the_estimator_log_median() -> None:
 
     assert cell.estimate == manual["rr"].psi == float(np.median(per_draw))
     assert cell.displacement == manual["rr"].inference_value - result["rr"].inference_value
-    assert cell.estimate != per_draw[0]
+    # The surface reports the middle of three distinct draws, which stays true whatever
+    # rank draw zero holds.
+    assert len(set(per_draw)) == 3
+    assert sorted(per_draw).index(cell.estimate) == 1
 
 
 def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
@@ -525,7 +553,10 @@ def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
 
     assert cell.estimate == manual[alias].psi == float(np.median(per_draw))
     assert cell.displacement == manual[alias].inference_value - result[alias].inference_value
-    assert cell.estimate != per_draw[0]
+    # The surface reports the middle of three distinct draws, which stays true whatever
+    # rank draw zero holds.
+    assert len(set(per_draw)) == 3
+    assert sorted(per_draw).index(cell.estimate) == 1
 
 
 def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
@@ -558,10 +589,52 @@ def test_repeated_surface_retains_a_complete_refit_failure(
         random_state=31,
     )
 
+    # ``_record_refits`` replaces ``estimator.refit`` wholesale, so the estimator's own
+    # repeat loop never runs. One recorded call therefore proves that the surface calls the
+    # estimator once per cell. It does not prove that the estimator loops over the draws.
     assert len(calls) == 1
     assert surface.n_repeats == 3
+    assert not surface.complete
     assert surface.cells[1].failure is not None
     assert surface.cells[1].failure.error_type == "RuntimeError"
+    assert "deliberate refit failure" in surface.cells[1].failure.message
+    assert surface.failures == (surface.cells[1].failure,)
+    assert surface.failures[0].seed == surface.root_seed == 31
+    assert surface.cells[1].estimate is None
+    assert surface.cells[1].displacement is None
+
+
+@pytest.mark.parametrize("repeats", [1, 3])
+def test_a_median_dropped_estimand_reports_the_median_rule_and_not_a_missing_request(
+    monkeypatch: pytest.MonkeyPatch, repeats: int
+) -> None:
+    """``median_estimates`` omits a name absent from one draw, and the cell says so."""
+    result = _fit(repeats=repeats)
+
+    def refit(data: Any, **kwargs: Any) -> Any:
+        del kwargs
+        # ``inference.influence.median_estimates`` drops a name missing from any draw, so a
+        # refitted result can report no ``ate`` even though this cell requested one.
+        return replace(result, data=data, estimates={})
+
+    monkeypatch.setattr(result.estimator, "refit", refit)
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        random_state=31,
+    )
+
+    failure = surface.cells[1].failure
+    assert failure is not None
+    if repeats == 1:
+        # One draw runs no aggregation, so the accessor's own message stays correct.
+        assert failure.error_type == "KeyError"
+        assert "was not requested" in failure.message
+    else:
+        assert failure.error_type == "ValueError"
+        assert "missing from at least one of the 3 cross-fitting draws" in failure.message
+        assert "median report omits it" in failure.message
+        assert "was not requested" not in failure.message
 
 
 @pytest.mark.parametrize("layer", ["stored", "config", "estimator"])

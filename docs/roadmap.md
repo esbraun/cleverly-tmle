@@ -342,9 +342,15 @@ Additive cells compare reported median estimates. Ratio cells compare reported m
 estimates.
 
 Use one latent vector for the complete strength grid. Reuse the root seed for each complete refit.
-This rule preserves the estimator's repeat seed sequence. It does not promise identical realised
+This rule gives every non-anchor cell the same repeat seed sequence. It does not promise identical realised
 folds after treatment or outcome perturbation. Treatment-stratified or outcome-stratified splitting
 can assign different folds when a perturbed variable changes.
+
+The root seed reproduces the folds of the original fit only when it equals that fit's seed. The
+helper `resolve_assessment_seed` returns an explicit `random_state` first and the fit's own seed
+second. An unseeded fit draws a fresh seed instead. The `TMLE.refit` path then rebuilds every fold
+under that different seed. The anchor keeps the original folds, so movement near the anchor can
+carry a fold artifact.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as

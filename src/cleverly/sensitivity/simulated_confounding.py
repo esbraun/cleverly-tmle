@@ -150,13 +150,19 @@ class SimulatedConfoundingResult:
     latent_seed : int
         Tagged child seed used to draw the shared latent vector.
     refit_seed : int
-        Seed reused by every estimator refit. It equals ``root_seed`` and preserves the
-        estimator's repeat seed sequence. Perturbing a stratification variable can still
-        change the realised folds.
+        Seed reused by every estimator refit. It equals ``root_seed``. A refit reuses the
+        repeat seed sequence of the original fit only when this seed equals the seed of
+        that fit. ``random_state=None`` resolves to the seed of the fit when the fit
+        declared one. An unseeded fit, or an explicit ``random_state`` other than the seed
+        of the fit, gives the refits a different sequence, so movement near the anchor can
+        carry a fold artifact. Perturbing a stratification variable can also change the
+        realised folds.
     n_repeats : int
         Number of complete cross-fitting draws in the original and refitted estimates.
     repeat_aggregation : {"coordinatewise_median"}
-        Estimator-owned rule used to aggregate the complete cross-fitting draws.
+        Estimator-owned rule that names how the estimator aggregates the complete
+        cross-fitting draws when there is more than one draw. The estimator applies no
+        aggregation to a single draw.
     treatment_family : str
         Treatment family covered by the perturbation law.
     outcome_family : str
@@ -282,6 +288,13 @@ class SimulatedConfoundingResult:
                         reported,
                     ]
                 )
+        # ``inference.influence.median_estimates`` returns its input unchanged for a single
+        # draw, so a one-draw report must not name an aggregation rule that never ran.
+        crossfit = (
+            f"cross-fitting: {self.n_repeats} draws, aggregation={self.repeat_aggregation}"
+            if self.n_repeats > 1
+            else "cross-fitting: 1 draw, no repeat aggregation"
+        )
         return "\n".join(
             [
                 f"Simulated common-cause stress surface for {self.estimand!r}",
@@ -290,7 +303,7 @@ class SimulatedConfoundingResult:
                     f"seeds: root={self.root_seed}, latent={self.latent_seed}, "
                     f"refit={self.refit_seed}"
                 ),
-                (f"cross-fitting: {self.n_repeats} draw(s), aggregation={self.repeat_aggregation}"),
+                crossfit,
                 self.treatment_law,
                 self.outcome_law,
                 "",
@@ -670,11 +683,7 @@ def _validate_request(
     stored_repeats = result.n_repeats
     configured_repeats = result.config.crossfit.repeats
     replay_repeats = estimator.repeats
-    if (
-        stored_repeats < 1
-        or stored_repeats != configured_repeats
-        or stored_repeats != replay_repeats
-    ):
+    if stored_repeats != configured_repeats or stored_repeats != replay_repeats:
         raise CapabilityError(
             "simulated_confounding needs consistent repeated-cross-fitting provenance; "
             f"the stored result has {stored_repeats} draw(s), its configuration declares "
@@ -1032,9 +1041,14 @@ def simulated_confounding(
     Notes
     -----
     Every non-anchor cell refits under the resolved root seed, and the zero-strength anchor
-    is the original fit itself. The root seed preserves the complete repeat seed sequence.
-    It does not promise identical realised folds. Treatment-stratified or outcome-stratified
-    splitting can change assignments after the surface perturbs that variable.
+    is the original fit itself. The root seed does not promise identical realised folds, for
+    two reasons. First, a refit reuses the repeat seed sequence of the original fit only when
+    the root seed equals the seed of that fit. ``random_state=None`` resolves to the seed of
+    the fit when the fit declared one. An unseeded fit, or an explicit ``random_state`` other
+    than the seed of the fit, gives every non-anchor cell a different sequence, so movement
+    near the anchor can carry a fold artifact. Second, treatment-stratified or
+    outcome-stratified splitting can change assignments after the surface perturbs that
+    variable.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1064,11 +1078,14 @@ def simulated_confounding(
     request = _validate_request(result, estimand, grid, benchmark_covariates)
     calibrations = _calibrate(result, request.calibration_names)
     root_seed = resolve_assessment_seed(result, random_state)
-    # Every non-anchor cell refits under the root seed, not a spawned child. This preserves
-    # the estimator's repeat seed sequence. It does not freeze realised folds when a
-    # perturbed treatment or outcome supplies a stratification variable. Same convention
-    # as ``cleverly.validation.refute`` and ``cleverly.sensitivity.omitted_variable``. The
-    # latent draw keeps its own tagged child seed, so it stays independent of the splits.
+    # Every non-anchor cell refits under the root seed, not a spawned child. Same convention
+    # as ``cleverly.validation.refute`` and ``cleverly.sensitivity.omitted_variable``. This
+    # does not freeze the realised folds. ``TMLE.refit`` reuses the estimator's own repeat
+    # seed sequence only when the seed it receives equals ``estimator.random_state``, so an
+    # unseeded fit or an explicit ``random_state`` other than the seed of the fit displaces
+    # every non-anchor cell by pure fold noise. A perturbed treatment or outcome that supplies
+    # a stratification variable moves the folds as well. The latent draw keeps its own tagged
+    # child seed, so it stays independent of the splits.
     refit_seed = root_seed
     latent_seed = _latent_child_seed(root_seed)
     latent = np.random.default_rng(latent_seed).normal(size=result.data.n)
@@ -1116,6 +1133,14 @@ def simulated_confounding(
                 name="simulated-confounding outcome",
             )
             refitted = request.estimator.refit(replacement, random_state=refit_seed)
+            # ``inference.influence.median_estimates`` drops a name that is absent from any
+            # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand
+            # this cell did request.  Retain the true reason instead.
+            if result.n_repeats > 1 and estimand not in refitted.estimates:
+                raise ValueError(
+                    f"{estimand!r} is missing from at least one of the {result.n_repeats} "
+                    "cross-fitting draws of this cell, so the median report omits it"
+                )
             refitted_parameter = refitted[estimand]
             estimate = float(refitted_parameter.psi)
             cells.append(

@@ -38,7 +38,7 @@ rather than implying the request was ill-posed.
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one |
-| the simulated common-cause surface on a longitudinal, weighted, clustered, missing-outcome, intermediate-variable, or repeated fit | [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface). It names every composition the surface refuses, and it gives each one a `kind` |
+| the simulated common-cause surface on a longitudinal, weighted, clustered, missing-outcome, or intermediate-variable fit | [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface). It names every composition the surface refuses, and it gives each one a `kind` |
 
 Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
