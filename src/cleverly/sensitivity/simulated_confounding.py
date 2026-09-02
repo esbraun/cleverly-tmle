@@ -131,8 +131,8 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE alias, named modified-policy mean alias, or named
-        modified-policy contrast alias.
+        Marginal binary-treatment ATE or counterfactual-mean alias, named
+        modified-policy mean alias, or named modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
     grid : ConfounderStrengthGrid
@@ -350,6 +350,94 @@ class _ValidatedRequest:
     treatment_family: Literal["binary", "continuous"]
 
 
+_BINARY_PARAMETER_TARGETS = frozenset({"ate", "ey", "ey1", "ey0"})
+
+
+def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
+    """Return supported marginal binary aliases from structured result metadata."""
+    from ..study import ParameterKey
+
+    data = getattr(result, "data", None)
+    if data is None or not getattr(data, "is_binary_treatment", False):
+        return ()
+    estimates = getattr(result, "estimates", {})
+    keys = getattr(result, "parameter_keys", {})
+    return tuple(
+        alias
+        for alias, key in keys.items()
+        if alias in estimates
+        and type(key) is ParameterKey
+        and key.estimand in _BINARY_PARAMETER_TARGETS
+        and key.axis == "arm"
+        and key.stratum is None
+    )
+
+
+def _validate_binary_parameter_state(
+    result: Any,
+    estimand: str,
+    key: Any,
+    identified: Any,
+    functional: Any,
+    estimator: Any,
+) -> None:
+    """Require one coherent marginal binary parameter across every stored layer."""
+    from ..study import ATE, CounterfactualMean
+    from ..targets import TARGETS
+    from ..targets.base import parameter_name
+
+    target = key.estimand
+    typed_estimand = identified.estimand
+    levels = tuple(result.data.treatment_levels)
+    expected_alias: str | None = None
+    metadata_matches = False
+
+    if target == "ate" and type(typed_estimand) is ATE:
+        expected_alias = parameter_name("ate")
+        fitted_reference = result.data.arm_label(result.config.reference_arm)
+        fitted_values = tuple(level for level in levels if level != fitted_reference)
+        metadata_matches = (
+            len(fitted_values) == 1
+            and key.value == fitted_values[0]
+            and key.reference == fitted_reference
+            and typed_estimand.reference in (None, key.reference)
+            and functional.reference == typed_estimand.reference
+        )
+    elif target in {"ey", "ey1", "ey0"} and type(typed_estimand) is CounterfactualMean:
+        expected_value = {
+            "ey1": result.data.arm_label(1.0),
+            "ey0": result.data.arm_label(0.0),
+        }.get(target)
+        expected_alias = parameter_name("ey", arm=key.value) if target == "ey" else target
+        metadata_matches = (
+            key.value in levels
+            and key.reference is None
+            and functional.reference is None
+            and (
+                typed_estimand.treatment is None
+                if target == "ey"
+                else typed_estimand.treatment == key.value == expected_value
+            )
+        )
+
+    registered = TARGETS.get(target)
+    replay_targets = tuple(getattr(estimator, "estimands", ()))
+    if (
+        expected_alias is None
+        or not metadata_matches
+        or key.alias != estimand
+        or expected_alias != estimand
+        or target not in replay_targets
+        or getattr(estimator, "reference", None) != functional.reference
+        or functional.target != target
+        or registered is None
+        or identified.identification != registered.identification
+    ):
+        raise CapabilityError(
+            "simulated_confounding found inconsistent registered binary parameter metadata"
+        )
+
+
 def _validate_continuous_policy_state(
     result: Any,
     estimand: str,
@@ -493,7 +581,6 @@ def _validate_request(
         ExplicitAdjustmentProvider,
         ParameterKey,
     )
-    from ..targets import TARGETS
 
     if type(result) is not TMLEResult:
         raise CapabilityError(
@@ -556,13 +643,13 @@ def _validate_request(
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(
-            "simulated_confounding needs identification metadata for a backdoor contrast; "
+            "simulated_confounding needs identification metadata for a backdoor parameter; "
             "this legacy fit records none"
         )
     functional = identified.functional
     if type(functional) is not BackdoorMeanContrast:
         raise CapabilityError(
-            "simulated_confounding supports a backdoor-identified marginal ATE; "
+            "simulated_confounding supports a backdoor-identified marginal additive parameter; "
             f"got {type(functional).__name__}"
         )
     provider = getattr(identified, "provider", None)
@@ -598,7 +685,6 @@ def _validate_request(
         raise CapabilityError(
             f"simulated_confounding needs a structured parameter key for {estimand!r}"
         )
-    declared = getattr(getattr(identified, "estimand", None), "name", None)
     if treatment_family == "binary":
         if (
             functional.longitudinal
@@ -607,24 +693,20 @@ def _validate_request(
             or functional.msm is not None
         ):
             raise CapabilityError(
-                "simulated_confounding supports a marginal arm-indexed ATE, not a regimen, "
-                "stochastic, incremental, modified-policy, or MSM parameter"
+                "simulated_confounding supports a marginal arm-indexed additive parameter, "
+                "not a regimen, stochastic, incremental, modified-policy, or MSM parameter"
             )
-        if key.estimand != "ate" or key.axis != "arm" or key.stratum is not None:
-            raise CapabilityError(
-                "simulated_confounding supports only a marginal ATE; ATT, ATC, means, ratios, "
-                "conditional strata, and other parameters are outside its source boundary"
-            )
-        registered = TARGETS.get("ate")
         if (
-            functional.target != "ate"
-            or declared != "ate"
-            or registered is None
-            or identified.identification != registered.identification
+            key.estimand not in _BINARY_PARAMETER_TARGETS
+            or key.axis != "arm"
+            or key.stratum is not None
         ):
             raise CapabilityError(
-                "simulated_confounding found inconsistent registered ATE identification provenance"
+                "simulated_confounding supports only a marginal ATE or counterfactual arm mean; "
+                "ATT, ATC, ratios, conditional strata, and other parameters are outside its "
+                "source boundary"
             )
+        _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
         if (
             functional.longitudinal
@@ -835,11 +917,14 @@ def simulated_confounding(
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE, continuous
-        modified-treatment-policy mean, or continuous modified-policy effect fit.
+        Replayable backdoor-identified marginal binary-treatment ATE or
+        counterfactual mean, continuous modified-treatment-policy mean, or continuous
+        modified-policy effect fit.
     estimand : str
-        Additive parameter alias to report. A continuous fit requires an explicit
-        ``ey_shift[...]`` alias of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
+        Additive parameter alias to report. The free function needs an explicit ``ey1``,
+        ``ey0``, or ``ey[...]`` alias for a binary counterfactual mean. A continuous fit
+        requires an explicit ``ey_shift[...]`` alias of a nonzero-delta policy, or an
+        ``ate_shift[...]`` alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str

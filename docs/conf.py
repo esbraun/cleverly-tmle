@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -115,3 +117,44 @@ html_context = {
 
 copybutton_prompt_text = r">>> |\.\.\. |\$ |In \[\d+\]: | {2,5}\.\.\.: "
 copybutton_prompt_is_regexp = True
+
+# The ``docs`` job and ``pages.yml`` build with ``-W``, so one warning fails the run.
+# ``sphinx.ext.intersphinx`` warns when it cannot fetch an inventory, which makes the gate
+# depend on four third-party sites staying reachable.  A ``docs.scipy.org`` outage is not a
+# defect in this repository, and an unresolved cross-reference still renders as plain text.
+# The warning carries no type, so ``suppress_warnings`` cannot name it.  Drop that one
+# message instead, and keep every other warning fatal.
+_UNREACHABLE_INVENTORIES = "failed to reach any of the inventories"
+
+
+class _ReachableInventoryFilter(logging.Filter):
+    """Drop the one intersphinx warning that a third-party outage raises."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return ``False`` for the unreachable-inventory warning.
+
+        Parameters
+        ----------
+        record : logging.LogRecord
+            Record Sphinx is about to emit.
+
+        Returns
+        -------
+        bool
+            ``True`` to keep the record, and ``False`` to drop it.
+        """
+        return _UNREACHABLE_INVENTORIES not in record.getMessage()
+
+
+def setup(app: Any) -> None:  # numpydoc ignore=PR01
+    """Register the inventory filter ahead of the warning-as-error filter.
+
+    Sphinx installs ``WarningIsErrorFilter`` on the warning handler. Filters run in the
+    order they appear, so this one goes in front of it. Appending would let ``-W`` raise
+    before the record is dropped.
+    """
+    log_filter = _ReachableInventoryFilter()
+    sphinx_logger = logging.getLogger("sphinx")
+    sphinx_logger.addFilter(log_filter)
+    for handler in sphinx_logger.handlers:
+        handler.filters.insert(0, log_filter)

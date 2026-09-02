@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import doctest
 import importlib
+import importlib.util
 import inspect
+import logging
 import pkgutil
 import re
 import tomllib
@@ -213,6 +215,40 @@ def test_pages_workflow_builds_and_deploys_the_sphinx_site() -> None:
     }
     missing = sorted(item for item in required if item not in workflow)
     assert not missing, f"pages workflow is missing its publication contract: {missing}"
+
+
+def test_the_build_drops_only_the_unreachable_inventory_warning() -> None:
+    """A third-party outage must not fail ``-W``, and nothing else may be dropped.
+
+    ``sphinx.ext.intersphinx`` warns once when it cannot fetch an inventory, so the
+    warning-as-error gate otherwise depends on four external sites staying reachable.
+    The filter in ``docs/conf.py`` drops that record alone. The negative cases below are
+    the control: without them a filter that swallowed every record would pass.
+    """
+    spec = importlib.util.spec_from_file_location("cleverly_docs_conf", ROOT / "docs" / "conf.py")
+    assert spec is not None and spec.loader is not None
+    conf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conf)
+    log_filter = conf._ReachableInventoryFilter()
+
+    def record(message: str, *args: Any) -> logging.LogRecord:
+        return logging.LogRecord("sphinx", logging.WARNING, __file__, 1, message, args, None)
+
+    # The real call site formats two arguments into ``'%s\n%s'``.
+    outage = record(
+        "%s\n%s",
+        "failed to reach any of the inventories with the following issues:",
+        "intersphinx inventory 'https://docs.scipy.org/doc/scipy/objects.inv' not fetchable",
+    )
+    assert log_filter.filter(outage) is False
+
+    for kept in (
+        record("unknown document: '/missing'"),
+        record("undefined label: 'nowhere'"),
+        record("%s", "toctree contains reference to nonexisting document"),
+        record("duplicate object description of cleverly.CausalStudy"),
+    ):
+        assert log_filter.filter(kept) is True, kept.getMessage()
 
 
 def test_every_root_export_is_in_the_python_api() -> None:

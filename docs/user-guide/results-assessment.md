@@ -181,6 +181,11 @@ The operation draws one shared latent variable. For binary treatment, it flips t
 upper latent tail. A Gaussian outcome subtracts the outcome strength times the latent value. A
 binomial outcome flips in the same tail.
 
+A binary `CounterfactualMean(treatment=...)` fit reports one `ey1` or `ey0` mean. The facade selects
+that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[...]` for both arms.
+Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
+while the operation perturbs the observed treatment and outcome.
+
 A continuous-dose fit uses signed treatment strengths. Pass one exact modified-policy mean or
 contrast alias because a continuous result has no bare `ate` parameter.
 

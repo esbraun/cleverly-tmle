@@ -21,6 +21,7 @@ from cleverly import (
     AssessmentStatus,
     CausalStudy,
     CollaborativeTMLEMethod,
+    CounterfactualMean,
     ModifiedTreatmentPolicy,
     ModifiedTreatmentPolicyEffect,
     PointTreatment,
@@ -84,6 +85,49 @@ def _fit(
     )
 
 
+def _fit_binary_mean(
+    *,
+    treatment: float | None,
+    method: str = "tmle",
+    seed: int = 7,
+    family: str = "gaussian",
+) -> Any:
+    if family == "binomial":
+        frame, _ = make_binary_outcome(n=120, seed=seed)
+        covariates = ("W1", "W2", "W3")
+        outcome_learner: Any = LogisticRegression(max_iter=1000)
+    else:
+        frame, _ = make_linear_ate(n=120, seed=seed)
+        covariates = ("W1", "W2", "W3", "W4")
+        outcome_learner = LinearRegression()
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=covariates,
+        ),
+    )
+    configured_method: Any = method
+    if method == "collaborative_tmle":
+        configured_method = CollaborativeTMLEMethod(
+            selection_folds=2,
+            selection_inner_folds=2,
+            selection_estimand=(
+                "ey" if treatment is None else "ey1" if treatment == 1.0 else "ey0"
+            ),
+        )
+    return study.identify(CounterfactualMean(treatment=treatment)).estimate(
+        method=configured_method,
+        outcome_learner=outcome_learner,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
 @pytest.fixture(scope="module")
 def gaussian_result() -> Any:
     return _fit()
@@ -92,6 +136,16 @@ def gaussian_result() -> Any:
 @pytest.fixture(scope="module")
 def binomial_result() -> Any:
     return _fit(family="binomial")
+
+
+@pytest.fixture(scope="module")
+def binary_mean_result() -> Any:
+    return _fit_binary_mean(treatment=1.0)
+
+
+@pytest.fixture(scope="module")
+def binary_means_result() -> Any:
+    return _fit_binary_mean(treatment=None)
 
 
 _TWO_POLICIES = (
@@ -280,6 +334,86 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert displacement < -0.3
     assert surface.cells[1].estimate == pytest.approx(result["ate"].psi + displacement)
     assert surface.successful_cells == surface.cells
+
+
+@pytest.mark.parametrize(
+    ("method", "expected_engine"),
+    [("tmle", "TMLE"), ("collaborative_tmle", "CTMLE"), ("drtmle", "DRTMLE")],
+)
+@pytest.mark.parametrize(
+    ("treatment", "expected_alias"),
+    [(1.0, "ey1"), (0.0, "ey0"), (None, None)],
+)
+def test_each_binary_mean_alias_runs_the_supported_real_refit(
+    method: str,
+    expected_engine: str,
+    treatment: float | None,
+    expected_alias: str | None,
+) -> None:
+    """Exercise compatibility aliases and an explicit ``ey[...]`` on every engine."""
+    result = _fit_binary_mean(treatment=treatment, method=method)
+    if expected_alias is None:
+        alias = next(name for name, key in result.parameter_keys.items() if key.value == 1.0)
+        assert alias.startswith("ey[")
+    else:
+        alias = expected_alias
+    surface = simulated_confounding(
+        result,
+        estimand=alias,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0, 0.2)),
+        random_state=7,
+    )
+
+    assert type(result.estimator).__name__ == expected_engine
+    assert surface.complete
+    assert surface.estimand == alias
+    assert surface.cells[0].estimate == result[alias].psi
+    assert surface.cells[0].displacement == 0.0
+    assert any(abs(cell.displacement or 0.0) > 1e-5 for cell in surface.cells[1:])
+
+
+def test_a_binomial_binary_mean_runs_a_nonzero_real_refit() -> None:
+    result = _fit_binary_mean(treatment=1.0, family="binomial")
+    surface = simulated_confounding(
+        result,
+        estimand="ey1",
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0, 0.2)),
+        random_state=7,
+    )
+
+    assert surface.complete
+    assert surface.outcome_family == "binomial"
+    assert surface.cells[0].estimate == result["ey1"].psi
+    assert any(abs(cell.displacement or 0.0) > 1e-5 for cell in surface.cells[1:])
+
+
+def test_explicit_binary_means_keep_each_fixed_arm_and_move_nontrivially(
+    binary_means_result: Any,
+) -> None:
+    """The same latent draw gives two distinct, nonzero fixed-arm witnesses."""
+    result = binary_means_result
+    aliases = {
+        key.value: name for name, key in result.parameter_keys.items() if key.estimand == "ey"
+    }
+    assert set(aliases) == {0, 1}
+    surfaces = {
+        arm: simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.25)),
+            random_state=7,
+        )
+        for arm, alias in aliases.items()
+    }
+
+    for arm, surface in surfaces.items():
+        alias = aliases[arm]
+        assert surface.estimand == alias
+        assert surface.cells[0].estimate == result[alias].psi
+        assert surface.cells[0].displacement == 0.0
+        assert any(abs(cell.displacement or 0.0) > 1e-5 for cell in surface.cells[1:])
+        assert result.parameter_keys[alias].value == arm
+    assert surfaces[0].cells[-1].estimate != pytest.approx(surfaces[1].cells[-1].estimate)
 
 
 def test_zero_anchor_common_randomness_and_original_data_per_cell(
@@ -1043,7 +1177,7 @@ def test_grid_validation_and_binomial_boundary(
     assert calls == []
 
 
-@pytest.mark.parametrize("estimand", ["att", "atc", "ey1", "rr", "or", "ate_regime", "msm"])
+@pytest.mark.parametrize("estimand", ["att", "atc", "rr", "or", "ate_regime", "msm"])
 def test_unsupported_estimands_are_refused_before_refit(
     gaussian_result: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -1056,9 +1190,130 @@ def test_unsupported_estimands_are_refused_before_refit(
         parameter_keys={estimand: replace(key, alias=estimand)},
     )
     calls = _record_refits(altered, monkeypatch)
-    with pytest.raises(CapabilityError, match="only a marginal ATE"):
+    with pytest.raises(CapabilityError, match="only a marginal ATE or counterfactual arm mean"):
         simulated_confounding(altered, estimand=estimand, grid=_grid())
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "layer",
+    ["key-alias", "key-arm", "key-reference", "functional", "typed", "estimator", "evidence"],
+)
+def test_binary_mean_checks_every_parameter_state_layer_before_the_latent_draw(
+    binary_mean_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    result = binary_mean_result
+    alias = "ey1"
+    if layer in {"key-alias", "key-arm", "key-reference"}:
+        key = result.parameter_keys[alias]
+        if layer == "key-alias":
+            key = replace(key, alias="ey0")
+        elif layer == "key-arm":
+            key = replace(key, value=0)
+        else:
+            key = replace(key, reference=0)
+        result = replace(result, parameter_keys={alias: key})
+    elif layer == "functional":
+        result = _with_functional(result, target="ate")
+    elif layer == "typed":
+        result = replace(
+            result,
+            identified_effect=replace(
+                result.identified_effect,
+                estimand=CounterfactualMean(treatment=0),
+            ),
+        )
+    elif layer == "estimator":
+        estimator = copy(result.estimator)
+        estimator.estimands = ("ate",)
+        result = replace(result, estimator=estimator)
+    else:
+        identification = replace(
+            result.identified_effect.identification,
+            references=("unregistered identification",),
+        )
+        result = replace(
+            result,
+            identified_effect=replace(result.identified_effect, identification=identification),
+        )
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(
+            result,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+
+@pytest.mark.parametrize("layer", ["key-direction", "estimator-reference"])
+def test_binary_ate_checks_the_fitted_contrast_before_the_latent_draw(
+    gaussian_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    layer: str,
+) -> None:
+    result = gaussian_result
+    if layer == "key-direction":
+        key = result.parameter_keys["ate"]
+        result = replace(
+            result,
+            parameter_keys={"ate": replace(key, value=key.reference, reference=key.value)},
+        )
+    else:
+        estimator = copy(result.estimator)
+        estimator.reference = result.data.arm_label(1.0)
+        result = replace(result, estimator=estimator)
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(
+            result,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+
+def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
+    binary_means_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = binary_means_result
+    aliases = {key.value: name for name, key in result.parameter_keys.items()}
+    alias = aliases[1]
+    key = replace(result.parameter_keys[alias], value=0)
+    altered = replace(result, parameter_keys={**result.parameter_keys, alias: key})
+    monkeypatch.setattr(
+        altered.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(
+            altered,
+            estimand=alias,
+            grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
 
 
 @pytest.mark.parametrize(
@@ -1074,17 +1329,17 @@ def test_unsupported_estimands_are_refused_before_refit(
         ("estimator", "supports ordinary TMLE"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
-        ("functional-type", "backdoor-identified marginal ATE"),
+        ("functional-type", "backdoor-identified marginal additive parameter"),
         ("provider", "explicit-adjustment backdoor provenance"),
         ("key", "structured parameter key"),
-        ("provenance", "inconsistent registered ATE identification provenance"),
-        ("declared-provenance", "inconsistent registered ATE identification provenance"),
-        ("target-provenance", "inconsistent registered ATE identification provenance"),
-        ("conditional", "marginal ATE"),
-        ("stochastic", "marginal arm-indexed ATE"),
-        ("incremental", "marginal arm-indexed ATE"),
-        ("modified", "marginal arm-indexed ATE"),
-        ("msm", "marginal arm-indexed ATE"),
+        ("provenance", "registered binary parameter metadata"),
+        ("declared-provenance", "registered binary parameter metadata"),
+        ("target-provenance", "registered binary parameter metadata"),
+        ("conditional", "counterfactual arm mean"),
+        ("stochastic", "marginal arm-indexed additive parameter"),
+        ("incremental", "marginal arm-indexed additive parameter"),
+        ("modified", "marginal arm-indexed additive parameter"),
+        ("msm", "marginal arm-indexed additive parameter"),
     ],
 )
 def test_unsupported_compositions_are_refused_before_refit(
@@ -1355,7 +1610,10 @@ def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
     natural = result.identified_effect.functional.interventions[0]
     assert natural.name == "natural course"
     assert natural.delta == 0.0
-    assert result[alias].psi == float(np.mean(result.data.outcome))
+    # The plug-in reaches ``E[Y]`` through the targeting arithmetic rather than through
+    # ``np.mean``, so the two agree to rounding rather than bit for bit.  The observed
+    # gap is one unit in the last place, and it varies with the platform BLAS.
+    assert result[alias].psi == pytest.approx(float(np.mean(result.data.outcome)), rel=1e-12)
     monkeypatch.setattr(
         result.estimator,
         "refit",
@@ -1615,7 +1873,10 @@ def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
 
 
 def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
-    gaussian_result: Any, continuous_gaussian_result: Any
+    gaussian_result: Any,
+    binary_mean_result: Any,
+    binary_means_result: Any,
+    continuous_gaussian_result: Any,
 ) -> None:
     """Pin the rendered refusal, which ``requires_arguments`` alone does not cover.
 
@@ -1636,6 +1897,18 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
     )
     assert binary.next_steps == (
         "call result.sensitivity.simulated_confounding() directly with grid",
+    )
+
+    sole_mean = rendered(binary_mean_result)
+    assert sole_mean.detail == binary.detail
+    assert sole_mean.next_steps == binary.next_steps
+
+    several_means = rendered(binary_means_result)
+    assert several_means.detail == (
+        "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
+    )
+    assert several_means.next_steps == (
+        "call result.sensitivity.simulated_confounding() directly with grid and estimand",
     )
 
     continuous = rendered(continuous_gaussian_result)
@@ -1702,8 +1975,11 @@ def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_b
     assert len(calls) == 1
 
 
-def test_the_capability_row_declares_the_continuous_estimand_requirement(
-    gaussian_result: Any, continuous_gaussian_result: Any
+def test_the_capability_row_declares_the_fit_dependent_estimand_requirement(
+    gaussian_result: Any,
+    binary_mean_result: Any,
+    binary_means_result: Any,
+    continuous_gaussian_result: Any,
 ) -> None:
     """``run_all`` learns the requirement from the row, and the row is fit-dependent.
 
@@ -1715,11 +1991,28 @@ def test_the_capability_row_declares_the_continuous_estimand_requirement(
         return {row.operation: row for row in result.sensitivity.capabilities}
 
     binary = rows(gaussian_result)
+    sole_mean = rows(binary_mean_result)
+    several_means = rows(binary_means_result)
     continuous = rows(continuous_gaussian_result)
 
     assert binary["simulated_confounding"].requires_arguments == ("grid",)
+    assert sole_mean["simulated_confounding"].requires_arguments == ("grid",)
+    assert several_means["simulated_confounding"].requires_arguments == ("grid", "estimand")
     assert continuous["simulated_confounding"].requires_arguments == ("grid", "estimand")
     assert binary["benchmark"].requires_arguments == continuous["benchmark"].requires_arguments
+
+
+def test_the_facade_substitutes_only_a_sole_binary_mean(
+    binary_mean_result: Any,
+    binary_means_result: Any,
+) -> None:
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    sole = binary_mean_result.sensitivity.simulated_confounding(grid=grid)
+    assert sole.estimand == "ey1"
+    assert sole.cells[0].estimate == binary_mean_result["ey1"].psi
+
+    with pytest.raises(ValueError, match="estimand 'ate' is unavailable"):
+        binary_means_result.sensitivity.simulated_confounding(grid=grid)
 
 
 def test_continuous_strengths_are_signed_and_outcome_bounds_follow_the_family(

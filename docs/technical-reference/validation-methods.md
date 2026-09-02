@@ -274,14 +274,19 @@ The `(0, 0)` cell returns the original estimate without a refit. A failed replac
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
 
-The surface supports three source-backed compositions. All support Gaussian and binomial outcomes
+The surface supports four source-backed compositions. All support Gaussian and binomial outcomes
 with one cross-fitting draw.
 
 | treatment | additive parameter | replayed estimator |
 | --- | --- | --- |
 | binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
+
+The binary mean path keeps the named counterfactual arm fixed. Each cell replaces only the
+observed treatment and outcome before the complete refit. A sole reported mean needs only the
+grid. A fit that reports several means also needs one explicit alias.
 
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
 the observed dose and outcome before the complete refit.
@@ -300,9 +305,9 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
 | `repeats > 1` | not written yet | no rule states how a median across draws should move |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
-| ATT, ATC, arm means, ratios, and conditional strata | not written yet | the audited source boundary covers the marginal ATE only |
+| ATT, ATC, ratios, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, ratios need a multiplicative movement scale, and strata need a shared per-stratum contract |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
-| a conditional modified-policy mean or contrast, C-TMLE, and DR-TMLE, on the continuous path | not written yet | the continuous source boundary covers one marginal additive parameter under exact ordinary TMLE |
+| conditional modified-policy parameters, continuous-treatment C-TMLE, and continuous-treatment DR-TMLE | not written yet | the continuous source boundary covers one marginal additive parameter under exact ordinary TMLE |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
 

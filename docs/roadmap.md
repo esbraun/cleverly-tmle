@@ -319,11 +319,11 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ### S5. Expand simulated confounding to the remaining estimands and estimators
 
-The shipped stress surface covers three source-backed compositions. The binary composition reports
-a backdoor-identified marginal ATE. It replays ordinary TMLE, collaborative TMLE, and
-complete-outcome DR-TMLE. The continuous compositions report one named marginal `ey_shift` policy
-mean or `ate_shift` contrast under exact ordinary TMLE. All compositions support Gaussian and
-binomial outcomes with one cross-fitting draw.
+The shipped stress surface covers four source-backed compositions. The binary compositions report
+a backdoor-identified marginal ATE or one named counterfactual arm mean. They replay ordinary TMLE,
+collaborative TMLE, and complete-outcome DR-TMLE. The continuous compositions report one named
+marginal `ey_shift` policy mean or `ate_shift` contrast under exact ordinary TMLE. All compositions
+support Gaussian and binomial outcomes with one cross-fitting draw.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
@@ -339,7 +339,7 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 | weighted or clustered design | a perturbation that respects the sampling law |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
-| ATT, ATC, and arm means | a law that keeps the conditioning arm defined when the flip moves it |
+| ATT and ATC | a law that fixes which observed-treatment population the parameter conditions on when the flip moves membership |
 | ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
 | conditional strata, for an arm contrast, a modified-policy mean, or a modified-policy contrast | a per-stratum contract that shares one latent draw |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
