@@ -323,12 +323,34 @@ The shipped stress surface covers binary marginal means, differences, risk ratio
 It replays ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE for those parameters.
 The continuous compositions report one named marginal `ey_shift` policy mean or `ate_shift`
 contrast under exact ordinary TMLE. Ratio surfaces require a binomial outcome. Every other
-composition supports Gaussian and binomial outcomes. All compositions use one cross-fitting draw.
+composition supports Gaussian and binomial outcomes. All compositions keep the fitted estimator's
+repeat count and coordinatewise-median aggregation.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
 are finite signed coefficients. Numeric covariate calibration uses the signed standardized
 marginal coefficient for the dose.
+
+Sharma and Kiciman (2020) govern the qualitative stress question. The pinned DoWhy source supplies
+the binary and continuous perturbations, followed by a complete estimator refit. Chernozhukov et
+al. (2018), Definition 3.3 and equation (3.14), govern the fixed-repeat median report. The pinned
+zEpid repeated cross-fit TMLE supplies secondary implementation evidence for that aggregation.
+
+Each non-anchor cell calls the replay estimator once, so the estimator owns the repeat loop and
+median aggregation. The surface records the repeat count and `coordinatewise_median` provenance.
+Additive cells compare reported median estimates. Ratio cells compare reported median log
+estimates.
+
+Use one latent vector for the complete strength grid. Reuse the root seed for each complete refit.
+This rule gives every non-anchor cell the same repeat seed sequence. It does not promise identical realised
+folds after treatment or outcome perturbation. Treatment-stratified or outcome-stratified splitting
+can assign different folds when a perturbed variable changes.
+
+The root seed reproduces the folds of the original fit only when it equals that fit's seed. The
+helper `resolve_assessment_seed` returns an explicit `random_state` first and the fit's own seed
+second. An unseeded fit draws a fresh seed instead. The `TMLE.refit` path then rebuilds every fold
+under that different seed. The anchor keeps the original folds, so movement near the anchor can
+carry a fold artifact.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits multi-arm treatment, which waits on published theory as

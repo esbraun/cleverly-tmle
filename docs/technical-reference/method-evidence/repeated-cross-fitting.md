@@ -15,7 +15,7 @@ $$
 $$
 
 [Chernozhukov et al. (2018), Definition 3.3 and equation
-(3.13)](https://academic.oup.com/ectj/article/21/1/C1/5056401) supply this fixed-repeat rule.
+(3.14)](https://academic.oup.com/ectj/article/21/1/C1/5056401) supply this fixed-repeat rule.
 [zEpid at `16a0f96`](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641)
 independently implements the same point and variance calculation for repeated cross-fit TMLE.
 **No canonical implementation is compared.** zEpid is an aggregation-level comparator, not a

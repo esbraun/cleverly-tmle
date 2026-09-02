@@ -98,7 +98,7 @@ $$
 $$
 
 Risk ratios and odds ratios apply both operations on the log scale. This is the median rule in
-Chernozhukov et al. (2018), equation (3.13), and the same calculation used by zEpid's repeated
+Chernozhukov et al. (2018), equation (3.14), and the same calculation used by zEpid's repeated
 cross-fit TMLE aggregator. zEpid corroborates this reporting layer, but it is not a full-estimator
 comparator. It trains each nuisance on one partition and targets separately inside validation
 partitions. `cleverly` retains its validated complement-trained, stacked pooled update. There is no

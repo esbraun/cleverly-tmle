@@ -290,8 +290,8 @@ The `(0, 0)` cell returns the original estimate without a refit. A failed replac
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate, on the scale `movement_scale` names.
 
-The surface supports five source-backed composition rows with one cross-fitting draw. Ratio
-surfaces require a binomial outcome. The other rows support Gaussian and binomial outcomes.
+The surface supports five source-backed composition rows with one or more cross-fitting draws.
+Ratio surfaces require a binomial outcome. The other rows support Gaussian and binomial outcomes.
 
 | treatment | parameter | replayed estimator |
 | --- | --- | --- |
@@ -300,6 +300,22 @@ surfaces require a binomial outcome. The other rows support Gaussian and binomia
 | binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
+
+For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
+repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
+median estimate with the original median estimate. Ratio displacement compares their median log
+estimates. The result records `n_repeats` and `repeat_aggregation="coordinatewise_median"`.
+
+The root seed gives every non-anchor cell the same repeat seed sequence. It does not preserve
+realised folds after the perturbation changes a stratification variable. Treatment-stratified or
+outcome-stratified splitting can therefore assign different rows to folds under the same seed.
+
+The root seed reproduces the folds of the original fit only when it equals that fit's seed. The
+helper `resolve_assessment_seed` returns an explicit `random_state` first, the fit's own seed
+second, and a fresh seed for an unseeded fit. A refit through `TMLE.refit` reuses the estimator's own seed
+sequence only for a seed equal to its `random_state`. Under any other seed each non-anchor cell
+rebuilds its folds, and the anchor keeps the original ones. Movement near the anchor can therefore
+carry a fold artifact.
 
 The binary mean path keeps the named counterfactual arm fixed. Each cell replaces only the
 observed treatment and outcome before the complete refit. A sole reported mean needs only the
@@ -323,7 +339,6 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
 | observation weights | not written yet | a weighted target population needs its own displacement rule |
 | a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
-| `repeats > 1` | not written yet | no rule states how a median across draws should move |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, and strata need a shared per-stratum contract |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
@@ -332,7 +347,9 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
-and a constant benchmark covariate. Each is a statement about the object you hold.
+and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with
+itself. The stored draw count, `config.crossfit.repeats`, and the replay estimator's `repeats`
+must state the same number. Each is a statement about the object you hold.
 
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set

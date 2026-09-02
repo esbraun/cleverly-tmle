@@ -313,7 +313,7 @@ def median_estimates(
 
     Each entry is one complete draw of the cross-fitting split. The point estimate is
     the median over draws. Ratios use the log scale, which is also their inference scale.
-    The variance follows Chernozhukov et al. (2018, equation 3.13) and zEpid's repeated
+    The variance follows Chernozhukov et al. (2018, equation 3.14) and zEpid's repeated
     cross-fit TMLE implementation:
 
     .. math::
