@@ -177,8 +177,17 @@ movements = surface.to_frame()
 calibration = surface.calibration_frame()
 ```
 
-The operation adds one common latent variable to the treatment and outcome. It refits the complete
-estimator at each nonzero strength pair. The zero cell equals the original estimate exactly.
+The operation draws one shared latent variable. It flips the treatment in the upper latent tail. A
+Gaussian outcome subtracts the outcome strength times the latent value. A binomial outcome flips in
+the same tail.
+
+The treatment flip is non-differential misclassification. The association it induces between the
+latent variable and the treatment depends on the treated fraction. That association is zero on a
+balanced design. The technical reference
+[measures it](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface).
+
+The operation refits the complete estimator at each nonzero strength pair. The zero cell equals the
+original estimate exactly.
 
 Read the output as a qualitative stress surface. It is not a corrected estimate, bound, p-value,
 confidence interval, robustness value, or pass/fail result. Calibration reports model-dependent

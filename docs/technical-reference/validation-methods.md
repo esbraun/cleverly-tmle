@@ -210,6 +210,31 @@ For treatment strength $k_A$, the operation flips binary treatment when
 $U \geq \Phi^{-1}(1-k_A)$. Gaussian outcomes use $Y' = Y-k_YU$. Binomial outcomes use the same
 tail-flip construction as treatment. Flip strengths range from zero through 0.5.
 
+The treatment law is non-differential misclassification. It flips a treated row and an untreated
+row in the same latent tail. The association it induces between $U$ and the treatment therefore
+depends on the treated fraction $\pi$. Write $q = \pi + (1-2\pi)k_A$ for the perturbed treated
+fraction. When $A$ is drawn independently of $U$, the induced correlation is
+
+$$
+\operatorname{corr}(A', U) = \frac{(1-2\pi)\,\phi(\Phi^{-1}(1-k_A))}{\sqrt{q(1-q)}}.
+$$
+
+| treated fraction $\pi$ | $k_A = 0.1$ | $k_A = 0.3$ | $k_A = 0.5$ |
+| --- | --- | --- | --- |
+| 0.2 | +0.240 | +0.430 | +0.479 |
+| 0.35 | +0.108 | +0.210 | +0.239 |
+| 0.5 | +0.000 | +0.000 | +0.000 |
+| 0.65 | -0.108 | -0.210 | -0.239 |
+| 0.8 | -0.240 | -0.430 | -0.479 |
+
+A 500,000-row simulation reproduces every entry to within 0.005. That bound is the Monte Carlo
+error at that sample size. On a balanced design the treatment axis induces no association with
+$U$. It moves the estimate through misclassification of the treatment alone. Above a treated
+fraction of one half the sign reverses.
+
+Read a movement along the treatment axis as misclassification and not as confounding. Sharma and
+Kiciman (2020) prescribe this construction, so the law does not change.
+
 The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
 remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
 original estimate.
@@ -218,17 +243,36 @@ The first surface supports a backdoor-identified marginal ATE with binary treatm
 Gaussian and binomial outcomes. It replays ordinary TMLE, collaborative TMLE, and complete-outcome
 DR-TMLE with one cross-fitting draw.
 
-The operation refuses multi-arm and continuous treatment, other estimands, conditional effects,
-intermediate variables, missing outcomes, weights, clustering, repeated cross-fitting, and
-longitudinal results. It also refuses a result without replay state.
+**Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column names
+the section of [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) the row belongs to.
+
+| refused | kind | why |
+| --- | --- | --- |
+| a longitudinal result | not written yet | no longitudinal perturbation law is implemented |
+| multi-arm and continuous treatment | not written yet | a flip probability defines no contrast on either |
+| a missing outcome | not written yet | the surface has no missingness law and no observation refit |
+| a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
+| observation weights | not written yet | a weighted target population needs its own displacement rule |
+| a clustered fit | not written yet | the latent draw is row-level, and no cluster-level draw is written |
+| `repeats > 1` | not written yet | no rule states how a median across draws should move |
+| identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
+| ATT, ATC, arm means, ratios, and conditional strata | not written yet | the audited source boundary covers the marginal ATE only |
+| a regime, and a stochastic, incremental, modified-policy, or MSM parameter | a different question | each names a different intervention with its own influence curve |
+| a categorical benchmark covariate | wrong by construction | zeroing one encoded column measures part of a covariate and reports it as the whole |
+
+The surface also refuses a result with no replay state, a result with no identification metadata,
+and a constant benchmark covariate. Each is a statement about the object you hold.
 
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set
 to zero. For a Gaussian variable, it reports `corr(W_j, V) * sd(V)`.
 
+The Gaussian calibration is signed. It carries the covariate's own direction of association with
+the outcome. The outcome axis subtracts, so an outcome strength of $k_Y$ calibrates at $-k_Y$ under
+the same rule. To match a covariate that calibrates at $+c$, declare an outcome strength of $-c$.
+
 Calibration does not select or modify the grid. It is not partial R-squared and does not reuse the
-omitted-variable `benchmark()` scale. Categorical calibration is refused because one encoded
-column does not represent one logical covariate.
+omitted-variable `benchmark()` scale.
 
 The maintained source is pinned at revision `2116d5c`. The implementation does not copy its
 cumulative cell mutations, schedule-dependent random draws, non-exact zero refit, automatic
