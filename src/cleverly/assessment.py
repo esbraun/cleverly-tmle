@@ -2072,6 +2072,8 @@ class SensitivityFacade(_CapabilityFacade):
                 reason=(
                     None
                     if benchmarkable
+                    else "no longitudinal simulated-confounder perturbation law is implemented"
+                    if longitudinal
                     else "simulation requires a replayable point-treatment estimator"
                 ),
                 requires_arguments=("grid",),

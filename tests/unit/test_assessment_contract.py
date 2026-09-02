@@ -24,6 +24,7 @@ from cleverly import (
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.sensitivity import ConfounderStrengthGrid
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
@@ -184,6 +185,18 @@ def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_resu
     assert {item.status for item in report.items} == {AssessmentStatus.UNAVAILABLE}
     with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
         longitudinal_result.sensitivity.omitted_confounding()
+
+
+def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law(  # type: ignore[no-untyped-def]
+    longitudinal_result,
+) -> None:
+    capability = longitudinal_result.sensitivity.capability("simulated_confounding")
+    assert capability.reason == (
+        "no longitudinal simulated-confounder perturbation law is implemented"
+    )
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError, match=re.escape(capability.reason)):
+        longitudinal_result.sensitivity.simulated_confounding(grid=grid)
 
 
 def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]
