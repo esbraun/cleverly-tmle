@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from statistics import NormalDist
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,10 +25,10 @@ from cleverly.sensitivity import (
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity.simulated_confounding import (
     _binary_calibration,
-    _child_seeds,
     _flip_binary,
     _flip_mask,
     _gaussian_outcome,
+    _latent_child_seed,
 )
 
 
@@ -138,7 +139,21 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert not result.data.has_missing_outcome
     assert surface.complete
     assert len(surface.cells) == 2
-    assert surface.cells[1].estimate is not None
+
+    # The un-monkeypatched path. The anchor is the original fit itself, so it carries the
+    # fitted point estimate rather than a refit of unchanged data.
+    assert surface.original_estimate == result["ate"].psi
+    assert surface.cells[0].estimate == result["ate"].psi
+    assert surface.cells[0].displacement == 0.0
+
+    # A flip of the upper 10% latent tail moves this fixture by about -0.61 through -0.64
+    # on all three estimators. The gate sits far below that and far above numerical noise,
+    # and it is signed, so a perturbation that never reaches the refit fails it.
+    displacement = surface.cells[1].displacement
+    assert displacement is not None
+    assert displacement < -0.3
+    assert surface.cells[1].estimate == pytest.approx(result["ate"].psi + displacement)
+    assert surface.successful_cells == surface.cells
 
 
 def test_zero_anchor_common_randomness_and_original_data_per_cell(
@@ -151,6 +166,7 @@ def test_zero_anchor_common_randomness_and_original_data_per_cell(
 
     surface = simulated_confounding(result, grid=_grid(), random_state=19)
 
+    assert surface.original_estimate == result["ate"].psi
     assert surface.cells[0].estimate == result["ate"].psi
     assert surface.cells[0].displacement == 0.0
     assert len(calls) == 3
@@ -158,6 +174,13 @@ def test_zero_anchor_common_randomness_and_original_data_per_cell(
     latent = np.random.default_rng(surface.latent_seed).normal(size=result.data.n)
     expected_treatment = _flip_binary(original_treatment, _flip_mask(latent, 0.1))
     expected_outcome = _gaussian_outcome(original_outcome, latent, 0.2)
+
+    # Non-vacuity. The expectations above are built from the same helpers the surface
+    # calls, so a helper that returned its input unchanged would satisfy them all.
+    assert not np.array_equal(expected_treatment, original_treatment)
+    assert not np.array_equal(expected_outcome, original_outcome)
+    assert int(_flip_mask(latent, 0.1).sum()) == 13
+
     assert np.array_equal(calls[0][0].treatment, original_treatment)
     assert np.array_equal(calls[0][0].outcome, expected_outcome)
     assert np.array_equal(calls[1][0].treatment, expected_treatment)
@@ -166,6 +189,22 @@ def test_zero_anchor_common_randomness_and_original_data_per_cell(
     assert np.array_equal(calls[2][0].outcome, expected_outcome)
     assert np.array_equal(result.data.treatment, original_treatment)
     assert np.array_equal(result.data.outcome, original_outcome)
+
+    # The spy's psi is a plain arm-mean contrast on the data it receives, so every cell's
+    # estimate and displacement are computable here without calling the surface again.
+    # Displacement is signed and asymmetric across the three cells, so an inverted
+    # subtraction, a dropped ``original_estimate``, or a dropped estimate fails.
+    for index, (data, _) in enumerate(calls, start=1):
+        treated = data.outcome[data.treatment == 1.0]
+        control = data.outcome[data.treatment == 0.0]
+        expected_psi = float(np.mean(treated) - np.mean(control))
+        cell = surface.cells[index]
+        assert cell.estimate == pytest.approx(expected_psi)
+        assert cell.displacement == pytest.approx(expected_psi - result["ate"].psi)
+    # The outcome-only cell moves by about +0.213 on this fixture. The witness is signed
+    # and its magnitude is far above numerical noise, so ``original - estimate`` fails it.
+    assert surface.cells[1].displacement > 0.1
+    assert len({cell.displacement for cell in surface.cells}) == 4
 
 
 def test_gaussian_sign_and_each_flip_mask_are_active_mutation_controls() -> None:
@@ -184,8 +223,78 @@ def test_gaussian_sign_and_each_flip_mask_are_active_mutation_controls() -> None
 
 
 def test_tiny_positive_flip_strength_uses_the_stable_upper_tail() -> None:
-    latent = np.array([0.0, 10.0])
-    assert np.array_equal(_flip_mask(latent, 1e-20), np.array([False, True]))
+    """Bracket the tail cut so a wrong but positive threshold fails.
+
+    ``-NormalDist().inv_cdf(1e-20)`` is 9.26234. Latent values on both sides of that
+    number pin the cut. A single value of 10 passes for any threshold in ``(0, 10]``.
+    """
+    expected = -NormalDist().inv_cdf(1e-20)
+    assert expected == pytest.approx(9.262340089798405)
+    latent = np.array([0.0, 9.0, 9.5, 10.0])
+    assert np.array_equal(_flip_mask(latent, 1e-20), np.array([False, False, True, True]))
+    assert np.array_equal(_flip_mask(latent, 0.0), np.zeros(4, dtype=bool))
+
+
+def test_a_cell_that_flips_no_row_reproduces_the_anchor_exactly(
+    gaussian_result: Any,
+) -> None:
+    """A byte-identical cell must not move, so no displacement is a fold artifact.
+
+    The zero-strength anchor is the original fit. Every other cell refits. A refit
+    under a seed other than the seed of the original fit redraws the cross-fitting
+    folds, which moves the estimate on unchanged data. This control makes that
+    movement visible: at strength 1e-8 the flip mask selects no row.
+    """
+    grid = ConfounderStrengthGrid(treatment=(0.0, 1e-8), outcome=(0.0,))
+    surface = simulated_confounding(gaussian_result, grid=grid, random_state=7)
+    latent = np.random.default_rng(surface.latent_seed).normal(size=gaussian_result.data.n)
+
+    assert gaussian_result.estimator.random_state == 7
+    assert surface.root_seed == 7
+    assert int(_flip_mask(latent, 1e-8).sum()) == 0
+    assert surface.complete
+    assert surface.cells[1].estimate == gaussian_result["ate"].psi
+    assert surface.cells[1].displacement == 0.0
+    assert surface.refit_seed == surface.root_seed
+
+
+def test_latent_seed_is_tagged_and_aliases_no_other_child_stream(
+    gaussian_result: Any,
+) -> None:
+    from cleverly.validation.refute import _generated_child_seeds
+
+    for root in (0, 7, 19, 41, 2**31 - 1):
+        latent = _latent_child_seed(root)
+        bootstrap = tuple(
+            int(child.generate_state(1)[0]) for child in np.random.SeedSequence(root).spawn(2)
+        )
+        assert latent != root
+        assert latent not in bootstrap
+        assert latent != int(np.random.SeedSequence(root).generate_state(1)[0])
+        assert latent not in _generated_child_seeds(root, "dummy_outcome", 4)
+        assert latent not in _generated_child_seeds(root, "simulated_outcome", 4)
+
+    surface = simulated_confounding(
+        gaussian_result,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        random_state=19,
+    )
+    assert surface.root_seed == 19
+    assert surface.latent_seed == _latent_child_seed(19)
+    assert surface.latent_seed != surface.root_seed
+    assert surface.refit_seed == surface.root_seed
+
+
+def test_real_refit_surface_repeats_every_estimate_under_one_seed(
+    gaussian_result: Any,
+) -> None:
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.5))
+    first = simulated_confounding(gaussian_result, grid=grid, random_state=7)
+    second = simulated_confounding(gaussian_result, grid=grid, random_state=7)
+
+    assert first.complete and second.complete
+    assert [cell.estimate for cell in first.cells] == [cell.estimate for cell in second.cells]
+    assert any(cell.displacement != 0.0 for cell in first.cells[1:])
 
 
 def test_binary_treatment_and_outcome_share_the_exact_latent_masks(
@@ -195,17 +304,22 @@ def test_binary_treatment_and_outcome_share_the_exact_latent_masks(
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0, 0.3))
     surface = simulated_confounding(binomial_result, grid=grid, random_state=31)
     latent = np.random.default_rng(surface.latent_seed).normal(size=binomial_result.data.n)
+    expected_treatment = _flip_binary(binomial_result.data.treatment, _flip_mask(latent, 0.15))
+    expected_outcome = _flip_binary(binomial_result.data.outcome, _flip_mask(latent, 0.3))
 
-    assert np.array_equal(
-        calls[1][0].treatment,
-        _flip_binary(binomial_result.data.treatment, _flip_mask(latent, 0.15)),
-    )
-    assert np.array_equal(
-        calls[0][0].outcome,
-        _flip_binary(binomial_result.data.outcome, _flip_mask(latent, 0.3)),
-    )
+    # Non-vacuity. Both expectations come from the helpers under test, so a no-op mask or
+    # a no-op flip would satisfy them against unchanged data.
+    assert int(_flip_mask(latent, 0.15).sum()) > 0
+    assert int(_flip_mask(latent, 0.3).sum()) > int(_flip_mask(latent, 0.15).sum())
+    assert not np.array_equal(expected_treatment, binomial_result.data.treatment)
+    assert not np.array_equal(expected_outcome, binomial_result.data.outcome)
+
+    assert np.array_equal(calls[1][0].treatment, expected_treatment)
+    assert np.array_equal(calls[0][0].outcome, expected_outcome)
     assert np.array_equal(calls[2][0].treatment, calls[1][0].treatment)
     assert np.array_equal(calls[2][0].outcome, calls[0][0].outcome)
+    assert surface.outcome_family == "binomial"
+    assert "flipped" in surface.outcome_law
 
 
 def test_seed_replay_different_seed_response_and_unseeded_recording(
@@ -235,14 +349,21 @@ def test_seed_replay_different_seed_response_and_unseeded_recording(
         )
     )
 
+    # An unseeded fit draws a root seed. The recorded seed is only useful if replaying it
+    # reproduces the draw, and only honest if two unseeded calls do not share one seed.
+    anchor = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
     unseeded = replace(gaussian_result, estimator=replace_estimator_seed(gaussian_result, None))
     _record_refits(unseeded, monkeypatch)
-    recorded = simulated_confounding(
-        unseeded,
-        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
-    )
+    recorded = simulated_confounding(unseeded, grid=anchor)
+    second = simulated_confounding(unseeded, grid=anchor)
+    replayed = simulated_confounding(unseeded, grid=anchor, random_state=recorded.root_seed)
+
     assert isinstance(recorded.root_seed, int)
     assert recorded.root_seed >= 0
+    assert replayed.root_seed == recorded.root_seed
+    assert replayed.latent_seed == recorded.latent_seed == _latent_child_seed(recorded.root_seed)
+    assert second.root_seed != recorded.root_seed
+    assert second.latent_seed != recorded.latent_seed
 
 
 def replace_estimator_seed(result: Any, seed: int | None) -> Any:
@@ -275,17 +396,20 @@ def test_failed_refits_and_arm_loss_remain_visible(
     assert len(replay_calls) == 3
     assert replay.cells[1].failure == failed.cells[1].failure
 
-    latent_seed, _ = _child_seeds(53)
+    latent_seed = _latent_child_seed(53)
     latent = np.random.default_rng(latent_seed).normal(size=gaussian_result.data.n)
     treatment = _flip_mask(latent, 0.5).astype(float)
     arm_loss_data = gaussian_result.data.with_treatment(treatment)
     arm_loss_result = replace(gaussian_result, data=arm_loss_data)
-    _record_refits(arm_loss_result, monkeypatch)
+    arm_loss_calls = _record_refits(arm_loss_result, monkeypatch)
     arm_loss = simulated_confounding(
         arm_loss_result,
         grid=ConfounderStrengthGrid(treatment=(0.0, 0.5), outcome=(0.0,)),
         random_state=53,
     )
+    # ``with_treatment`` rejects the single-arm replacement before any refit runs, so the
+    # only cell that could call the estimator never reaches it.
+    assert arm_loss_calls == []
     assert arm_loss.failures[0].error_type == "DataError"
     assert "must keep every arm" in arm_loss.failures[0].message
     assert arm_loss.failures[0].seed == arm_loss.root_seed == 53
@@ -298,39 +422,195 @@ def test_failed_refits_and_arm_loss_remain_visible(
     assert replay_arm_loss.cells[1].failure == arm_loss.cells[1].failure
 
 
+def _prediction_change_fraction(design: Any, target: Any, index: int) -> float:
+    """Restate the class-prediction-change rule without the function under test.
+
+    Fit a logistic model on the scaled design, zero one column, and report the fraction
+    of rows whose predicted class changes.
+    """
+    model = LogisticRegression(max_iter=1000)
+    model.fit(design, target)
+    baseline = model.predict(design)
+    removed = np.array(design, copy=True)
+    removed[:, index] = 0.0
+    return float(np.mean(model.predict(removed) != baseline))
+
+
+@pytest.mark.parametrize(("covariate", "strength"), [("W1", 0.21666667), ("W2", 0.26666667)])
 def test_numeric_calibration_matches_the_declared_formulas(
-    gaussian_result: Any,
+    gaussian_result: Any, covariate: str, strength: float
 ) -> None:
     surface = simulated_confounding(
         gaussian_result,
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        benchmark_covariates=(covariate,),
+        random_state=7,
+    )
+    rows = {row.role: row for row in surface.calibrations}
+    index = gaussian_result.data.covariate_names.index(covariate)
+    design = StandardScaler().fit_transform(gaussian_result.data.covariates)
+    expected_treatment = _prediction_change_fraction(design, gaussian_result.data.treatment, index)
+    expected_outcome = float(
+        np.corrcoef(gaussian_result.data.covariates[:, index], gaussian_result.data.outcome)[0, 1]
+        * np.std(gaussian_result.data.outcome)
+    )
+
+    # Non-vacuity. A calibration that always reported zero would satisfy an equality
+    # against a formula it also defined.
+    assert rows["treatment"].strength > 0.0
+    assert rows["treatment"].strength == pytest.approx(strength)
+    assert rows["treatment"].strength == pytest.approx(expected_treatment, rel=1e-12)
+    assert rows["treatment"].strength == pytest.approx(
+        _binary_calibration(design, gaussian_result.data.treatment, index), rel=1e-12
+    )
+    assert rows["treatment"].family == "binomial"
+    assert rows["treatment"].method == "logistic class-prediction change fraction"
+    assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
+    assert abs(rows["outcome"].strength) > 0.0
+    assert rows["outcome"].family == "gaussian"
+    assert rows["outcome"].method == "signed standardized marginal coefficient"
+    assert rows["treatment"].covariate == rows["outcome"].covariate == covariate
+
+
+def test_binomial_outcome_calibration_uses_the_class_prediction_rule(
+    binomial_result: Any,
+) -> None:
+    """A binomial outcome calibrates by prediction change, not by a marginal coefficient.
+
+    The Gaussian branch reports a signed standardized coefficient. Only a binomial-family
+    fit reaches the second logistic call, so no Gaussian fixture covers it.
+    """
+    surface = simulated_confounding(
+        binomial_result,
         grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         benchmark_covariates=("W1",),
         random_state=7,
     )
     rows = {row.role: row for row in surface.calibrations}
-    index = gaussian_result.data.covariate_names.index("W1")
-    design = StandardScaler().fit_transform(gaussian_result.data.covariates)
-    expected_treatment = _binary_calibration(design, gaussian_result.data.treatment, index)
-    expected_outcome = float(
-        np.corrcoef(gaussian_result.data.covariates[:, index], gaussian_result.data.outcome)[0, 1]
-        * np.std(gaussian_result.data.outcome)
-    )
-    assert rows["treatment"].strength == expected_treatment
+    index = binomial_result.data.covariate_names.index("W1")
+    design = StandardScaler().fit_transform(binomial_result.data.covariates)
+    expected_outcome = _prediction_change_fraction(design, binomial_result.data.outcome, index)
+
+    assert surface.outcome_family == "binomial"
+    assert rows["outcome"].family == "binomial"
+    assert rows["outcome"].method == "logistic class-prediction change fraction"
+    assert rows["outcome"].method != "signed standardized marginal coefficient"
     assert rows["outcome"].strength == pytest.approx(expected_outcome, rel=1e-12)
-    assert "marginal" in rows["outcome"].method
+    assert rows["outcome"].strength == pytest.approx(0.15)
+    assert 0.0 < rows["outcome"].strength <= 1.0
+    assert rows["treatment"].strength == pytest.approx(
+        _prediction_change_fraction(design, binomial_result.data.treatment, index), rel=1e-12
+    )
+    assert rows["treatment"].strength > 0.0
 
 
-def test_frames_follow_pandas_and_polars_backends(gaussian_result: Any) -> None:
-    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    pandas_surface = simulated_confounding(gaussian_result, grid=grid)
-    assert isinstance(pandas_surface.to_frame(), pd.DataFrame)
-    assert isinstance(pandas_surface.calibration_frame(), pd.DataFrame)
+def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
+    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Populate every column before checking the frames.
 
-    pytest.importorskip("polars")
-    polars_result = _fit(backend="polars", seed=8)
-    polars_surface = simulated_confounding(polars_result, grid=grid)
-    assert type(polars_surface.to_frame()).__module__.startswith("polars")
-    assert type(polars_surface.calibration_frame()).__module__.startswith("polars")
+    An all-zero grid gives one anchor cell with no failure, and no benchmark covariate
+    gives an empty calibration frame. Both frames then agree with a build that dropped
+    the estimate, the displacement, or the retained failure.
+    """
+    calls = _record_refits(gaussian_result, monkeypatch, fail_call=2)
+    surface = simulated_confounding(
+        gaussian_result,
+        grid=_grid(),
+        benchmark_covariates=("W1", "W2"),
+        random_state=19,
+    )
+    frame = surface.to_frame()
+
+    assert isinstance(frame, pd.DataFrame)
+    assert list(frame.columns) == [
+        "treatment_strength",
+        "outcome_strength",
+        "estimate",
+        "displacement",
+        "error_type",
+        "message",
+    ]
+    assert len(frame) == 4
+    assert list(frame["treatment_strength"]) == [0.0, 0.0, 0.1, 0.1]
+    assert list(frame["outcome_strength"]) == [0.0, 0.2, 0.0, 0.2]
+
+    # Row 0 is the anchor and row 2 is the deliberate failure. Row 1 refit successfully,
+    # so its estimate and displacement must carry real numbers.
+    assert frame["estimate"][0] == gaussian_result["ate"].psi
+    assert frame["estimate"][1] == pytest.approx(surface.cells[1].estimate)
+    assert frame["displacement"][1] == pytest.approx(
+        frame["estimate"][1] - gaussian_result["ate"].psi
+    )
+    assert frame["displacement"][1] > 0.1
+    assert pd.isna(frame["error_type"][1])
+    assert pd.isna(frame["message"][1])
+
+    assert len(calls) == 3
+    assert pd.isna(frame["estimate"][2])
+    assert pd.isna(frame["displacement"][2])
+    assert frame["error_type"][2] == "RuntimeError"
+    assert "deliberate refit failure" in frame["message"][2]
+    assert [value if isinstance(value, str) else None for value in frame["error_type"]] == [
+        None,
+        None,
+        "RuntimeError",
+        None,
+    ]
+
+    calibrations = surface.calibration_frame()
+    assert isinstance(calibrations, pd.DataFrame)
+    assert list(calibrations.columns) == [
+        "covariate",
+        "role",
+        "family",
+        "strength",
+        "method",
+    ]
+    assert list(calibrations["covariate"]) == ["W1", "W1", "W2", "W2"]
+    assert list(calibrations["role"]) == ["treatment", "outcome", "treatment", "outcome"]
+    assert all(strength != 0.0 for strength in calibrations["strength"])
+
+
+def test_polars_frames_carry_estimates_displacements_and_failure_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep the polars half in its own test.
+
+    A mid-test ``importorskip`` would report the pandas checks as skipped whenever polars
+    is absent, and a skipped correctness check reads exactly like a passing one.
+    """
+    polars = pytest.importorskip("polars")
+    result = _fit(backend="polars", seed=8)
+    _record_refits(result, monkeypatch, fail_call=2)
+    surface = simulated_confounding(
+        result,
+        grid=_grid(),
+        benchmark_covariates=("W1",),
+        random_state=19,
+    )
+    frame = surface.to_frame()
+    calibrations = surface.calibration_frame()
+
+    assert isinstance(frame, polars.DataFrame)
+    assert isinstance(calibrations, polars.DataFrame)
+    assert frame.columns == [
+        "treatment_strength",
+        "outcome_strength",
+        "estimate",
+        "displacement",
+        "error_type",
+        "message",
+    ]
+    assert frame.height == 4
+    assert frame["estimate"][0] == result["ate"].psi
+    assert frame["displacement"][1] == pytest.approx(surface.cells[1].displacement)
+    assert frame["displacement"][1] != 0.0
+    assert frame["estimate"][2] is None
+    assert frame["error_type"][2] == "RuntimeError"
+    assert "deliberate refit failure" in frame["message"][2]
+    assert calibrations.columns == ["covariate", "role", "family", "strength", "method"]
+    assert calibrations.height == 2
 
 
 def test_grid_validation_and_binomial_boundary(
@@ -528,6 +808,84 @@ def test_non_result_and_ambiguous_alias_are_refused(
     with pytest.raises(ValueError, match="unavailable"):
         simulated_confounding(gaussian_result, estimand="unknown", grid=_grid())
     assert calls == []
+
+
+def test_summary_and_successful_cells_report_a_retained_failure(
+    gaussian_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cover the failure row of ``summary`` and the ``successful_cells`` property.
+
+    Every other test builds a complete surface, so the failure row and the filtered
+    property never run.
+    """
+    _record_refits(gaussian_result, monkeypatch, fail_call=2)
+    surface = simulated_confounding(gaussian_result, grid=_grid(), random_state=19)
+    text = surface.summary()
+    lines = text.splitlines()
+
+    assert not surface.complete
+    assert len(surface.failures) == 1
+    assert surface.successful_cells == (surface.cells[0], surface.cells[1], surface.cells[3])
+    assert len(surface.successful_cells) == 3
+    assert all(cell.estimate is not None for cell in surface.successful_cells)
+    assert surface.cells[2] not in surface.successful_cells
+
+    assert "failed" in text
+    assert "RuntimeError" in text
+    failure_row = next(line for line in lines if "failed" in line)
+    assert "RuntimeError" in failure_row
+    assert "0.1" in failure_row
+    # The successful rows carry a signed movement and no failure marker.
+    assert sum("failed" in line for line in lines) == 1
+    assert f"original estimate: {gaussian_result['ate'].psi:.5g}" in text
+    assert f"root={surface.root_seed}" in text
+    assert f"latent={surface.latent_seed}" in text
+    assert f"refit={surface.refit_seed}" in text
+    assert "+" in "".join(line for line in lines if "failed" not in line and "0.2" in line)
+
+
+@pytest.mark.parametrize(
+    ("role", "values", "error_type", "message"),
+    [
+        ("treatment", 0.25, TypeError, "non-empty sequence"),
+        ("outcome", 0.25, TypeError, "non-empty sequence"),
+        ("treatment", (), ValueError, "must not be empty"),
+        ("outcome", (), ValueError, "must not be empty"),
+        ("treatment", (0.0, "0.1"), TypeError, "only numeric values"),
+        ("outcome", (0.0, None), TypeError, "only numeric values"),
+        ("treatment", (0.0, True), TypeError, "only numeric values"),
+        ("outcome", (0.0, np.True_), TypeError, "only numeric values"),
+        ("treatment", (0.0, float("nan")), ValueError, "must be finite"),
+        ("outcome", (0.0, float("inf")), ValueError, "must be finite"),
+        ("treatment", (0.0, 0.1, 0.1), ValueError, "must not contain duplicates"),
+        ("outcome", (0.0, 0.2, 0.2), ValueError, "must not contain duplicates"),
+    ],
+)
+def test_strength_declarations_reject_every_malformed_form(
+    role: str, values: Any, error_type: type[Exception], message: str
+) -> None:
+    """Pin each ``_numeric_strengths`` branch, and pin the role named in each message.
+
+    ``bool`` is a ``Real``, so a boolean strength would otherwise pass as 0.0 or 1.0.
+    """
+    declaration = {"treatment": (0.0,), "outcome": (0.0,), role: values}
+    with pytest.raises(error_type, match=f"{role} strengths .*{message}"):
+        ConfounderStrengthGrid(**declaration)
+
+
+def test_the_grid_declaration_must_be_the_exact_public_type(gaussian_result: Any) -> None:
+    """A subclass is refused, so no near-miss declaration reaches a refit."""
+
+    class _NearMissGrid(ConfounderStrengthGrid):
+        pass
+
+    with pytest.raises(TypeError, match="exact ConfounderStrengthGrid declaration"):
+        simulated_confounding(gaussian_result, grid=_NearMissGrid(treatment=(0.0,), outcome=(0.0,)))
+    with pytest.raises(TypeError, match="exact ConfounderStrengthGrid declaration"):
+        simulated_confounding(
+            gaussian_result,
+            grid=SimpleNamespace(treatment=(0.0,), outcome=(0.0,)),  # type: ignore[arg-type]
+        )
 
 
 def test_result_contract_has_no_inferential_or_verdict_fields(gaussian_result: Any) -> None:

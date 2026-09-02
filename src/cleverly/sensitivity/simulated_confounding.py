@@ -136,9 +136,11 @@ class SimulatedConfoundingResult:
     root_seed : int
         Seed resolved for the complete operation.
     latent_seed : int
-        Child seed used to draw the shared latent vector.
+        Tagged child seed used to draw the shared latent vector.
     refit_seed : int
-        Child seed reused by every estimator refit.
+        Seed reused by every estimator refit. It equals ``root_seed``. A cell that leaves
+        the data unchanged then reproduces the zero-strength anchor exactly, provided the
+        root seed equals the seed of the original fit.
     treatment_family : str
         Treatment family covered by the perturbation law.
     outcome_family : str
@@ -434,9 +436,29 @@ def _validate_request(
     return estimator, names
 
 
-def _child_seeds(root_seed: int) -> tuple[int, int]:
-    children = np.random.SeedSequence(root_seed).spawn(2)
-    return tuple(int(child.generate_state(1)[0]) for child in children)  # type: ignore[return-value]
+_LATENT_SEED_TAG = 3
+
+
+def _latent_child_seed(root_seed: int) -> int:
+    """Derive the latent-draw seed from a tagged child of the root seed.
+
+    The tag keeps this stream apart from every other child stream built on the same
+    root. A plain ``SeedSequence(root_seed).spawn(...)`` reproduces the bootstrap
+    replicate seeds in :mod:`cleverly.inference.bootstrap`, and the tagged form in
+    :func:`cleverly.validation.refute._generated_child_seeds` uses tags one and two.
+
+    Parameters
+    ----------
+    root_seed : int
+        Seed resolved for the complete operation.
+
+    Returns
+    -------
+    int
+        Seed for the shared latent vector.
+    """
+    sequence = np.random.SeedSequence([root_seed, _LATENT_SEED_TAG])
+    return int(sequence.generate_state(1)[0])
 
 
 def _flip_mask(latent: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
@@ -538,13 +560,31 @@ def simulated_confounding(
     --------
     ConfounderStrengthGrid : The explicit strength declaration.
     cleverly.sensitivity.omitted_variable_bounds : A non-refit bias-bound analysis.
+
+    Notes
+    -----
+    Every cell refits under the resolved root seed, and the zero-strength anchor is the
+    original fit itself. The two agree on the cross-fitting folds when the root seed
+    equals the seed of the original fit, which is what ``random_state=None`` resolves to.
+    When the original fit declared no ``random_state``, the surface cannot reproduce the
+    folds of that fit, so movement near the anchor can still carry a fold artifact. An
+    explicit ``random_state`` other than the seed of the fit has the same effect.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
     estimator, calibration_names = _validate_request(result, estimand, grid, benchmark_covariates)
     calibrations = _calibrate(result, calibration_names)
     root_seed = resolve_assessment_seed(result, random_state)
-    latent_seed, refit_seed = _child_seeds(root_seed)
+    # Every cell refits under the root seed, not a spawned child.  The zero-strength
+    # anchor is the original fit, which ran under the estimator's own ``random_state``;
+    # a child seed would give every other cell different cross-fitting folds and charge
+    # the fold change to the perturbation.  ``TMLE.refit`` returns the original fit
+    # unchanged when the seed it gets equals the estimator's own, so an unperturbed cell
+    # reproduces the anchor exactly.  Same convention as ``cleverly.validation.refute``
+    # and ``cleverly.sensitivity.omitted_variable``.  The latent draw keeps its own
+    # tagged child seed, so the shared latent vector stays independent of the folds.
+    refit_seed = root_seed
+    latent_seed = _latent_child_seed(root_seed)
     latent = np.random.default_rng(latent_seed).normal(size=result.data.n)
     original = float(result[estimand].psi)
     cells: list[SimulatedConfoundingCell] = []

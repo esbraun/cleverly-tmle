@@ -119,12 +119,31 @@ def test_generated_outcome_cache_and_records_survive_round_trip(point_result) ->
 
 
 def test_simulated_confounding_cache_survives_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
-    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    report = point_result.sensitivity.simulated_confounding(grid=grid, random_state=17)
-    assert point_result.sensitivity.simulated_confounding(grid=grid, random_state=17) is report
+    # Nonzero on both perturbation paths, and one benchmark covariate. An all-zero grid
+    # is one anchor cell that never refits, and no benchmark covariate calibrates
+    # nothing, so the round trip would agree even if the restored fit refit no cell and
+    # calibrated no covariate.
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.3))
+    kwargs = {"grid": grid, "benchmark_covariates": ("W1",), "random_state": 17}
+    report = point_result.sensitivity.simulated_confounding(**kwargs)
+    assert point_result.sensitivity.simulated_confounding(**kwargs) is report
+
+    # The witness that the recorded cells carry a refit and a calibration at all.
+    assert report.complete
+    assert len(report.cells) == 4
+    assert report.cells[0].estimate == point_result["ate"].psi
+    assert report.cells[0].displacement == 0.0
+    assert any(abs(cell.displacement) > 0.05 for cell in report.cells[1:])
+    assert len(report.calibrations) == 2
+    assert all(row.strength != 0.0 for row in report.calibrations)
 
     restored = loads(dumps(point_result))
-    assert restored.sensitivity.simulated_confounding(grid=grid, random_state=17) == report
+    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert replayed == report
+    assert replayed.cells == report.cells
+    assert replayed.calibrations == report.calibrations
+    assert replayed.latent_seed == report.latent_seed
+    assert replayed.refit_seed == report.refit_seed == report.root_seed
 
 
 def test_measurement_error_cache_and_records_survive_round_trip(categorical_point_result) -> None:  # type: ignore[no-untyped-def]
