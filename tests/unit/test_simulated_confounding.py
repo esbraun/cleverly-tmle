@@ -1610,7 +1610,10 @@ def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
     natural = result.identified_effect.functional.interventions[0]
     assert natural.name == "natural course"
     assert natural.delta == 0.0
-    assert result[alias].psi == float(np.mean(result.data.outcome))
+    # The plug-in reaches ``E[Y]`` through the targeting arithmetic rather than through
+    # ``np.mean``, so the two agree to rounding rather than bit for bit.  The observed
+    # gap is one unit in the last place, and it varies with the platform BLAS.
+    assert result[alias].psi == pytest.approx(float(np.mean(result.data.outcome)), rel=1e-12)
     monkeypatch.setattr(
         result.estimator,
         "refit",
