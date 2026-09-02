@@ -455,10 +455,10 @@ def simultaneous_bands(
     for name, estimate in items:
         half_width = critical * estimate.std_error
         if estimate.scale == "ratio":
-            assert estimate.log_psi is not None
+            center = estimate.inference_value
             bands[name] = (
-                float(np.exp(estimate.log_psi - half_width)),
-                float(np.exp(estimate.log_psi + half_width)),
+                float(np.exp(center - half_width)),
+                float(np.exp(center + half_width)),
             )
         else:
             bands[name] = (estimate.psi - half_width, estimate.psi + half_width)

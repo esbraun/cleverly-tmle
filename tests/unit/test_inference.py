@@ -333,6 +333,40 @@ class TestParameterEstimate:
         )
         assert estimate.pvalue == pytest.approx(1.0)
 
+    def test_inference_value_centralizes_additive_and_ratio_scales(self) -> None:
+        additive = make_estimate("ate", 0.4, np.zeros(10), n=10)
+        ratio = ParameterEstimate(
+            name="rr",
+            psi=float(np.exp(0.5)),
+            influence_curve=np.zeros(10),
+            variance=0.0,
+            n=10,
+            n_clusters=10,
+            scale="ratio",
+            log_psi=0.5,
+        )
+
+        assert additive.inference_value == additive.psi
+        assert ratio.inference_value == ratio.log_psi == 0.5
+
+    def test_ratio_inference_value_refuses_a_missing_log_estimate(self) -> None:
+        estimate = ParameterEstimate(
+            name="rr",
+            psi=2.0,
+            influence_curve=np.zeros(10),
+            variance=0.0,
+            n=10,
+            n_clusters=10,
+            scale="ratio",
+        )
+
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.inference_value
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.ci
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.pvalue
+
     def test_to_dict_carries_the_reported_numbers(self) -> None:
         estimate = make_estimate("ate", 0.4, np.random.default_rng(0).normal(size=100), n=100)
         row = estimate.to_dict()

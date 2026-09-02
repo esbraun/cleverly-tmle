@@ -23,7 +23,12 @@ previous reader had is not a citation; a page number is.
   10.1111/j.1541-0420.2011.01685.x.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*.
-- Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
+- Gruber & van der Laan (2012),
+  [*tmle: An R Package for Targeted Maximum Likelihood Estimation*](https://doi.org/10.18637/jss.v051.i13),
+  *Journal of Statistical Software* 51(13), DOI 10.18637/jss.v051.i13. Section 2.1,
+  page 5, defines marginal risk and odds ratios from two counterfactual risks. Section 2.7,
+  page 10, reports intervals for both ratios on the log scale. Appendix A, page 34, gives
+  their log-scale influence curves.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
 - Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
   distinguishes the original fold-wise plug-in evaluation from the common targeting
@@ -33,9 +38,11 @@ previous reader had is not a citation; a page number is.
   `R/tmle3_Update.R` selects the
   `"validation"` likelihood when `cvtmle=TRUE` and fits one update to the stacked
   validation predictions; `R/Param_TSM.R` evaluates the treatment-specific mean and its
-  influence curve from those validation likelihood values. Used as an implementation
-  reference, not as an oracle for the estimand derivation or as a moving specification.
-  Levy (2018) is the stable marker for the default stacked construction.
+  influence curve from those validation likelihood values. `R/delta_functions.R` defines the
+  log-risk and log-odds contrasts. Used as an implementation reference, not as an oracle for the
+  estimand derivation or as a moving specification. The simulated-confounding surface reports its
+  ratio movement on the same log scale. Levy (2018) is the stable marker for the default stacked
+  construction.
 - The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
   here at [`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
   `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,

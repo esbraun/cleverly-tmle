@@ -121,6 +121,7 @@ class ParameterEstimate:
     Attributes
     ----------
     std_error : float
+    inference_value : float
     ci : tuple of float
     pvalue : float
 
@@ -176,13 +177,22 @@ class ParameterEstimate:
         return float(np.sqrt(self.variance))
 
     @property
+    def inference_value(self) -> float:
+        """Return the estimate on the scale used by its influence curve."""
+        if self.scale == "ratio":
+            if self.log_psi is None:
+                raise ValueError("a ratio-scale estimate requires log_psi for inference")
+            return float(self.log_psi)
+        return float(self.psi)
+
+    @property
     def ci(self) -> tuple[float, float]:
         """Confidence interval at level ``1 - alpha``."""
+        center = self.inference_value
         if self.scale == "ratio":
-            assert self.log_psi is not None
-            low, high = normal_ci(self.log_psi, self.std_error, self.alpha)
+            low, high = normal_ci(center, self.std_error, self.alpha)
             return (float(np.exp(low)), float(np.exp(high)))
-        return normal_ci(self.psi, self.std_error, self.alpha)
+        return normal_ci(center, self.std_error, self.alpha)
 
     @property
     def pvalue(self) -> float:
@@ -191,10 +201,7 @@ class ParameterEstimate:
         The null is zero for a level, difference or fraction and one for a ratio
         (i.e. zero on the log scale).
         """
-        if self.scale == "ratio":
-            assert self.log_psi is not None
-            return two_sided_pvalue(self.log_psi, self.std_error)
-        return two_sided_pvalue(self.psi, self.std_error)
+        return two_sided_pvalue(self.inference_value, self.std_error)
 
     @property
     def score(self) -> float:

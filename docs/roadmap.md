@@ -319,11 +319,11 @@ Do not expose a generic engine capability as a certified causal estimand.
 
 ### S5. Expand simulated confounding to the remaining estimands and estimators
 
-The shipped stress surface covers four source-backed compositions. The binary compositions report
-a backdoor-identified marginal ATE or one named counterfactual arm mean. They replay ordinary TMLE,
-collaborative TMLE, and complete-outcome DR-TMLE. The continuous compositions report one named
-marginal `ey_shift` policy mean or `ate_shift` contrast under exact ordinary TMLE. All compositions
-support Gaussian and binomial outcomes with one cross-fitting draw.
+The shipped stress surface covers binary marginal means, differences, risk ratios, and odds ratios.
+It replays ordinary TMLE, collaborative TMLE, and complete-outcome DR-TMLE for those parameters.
+The continuous compositions report one named marginal `ey_shift` policy mean or `ate_shift`
+contrast under exact ordinary TMLE. Ratio surfaces require a binomial outcome. Every other
+composition supports Gaussian and binomial outcomes. All compositions use one cross-fitting draw.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
 fixed while each cell replaces the observed dose and refits the estimator. Continuous strengths
@@ -340,7 +340,6 @@ contrast contract. The table below omits multi-arm treatment, which waits on pub
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
 | ATT and ATC | a law that fixes which observed-treatment population the parameter conditions on when the flip moves membership |
-| ratio and odds-ratio contrasts | a movement scale that suits a multiplicative contrast |
 | conditional strata, for an arm contrast, a modified-policy mean, or a modified-policy contrast | a per-stratum contract that shares one latent draw |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
@@ -356,9 +355,9 @@ They derive no bound, no calibration formula, and no inferential test. Every exp
 qualitative. It must not report a bound, a corrected estimate, a p-value, a confidence interval, a
 robustness value, or a pass/fail verdict.
 
-The shipped result reports movement as the refitted estimate minus the original estimate. That
-scale suits an additive parameter. A ratio target needs its own movement definition before it
-joins this surface.
+The shipped result records its movement scale. Additive parameters use the refitted estimate minus
+the original estimate. Ratio parameters use the difference between their stored log estimates.
+Each ratio cell still reports its point estimate on the ratio scale.
 
 Carry forward or fix one measured property of the shipped treatment axis. The prescribed
 upper-tail flip is non-differential misclassification, so the induced treatment-confounder

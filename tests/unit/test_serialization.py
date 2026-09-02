@@ -19,9 +19,15 @@ from cleverly import (
     ModifiedTreatmentPolicyEffect,
     PointTreatment,
     RegimeContrast,
+    RiskRatio,
     load,
 )
-from cleverly.datasets import make_longitudinal, make_nonlinear_ate, make_shift_dose
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_longitudinal,
+    make_nonlinear_ate,
+    make_shift_dose,
+)
 from cleverly.estimators.serialize import dumps, loads, save
 from cleverly.interventions import Shift
 from cleverly.sensitivity import ConfounderStrengthGrid
@@ -69,6 +75,28 @@ def binary_mean_result():  # type: ignore[no-untyped-def]
     return study.estimate(
         CounterfactualMean(treatment=1),
         outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=3,
+        learner_folds=2,
+        random_state=7,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture
+def risk_ratio_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_binary_outcome(n=300, seed=7)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+        ),
+    )
+    return study.estimate(
+        RiskRatio(),
+        outcome_learner=LogisticRegression(max_iter=1000),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=2,
@@ -217,6 +245,29 @@ def test_binary_mean_simulated_confounding_cache_survives_round_trip(
     replayed = restored.sensitivity.simulated_confounding(**kwargs)
     assert replayed == report
     assert replayed.cells == report.cells
+    assert replayed.latent_seed == report.latent_seed
+
+
+def test_ratio_simulated_confounding_cache_survives_round_trip(
+    risk_ratio_result,
+) -> None:  # type: ignore[no-untyped-def]
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.3)),
+        "random_state": 17,
+    }
+    report = risk_ratio_result.sensitivity.simulated_confounding(**kwargs)
+    assert risk_ratio_result.sensitivity.simulated_confounding(**kwargs) is report
+    assert report.complete
+    assert report.estimand == "rr"
+    assert report.movement_scale == "log_ratio"
+    assert all(report.to_frame()["movement_scale"] == "log_ratio")
+    assert any(abs(cell.displacement or 0.0) > 0.01 for cell in report.cells[1:])
+
+    restored = loads(dumps(risk_ratio_result))
+    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert replayed == report
+    assert replayed.cells == report.cells
+    assert replayed.movement_scale == report.movement_scale
     assert replayed.latent_seed == report.latent_seed
 
 
