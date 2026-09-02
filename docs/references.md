@@ -164,10 +164,13 @@ previous reader had is not a citation; a page number is.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
 - Fixed-weight audit of the same `lmtp` snapshot:
-  [`R/tmle.R`, lines 18-91](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/tmle.R#L18-L91)
-  keeps task weights on training rows and includes them in each targeting fluctuation.
-  This path supports weight routing for modified treatment policies. It does not implement a
-  simulated common-cause surface.
+  [`R/tmle.R`, lines 18-96](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/tmle.R#L18-L96)
+  keeps task weights on training rows and includes them in each targeting fluctuation. Its
+  `run_ensemble` call on lines 44-48 receives no sampling weights, so the nuisance fits are
+  unweighted. [`R/theta.R`, lines 1-15](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/theta.R#L1-L15)
+  supplies the weighted plug-in and influence-function aggregation. These locators support a
+  weight-routing audit for modified treatment policies. The registered comparison is unweighted,
+  and this source does not implement a simulated common-cause surface.
 - Clustered inference audit (2026-08-29): the same `lmtp` snapshot passes its task identifier to
   `ife::ife`. Pinned [`ife` 0.2.3](https://cran.r-project.org/src/contrib/Archive/ife/ife_0.2.3.tar.gz)
   requires equal identifiers before it subtracts arm objects. That subtraction uses the joint
