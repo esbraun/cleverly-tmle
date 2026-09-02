@@ -162,15 +162,16 @@ cached ones. `run_all` excludes both by default, and each skipped row names the 
 
 ## Sensitivity to untestable assumptions
 
-Identification rests on assumptions that no diagnostic can test. These instruments do not test them
-either. Each one puts a number on how wrong an assumption would have to be before the conclusion
-changes.
+Identification rests on assumptions that no diagnostic can test. These instruments do not test
+them either. Some derive a formal scale. The simulated surface reports point-estimate movement
+under a declared perturbation instead.
 
 | instrument | the assumption it stresses | the number it reports | what it assumes to report it |
 | --- | --- | --- | --- |
 | omitted-variable bounds | no unmeasured confounding | the largest bias an unmeasured confounder of declared strength can produce | the confounder acts through the outcome regression and the treatment mechanism, with declared partial-$R^2$ strength in each |
 | robustness value | no unmeasured confounding | the single strength at which the conclusion flips | that the two strengths are equal |
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
+| simulated common cause | no unmeasured confounding | point-estimate displacement across a declared strength grid | a supported latent perturbation family and plausible declared strengths |
 | E-value | no unmeasured confounding | the minimum risk-ratio association with both treatment and outcome that explains away the effect | a risk-ratio scale |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
@@ -192,6 +193,46 @@ because the median bound needs its own influence function.
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
 
 `benchmark()` is the only member of this group that refits.
+
+### Simulated common-cause stress surface
+
+**Why.** An analyst can inspect whether a fitted ATE moves under a plausible latent common cause.
+Sharma and Kiciman (2020) name this procedure. Sharma et al. (2021) state its qualitative limits.
+
+**What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
+at every declared treatment-strength and outcome-strength pair. It gives no corrected estimate,
+bound, p-value, confidence interval, robustness value, threshold, or pass/fail result.
+
+**How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
+and one refit seed across the complete grid. Each cell starts from the original data.
+
+For treatment strength $k_A$, the operation flips binary treatment when
+$U \geq \Phi^{-1}(1-k_A)$. Gaussian outcomes use $Y' = Y-k_YU$. Binomial outcomes use the same
+tail-flip construction as treatment. Flip strengths range from zero through 0.5.
+
+The `(0, 0)` cell returns the original estimate without a refit. A failed replacement or refit
+remains visible as a `ReplicationFailure`. Successful cells report their displacement from the
+original estimate.
+
+The first surface supports a backdoor-identified marginal ATE with binary treatment. It supports
+Gaussian and binomial outcomes. It replays ordinary TMLE, collaborative TMLE, and complete-outcome
+DR-TMLE with one cross-fitting draw.
+
+The operation refuses multi-arm and continuous treatment, other estimands, conditional effects,
+intermediate variables, missing outcomes, weights, clustering, repeated cross-fitting, and
+longitudinal results. It also refuses a result without replay state.
+
+Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
+For a binary variable, it reports the class-prediction change after one standardized column is set
+to zero. For a Gaussian variable, it reports `corr(W_j, V) * sd(V)`.
+
+Calibration does not select or modify the grid. It is not partial R-squared and does not reuse the
+omitted-variable `benchmark()` scale. Categorical calibration is refused because one encoded
+column does not represent one logical covariate.
+
+The maintained source is pinned at revision `2116d5c`. The implementation does not copy its
+cumulative cell mutations, schedule-dependent random draws, non-exact zero refit, automatic
+ranges, categorical encoded-column deletion, or unstructured failure behavior.
 
 ### E-value
 

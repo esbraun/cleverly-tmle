@@ -101,6 +101,10 @@ categorized API tables.
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
    cleverly.sensitivity.BenchmarkResult
+   cleverly.sensitivity.ConfounderStrengthGrid
+   cleverly.sensitivity.ObservedConfounderCalibration
+   cleverly.sensitivity.SimulatedConfoundingCell
+   cleverly.sensitivity.SimulatedConfoundingResult
    cleverly.sensitivity.EValue
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
@@ -110,6 +114,7 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.simulated_confounding
    cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck
    cleverly.validation.ScoreCheckRow

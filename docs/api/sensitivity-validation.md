@@ -14,6 +14,10 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
    cleverly.sensitivity.BenchmarkResult
+   cleverly.sensitivity.ConfounderStrengthGrid
+   cleverly.sensitivity.ObservedConfounderCalibration
+   cleverly.sensitivity.SimulatedConfoundingCell
+   cleverly.sensitivity.SimulatedConfoundingResult
    cleverly.sensitivity.EValue
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
@@ -23,6 +27,7 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.simulated_confounding
 ```
 
 ## Validation

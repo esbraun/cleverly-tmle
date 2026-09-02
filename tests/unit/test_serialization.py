@@ -21,6 +21,7 @@ from cleverly import (
 )
 from cleverly.datasets import make_longitudinal, make_nonlinear_ate
 from cleverly.estimators.serialize import dumps, loads, save
+from cleverly.sensitivity import ConfounderStrengthGrid
 from cleverly.validation import (
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
@@ -115,6 +116,15 @@ def test_generated_outcome_cache_and_records_survive_round_trip(point_result) ->
     cached = restored.diagnostics.refute(**kwargs)
     assert cached == report
     assert cached["dummy_outcome"].child_seeds == report["dummy_outcome"].child_seeds
+
+
+def test_simulated_confounding_cache_survives_round_trip(point_result) -> None:  # type: ignore[no-untyped-def]
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    report = point_result.sensitivity.simulated_confounding(grid=grid, random_state=17)
+    assert point_result.sensitivity.simulated_confounding(grid=grid, random_state=17) is report
+
+    restored = loads(dumps(point_result))
+    assert restored.sensitivity.simulated_confounding(grid=grid, random_state=17) == report
 
 
 def test_measurement_error_cache_and_records_survive_round_trip(categorical_point_result) -> None:  # type: ignore[no-untyped-def]

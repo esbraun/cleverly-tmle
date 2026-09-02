@@ -158,8 +158,34 @@ print(all_sensitivity.summary())
 
 Support and truncation stability live under `result.diagnostics`. Point-treatment sensitivity
 methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
-`contour()`, `evalue()`, `missingness()`, and `tipping_gamma()`. A combined call excludes refits and
-retargets by default, and each skipped row names the flag that would run it. Longitudinal
+`contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
+simulated surface needs an explicit strength grid, so `run_all()` never starts it.
+
+```python
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+grid = ConfounderStrengthGrid(
+    treatment=(0.0, 0.05, 0.10),
+    outcome=(0.0, 0.25, 0.50),
+)
+surface = ate_result.sensitivity.simulated_confounding(
+    grid=grid,
+    benchmark_covariates=("W1", "W2"),
+    random_state=21,
+)
+movements = surface.to_frame()
+calibration = surface.calibration_frame()
+```
+
+The operation adds one common latent variable to the treatment and outcome. It refits the complete
+estimator at each nonzero strength pair. The zero cell equals the original estimate exactly.
+
+Read the output as a qualitative stress surface. It is not a corrected estimate, bound, p-value,
+confidence interval, robustness value, or pass/fail result. Calibration reports model-dependent
+source conventions for numeric covariates. It does not change the declared grid.
+
+A combined call excludes refits and retargets by default. Each skipped row names the flag that
+would run it. Longitudinal
 operations without a published derivation are reported unavailable rather than borrowing
 point-treatment formulas, and each refusal gives the reason its own capability row declares.
 

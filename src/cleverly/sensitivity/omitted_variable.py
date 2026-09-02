@@ -56,6 +56,7 @@ from ..exceptions import CapabilityError, refuse_after_repeats
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
+from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
@@ -756,12 +757,7 @@ def benchmark(
     # refutation does: an estimator with no ``random_state`` redraws its folds every time,
     # and the result is cached on the fit and survives ``save``.  Resolve one seed, run the
     # refit under it, and report it.  Same convention as ``cleverly.validation.refute``.
-    if random_state is not None:
-        seed = random_state
-    elif estimator.random_state is not None:
-        seed = estimator.random_state
-    else:
-        seed = int(np.random.SeedSequence().generate_state(1)[0])
+    seed = resolve_assessment_seed(result, random_state)
 
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     short_data = result.data.without_covariates(names)

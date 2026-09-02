@@ -308,7 +308,15 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         """``run_all`` must learn this from the row, not from the operation's name."""
         rows = {row.operation: row for row in point_result.sensitivity.capabilities}
         assert rows["benchmark"].requires_arguments == ("covariates",)
+        assert rows["simulated_confounding"].requires_arguments == ("grid",)
         assert rows["omitted_confounding"].requires_arguments == ()
+
+    def test_simulated_surface_is_never_launched_implicitly(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(include_refits=True)
+        item = report["simulated_confounding"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert "grid" in item.detail
+        assert any("simulated_confounding" in step for step in item.next_steps)
 
     def test_every_argument_free_row_really_is_argument_free(self, point_result) -> None:  # type: ignore[no-untyped-def]
         """The gate that would have caught this: call what the report claims it can call."""
