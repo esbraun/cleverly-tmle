@@ -364,21 +364,33 @@ the influence-curve penalty, cross-validated risk, and the plug-in. The outcome-
 uses it in the outcome fits, categorical mechanism fit, targeting, and plug-in.
 
 The fixed-weight C-TMLE tests cover greedy selection, both data-adaptive ordered preorders, an
-explicit ordering, discrete selection, and outcome-adaptive fitting. They independently reconstruct
-a selected path's weighted loss, influence-curve penalty, fold assignment, and nested
-cross-validated risk without calling the production scoring methods. Component mutations drop
-weights from the loss or influence penalty and move the stored nested-risk array. End-to-end
-mutations drop all selector weights, drop outcome-adaptive mechanism weights, or substitute
-ordinary TMLE; each changes a nonzero surface cell.
+explicit ordering, discrete selection, and outcome-adaptive fitting. They independently rebuild a
+selected path's weighted squared loss, weighted log-likelihood loss, influence-curve penalty, fold
+assignment, and nested cross-validated risk. They do not call the production scoring methods.
+Component mutations strip the weights from the loss, the influence curve, the targeting step, the
+fold nuisance fit, the intercept mechanism, or the candidate mechanism. Each mutation moves the
+stored nested-risk array.
+
+A greedy search on a binomial fit changes the covariate path it selects when the weights leave the
+risk. An ordered search on a Gaussian fit changes its covariate path in the same way. An explicit
+ordering carries no such witness, because the reader declares that order. End-to-end mutations drop
+every selector weight or drop the outcome-adaptive mechanism weights. Each one changes a nonzero
+surface cell.
+
+The tests rebuild the vector-target penalty and the ratio penalty once each. The `ey1`, `ey0`, and
+`or` estimands reuse the same arm-curve and delta-method arithmetic, and they carry no separate
+dropped-weight mutation.
 
 The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight argument. It supplies no
 weighted numerical comparator. This surface therefore claims no weighted R parity and broadens no
 interval claim.
 
-The canonical R `ctmle` 0.1.2 source at commit `18de559f` also accepts no observation-weight
-argument. Its `ctmleGeneral`, `stage2_general`, and `cv_general` paths use unweighted operations.
-The archived `ctmle3` source supplies outcome-adaptive control flow but no weighted comparison.
-The fixed-weight C-TMLE surface therefore claims parity with neither implementation.
+The canonical R `ctmle` 0.1.2 source at commit `18de559` also accepts no observation-weight
+argument. The `ctmleDiscrete` entry point, which the pinned selector-parity study calls, takes
+none, and neither do its `stage2` and `cv` helpers. The `ctmleGeneral`, `stage2_general`, and
+`cv_general` paths use unweighted operations. The archived `ctmle3` source supplies
+outcome-adaptive control flow but no weighted comparison. The fixed-weight C-TMLE surface
+therefore claims parity with neither implementation.
 
 Conditional on the observed rows and fixed weights, the simulation draws each latent value
 independently from a standard normal law without using either. After that draw, the realized

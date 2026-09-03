@@ -761,17 +761,6 @@ def _validate_request(
         )
     if data.cluster is not None:
         raise CapabilityError("simulated_confounding does not support clustered fits")
-    weighted_estimator_supported = type(estimator) is TMLE or (
-        treatment_family == "binary" and type(estimator) in {CTMLE, DRTMLE}
-    )
-    if data.weights_name is not None and not weighted_estimator_supported:
-        raise CapabilityError(
-            "simulated_confounding supports fixed observation weights with ordinary TMLE, "
-            "binary complete-outcome collaborative TMLE, and binary complete-outcome DR-TMLE "
-            "only; "
-            f"weighted {type(estimator).__name__} lacks perturb-and-refit evidence for this "
-            "composition"
-        )
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(

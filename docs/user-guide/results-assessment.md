@@ -306,9 +306,11 @@ confidence interval, robustness value, or pass/fail result. Calibration reports 
 source conventions for numeric covariates. It does not change the declared grid.
 
 The operation refuses estimated weights before it draws the latent vector. The fitted result does
-not store the weight model needed after a perturbation. A fixed-weight collaborative fit reruns
-its selector or outcome-adaptive treatment fit at each cell. It uses the normalized row weights
-in every nuisance fit, loss, penalty, targeting step, and plug-in.
+not store the weight model needed after a perturbation.
+
+A fixed-weight collaborative fit reruns its selector or outcome-adaptive treatment fit at each
+cell. It uses the normalized row weights in every nuisance fit, loss, penalty, targeting step, and
+plug-in.
 
 The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
 collaborative surface makes no numerical parity claim with those implementations.

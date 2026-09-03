@@ -166,8 +166,9 @@ Fixed probability weights replace the empirical law by its normalized weighted v
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
 cross-validated risk and the plug-in. The outcome-adaptive route uses it in both nuisance
 fits, targeting and the plug-in. The simulated common-cause surface keeps each weight with
-its observed row and reruns this complete fit. Canonical ``ctmle`` and archived ``ctmle3``
-provide no weighted comparator, so no numerical parity is claimed for that composition.
+its observed row and reruns this complete fit. That surface refuses a clustered fit and
+refuses estimated weights. Canonical ``ctmle`` and archived ``ctmle3`` provide no weighted
+comparator, so no numerical parity is claimed for that composition.
 
 State of the evidence
 ---------------------
@@ -747,7 +748,7 @@ class CTMLE(TMLE):
             [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
         )
         observed_probability = propensity.values[np.arange(data.n), observed_columns]
-        risk = float(-np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
+        risk = float(-np.sum(np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
         features = tuple(f"Qbar[{data.arm_label(arm)}]" for arm in arms)
         nuisance_diagnostics = dict(base.diagnostics)
         nuisance_diagnostics.pop("propensity", None)
