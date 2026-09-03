@@ -324,6 +324,61 @@ The [technical contract](technical-reference/validation-methods.md#simulated-com
 records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
+#### Next increment: fixed-weight DR-TMLE stress surfaces
+
+Allow fixed probability weights for each complete-outcome binary DR-TMLE composition that the
+surface already supports without weights. Keep weighted collaborative TMLE refused. Its tested
+components do not yet provide a fitted nonuniform-law construction or a source-backed comparison.
+
+This increment composes two existing contracts. Sharma and Kiciman (2020) and pinned DoWhy commit
+`2116d5c` supply the binary perturbations and the complete estimator refit. Benkeser et al. (2017),
+Theorem 1, supply the complete-outcome DR-TMLE corrected curve and its remainder conditions.
+
+The fixed weights define the tilted law $dP_w=w\,dP/E_P[w]$. The existing DR-TMLE exact-law tests
+transport every conditional expectation, treatment mechanism, marginal mean, and score to
+$P_w$. They also retain a wrong-transport control that leaves a nonzero remainder.
+
+The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight argument. It supplies the
+reduced-regression and fluctuation control flow, but it supplies no weighted numerical comparator.
+Do not claim weighted R parity or broaden any interval claim in this increment.
+
+Let the shared latent value remain independent and standard normal. The tilted joint law still
+factorizes because the fixed weight depends only on the observed row:
+
+$$
+d(P_w\times\Phi)(o,u)=\frac{w(o)}{E_P[w]}\,dP(o)\,d\Phi(u).
+$$
+
+Keep the normalized weight on its row during each treatment and outcome replacement. Then call the
+stored DR-TMLE estimator's existing complete refit. Each cell targets the same supported parameter
+on its perturbed weighted empirical law.
+
+Do not add another perturbation or refit branch. `CausalData.with_treatment` and
+`CausalData.with_outcome` already preserve row-aligned weight provenance. The shared surface loop
+already delegates repeats and estimator-specific work to `estimator.refit`.
+
+Acceptance requires a real nonuniform-weight DR-TMLE refit for every supported binary parameter
+family. A representative additive cell and ratio cell must equal a manual replacement and refit.
+The ratio witness must compare stored log estimates.
+
+Tests must retain weights, `WeightSpec`, the weight column, and the root seed on every replacement.
+They must cover repeat medians, cache replay, persistence, and common weight-scale invariance. A
+nonzero control must fail if the refit drops the weights or silently uses ordinary TMLE.
+
+The exact tilted-law tests remain the scientific acceptance instrument. They cover uniform-law
+identity, both single-guard expansions, a nonzero unguarded remainder, and the wrong-law mutation.
+The fitted surface tests add the applied perturb-and-refit witness that those identities cannot
+supply.
+
+Continue every current pre-draw refusal for estimated weights, missing outcomes, clusters, and
+unsupported weight provenance. Continue the fixed-weight collaborative-TMLE refusal. The surface
+remains qualitative and reports no corrected estimate, bound, interval, p-value, or verdict.
+
+Update the technical contract, user guide, source notes, and refusal table. After implementation,
+split the first remaining row below so it names fixed-weight collaborative TMLE alone. No registered
+study needs regeneration because this increment changes assessment eligibility only. It changes no
+estimator, nuisance fit, target, influence curve, interval, study input, artifact, or verdict.
+
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits two theory stops. Multi-arm treatment waits on published
 theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
