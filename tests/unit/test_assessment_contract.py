@@ -463,7 +463,7 @@ def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # ty
 
 
 @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
-def test_a_refusal_is_a_warning_and_later_diagnostics_still_run(  # type: ignore[no-untyped-def]
+def test_a_refusal_is_unavailable_and_later_diagnostics_still_run(  # type: ignore[no-untyped-def]
     point_result, monkeypatch: pytest.MonkeyPatch, facade: str
 ) -> None:
     """One unsupported diagnostic must not discard accepted diagnostic reports."""
@@ -482,7 +482,7 @@ def test_a_refusal_is_a_warning_and_later_diagnostics_still_run(  # type: ignore
     point_result.assessment_cache.clear()
     report = surface.run_all()
 
-    assert report[refused].status is AssessmentStatus.WARNING
+    assert report[refused].status is AssessmentStatus.UNAVAILABLE
     assert "declined this request" in report[refused].detail
     assert report[accepted].status not in {
         AssessmentStatus.NOT_APPLICABLE,
@@ -503,7 +503,7 @@ def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result
     requested = {"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
     report = repeated.sensitivity.run_all(arguments=requested)
 
-    assert report["omitted_confounding"].status is AssessmentStatus.WARNING
+    assert report["omitted_confounding"].status is AssessmentStatus.UNAVAILABLE
     assert "median-combined repeats" in report["omitted_confounding"].detail
     assert report["evalue"].status is AssessmentStatus.COMPLETED
     assert report.report("evalue").estimand == "ate"
@@ -531,7 +531,7 @@ def test_a_refusal_before_seed_resolution_keeps_the_seed_unspecified(
         include_refits=True,
         arguments={"refute": {"tests": ("bootstrap_measurement_error",)}},
     )
-    assert report["refute"].status is AssessmentStatus.WARNING
+    assert report["refute"].status is AssessmentStatus.UNAVAILABLE
     assert "BootstrapMeasurementError declaration" in report["refute"].detail
     assert report["refute"].arguments["random_state"] is None
     assert report["refute"].arguments["tests"] == ("bootstrap_measurement_error",)
@@ -750,3 +750,163 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
         curve = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
         assert curve is not None
         assert hasattr(point_result.sensitivity, "evalue")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"simulated_confounding": {"grid": object()}},
+        {"simulated_confounding": {"grid": object(), "estimand": "ate"}},
+        {"benchmark": {"covariates": ("W1",)}},
+        {"evalue": {"estimand": "ate"}},
+    ],
+)
+def test_unavailable_longitudinal_arguments_never_bind_point_data(longitudinal_result, arguments):
+    result = dataclasses.replace(longitudinal_result, assessment_cache={})
+    battery = result.assess(arguments=arguments)
+    assert battery.sensitivity[next(iter(arguments))].status is AssessmentStatus.UNAVAILABLE
+    with pytest.raises(TypeError):
+        result.assess(arguments={"simulated_confounding": {"not_a_keyword": 1}})
+
+
+@pytest.mark.parametrize("name", ["score_equations", "support", "nuisance_models"])
+def test_explicit_surface_retrieves_validation_owned_diagnostics(point_result, name):
+    battery = point_result.assess()
+    assert battery.report(name, surface="diagnostics") is battery.diagnostics.report(name)
+    assert battery.report(name) is battery.report(name, surface="validation")
+    assert sum(item.name == name for _, item in battery._presented()) == 1
+    with pytest.raises(KeyError, match="surface"):
+        battery.report(name, surface="wrong")
+
+
+def test_completed_none_payload_survives_retrieval_and_pickle(point_result, tmp_path):
+    import joblib
+
+    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
+
+    item = AssessmentItem(
+        "tipping_gamma", AssessmentStatus.COMPLETED, "no tipping point", _report=None
+    )
+    omitted = AssessmentItem("missingness", AssessmentStatus.UNAVAILABLE, "missing artifacts")
+    surface = DiagnosticReport((item, omitted))
+    battery = AssessmentReport(ValidationReport(()), DiagnosticReport(()), surface)
+    path = tmp_path / "none-report.joblib"
+    joblib.dump(battery, path)
+    for report in (battery, joblib.load(path)):
+        assert report.report("tipping_gamma") is None
+        assert report.sensitivity.report("tipping_gamma") is None
+        assert report.sensitivity.reports() == {"tipping_gamma": None}
+        with pytest.raises(KeyError):
+            report.report("missingness")
+
+
+@pytest.mark.parametrize(
+    "mse, expected", [(float("nan"), AssessmentStatus.WARNING), (0.1, AssessmentStatus.COMPLETED)]
+)
+def test_longitudinal_loss_warning(mse, expected):
+    from cleverly.assessment import (
+        INTERPRETERS,
+        LongitudinalNuisanceDiagnostics,
+        LongitudinalNuisanceRow,
+    )
+
+    report = LongitudinalNuisanceDiagnostics(
+        (LongitudinalNuisanceRow("always", None, None, 1, 12, mse),)
+    )
+    assert INTERPRETERS["nuisance_models"](report, None).status is expected
+
+
+@pytest.mark.parametrize(
+    "supplied, phrase",
+    [
+        ({}, "at the default strengths"),
+        ({"cf_y": 0.03}, "at the default cf_d strength"),
+        ({"cf_d": 0.03}, "at the default cf_y strength"),
+        ({"cf_y": 0.03, "cf_d": 0.03}, None),
+    ],
+)
+def test_default_strength_provenance_uses_supplied_arguments(point_result, supplied, phrase):
+    row = point_result.sensitivity.run_all(arguments={"omitted_confounding": supplied})[
+        "omitted_confounding"
+    ]
+    if phrase is None:
+        assert "default" not in row.detail
+    else:
+        assert phrase in row.detail
+    assert row.arguments["cf_y"] == row.arguments["cf_d"] == 0.03
+
+
+def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_result, monkeypatch):
+    result = dataclasses.replace(point_result, assessment_cache={})
+    module = importlib.import_module("cleverly.validation.refute")
+    calls = []
+    original = module.refute
+
+    def tracked(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    tracked.__signature__ = inspect.signature(original)
+    monkeypatch.setattr(module, "refute", tracked)
+    arguments = {"n_replicates": 1, "tests": ("placebo",)}
+    direct = result.diagnostics.refute(**arguments)
+    combined = result.diagnostics.run_all(include_refits=True, arguments={"refute": arguments})
+    assert combined.report("refute") is direct
+    assert result.diagnostics.refute(**combined["refute"].arguments) is direct
+    assert calls == [1]
+
+
+def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_result):
+    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
+
+    repeated = dataclasses.replace(
+        point_result, repeats=point_result.repeats * 2, assessment_cache={}
+    )
+    sensitivity = repeated.sensitivity.run_all()
+    warning = AssessmentItem("support", AssessmentStatus.WARNING, "positivity warning")
+    battery = AssessmentReport(ValidationReport((warning,)), DiagnosticReport(()), sensitivity)
+    assert "support" in [item.name for item in battery.attention]
+    assert "omitted_confounding" not in [item.name for item in battery.attention]
+    assert "omitted_confounding" in [item.name for item in battery.omissions]
+
+
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
+    point_result, backend, monkeypatch, tmp_path
+):
+    import joblib
+
+    from cleverly.assessment import _CachedFrame
+
+    result = dataclasses.replace(
+        point_result,
+        data=dataclasses.replace(point_result.data, backend=backend),
+        assessment_cache={},
+    )
+    calls = []
+    original = _CachedFrame.from_frame.__func__
+
+    def tracked(cls, frame, backend):
+        calls.append(1)
+        return original(cls, frame, backend)
+
+    monkeypatch.setattr(_CachedFrame, "from_frame", classmethod(tracked))
+    report = result.sensitivity.run_all()
+    assert calls == [1]
+    retained = report.report("contour")
+    expected = (
+        retained.to_dict(as_series=False)
+        if backend == "polars"
+        else retained.to_dict(orient="list")
+    )
+    if backend == "pandas":
+        retained.iloc[0, 0] = 99
+    else:
+        retained[0, 0] = 99
+    fresh = report.report("contour")
+    actual = fresh.to_dict(as_series=False) if backend == "polars" else fresh.to_dict(orient="list")
+    assert actual == expected
+    path = tmp_path / f"{backend}.joblib"
+    joblib.dump(report, path)
+    assert type(joblib.load(path).report("contour")) is type(fresh)
+    assert calls == [1]

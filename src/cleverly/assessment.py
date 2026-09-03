@@ -13,8 +13,9 @@ import importlib
 import inspect
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from enum import StrEnum
+from enum import Enum, StrEnum
 from functools import cached_property
 from typing import Any, Literal
 
@@ -365,10 +366,6 @@ def _family(result: Any) -> str:
 
 
 def _method(result: Any) -> str:
-    method = getattr(result, "method", None)
-    name = getattr(method, "name", None)
-    if isinstance(name, str) and name:
-        return name
     declared = getattr(result, "assessment_method", None)
     if isinstance(declared, str) and declared:
         return declared
@@ -379,24 +376,63 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     """All operation declarations for the result's family."""
 
     family = _family(result)
-    return tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    return tuple(
+        replace(
+            row,
+            available=False,
+            status=AssessmentStatus.NOT_APPLICABLE,
+            reason=(
+                "the fitted DR-TMLE guard subtracts no correction term"
+                if _method(result) == "drtmle"
+                else "the fitted method does not use the correction system"
+            ),
+        )
+        if row.operation == "corrections"
+        and row.available
+        and not getattr(result, "solved_corrections", False)
+        else row
+        for row in rows
+    )
+
+
+class _AbsentReport(Enum):
+    TOKEN = "absent report"
 
 
 @dataclass(frozen=True)
 class AssessmentItem:
-    """One immutable result in a combined diagnostic or validation report."""
+    """One immutable result in a combined diagnostic or validation report.
+
+    Parameters
+    ----------
+    name : str
+        Operation name.
+    status : AssessmentStatus
+        Outcome or omission status.
+    detail : str
+        Interpreted findings or the omission reason.
+    next_steps : tuple of str
+        Suggested follow-up actions.
+    _report : Any
+        Retained payload, including a legitimate None, or the private absence sentinel.
+        Excluded from equality. Dataframes use immutable cached storage.
+    arguments : mapping of str to Any
+        Effective invocation arguments, including resolved defaults and seeds.
+        Excluded from equality because argument values can contain arrays.
+    """
 
     name: str
     status: AssessmentStatus
     detail: str
     next_steps: tuple[str, ...] = ()
-    _report: Any = field(default=None, compare=False, repr=False)
+    _report: Any = field(default=_AbsentReport.TOKEN, compare=False, repr=False)
     arguments: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def report(self) -> Any:
-        """Return the operation's retained report object."""
-        return _unpack_cached(self._report)
+        """Return the retained payload, or None when this operation did not run."""
+        return None if self._report is _AbsentReport.TOKEN else _unpack_cached(self._report)
 
 
 @dataclass(frozen=True)
@@ -410,7 +446,7 @@ class DiagnosticReport:
     include_refits : bool
         Whether the run allowed operations that refit nuisance models.
     include_retargets : bool
-        Whether the run allowed operations that retarget cached nuisances.
+        Whether the run allowed moderate retargets, beyond the default cheap retargets.
     backend : str or None
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
 
@@ -423,7 +459,7 @@ class DiagnosticReport:
     Notes
     -----
     A skipped or refused item remains in the report. A capability known to be unsupported
-    is an omission. A refusal raised during an aggregate run is an informative warning,
+    is an omission. A refusal raised during an aggregate run remains unavailable,
     and later operations still run.
 
     Examples
@@ -509,13 +545,12 @@ class DiagnosticReport:
         Raises
         ------
         KeyError
-            If the operation did not run or returned no object.
+            If the operation did not run.
         """
         item = self[name]
-        value = item.report
-        if value is None:
-            raise KeyError(f"diagnostic {name!r} did not run or retained no report")
-        return value
+        if item._report is _AbsentReport.TOKEN:
+            raise KeyError(f"diagnostic {name!r} did not run")
+        return item.report
 
     def reports(self) -> dict[str, Any]:
         """Return retained objects for operations that ran.
@@ -525,7 +560,9 @@ class DiagnosticReport:
         dict of str to Any
             Operation names mapped to their retained reports.
         """
-        return {item.name: item.report for item in self.items if item.report is not None}
+        return {
+            item.name: item.report for item in self.items if item._report is not _AbsentReport.TOKEN
+        }
 
     def next_steps(self) -> tuple[str, ...]:
         """Return de-duplicated next steps in report order.
@@ -705,7 +742,7 @@ class AssessmentReport:
         return self.validation.backend
 
     def _presented(self) -> tuple[tuple[str, AssessmentItem], ...]:
-        owned = {"score_equations", "support", "nuisance_models"}
+        owned = {item.name for item in self.validation.items}
         return (
             *(("validation", item) for item in self.validation.items),
             *(("diagnostics", item) for item in self.diagnostics.items if item.name not in owned),
@@ -751,9 +788,15 @@ class AssessmentReport:
         Any
             Retained operation report.
         """
+        if surface is not None:
+            if surface not in {"validation", "diagnostics", "sensitivity"}:
+                raise KeyError(f"unknown assessment surface {surface!r}")
+            candidates = tuple((surface, item) for item in getattr(self, surface).items)
+        else:
+            candidates = self._presented()
         matches = [
             (owner, item)
-            for owner, item in self._presented()
+            for owner, item in candidates
             if item.name == name and (surface is None or owner == surface)
         ]
         if not matches:
@@ -763,10 +806,10 @@ class AssessmentReport:
             raise KeyError(
                 f"assessment report {name!r} is ambiguous across {owners}; pass surface="
             )
-        value = matches[0][1].report
-        if value is None:
-            raise KeyError(f"assessment operation {name!r} did not run or retained no report")
-        return value
+        item = matches[0][1]
+        if item._report is _AbsentReport.TOKEN:
+            raise KeyError(f"assessment operation {name!r} did not run")
+        return item.report
 
     def to_frame(self, data: Any = None) -> Any:
         """Return one row per presented surface and operation.
@@ -877,10 +920,7 @@ class _CachedFrame:
 
     @classmethod
     def from_frame(cls, frame: Any, backend: str | None) -> _CachedFrame:
-        if type(frame).__module__.startswith("polars"):
-            payload = frame.to_dict(as_series=False)
-        else:
-            payload = frame.to_dict(orient="list")
+        payload = _frame_payload(frame)
         columns = tuple(str(column) for column in payload)
         values = tuple(
             tuple(_python_scalar(value) for value in payload[column]) for column in columns
@@ -929,6 +969,9 @@ def _cache_key(operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]) -
     return f"{operation}:{json.dumps(normalized, sort_keys=True, separators=(',', ':'))}"
 
 
+_RETAIN_PACKED: ContextVar[bool] = ContextVar("assessment_retain_packed", default=False)
+
+
 def _cached(
     result: Any,
     operation: str,
@@ -938,11 +981,10 @@ def _cached(
 ) -> Any:
     cache = result.assessment_cache
     key = _cache_key(operation, args, kwargs)
-    if key in cache:
-        return _unpack_cached(cache[key])
-    value = compute()
-    cache[key] = _pack_cached(value, getattr(result.data, "backend", None))
-    return value
+    if key not in cache:
+        value = compute()
+        cache[key] = _pack_cached(value, getattr(result.data, "backend", None))
+    return cache[key] if _RETAIN_PACKED.get() else _unpack_cached(cache[key])
 
 
 @dataclass(frozen=True)
@@ -1505,33 +1547,28 @@ class _CapabilityFacade:
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
         raise NotImplementedError  # pragma: no cover - subclasses declare their own
 
+    @cached_property
+    def _capability_map(self) -> dict[str, AssessmentCapability]:
+        method = _method(self._result)
+        return {
+            item.operation: item
+            if not item.available
+            or method in item.methods
+            or (method == "unknown" and item.execution == "summarize")
+            else replace(
+                item,
+                available=False,
+                status=AssessmentStatus.NOT_APPLICABLE,
+                reason=f"the fitted method {method!r} does not support this operation",
+            )
+            for item in self.capabilities
+        }
+
     def capability(self, operation: str) -> AssessmentCapability:
-        for item in self.capabilities:
-            if item.operation == operation:
-                method = _method(self._result)
-                if method not in item.methods:
-                    reason = (
-                        "the fitted method does not use the correction system"
-                        if operation == "corrections"
-                        else f"the fitted method {method!r} does not support this operation"
-                    )
-                    return replace(
-                        item,
-                        available=False,
-                        status=AssessmentStatus.NOT_APPLICABLE,
-                        reason=reason,
-                    )
-                if operation == "corrections" and method == "drtmle":
-                    reduced = getattr(self._result, "extra", {}).get("drtmle")
-                    if not tuple(getattr(reduced, "guard", ())):
-                        return replace(
-                            item,
-                            available=False,
-                            status=AssessmentStatus.NOT_APPLICABLE,
-                            reason="the fitted DR-TMLE guard subtracts no correction term",
-                        )
-                return item
-        raise KeyError(f"unknown {self._kind} {operation!r}")
+        try:
+            return self._capability_map[operation]
+        except KeyError:
+            raise KeyError(f"unknown {self._kind} {operation!r}") from None
 
     def _require(self, operation: str) -> AssessmentCapability:
         item = self.capability(operation)
@@ -1620,17 +1657,21 @@ class _CapabilityFacade:
                 try:
                     if capability.accepts_random_state and random_state is not None:
                         operation_arguments["random_state"] = random_state
-                    report = getattr(self, capability.operation)(**operation_arguments)
+                    token = _RETAIN_PACKED.set(True)
+                    try:
+                        report = getattr(self, capability.operation)(**operation_arguments)
+                    finally:
+                        _RETAIN_PACKED.reset(token)
                 except CapabilityError as error:
                     # A capability refusal is an expected result of asking a broad battery to
-                    # inspect one fitted object.  Keep it visible as a warning and continue to
+                    # inspect one fitted object.  Keep it visible as an omission and continue to
                     # later rows.  Catch only the refusal type: ``KeyError`` and ``TypeError``
                     # are structural defects, and turning either into a scientific-sounding
                     # report row would hide an implementation error.
                     items.append(
                         AssessmentItem(
                             capability.operation,
-                            AssessmentStatus.WARNING,
+                            AssessmentStatus.UNAVAILABLE,
                             f"the operation declined this request: {error}",
                             (
                                 f"call result.{self._attribute}.{capability.operation}() "
@@ -1646,6 +1687,19 @@ class _CapabilityFacade:
                         capability.operation, operation_arguments, report
                     )
                     interpreted = INTERPRETERS[capability.operation](report, self._result)
+                    if capability.operation == "omitted_confounding":
+                        defaults = [
+                            name for name in ("cf_y", "cf_d") if name not in operation_arguments
+                        ]
+                        if defaults:
+                            provenance = (
+                                "at the default strengths"
+                                if len(defaults) == 2
+                                else f"at the default {defaults[0]} strength"
+                            )
+                            interpreted = replace(
+                                interpreted, detail=f"{provenance}; {interpreted.detail}"
+                            )
                     items.append(
                         replace(
                             interpreted,
@@ -1698,7 +1752,7 @@ class _CapabilityFacade:
                 )
             if "random_state" in kwargs and not capability.accepts_random_state:
                 raise TypeError(f"{operation!r} does not accept random_state")
-            self._bind_arguments(operation, kwargs, partial=True)
+            self._bind_arguments(operation, kwargs, partial=True, resolve=capability.available)
             validated[operation] = kwargs
         return validated
 
@@ -1720,36 +1774,95 @@ class _CapabilityFacade:
         raise NotImplementedError  # pragma: no cover - diagnostics never need this route
 
     def _bind_arguments(
-        self, operation: str, kwargs: Mapping[str, Any], *, partial: bool
+        self,
+        operation: str,
+        kwargs: Mapping[str, Any],
+        *,
+        partial: bool,
+        args: tuple[Any, ...] = (),
+        resolve: bool = True,
     ) -> inspect.BoundArguments:
         function, result_first = self._routed_callable(operation)
-        positional: tuple[Any, ...] = (self._result,) if result_first else (self,)
-        if self._attribute == "sensitivity" and SENSITIVITY_ROUTES[operation].needs_estimand:
-            positional += self._with_default_parameter(operation, (), dict(kwargs))
-        binder = (
-            inspect.signature(function).bind_partial
-            if partial
-            else inspect.signature(function).bind
-        )
-        return binder(*positional, **kwargs)
+        if (
+            resolve
+            and self._attribute == "sensitivity"
+            and SENSITIVITY_ROUTES[operation].needs_estimand
+        ):
+            args = self._with_default_parameter(operation, args, dict(kwargs))
+        first = self._result if result_first else self
+        signature = inspect.signature(function)
+        binder = signature.bind_partial if partial else signature.bind
+        return binder(first, *args, **kwargs)
 
     def _effective_arguments(
-        self, operation: str, kwargs: Mapping[str, Any], report: Any
+        self,
+        operation: str,
+        kwargs: Mapping[str, Any],
+        report: Any,
+        *,
+        args: tuple[Any, ...] = (),
     ) -> dict[str, Any]:
-        bound = self._bind_arguments(operation, kwargs, partial=False)
-        bound.apply_defaults()
-        function, _ = self._routed_callable(operation)
-        first = next(iter(inspect.signature(function).parameters))
-        effective = dict(bound.arguments)
-        effective.pop(first, None)
-        for name, parameter in inspect.signature(function).parameters.items():
-            if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-                effective.update(effective.pop(name, {}))
-        if effective.get("random_state") is None:
-            resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
-            if resolved is not None:
-                effective["random_state"] = resolved
+        bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
+        effective = _bound_arguments(bound, report)
+        if operation == "evalue" and effective.get("estimand") is None:
+            # Explicit OR requests choose the approximation; keep None replayable there.
+            source = getattr(report, "source_estimand", None)
+            if source is not None:
+                selection = self._evalue_selection(None)
+                if (
+                    selection.branch != "derived_rr"
+                    or _arm_source_target(self._result, source) != "or"
+                ):
+                    effective["estimand"] = source
         return effective
+
+    def _evalue_selection(self, estimand: str | None) -> Any:
+        raise NotImplementedError
+
+    def _invoke(self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Any:
+        function, _ = self._routed_callable(operation)
+        bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
+        effective = _bound_arguments(bound)
+
+        def compute() -> Any:
+            return function(*bound.args, **bound.kwargs)
+
+        if operation == "evalue":
+            from .sensitivity.evalue import _evalue_from_selection
+
+            selection = self._evalue_selection(effective["estimand"])
+
+            def compute() -> Any:
+                return _evalue_from_selection(self._result, selection)
+
+        report = _cached(self._result, f"{self._attribute}.{operation}", (), effective, compute)
+        resolved = _bound_arguments(bound, report)
+        if _normalize(resolved) != _normalize(effective):
+            self._result.assessment_cache[
+                _cache_key(f"{self._attribute}.{operation}", (), resolved)
+            ] = _pack_cached(report, self._result.data.backend)
+        return report
+
+
+def _arm_source_target(result: Any, source: str) -> str:
+    from .sensitivity._parameters import arm_parameter_keys
+
+    return str(arm_parameter_keys(result)[source].estimand)
+
+
+def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[str, Any]:
+    """Canonicalize one public invocation for execution, caching, and replay."""
+    bound.apply_defaults()
+    effective = dict(bound.arguments)
+    effective.pop(next(iter(bound.signature.parameters)), None)
+    for name, parameter in bound.signature.parameters.items():
+        if parameter.kind is inspect.Parameter.VAR_KEYWORD:
+            effective.update(effective.pop(name, {}))
+    if effective.get("random_state") is None:
+        resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
+        if resolved is not None:
+            effective["random_state"] = resolved
+    return effective
 
 
 def _cost_refusal(
@@ -1765,7 +1878,11 @@ def _cost_refusal(
     missingness tilt retarget cached nuisances without refitting any.  One flag made
     whichever class it did not name run silently under the other's permission.
     """
-    allowed = {"summarize": True, "refit": include_refits, "retarget": include_retargets}
+    allowed = {
+        "summarize": True,
+        "refit": include_refits,
+        "retarget": include_retargets or capability.cost == "cheap",
+    }
     if allowed[capability.execution]:
         return None
     work = "refits nuisance models" if capability.execution == "refit" else "retargets the fit"
@@ -1823,7 +1940,7 @@ class DiagnosticsFacade(_CapabilityFacade):
     _kind = "diagnostic"
     _attribute = "diagnostics"
 
-    @property
+    @cached_property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
         """Return declared operations and their availability."""
         rows = assessment_capabilities(self._result)
@@ -2101,20 +2218,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 "refutation requires nuisance refits, but this estimator cannot be "
                 f"reconstructed; unavailable slots: {list(missing)}"
             )
-        from .validation.refute import refute
-
-        bound = inspect.signature(refute).bind(self._result, **kwargs)
-        bound.apply_defaults()
-        effective = dict(bound.arguments)
-        effective.pop("result", None)
-
-        return _cached(
-            self._result,
-            "diagnostics.refute",
-            (),
-            effective,
-            lambda: refute(self._result, **kwargs),
-        )
+        return self._invoke("refute", (), kwargs)
 
     def run_all(
         self,
@@ -2131,7 +2235,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         include_refits : bool
             Include operations that refit nuisance models.
         include_retargets : bool
-            Include operations that retarget cached nuisance predictions.
+            Include moderate retargets; cheap E-value retargets run by default.
         arguments : mapping or None
             Per-operation keyword arguments.
         random_state : int or None
@@ -2271,6 +2375,13 @@ def _nuisance_item(report: Any, _result: Any) -> AssessmentItem:
         )
     if isinstance(report, LongitudinalNuisanceDiagnostics):
         finite = [row.mse for row in report.rows if np.isfinite(row.mse)]
+        if not finite:
+            return AssessmentItem(
+                "nuisance_models",
+                AssessmentStatus.WARNING,
+                "no finite stagewise held-out loss is available",
+                ("inspect result.diagnostics.nuisance_models()",),
+            )
         detail = f"{len(finite)} stagewise held-out loss value(s) are available"
     else:
         detail = f"{len(getattr(report, 'models', ()))} nuisance model report(s) are available"
@@ -2293,7 +2404,9 @@ def _correction_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _frame_payload(frame: Any) -> dict[str, list[Any]]:
+def _frame_payload(frame: Any) -> dict[str, Any]:
+    if isinstance(frame, _CachedFrame):
+        return dict(zip(frame.columns, frame.values, strict=True))
     if type(frame).__module__.startswith("polars"):
         return frame.to_dict(as_series=False)
     return frame.to_dict(orient="list")
@@ -2304,6 +2417,10 @@ def _range(values: Sequence[Any]) -> tuple[float, float] | None:
     return (min(finite), max(finite)) if finite else None
 
 
+def _format_range(values: tuple[float, float] | None) -> str:
+    return "no finite values" if values is None else f"[{values[0]:.4g}, {values[1]:.4g}]"
+
+
 def _truncation_item(report: Any, _result: Any) -> AssessmentItem:
     payload = _frame_payload(report)
     bounds = _range(payload.get("bound", payload.get("g_bound", ())))
@@ -2311,7 +2428,7 @@ def _truncation_item(report: Any, _result: Any) -> AssessmentItem:
     return AssessmentItem(
         "truncation_curve",
         AssessmentStatus.COMPLETED,
-        f"evaluated bound range {bounds}; estimate range {estimates}",
+        f"evaluated bound range {_format_range(bounds)}; estimate range {_format_range(estimates)}",
     )
 
 
@@ -2362,8 +2479,9 @@ def _contour_item(report: Any, _result: Any) -> AssessmentItem:
         "contour",
         AssessmentStatus.COMPLETED,
         f"grid {len(set(payload['cf_d']))} x {len(set(payload['cf_y']))}; "
-        f"cf_d range {_range(payload['cf_d'])}; cf_y range {_range(payload['cf_y'])}; "
-        f"value range {_range(payload['value'])}; inspect the retained frame",
+        f"cf_d range {_format_range(_range(payload['cf_d']))}; "
+        f"cf_y range {_format_range(_range(payload['cf_y']))}; "
+        f"value range {_format_range(_range(payload['value']))}; inspect the retained frame",
     )
 
 
@@ -2410,7 +2528,8 @@ def _missingness_item(report: Any, _result: Any) -> AssessmentItem:
     return AssessmentItem(
         "missingness",
         AssessmentStatus.COMPLETED,
-        f"gamma range {_range(payload['gamma'])}; estimate range {_range(payload['psi'])}",
+        f"gamma range {_format_range(_range(payload['gamma']))}; "
+        f"estimate range {_format_range(_range(payload['psi']))}",
     )
 
 
@@ -2489,15 +2608,15 @@ def _support_warning(report: Any) -> str | None:
     return None
 
 
-def validate_result(result: Any) -> ValidationReport:
+def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -> ValidationReport:
     """Run only cheap, cache-only checks appropriate to this fitted method."""
 
     def compute() -> ValidationReport:
-        diagnostics = result.diagnostics
+        facade = result.diagnostics if diagnostics is None else diagnostics
         reports = {
-            "score_equations": diagnostics.score_equations(),
-            "support": diagnostics.support(),
-            "nuisance_models": diagnostics.nuisance_models(),
+            "score_equations": facade.score_equations(),
+            "support": facade.support(),
+            "nuisance_models": facade.nuisance_models(),
         }
         items = [
             replace(
@@ -2509,6 +2628,45 @@ def validate_result(result: Any) -> ValidationReport:
         return ValidationReport(tuple(items), result.data.backend)
 
     return _cached(result, "validate", (), {}, compute)
+
+
+def assess_result(
+    result: Any,
+    *,
+    include_refits: bool = False,
+    include_retargets: bool = False,
+    arguments: Mapping[str, Mapping[str, Any]] | None = None,
+    random_state: int | None = None,
+) -> AssessmentReport:
+    """Compose a battery from one pair of operation facades."""
+    if arguments is not None and not isinstance(arguments, Mapping):
+        raise TypeError("arguments must be a mapping from operation names to mappings")
+    supplied = {} if arguments is None else dict(arguments)
+    diagnostics, sensitivity = result.diagnostics, result.sensitivity
+    diagnostic_names = set(diagnostics._capability_map)
+    sensitivity_names = set(sensitivity._capability_map)
+    unknown = sorted(set(supplied) - diagnostic_names - sensitivity_names)
+    if unknown:
+        raise KeyError(f"unknown assessment operation(s): {unknown}")
+    diagnostic_arguments = {k: v for k, v in supplied.items() if k in diagnostic_names}
+    sensitivity_arguments = {k: v for k, v in supplied.items() if k in sensitivity_names}
+    diagnostics._validated_arguments(diagnostic_arguments, random_state)
+    sensitivity._validated_arguments(sensitivity_arguments, random_state)
+    return AssessmentReport(
+        validation=validate_result(result, diagnostics),
+        diagnostics=diagnostics.run_all(
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=diagnostic_arguments,
+            random_state=random_state,
+        ),
+        sensitivity=sensitivity.run_all(
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=sensitivity_arguments,
+            random_state=random_state,
+        ),
+    )
 
 
 def _reduction_conditioning_warning(result: Any) -> str | None:
@@ -2737,10 +2895,37 @@ class SensitivityFacade(_CapabilityFacade):
             ),
         )
 
-    def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
-        from .sensitivity.evalue import _evalue_capability
+    @cached_property
+    def _evalue_selections(self) -> dict[str | None, Any]:
+        return {}
 
-        available, status, reason, execution = _evalue_capability(self._result, estimand)
+    def _evalue_selection(self, estimand: str | None) -> Any:
+        from .sensitivity.evalue import _EValueRefusal, _select_evalue
+
+        if estimand not in self._evalue_selections:
+            try:
+                selected: Any = _select_evalue(self._result, estimand)
+            except _EValueRefusal as error:
+                selected = (error.status, str(error))
+            self._evalue_selections[estimand] = selected
+        selected = self._evalue_selections[estimand]
+        if isinstance(selected, tuple):
+            raise _EValueRefusal(*selected)
+        return selected
+
+    def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
+        from .sensitivity.evalue import _EValueRefusal
+
+        status: str | None
+        reason: str | None
+        execution: Literal["summarize", "retarget"]
+        try:
+            selected = self._evalue_selection(estimand)
+        except _EValueRefusal as error:
+            available, status, reason, execution = False, error.status, str(error), "summarize"
+        else:
+            available, status, reason = True, None, None
+            execution = "retarget" if selected.branch == "derived_rr" else "summarize"
         return _capability(
             "evalue",
             _family(self._result),
@@ -2750,7 +2935,7 @@ class SensitivityFacade(_CapabilityFacade):
             status=AssessmentStatus.PASSED if status is None else AssessmentStatus(status),
             reason=reason,
             execution=execution,
-            cost="moderate" if execution == "retarget" else "cheap",
+            cost="cheap",
         )
 
     def _capability_for_arguments(
@@ -2969,24 +3154,7 @@ class SensitivityFacade(_CapabilityFacade):
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         if not explicit_evalue:
             self._require(operation)
-        route = SENSITIVITY_ROUTES[operation]
-        if route.needs_estimand:
-            # Before the cache key, so an implicit call and the explicit call it resolves
-            # to share one entry rather than computing the same bound twice.
-            args = self._with_default_parameter(operation, args, kwargs)
-        module = importlib.import_module(f".sensitivity.{route.module}", __package__)
-        function = getattr(module, route.function)
-        bound = inspect.signature(function).bind(self._result, *args, **kwargs)
-        bound.apply_defaults()
-        effective = dict(bound.arguments)
-        effective.pop(next(iter(inspect.signature(function).parameters)), None)
-        return _cached(
-            self._result,
-            f"sensitivity.{operation}",
-            (),
-            effective,
-            lambda: function(self._result, *args, **kwargs),
-        )
+        return self._invoke(operation, args, kwargs)
 
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
@@ -3059,7 +3227,7 @@ class SensitivityFacade(_CapabilityFacade):
         include_refits : bool
             Include operations that refit nuisance models.
         include_retargets : bool
-            Include operations that retarget cached nuisance predictions.
+            Include moderate retargets; cheap E-value retargets run by default.
         arguments : mapping or None
             Per-operation keyword arguments.
         random_state : int or None

@@ -519,6 +519,8 @@ class CTMLE(TMLE):
     correlation filter rejected never reaches the search that might have wanted it.
     """
 
+    _assessment_method = "collaborative_tmle"
+
     def __init__(
         self,
         *,

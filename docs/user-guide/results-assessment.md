@@ -10,8 +10,7 @@ print(battery.summary())
 support = battery.report("support")
 ```
 
-The default call reads stored artifacts. It does not refit nuisance models or retarget cached
-nuisances. `battery.attention` contains explicit failures and warnings. `battery.omissions`
+The default call reads stored artifacts and runs the cheap E-value retarget when applicable. It does not refit nuisance models. `battery.attention` contains explicit failures and warnings. `battery.omissions`
 contains analyses that were not applicable or were unavailable.
 
 Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
@@ -86,21 +85,21 @@ correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
-uses an existing diagnostic rule or records an expected refusal during an aggregate run.
+uses an existing diagnostic rule. An expected refusal becomes `unavailable`.
 The aggregate run then continues with other accepted diagnostics. Direct calls still raise the
 precise refusal. `not_applicable` and `unavailable` appear in `omissions`.
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
 contrast and a missingness analysis without missing outcomes. An operation can also refuse after
 invocation, such as omitted-confounding sensitivity on median-combined repeats. That row becomes
-a `warning`, retains its invocation arguments, and names the direct call. Other accepted
+an `unavailable` omission, retains its invocation arguments, and names the direct call. Other accepted
 diagnostics still run. Structural errors, such as invalid argument names, still stop the report.
 
-A combined report runs only the operations that summarise stored artifacts. The two costlier
+A combined report runs summaries and cheap retargets by default. The two costlier
 classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
 nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
-ones. An E-value that derives a risk ratio also requires `include_retargets=True`. Explicit
-odds-ratio and reported risk-ratio E-values summarize existing estimates:
+ones. These moderate retargets require `include_retargets=True`. The E-value retarget is cheap and runs by default.
+Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
@@ -108,6 +107,16 @@ everything = result.diagnostics.run_all(include_refits=True, include_retargets=T
 
 Pass required choices with `arguments={"operation": {...}}`. The report row retains the effective
 arguments and the returned object. Use `report.report(name)` to retrieve that object.
+A completed `tipping_gamma` search can return `None` when its interval contains no tipping point.
+Use `battery.report(name, surface="diagnostics")` to retrieve a diagnostic that also appears under validation.
+
+The E-value row records its source alias, such as `estimand="ate"`, for replay.
+A derived ratio can have a different output alias, such as `rr`.
+For a default odds-ratio source, the row keeps `estimand=None` because an explicit alias chooses the approximation.
+The returned E-value records that source in `source_estimand`.
+
+The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
+It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
 
 Use generated outcomes to test the full pipeline against a declared effect. The dummy operation
 uses independent Gaussian noise and declares zero. The simulated operation uses a standardized

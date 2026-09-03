@@ -362,7 +362,7 @@ class ScoreCheck:
             "  step recorded and the term the reported curve carries are not the same",
             "  functional of the state this fit returned.  That is a defect in the",
             "  implementation and iterating longer will not fix",
-            "  it.  See res.diagnostics.corrections().",
+            "  it. Inspect the score rows; guarded DR-TMLE also exposes corrections().",
         ]
 
     def _worst_ratio(self) -> float:
@@ -414,8 +414,8 @@ class ScoreCheck:
                         "returned. That is a defect in the implementation rather than",
                         "a fit that failed to converge, and the standard errors do not "
                         "describe this estimate.",
-                        "See res.diagnostics.corrections() for the recomputation and "
-                        "the clipping bias.",
+                        "Inspect the score rows. For guarded DR-TMLE, inspect "
+                        "res.diagnostics.corrections() for the correction identities.",
                     ]
                 )
         elif self.corrected:

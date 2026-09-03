@@ -143,25 +143,28 @@ presentation choice.
 | --- | --- |
 | `passed` | the check ran and its condition holds |
 | `failed` | the check ran and its condition does not hold |
-| `warning` | the check ran and needs qualification, or an aggregate run caught an expected refusal |
+| `warning` | the check ran and an explicit diagnostic rule requires qualification |
 | `completed` | a descriptive analysis ran and defines no pass or fail rule |
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, and a derivation or a fitted artifact is missing |
 
 Known omissions carry the capability's reason and remain `unavailable` or `not_applicable`.
-An expected refusal after invocation becomes a `warning` and retains the bound invocation
+An expected refusal after invocation becomes `unavailable` and retains the bound invocation
 arguments. The report continues with other accepted operations. Structural errors still propagate.
 
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
 declares, for each operation and each result family, the answer, the required artifacts, the cost,
-and the execution class. The two costly classes are disjoint and are named separately. A **refit**
+and the execution class. The two costly classes are disjoint and are named separately.
+
+A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
-cached ones. `run_all` excludes both by default, and each skipped row names the flag that runs it.
+cached ones. `run_all` includes cheap retargets, such as an E-value derivation, by default.
+It excludes refits and moderate retargets. Each skipped row names the flag that runs it.
 The `arguments` mapping supplies required analyst choices for named operations.
 
 An operation can decline caller-supplied arguments after its capability precheck. The combined
-report records that refusal as a warning and continues with later operations. A direct call still
+report records that refusal as an omission and continues with later operations. A direct call still
 raises `CapabilityError` with the full refusal. Structural exceptions still stop the report.
 
 The top-level `random_state` reaches `refute`, `benchmark`, and `simulated_confounding` only.
@@ -513,22 +516,29 @@ The selected path depends on the reported contrast and retained artifacts.
 | request | E-value path |
 | --- | --- |
 | reported risk ratio | use it directly and mark the result exact |
-| unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs require `include_retargets=True` |
-| explicit reported odds ratio | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE with no estimator and a reported reference-arm mean | hold the baseline risk fixed and mark the result approximate |
-| Gaussian marginal ATE | standardize by the observed outcome standard deviation and mark the result approximate |
-| ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
+| unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
+| explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
+| binary ATE without exact retarget support, with a finite positive reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
+| Gaussian ATE, ATT, or ATC | standardize by the observed outcome standard deviation and mark the result approximate |
+| binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| collaborative TMLE, DR-TMLE, CV evaluation, or controlled direct effect needing derivation | report `unavailable` and name the missing evidence or target |
+| binomial ATE without exact retarget support or a valid reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 
 Several eligible contrasts require an explicit alias. Combined runs select availability and cost
 from that alias before applying the cost flags.
 
+Raw results compose arm identities forward from fitted treatment metadata.
+Explicit structured keys remain authoritative. No routing step parses display aliases.
+The fixed-baseline approximation ignores baseline sampling error and requires the contrast's matching reference arm.
+Its availability does not depend on persistence or estimator retention.
+
 For rare outcomes, the odds ratio itself approximates the risk ratio. The square-root
 transformation addresses common outcomes and can lie above or below the risk ratio.
 See [VanderWeele's analysis](https://pmc.ncbi.nlm.nih.gov/articles/PMC5617805/).
+
 The Gaussian path first applies Chinn's odds-ratio to standardized-mean-difference relation.
 It then applies the common-outcome square-root approximation before calculating the E-value.
+The resulting conversion is $RR \approx \exp((1.81 / 2)d) = \exp(0.905d)$.
 This retains an approximate analysis, not an exact continuous-outcome risk ratio.
 
 ### Missingness tilt and tipping gamma

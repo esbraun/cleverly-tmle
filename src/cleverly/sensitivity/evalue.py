@@ -39,12 +39,13 @@ Conversions for other effect scales are approximations and are flagged as such:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ..exceptions import CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
+from ._parameters import arm_parameter_keys
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -52,7 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = ["EValue", "evalue", "evalue_from_rr"]
 
 #: Chinn's OR-to-SMD factor followed by the common-outcome square-root conversion.
-_SMD_TO_LOG_RR = 0.91
+_SMD_TO_LOG_RR = 1.81 / 2
 
 
 def evalue_from_rr(risk_ratio: float) -> float:
@@ -105,6 +106,8 @@ class EValue:
         Whether reaching the risk-ratio scale needed an approximate conversion.
     note : str
         Explanation of that conversion, when one was used.
+    source_estimand : str or None
+        Reported source alias, which can differ from a derived output alias.
     """
 
     estimand: str
@@ -115,6 +118,7 @@ class EValue:
     limit: float
     approximate: bool
     note: str = ""
+    source_estimand: str | None = None
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -183,11 +187,12 @@ class _EValueSelection:
 
 def _default_estimand(result: TMLEResult) -> str:
     """Choose a reported contrast from structured parameter identities."""
+    keys = arm_parameter_keys(result)
     for target in ("rr", "or", "ate", "att", "atc"):
         candidates = [
             name
             for name in result.estimates
-            if (key := result.parameter_keys.get(name)) is not None
+            if (key := keys.get(name)) is not None
             and key.estimand == target
             and key.axis == "arm"
             and key.reference is not None
@@ -216,13 +221,13 @@ def _baseline_mean(result: TMLEResult, estimand: str) -> str | None:
     :func:`~cleverly.sensitivity._parameters.arm_parameters`, so ``ey0`` and ``ey[low]``
     are both recognised -- whichever of them the fit was asked for.
     """
-    parameter = result.parameter_keys.get(estimand)
+    parameter = arm_parameter_keys(result).get(estimand)
     if parameter is None or parameter.reference is None:
         return None
     return next(
         (
             name
-            for name, candidate in result.parameter_keys.items()
+            for name, candidate in arm_parameter_keys(result).items()
             if name in result.estimates
             and candidate.axis == "arm"
             and candidate.estimand in {"ey", "ey0", "ey1"}
@@ -241,15 +246,13 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             "unavailable",
             "no longitudinal sensitivity derivation is registered for an E-value",
         )
-    if not result.parameter_keys:
-        raise _EValueRefusal(
-            "unavailable", "E-values require structured parameter keys retained by the result"
-        )
+    if result.data.is_continuous_treatment:
+        raise _EValueRefusal("not_applicable", "an E-value requires a discrete arm contrast")
     explicit = estimand is not None
     source = _default_estimand(result) if estimand is None else estimand
     if source not in result.estimates:
         raise _EValueRefusal("unavailable", f"estimand {source!r} was not requested in this fit")
-    key = result.parameter_keys.get(source)
+    key = arm_parameter_keys(result).get(source)
     if key is None:
         raise _EValueRefusal("unavailable", f"estimand {source!r} has no structured parameter key")
     if key.axis != "arm" or key.reference is None or key.stratum is not None:
@@ -261,6 +264,8 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         return _EValueSelection(source, "reported_rr")
     if key.estimand == "or" and explicit:
         return _EValueSelection(source, "reported_or")
+    if result.config.family == "gaussian" and key.estimand in {"ate", "att", "atc"}:
+        return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(
             "unavailable",
@@ -272,46 +277,30 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             "not_applicable",
             f"an E-value has no supported two-arm contrast for target {key.estimand!r}",
         )
-    if result.config.family == "gaussian":
-        if key.estimand != "ate":
-            raise _EValueRefusal("unavailable", "a Gaussian E-value requires a marginal ATE")
-        return _EValueSelection(source, "gaussian_ate")
     refusal = _risk_ratio_refusal(result, source)
     if refusal is None:
         return _EValueSelection(source, "derived_rr")
+    if key.estimand == "or":
+        return _EValueSelection(source, "reported_or")
+    if result.intermediate_value is not None:
+        raise _EValueRefusal("unavailable", refusal)
     baseline = _baseline_mean(result, source)
-    if (
-        key.estimand == "ate"
-        and result.assessment_method == "tmle"
-        and result.estimator is None
-        and baseline is not None
-        and result[baseline].psi > 0
-    ):
+    if baseline is not None and np.isfinite(result[baseline].psi) and result[baseline].psi > 0:
         return _EValueSelection(source, "fixed_baseline_ate")
-    if key.estimand == "ate" and result.estimator is None and baseline is None:
-        refusal += "; the matching reported reference-arm mean is also absent"
+    refusal += "; a finite positive reported reference-arm mean is also absent"
     raise _EValueRefusal("unavailable", refusal)
-
-
-def _evalue_capability(
-    result: TMLEResult, estimand: str | None = None
-) -> tuple[bool, str | None, str | None, Literal["summarize", "retarget"]]:
-    """Return availability, refusal, and execution class for the actual request."""
-    try:
-        selected = _select_evalue(result, estimand)
-    except _EValueRefusal as error:
-        return False, error.status, str(error), "summarize"
-    return True, None, None, "retarget" if selected.branch == "derived_rr" else "summarize"
 
 
 def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     """E-value for a fitted result.
 
-    ``estimand=None`` prefers a reported risk ratio. For an eligible typed binomial
+    ``estimand=None`` prefers a reported risk ratio. For an eligible binomial
     ordinary-TMLE result that reports only a marginal ATE or odds ratio, it retargets the
     retained nuisances to the matching exact risk ratio. An explicit odds-ratio request
     preserves the caller's chosen square-root approximation. Routing uses structured
-    parameter keys; display aliases are never parsed for arm identity.
+    parameter keys or forward-composed fitted arm identities; display aliases are never parsed.
+    Unsupported exact retargets can use a reported reference risk for an approximate ATE
+    conversion. Gaussian ATE, ATT, and ATC use the standardized-difference approximation.
 
     Parameters
     ----------
@@ -326,7 +315,11 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     EValue
         The association needed to explain the estimate and the interval away.
     """
-    selection = _select_evalue(result, estimand)
+    return _evalue_from_selection(result, _select_evalue(result, estimand))
+
+
+def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> EValue:
+    """Execute the same branch used to declare this request available."""
     source = selection.source
     estimate = result[source]
     low, high = estimate.ci
@@ -399,4 +392,5 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
         limit=_evalue_for_limit(limit, above_null=above_null),
         approximate=approximate,
         note=note,
+        source_estimand=source,
     )

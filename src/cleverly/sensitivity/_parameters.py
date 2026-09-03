@@ -186,3 +186,41 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
             )
             out[name] = ArmParameter(name, stem, group, arm, reference)
     return out
+
+
+def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
+    """Resolve reported arm identities forward, respecting explicit metadata."""
+    if result.parameter_keys:
+        return result.parameter_keys
+    if result.assessment_family != "point" or result.data.is_continuous_treatment:
+        return {}
+    from ..study import ParameterKey
+
+    data = result.data
+    keys = {
+        name: ParameterKey(
+            name,
+            parameter.stem,
+            value=data.arm_label(parameter.arm),
+            reference=None if parameter.versus is None else data.arm_label(parameter.versus),
+        )
+        for name, parameter in arm_parameters(result).items()
+        if name in result.estimates
+    }
+    reference = result.config.reference_arm
+    for arm in data.arm_codes:
+        if arm == reference:
+            continue
+        for target in ("rr", "or"):
+            alias = (
+                target
+                if data.is_binary_treatment
+                else parameter_name(
+                    target, arm=data.arm_label(arm), versus=data.arm_label(reference)
+                )
+            )
+            if alias in result.estimates:
+                keys[alias] = ParameterKey(
+                    alias, target, value=data.arm_label(arm), reference=data.arm_label(reference)
+                )
+    return keys

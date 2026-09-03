@@ -8,6 +8,7 @@ from ..assessment import _cached, replayability
 from ..exceptions import CapabilityError
 from ..inference.influence import ParameterEstimate, median_estimates
 from ..targets.base import parameter_name
+from ._parameters import arm_parameter_keys
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..estimators.base import TMLEResult
@@ -18,7 +19,7 @@ def _derived_risk_ratio(result: TMLEResult, source_estimand: str) -> ParameterEs
     refusal = _risk_ratio_refusal(result, source_estimand)
     if refusal is not None:
         raise CapabilityError(refusal)
-    key = result.parameter_keys[source_estimand]
+    key = arm_parameter_keys(result)[source_estimand]
 
     if result.data.is_binary_treatment:
         alias = "rr"
@@ -59,9 +60,9 @@ def _risk_ratio_refusal(result: TMLEResult, source_estimand: str) -> str | None:
     """Return why cached-nuisance risk-ratio retargeting cannot run."""
     if result.assessment_family != "point":
         return "derived risk ratios are unavailable for longitudinal results"
-    if not result.parameter_keys or source_estimand not in result.parameter_keys:
+    if source_estimand not in arm_parameter_keys(result):
         return "derived risk ratios require structured parameter keys retained by the fitted result"
-    key = result.parameter_keys[source_estimand]
+    key = arm_parameter_keys(result)[source_estimand]
     if key.estimand not in {"ate", "or"}:
         return f"derived risk ratios require an ATE or odds-ratio source, not {key.estimand!r}"
     if key.axis != "arm":

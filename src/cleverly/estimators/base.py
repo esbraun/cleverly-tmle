@@ -432,6 +432,10 @@ class TMLEResult:
         Typed public method configuration.
     parameter_keys : dict of str to ParameterKey
         Structured identities for reported aliases.
+    fitted_method : str
+        Method identity stamped by the estimator; unknown for unstamped artifacts.
+    solved_corrections : bool
+        Whether the fit participated in the guarded correction system.
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
 
@@ -500,6 +504,9 @@ class TMLEResult:
     #: Filling this mapping never changes the fitted parameter or its summary.
     assessment_cache: dict[str, Any] = field(default_factory=dict)
 
+    fitted_method: str = "unknown"
+    solved_corrections: bool = False
+
     @property
     def assessment_family(self) -> str:
         """Return the declared assessment capability family."""
@@ -508,14 +515,7 @@ class TMLEResult:
     @property
     def assessment_method(self) -> str:
         """Return the method recorded by this fitted artifact."""
-        name = getattr(self.method, "name", None)
-        if isinstance(name, str) and name:
-            return name
-        if "drtmle" in self.extra:
-            return "drtmle"
-        if "ctmle" in self.extra:
-            return "collaborative_tmle"
-        return "tmle"
+        return self.fitted_method
 
     # --------------------------------------------------------------- repeats
 
@@ -817,7 +817,7 @@ class TMLEResult:
         include_refits : bool
             Run requested operations that refit nuisance models.
         include_retargets : bool
-            Run requested operations that retarget cached nuisances.
+            Include moderate retargets; cheap E-value retargets run by default.
         arguments : mapping or None
             Per-operation keyword arguments.
         random_state : int or None
@@ -853,33 +853,14 @@ class TMLEResult:
         >>> result.assess().validation.passed
         True
         """
-        from ..assessment import AssessmentReport
+        from ..assessment import assess_result
 
-        supplied = {} if arguments is None else dict(arguments)
-        diagnostic_names = {row.operation for row in self.diagnostics.capabilities}
-        sensitivity_names = {row.operation for row in self.sensitivity.capabilities}
-        known = diagnostic_names | sensitivity_names
-        unknown = sorted(set(supplied) - known)
-        if unknown:
-            raise KeyError(f"unknown assessment operation(s): {unknown}")
-        diagnostics_arguments = {k: v for k, v in supplied.items() if k in diagnostic_names}
-        sensitivity_arguments = {k: v for k, v in supplied.items() if k in sensitivity_names}
-        self.diagnostics._validated_arguments(diagnostics_arguments, random_state)
-        self.sensitivity._validated_arguments(sensitivity_arguments, random_state)
-        return AssessmentReport(
-            validation=self.validate(),
-            diagnostics=self.diagnostics.run_all(
-                include_refits=include_refits,
-                include_retargets=include_retargets,
-                arguments=diagnostics_arguments,
-                random_state=random_state,
-            ),
-            sensitivity=self.sensitivity.run_all(
-                include_refits=include_refits,
-                include_retargets=include_retargets,
-                arguments=sensitivity_arguments,
-                random_state=random_state,
-            ),
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
         )
 
     @property

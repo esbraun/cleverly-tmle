@@ -39,9 +39,9 @@ rather than implying the request was ill-posed.
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one |
 | correction diagnostics after ordinary TMLE or collaborative TMLE | those methods do not use the DR-TMLE correction system. A DR-TMLE fit with an empty guard also subtracts no correction term |
-| an ATT or ATC E-value conversion | the analysis needs a conditional baseline risk and a supported conditional risk-ratio target. Neither is implemented |
+| a binomial ATT or ATC E-value conversion | the analysis needs a conditional baseline risk and a supported conditional risk-ratio target. The library implements neither |
 | a cached-nuisance risk ratio after CV evaluation | the estimator refuses nonlinear ratio targets on this evaluation path. Post-fit retargeting keeps that boundary |
-| a controlled direct risk ratio | fixing an intermediate variable defines another target. No controlled direct risk-ratio target is registered |
+| a controlled direct risk ratio | fixing an intermediate variable defines another target. The library registers no controlled direct risk-ratio target |
 | the simulated common-cause surface on a longitudinal, missing-outcome, estimated-weight, or intermediate-variable fit | [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface). It names every composition the surface refuses, and it gives each one a `kind`. Ordinary TMLE, binary complete-outcome collaborative TMLE, and binary complete-outcome DR-TMLE accept fixed probability weights. Multi-arm treatment and a clustered fit wait on published theory, so this heading does not cover them |
 
 Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:

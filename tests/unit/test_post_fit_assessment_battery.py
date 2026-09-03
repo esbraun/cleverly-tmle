@@ -17,7 +17,6 @@ from cleverly import (
     CapabilityError,
     CausalStudy,
     CollaborativeTMLEMethod,
-    DRTMLEMethod,
     OddsRatio,
     ParameterKey,
     PointTreatment,
@@ -112,7 +111,9 @@ def test_assess_retains_reports_arguments_and_omissions(tmp_path) -> None:
     assert replayed.report("evalue") == battery.report("evalue")
 
 
-def test_bare_assess_never_refits_or_retargets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bare_assess_runs_only_the_cheap_cached_nuisance_retarget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     result = _fit(_study(), ATE())
     calls = []
     retarget = result.estimator.retarget
@@ -126,9 +127,12 @@ def test_bare_assess_never_refits_or_retargets(monkeypatch: pytest.MonkeyPatch) 
         result.estimator, "refit", lambda *_args, **_kwargs: pytest.fail("unexpected refit")
     )
     bare = result.assess()
-    assert calls == []
-    assert bare.sensitivity["evalue"].status is AssessmentStatus.UNAVAILABLE
-    assert "include_retargets=True" in bare.sensitivity["evalue"].detail
+    assert calls == ["retarget"]
+    assert bare.sensitivity["evalue"].status is AssessmentStatus.COMPLETED
+    assert bare.sensitivity["evalue"].arguments == {"estimand": "ate"}
+    assert bare.diagnostics["truncation_curve"].status is AssessmentStatus.UNAVAILABLE
+    assert result.assess().report("evalue") == bare.report("evalue")
+    assert calls == ["retarget"]
     opted_in = result.assess(include_retargets=True)
     assert calls
     assert opted_in.report("evalue").estimand == "rr"
@@ -162,9 +166,8 @@ def test_explicit_multi_arm_evalue_uses_its_request_for_availability_and_cost(
     result = typed_multi_arm_result
     alias = tuple(result.estimates)[1]
     requested = {"evalue": {"estimand": alias}}
-    skipped = result.sensitivity.run_all(arguments=requested)["evalue"]
-    assert skipped.status is AssessmentStatus.UNAVAILABLE
-    assert "include_retargets=True" in skipped.detail
+    default = result.sensitivity.run_all(arguments=requested)["evalue"]
+    assert default.status is AssessmentStatus.COMPLETED
     combined = result.sensitivity.run_all(include_retargets=True, arguments=requested)
     direct = result.sensitivity.evalue(alias)
     assert combined.report("evalue") == direct
@@ -185,7 +188,8 @@ def test_explicit_collaborative_or_evalue_is_not_blocked_by_default_derivation()
             simultaneous=False,
         )
     )
-    assert not result.sensitivity.capability("evalue").available
+    assert result.sensitivity.capability("evalue").available
+    assert result.sensitivity.evalue().approximate
     direct = result.sensitivity.evalue("or")
     combined = result.sensitivity.run_all(arguments={"evalue": {"estimand": "or"}})
     assert combined.report("evalue") == direct
@@ -253,8 +257,8 @@ def test_interpreters_and_capabilities_cover_each_other() -> None:
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
-        ({"method": CollaborativeTMLEMethod()}, "collaborative_tmle"),
-        ({"method": DRTMLEMethod()}, "drtmle"),
+        ({"fitted_method": "collaborative_tmle"}, "collaborative_tmle"),
+        ({"fitted_method": "drtmle"}, "drtmle"),
         ({"intermediate_value": 0.0}, "controlled direct effects"),
     ],
 )
@@ -275,7 +279,6 @@ def test_derived_ratio_preserves_cv_legacy_axis_and_conditional_refusals() -> No
     key = result.parameter_keys["ate"]
     cases = (
         (replace(result, config=replace(result.config, cv_evaluation=True)), "CV-evaluated"),
-        (replace(result, parameter_keys={}), "structured parameter keys"),
         (
             replace(result, parameter_keys={"ate": replace(key, axis="shift")}),
             "arm contrast",
@@ -377,3 +380,310 @@ def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> 
     assert (
         INTERPRETERS["nuisance_models"](nuisance_warning, None).status is AssessmentStatus.WARNING
     )
+
+
+@pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "ctmle", "cv"])
+def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
+    engine_name, tmp_path, monkeypatch
+):
+    from cleverly.estimators import CTMLE, DRTMLE, TMLE
+
+    engine = {"tmle": TMLE, "drtmle": DRTMLE, "ctmle": CTMLE, "cv": TMLE}[engine_name]
+    frame, _ = make_binary_outcome(n=160, seed=3)
+    options = {"cv_evaluation": True} if engine_name == "cv" else {}
+    raw = (
+        engine(
+            estimands=("ate", "ey0"),
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=3,
+            simultaneous=False,
+            **options,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+        .single()
+    )
+    expected_method = {"ctmle": "collaborative_tmle", "cv": "tmle"}.get(engine_name, engine_name)
+    assert raw.assessment_method == expected_method
+    assert replace(raw, extra={}).assessment_method == expected_method
+    restored = load(raw.save(tmp_path / f"{engine_name}.joblib"))
+    restored.assessment_cache.clear()
+    before = raw.sensitivity.evalue("ate")
+    after = restored.sensitivity.evalue("ate")
+    assert before == after
+    if engine_name != "tmle":
+        assert before.approximate
+        assert before.risk_ratio == pytest.approx(1 + raw["ate"].psi / raw["ey0"].psi)
+        assert before.risk_ratio_ci == pytest.approx(
+            tuple(1 + x / raw["ey0"].psi for x in raw["ate"].ci)
+        )
+        monkeypatch.setattr(
+            raw.estimator, "retarget", lambda *a, **k: pytest.fail("variant retarget")
+        )
+        raw.assessment_cache.clear()
+        assert raw.sensitivity.evalue("ate") == before
+        detached = replace(raw, estimator=None, assessment_cache={})
+        assert detached.sensitivity.evalue("ate") == before
+
+
+@pytest.mark.parametrize("target", ["ate", "att", "atc"])
+@pytest.mark.parametrize("typed", [False, True])
+def test_gaussian_differences_use_the_documented_nonzero_conversion(target, typed):
+    from cleverly import ATC, ATT
+    from cleverly.datasets import make_linear_ate
+    from cleverly.estimators import TMLE
+
+    frame, _ = make_linear_ate(n=180, seed=3)
+    options = {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "n_folds": 2,
+        "random_state": 3,
+        "simultaneous": False,
+    }
+    if typed:
+        result = (
+            CausalStudy(
+                frame,
+                design=PointTreatment(
+                    outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+                ),
+            )
+            .identify({"ate": ATE, "att": ATT, "atc": ATC}[target]())
+            .estimate(**options)
+        )
+    else:
+        result = (
+            TMLE(estimands=(target,), **options).fit(frame, outcome="Y", treatment="A").single()
+        )
+    report = result.sensitivity.evalue(target)
+    sd = np.std(frame["Y"], ddof=1)
+    expected = np.exp((1.81 / 2) * result[target].psi / sd)
+    assert abs(expected - 1) > 0.1
+    assert report.approximate
+    assert report.risk_ratio == pytest.approx(expected, rel=1e-12)
+    assert report.risk_ratio_ci == pytest.approx(
+        np.exp((1.81 / 2) * np.asarray(result[target].ci) / sd)
+    )
+
+
+def test_default_or_records_a_source_without_changing_replay_semantics():
+    result = _fit(_study(), OddsRatio())
+    battery = result.assess()
+    row = battery.sensitivity["evalue"]
+    assert row.arguments == {"estimand": None}
+    assert row.report.source_estimand == "or"
+    assert not result.sensitivity.evalue(**row.arguments).approximate
+
+
+@pytest.mark.parametrize("target", [RiskRatio(), OddsRatio()])
+def test_unstamped_artifact_keeps_reported_ratio_conversions(target):
+    result = replace(_fit(_study(), target), fitted_method="unknown", assessment_cache={})
+    alias = next(iter(result.estimates))
+    assert result.sensitivity.evalue() == result.sensitivity.evalue(alias)
+
+
+def test_evalue_selector_is_resolved_once_per_request(monkeypatch):
+    import importlib
+
+    module = importlib.import_module("cleverly.sensitivity.evalue")
+    result = _fit(_study(), ATE())
+    calls = []
+    original = module._select_evalue
+
+    def tracked(*args):
+        calls.append(args[1])
+        return original(*args)
+
+    monkeypatch.setattr(module, "_select_evalue", tracked)
+    result.assess()
+    assert calls == [None]
+
+
+def test_missing_or_invalid_baseline_cannot_enable_approximation():
+    result = _fit(_study(), ATE())
+    for value in (0.0, -0.1, float("nan"), float("inf")):
+        baseline = replace(result["ate"], name="ey0", psi=value)
+        variant = replace(
+            result,
+            fitted_method="drtmle",
+            estimates={**result.estimates, "ey0": baseline},
+            parameter_keys={},
+            assessment_cache={},
+        )
+        with pytest.raises(CapabilityError, match="finite positive reported reference-arm mean"):
+            variant.sensitivity.evalue("ate")
+
+
+@pytest.mark.parametrize("guard", [(), ("Q", "g")])
+def test_correction_participation_is_stamped_independently_of_extra(guard):
+    from cleverly.estimators import DRTMLE
+
+    frame, _ = make_binary_outcome(n=160, seed=3)
+    result = (
+        DRTMLE(
+            guard=guard,
+            estimands=("ate",),
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=3,
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+    changed = replace(result, extra={}, assessment_cache={})
+    assert changed.assessment_method == "drtmle"
+    assert changed.solved_corrections == bool(guard)
+    assert changed.diagnostics.capability("corrections").available == bool(guard)
+
+
+@pytest.mark.parametrize(
+    "method, options",
+    [
+        ("drtmle", {}),
+        (CollaborativeTMLEMethod(), {}),
+        ("tmle", {"cv_evaluation": True}),
+    ],
+)
+def test_typed_ate_without_a_reported_baseline_refuses_variant_conversion(method, options):
+    result = (
+        _study()
+        .identify(ATE())
+        .estimate(
+            method=method,
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=3,
+            simultaneous=False,
+            **options,
+        )
+    )
+    assert tuple(result.estimates) == ("ate",)
+    with pytest.raises(CapabilityError, match="reported reference-arm mean"):
+        result.sensitivity.evalue()
+
+
+def test_repeated_exact_ratio_preserves_combination_and_retargets_each_repeat(monkeypatch):
+    study = _study()
+    options = {
+        "repeats": 2,
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "n_folds": 2,
+        "learner_folds": 2,
+        "random_state": 3,
+        "simultaneous": False,
+    }
+    source = study.identify(ATE()).estimate(**options)
+    expected = study.identify(RiskRatio()).estimate(**options)["rr"]
+    calls = []
+    original = source.estimator.retarget
+
+    def tracked(*args, **kwargs):
+        calls.append(args[1])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(source.estimator, "retarget", tracked)
+    report = source.assess().report("evalue")
+    derived = _derived_risk_ratio(source, "ate")
+    assert len(calls) == 2
+    assert derived.psi == pytest.approx(expected.psi, abs=1e-12)
+    assert derived.variance == pytest.approx(expected.variance, abs=1e-12)
+    np.testing.assert_allclose(derived.influence_curve, expected.influence_curve, atol=1e-12)
+    assert report.risk_ratio_ci == pytest.approx(expected.ci)
+
+
+def test_raw_multi_arm_labels_with_delimiters_route_forward():
+    from cleverly.estimators import TMLE
+    from cleverly.targets import parameter_name
+
+    frame, _ = make_multi_arm(n=220, seed=3, family="binomial")
+    labels = {"high": "a vs b", "low": "m[reference]", "medium": "z[vs]"}
+    frame["A"] = frame["A"].map(labels)
+    result = (
+        TMLE(
+            estimands=("ate", "rr", "ey"),
+            reference=labels["low"],
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            random_state=3,
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+    for value in (labels["high"], labels["medium"]):
+        alias = parameter_name("rr", arm=value, versus=labels["low"])
+        source = parameter_name("ate", arm=value, versus=labels["low"])
+        report = result.sensitivity.evalue(source)
+        assert report.estimand == alias
+        assert report.risk_ratio == pytest.approx(result[alias].psi)
+
+
+def test_real_tipping_search_retains_a_completed_none(tmp_path):
+    from cleverly.datasets import make_missing_outcome
+    from cleverly.estimators import TMLE
+
+    frame, _ = make_missing_outcome(n=180, seed=3)
+    result = (
+        TMLE(
+            estimands=("ate",),
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            random_state=3,
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+    arguments = {"tipping_gamma": {"null_hypothesis": 10000.0, "search": (-0.01, 0.01)}}
+    battery = result.assess(include_retargets=True, arguments=arguments)
+    assert battery.sensitivity["tipping_gamma"].status is AssessmentStatus.COMPLETED
+    assert battery.report("tipping_gamma") is None
+    assert battery.sensitivity.reports()["tipping_gamma"] is None
+    restored = load(result.save(tmp_path / "none-tip.joblib"))
+    assert (
+        restored.assess(include_retargets=True, arguments=arguments).report("tipping_gamma") is None
+    )
+
+
+def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path):
+    import joblib
+
+    result = replace(_fit(_study(), ATE()), intermediate_value=0.0, assessment_cache={})
+    facade = result.sensitivity
+    capability = facade.capability("evalue")
+    assert not capability.available
+    assert facade._evalue_selections[None] == ("unavailable", capability.reason)
+    path = tmp_path / "refused-facade.joblib"
+    joblib.dump(facade, path)
+    restored = joblib.load(path)
+    assert restored.capability("evalue") == capability
+    for candidate in (facade, restored):
+        with pytest.raises(CapabilityError, match="controlled direct effects"):
+            candidate.evalue()
+        with pytest.raises(CapabilityError, match="controlled direct effects"):
+            candidate.evalue("ate")
+        assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
+
+
+@pytest.mark.parametrize("operation", ["evalue", "elements"])
+def test_unavailable_evalue_capability_does_not_break_result_persistence(operation, tmp_path):
+    result = replace(_fit(_study(), ATE()), estimator=None, assessment_cache={})
+    capability = result.sensitivity.capability(operation)
+    restored = load(result.save(tmp_path / f"capability-{operation}.joblib"))
+    assert restored.sensitivity.capability(operation) == capability
+    with pytest.raises(CapabilityError, match="reported reference-arm mean"):
+        restored.sensitivity.evalue()
+    restored_again = load(restored.save(tmp_path / f"refused-{operation}.joblib"))
+    assert not restored_again.sensitivity.capability("evalue").available

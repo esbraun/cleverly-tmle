@@ -20,14 +20,13 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from dataclasses import replace
 
 import narwhals as nw
 import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import AssessmentStatus, ParameterKey, SuperLearner
+from cleverly import AssessmentStatus, SuperLearner
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -386,19 +385,6 @@ class TestOmittedVariableBias:
 
 
 class TestEValue:
-    @staticmethod
-    def _with_keys(result):  # type: ignore[no-untyped-def]
-        return replace(
-            result,
-            parameter_keys={
-                "ate": ParameterKey("ate", "ate", value=1, reference=0),
-                "rr": ParameterKey("rr", "rr", value=1, reference=0),
-                "or": ParameterKey("or", "or", value=1, reference=0),
-                "ey1": ParameterKey("ey1", "mean", value=1),
-                "ey0": ParameterKey("ey0", "mean", value=0),
-            },
-        )
-
     @pytest.fixture(scope="class")
     def binary_fit(self) -> object:
         """One binary-outcome fit for the three tests that only need a ratio to read.
@@ -411,25 +397,21 @@ class TestEValue:
         return fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
 
     def test_a_binary_outcome_uses_the_risk_ratio_directly(self, binary_fit) -> None:
-        binary_fit = self._with_keys(binary_fit)
         evalue = binary_fit.sensitivity.evalue("rr")
         assert not evalue.approximate
         assert evalue.risk_ratio == pytest.approx(binary_fit.psi("rr"))
         assert evalue.point > evalue.limit >= 1.0
 
     def test_the_default_prefers_the_risk_ratio(self, binary_fit) -> None:
-        binary_fit = self._with_keys(binary_fit)
         assert binary_fit.sensitivity.evalue().estimand == "rr"
 
     def test_a_continuous_outcome_is_converted_and_flagged(self, good_overlap) -> None:
-        good_overlap = self._with_keys(good_overlap)
         evalue = good_overlap.sensitivity.evalue("ate")
         assert evalue.approximate
         assert "Chinn" in evalue.note
         assert evalue.point > 1.0
 
     def test_the_odds_ratio_conversion_is_flagged_for_common_outcomes(self, binary_fit) -> None:
-        binary_fit = self._with_keys(binary_fit)
         evalue = binary_fit.sensitivity.evalue("or")
         assert evalue.approximate
         assert "common outcomes" in evalue.note
