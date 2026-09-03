@@ -748,7 +748,7 @@ class CTMLE(TMLE):
             [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
         )
         observed_probability = propensity.values[np.arange(data.n), observed_columns]
-        risk = float(-np.sum(np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
+        risk = float(-np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
         features = tuple(f"Qbar[{data.arm_label(arm)}]" for arm in arms)
         nuisance_diagnostics = dict(base.diagnostics)
         nuisance_diagnostics.pop("propensity", None)

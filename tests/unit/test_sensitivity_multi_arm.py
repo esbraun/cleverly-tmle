@@ -12,6 +12,15 @@ probabilities and this module writes them out longhand.  An implementation that 
 arms up by position rather than by code produces a perfectly plausible number, and this is
 what tells the two apart -- which is why every contrast is checked rather than one.
 
+The same instrument answers a second question, one arm count away from the first: a
+*weighted* fit estimates a weighted parameter, so its bound and its overlap report belong
+to the population the weights describe.  An observation weight that is a function of ``W``
+alone leaves the oracle nuisances exact, so the weighted sample is the same law with
+``P(W)`` retilted, every closed form above still applies, and the answers move.  Nothing
+in the unweighted checks can see a dropped weight, because on that law the two populations
+coincide; :class:`TestTheBoundOnAWeightedFit` and
+:class:`TestTheOverlapReportOnAWeightedFit` are where they part.
+
 The MNAR tilt is not a functional of the law but a re-mixing of the *fitted* regression,
 so the exact-law instrument has nothing to say about it.  Two properties do: that
 ``gamma = 0`` reproduces the fit's own report -- for every parameter, including the
@@ -54,25 +63,31 @@ REFERENCE = "low"
 #: written in the law's own arm order rather than in the library's codes.
 REFERENCE_ARM = law.LABELS.index(REFERENCE)
 
-#: ``P(W = w)``, ``P(A = a)``, ``g(a | w)`` and ``Qbar(a, w)`` as the realised sample has
-#: them -- taken from the cell probabilities, so nothing here goes through the library.
-P_W = law.PROBS.sum(axis=(1, 2))
-P_A = law.PROBS.sum(axis=(0, 2))
+#: ``g(a | w)`` and ``Qbar(a, w)`` as the realised sample has them -- taken from the cell
+#: probabilities, so nothing here goes through the library.  ``P(W = w)`` and ``P(A = a)``
+#: are *not* constants beside them: the closed forms below take a set of cell
+#: probabilities and sum each one out, because the weighted sample retilts both.
 G = law.G_EXACT
 Q = law.Q_EXACT
 
 
-def _sigma2() -> float:
-    r"""``E[(Y - Qbar(A, W))^2]``, which for a binary ``Y`` is ``E[Q(1 - Q)]``."""
+def _sigma2(probs: Any = law.PROBS) -> float:
+    r"""``E[(Y - Qbar(A, W))^2]``, which for a binary ``Y`` is ``E[Q(1 - Q)]``.
+
+    Averaged over ``probs`` rather than over :data:`tests.discrete_law_multi.PROBS` alone,
+    so the same arithmetic answers for the weighted sample below.  ``Q`` is shared,
+    because a weight that is a function of ``W`` leaves the conditional means where they
+    were.
+    """
     total = 0.0
     for w in range(3):
         for a in range(law.K):
             for y in range(2):
-                total += law.PROBS[w, a, y] * (y - Q[w, a]) ** 2
+                total += probs[w, a, y] * (y - Q[w, a]) ** 2
     return float(total)
 
 
-def _nu2(estimand: str, arm: int) -> float:
+def _nu2(estimand: str, arm: int, probs: Any = law.PROBS) -> float:
     r"""``E[alpha(A, W)^2]`` for one parameter, longhand from its Riesz representer.
 
     The representers, with ``r`` the reference arm and ``P_a = P(A = a)``:
@@ -84,16 +99,24 @@ def _nu2(estimand: str, arm: int) -> float:
 
     Squaring drops the cross terms -- the two indicators are disjoint -- and averaging
     over the arm leaves one factor of ``g`` behind each.
+
+    ``P(W)`` and ``P(A)`` are read off ``probs`` and ``g`` is not, which is the whole
+    difference the weighted sample makes: the weight retilts the covariate distribution
+    and the arm shares with it, and leaves the propensity alone.  ``P_a`` is the
+    conditioning share the ATT and the ATC divide by, which the library takes weighted
+    from :attr:`~cleverly.data.CausalData.arm_fractions`.
     """
+    p_w = np.asarray(probs).sum(axis=(1, 2))
+    p_a = np.asarray(probs).sum(axis=(0, 2))
     r = REFERENCE_ARM
     if estimand == "ey":
-        return float((P_W / G[:, arm]).sum())
+        return float((p_w / G[:, arm]).sum())
     if estimand == "ate":
-        return float((P_W * (1.0 / G[:, arm] + 1.0 / G[:, r])).sum())
+        return float((p_w * (1.0 / G[:, arm] + 1.0 / G[:, r])).sum())
     if estimand == "att":
-        return float((P_W * G[:, arm] * (1.0 + G[:, arm] / G[:, r])).sum() / P_A[arm] ** 2)
+        return float((p_w * G[:, arm] * (1.0 + G[:, arm] / G[:, r])).sum() / p_a[arm] ** 2)
     if estimand == "atc":
-        return float((P_W * G[:, r] * (1.0 + G[:, r] / G[:, arm])).sum() / P_A[r] ** 2)
+        return float((p_w * G[:, r] * (1.0 + G[:, r] / G[:, arm])).sum() / p_a[r] ** 2)
     raise ValueError(estimand)  # pragma: no cover - a typo in a parametrisation
 
 
@@ -210,6 +233,235 @@ class TestTheBoundAtThreeArms:
         """
         with pytest.raises(ValueError, match=r"available for .*'ate\[high vs low\]'"):
             sensitivity_elements(exact_fit, "ate")
+
+
+# ------------------------------------------------------------- the bound, under weights
+
+#: The observation weight each value of ``W`` carries, before normalisation.
+#:
+#: A function of ``W`` alone, and that is not a convenience.  It is what keeps the
+#: weighted sample an exact law: ``g(a | W)`` and ``Qbar(a, W)`` are conditional on ``W``,
+#: so a weight depending on nothing else leaves both where they were, the oracle nuisances
+#: stay exact, and the weighted score is zero cell by cell at ``epsilon = 0``.  A profile
+#: laid across the rows -- ``np.linspace(0.5, 1.5, n)`` -- varies *inside* a cell, moves
+#: the targeting step off zero, and leaves the closed forms below describing a regression
+#: the fit no longer uses.
+RAW_WEIGHT = np.array([0.5, 1.0, 2.0])
+
+
+def _weighted_probs(raw: Any) -> Any:
+    """The cell probabilities of the sample ``raw`` describes.
+
+    :meth:`~cleverly.data.CausalData.from_frame` rescales the weight column to mean one,
+    which for a ``W``-only weight is this same law with ``P(W = w)`` retilted by the
+    weight and renormalised.  Every conditional distribution is untouched.
+    """
+    tilted = law.PROBS * np.asarray(raw, dtype=float)[:, None, None]
+    return tilted / tilted.sum()
+
+
+#: The eighteen cell probabilities the weighted fit's estimands are defined against.
+WEIGHTED_PROBS = _weighted_probs(RAW_WEIGHT)
+
+
+def _rows() -> tuple[Any, Any, Any]:
+    """``(W, A, Y)`` per row, in this module's arm order, as :func:`law.frame` lays out."""
+    numeric = law.frame(labelled=False)
+    return (
+        numeric["W"].to_numpy().astype(int),
+        numeric["A"].to_numpy().astype(int),
+        numeric["Y"].to_numpy(),
+    )
+
+
+def _normalised_weights(w_code: Any) -> Any:
+    """:data:`RAW_WEIGHT` per row, rescaled to mean one as ``check_weights`` rescales it."""
+    raw = RAW_WEIGHT[w_code]
+    return raw * raw.size / raw.sum()
+
+
+def _kish(weights: Any) -> float:
+    """Kish's effective sample size, ``(sum w)^2 / sum w^2``, written out."""
+    w = np.asarray(weights, dtype=float)
+    return float(w.sum() ** 2 / np.square(w).sum())
+
+
+def _top_share(weights: Any, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of the rows."""
+    w = np.asarray(weights, dtype=float)
+    count = max(1, int(np.ceil(fraction * w.size)))
+    return float(np.sort(w)[-count:].sum() / w.sum())
+
+
+@pytest.fixture(scope="module")
+def weighted_exact_fit() -> Any:
+    """The same three-armed law and the same oracle nuisances, under observation weights.
+
+    Everything the unweighted fixture pins still holds -- see
+    ``test_the_weighted_fit_is_still_exactly_targeted`` -- so the closed forms above still
+    describe it, evaluated at :data:`WEIGHTED_PROBS` instead.
+    """
+    frame = law.frame()
+    weighted = frame.assign(obs_weight=RAW_WEIGHT[frame["W"].to_numpy().astype(int)])
+    return (
+        TMLE(
+            outcome_learner=law.OracleMultiOutcome(),
+            treatment_learner=law.OracleMultiTreatment(),
+            cross_fit=False,
+            estimands=("ey", "ate", "att", "atc"),
+            reference=REFERENCE,
+            simultaneous=False,
+            random_state=0,
+        )
+        .fit(
+            weighted,
+            outcome="Y",
+            treatment="A",
+            covariates=["W"],
+            weights="obs_weight",
+        )
+        .single()
+    )
+
+
+class TestTheBoundOnAWeightedFit:
+    """``sigma^2``, ``nu^2`` and their influence-curve contributions, under weights.
+
+    A weighted fit estimates a weighted parameter, so its omitted-variable bound is the
+    bound on *that* parameter: the residual variance and the Riesz representer are
+    averaged over the population the weights describe rather than over the sample.  Every
+    check in :class:`TestTheBoundAtThreeArms` passes on an implementation that drops the
+    weights, because on that law the two populations are the same one.  These do not.
+    """
+
+    def test_the_weighted_fit_is_still_exactly_targeted(self, weighted_exact_fit: Any) -> None:
+        """The premise, and the reason :data:`RAW_WEIGHT` depends on ``W`` alone.
+
+        The weighted score is a sum over cells, and within a cell the weight is constant
+        and factors out of a term that was already zero.  So the oracle fit is targeted
+        under the weights too, and ``sigma^2`` is still the residual variance of ``Q``.
+        """
+        for fluctuation in weighted_exact_fit.repeats[0].fluctuations.values():
+            assert np.max(np.abs(fluctuation.epsilon)) < 1e-9
+        # And the weights are real: mean one, three distinct values, and a covariate
+        # distribution genuinely moved -- P(W) goes from (.50, .30, .20) to
+        # (.26, .32, .42).
+        assert weighted_exact_fit.data.is_weighted
+        assert len(np.unique(np.round(weighted_exact_fit.data.weights, 12))) == 3
+        assert not np.allclose(
+            WEIGHTED_PROBS.sum(axis=(1, 2)), law.PROBS.sum(axis=(1, 2)), atol=0.05
+        )
+
+    @pytest.mark.parametrize("estimand,arm", PARAMETERS)
+    @pytest.mark.parametrize("nu2_estimator", ["plugin", "doubly_robust"])
+    def test_the_elements_match_the_weighted_closed_form(
+        self, weighted_exact_fit: Any, estimand: str, arm: int, nu2_estimator: str
+    ) -> None:
+        """Each parameter's own ``sigma^2`` and ``nu^2``, over the weighted population.
+
+        Both estimators of ``nu^2`` again: the Riesz identity holds under the weighted
+        law as it does under the unweighted one, so an implementation that weighted the
+        plug-in and not the doubly robust branch has two answers here rather than one.
+        """
+        elements = sensitivity_elements(
+            weighted_exact_fit, _name(estimand, arm), nu2_estimator=nu2_estimator
+        )
+        expected_sigma2 = _sigma2(WEIGHTED_PROBS)
+        expected_nu2 = _nu2(estimand, arm, WEIGHTED_PROBS)
+        assert elements.sigma2 == pytest.approx(expected_sigma2, rel=1e-12)
+        assert elements.nu2 == pytest.approx(expected_nu2, rel=1e-12)
+        assert elements.max_bias == pytest.approx(
+            np.sqrt(expected_sigma2 * expected_nu2), rel=1e-12
+        )
+
+    @pytest.mark.parametrize("estimand,arm", PARAMETERS)
+    def test_the_unweighted_bound_is_a_different_number(self, estimand: str, arm: int) -> None:
+        """The control that makes the comparison above worth making.
+
+        Neither closed form here touches the library.  ``sigma^2`` moves by 6.7% and the
+        smallest move in ``nu^2`` across the seven parameters is 0.80% -- for
+        ``ate[high vs low]``, whose two arms happen to trade off under this profile.  So
+        an implementation that averaged either one unweighted is wrong by a margin many
+        orders above the ``rel=1e-12`` the test above allows.
+        """
+        assert abs(_sigma2(WEIGHTED_PROBS) / _sigma2() - 1.0) > 0.05
+        assert abs(_nu2(estimand, arm, WEIGHTED_PROBS) / _nu2(estimand, arm) - 1.0) > 5e-3
+
+    def test_the_influence_curve_contributions_carry_the_weights(
+        self, weighted_exact_fit: Any
+    ) -> None:
+        """``psi_sigma2`` and ``psi_nu2`` row by row, and not merely their averages.
+
+        These two arrays never reach ``max_bias``; they reach the standard error the bound
+        reports, so an implementation that weighted the point and not the contributions
+        returns a correct bound with an interval for a different population.  The fit is
+        exact, so both are known in closed form: the targeted regression *is* ``Q``, and
+        the representer of ``ey[high]`` *is* ``1{A = high} / g_high``.
+        """
+        w_code, a_code, y = _rows()
+        weights = _normalised_weights(w_code)
+        arm = law.LABELS.index("high")
+        elements = sensitivity_elements(
+            weighted_exact_fit, _name("ey", arm), nu2_estimator="plugin"
+        )
+
+        sigma2 = _sigma2(WEIGHTED_PROBS)
+        residual = y - Q[w_code, a_code]
+        assert elements.psi_sigma2 == pytest.approx((residual**2 - sigma2) * weights, abs=1e-12)
+
+        representer = (a_code == arm).astype(float) / G[w_code, arm]
+        assert elements.riesz_representer == pytest.approx(representer, abs=1e-12)
+        nu2 = _nu2("ey", arm, WEIGHTED_PROBS)
+        assert elements.psi_nu2 == pytest.approx((representer**2 - nu2) * weights, abs=1e-12)
+
+        # Not vacuous: dropping either weight factor moves a real row's contribution, by
+        # 0.588 for sigma^2 and by 10.3 for nu^2 at this profile.
+        assert np.max(np.abs(elements.psi_sigma2 - (residual**2 - sigma2))) > 0.5
+        assert np.max(np.abs(elements.psi_nu2 - (representer**2 - nu2))) > 5.0
+
+
+class TestTheOverlapReportOnAWeightedFit:
+    """``diagnostics.support()`` at three arms, where the two reweightings multiply.
+
+    The point-treatment sibling of
+    ``tests/e2e/test_ltmle.py::TestObservationWeights::test_the_diagnostics_fold_the_weights_into_the_leverage``,
+    and it makes the same statement for the same reason: a fit can be comfortable on the
+    observation weights, comfortable on the clever covariate, and thin on both together.
+    The module docstring of :mod:`cleverly.sensitivity.positivity` promises the product,
+    and this is what holds it to that.
+    """
+
+    def test_the_effective_sample_size_folds_in_the_observation_weights(
+        self, weighted_exact_fit: Any
+    ) -> None:
+        report = weighted_exact_fit.diagnostics.support()
+        data = weighted_exact_fit.data
+        propensity = weighted_exact_fit.nuisance.propensity
+        bounded = propensity.bounded(weighted_exact_fit.config.g_bounds)
+        obs_weights = _normalised_weights(_rows()[0])
+
+        for arm in propensity.arms:
+            label = str(data.arm_label(arm))
+            mask = np.asarray(data.treatment == arm)
+            clever = (1.0 / bounded[:, propensity.column_for(arm)])[mask]
+            leverage = clever * obs_weights[mask]
+            nominal = float(mask.sum())
+
+            ess = report.effective_sample_size[label]
+            assert ess["effective"] == pytest.approx(_kish(leverage), abs=0)
+            assert ess["ratio"] == pytest.approx(_kish(leverage) / nominal, abs=0)
+            share = report.weight_share[label]
+            assert share["top_1pct"] == pytest.approx(_top_share(leverage, 0.01), abs=0)
+            assert share["top_5pct"] == pytest.approx(_top_share(leverage, 0.05), abs=0)
+
+            # The observation weighting materially changes the leverage rather than
+            # merely carrying an unused array alongside it.
+            assert not np.allclose(leverage, clever)
+            # And it changes what is *reported*.  The narrowest of the three arms moves
+            # by 76 units of effective sample size, on arms of 590 to 730 rows, and by
+            # 0.0118 of the top-5% share.
+            assert abs(_kish(leverage) - _kish(clever)) > 50.0
+            assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
 
 class TestTheRestOfTheFacade:

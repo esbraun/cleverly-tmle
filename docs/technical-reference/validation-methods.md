@@ -364,18 +364,37 @@ the influence-curve penalty, cross-validated risk, and the plug-in. The outcome-
 uses it in the outcome fits, categorical mechanism fit, targeting, and plug-in.
 
 The fixed-weight C-TMLE tests cover greedy selection, both data-adaptive ordered preorders, an
-explicit ordering, discrete selection, and outcome-adaptive fitting. They independently rebuild a
-selected path's weighted squared loss, weighted log-likelihood loss, influence-curve penalty, fold
-assignment, and nested cross-validated risk. They do not call the production scoring methods.
-Component mutations strip the weights from the loss, the influence curve, the targeting step, the
-fold nuisance fit, the intercept mechanism, or the candidate mechanism. Each mutation moves the
-stored nested-risk array.
+explicit ordering, discrete selection, and outcome-adaptive fitting. They reconstruct a selected
+path's weighted squared loss, weighted log-likelihood loss, influence-curve penalty, and nested
+cross-validated risk term by term. They do not read the value that a production scoring method
+returns. The nested reconstruction does call the production path search inside each training fold.
+That search runs the production propensity fits, the targeting step, the loss, and the penalty. The
+reconstruction discards the risk each candidate carries, and scores that candidate again on the
+held-out rows.
 
-A greedy search on a binomial fit changes the covariate path it selects when the weights leave the
-risk. An ordered search on a Gaussian fit changes its covariate path in the same way. An explicit
-ordering carries no such witness, because the reader declares that order. End-to-end mutations drop
-every selector weight or drop the outcome-adaptive mechanism weights. Each one changes a nonzero
-surface cell.
+The same test runs the production fold splitter on the surface's root seed. It compares the result
+against the fold assignment the refit stored. Component mutations strip the weights from the loss,
+the influence curve, the targeting step, the fold nuisance fit, the intercept mechanism, or the
+candidate mechanism. Each mutation moves the stored nested-risk array.
+
+Three tests ask whether a search decision reads the observation weights. The candidate risk is the
+loss plus the penalty. A greedy search on a binomial fit and a logistic preorder on a Gaussian fit
+each lose the weights from the loss. Each one moves the risk it is scored on. The
+partial-correlation preorder never reaches the loss, so a third test removes the weights from that
+ranking and asserts the order it produces. An explicit ordering carries no witness, because the
+reader declares that order.
+
+A fourth test pins the selected adjustment set, and not only the order the search visited. A moved
+order that leaves the selection alone leaves the fitted mechanism identical. The fixture carries
+two candidates that serve opposite weight blocks, in a mass ratio of nine to one. The weighted
+search selects one candidate and the unweighted search selects the other, while the visited order
+stays equal.
+
+End-to-end mutations drop every selector weight or drop the outcome-adaptive
+mechanism weights. Each mutation moves a manual refit that runs on the surface's seeds at strengths
+0.2 and 0.3. Neither control reads a surface cell, because its grid holds the anchor alone and the
+anchor runs no refit. Each control requires a move above one part in a thousand of the unmutated
+refit's estimate.
 
 The tests rebuild the vector-target penalty and the ratio penalty once each. The `ey1`, `ey0`, and
 `or` estimands reuse the same arm-curve and delta-method arithmetic, and they carry no separate
