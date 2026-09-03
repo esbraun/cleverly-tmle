@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from tests import discrete_law as point
 from tests import discrete_law_cde as cde
@@ -142,3 +143,75 @@ def test_paired_spread_ratio_refuses_a_zero_denominator_bootstrap_draw() -> None
             confidence_level=0.99,
             seed=17,
         )
+
+
+@pytest.mark.parametrize("floor", [0.9, 0.925])
+def test_contraction_coverage_boundaries_and_unrelated_rows(floor) -> None:
+    from dataclasses import replace
+
+    from tests.studies.evidence.property_verdicts import contraction_verdicts
+
+    record = replace(
+        canonical_cde_tmle.STUDY,
+        margins=replace(canonical_cde_tmle.STUDY.margins, coverage_floor=floor),
+    )
+    below, above = np.nextafter(floor, 0.0), np.nextafter(floor, 1.0)
+    summary = pd.DataFrame(
+        {
+            "property": ["double_robust_contraction"] * 6 + ["other"],
+            "role": ["positive"] * 3 + ["control"] * 3 + ["positive"],
+            "coverage_ci_lower": [below, floor, above] * 2 + [0.0],
+            "coverage_ci_upper": [below, floor, above] * 2 + [0.0],
+            "passed": pd.Series([None] * 6 + ["unchanged"], dtype=object),
+        }
+    )
+    contraction_verdicts(summary, record)
+    assert summary["passed"].tolist() == [False, True, True, True, False, False, "unchanged"]
+
+
+@pytest.mark.parametrize("upper", [-1e-12, 0.0, 1e-12])
+def test_contraction_rates_keep_strict_direction_control_inversion_and_streams(
+    monkeypatch, upper
+) -> None:
+    from tests.studies.evidence import property_verdicts
+    from tests.studies.evidence.inference import Interval
+    from tests.studies.evidence.properties import Rate
+    from tests.studies.evidence.seeds import stream_seed
+
+    record = canonical_cde_tmle.STUDY
+    scenarios = ("both_wrong", "treatment_correct", "outcome_correct")
+    rows = pd.DataFrame(
+        [
+            {"property": "double_robust_contraction", "cell": f"{scenario}_n{n}", "n": n}
+            for scenario in scenarios
+            for n in (20, 40, 80)
+        ]
+        + [{"property": "other", "cell": "both_wrong_n999", "n": 999}]
+    )
+    calls = []
+
+    def fitted(selected, **kwargs):
+        calls.append((selected.copy(), kwargs))
+        return Rate(-0.5, Interval(-1.0, upper))
+
+    monkeypatch.setattr(property_verdicts, "rate", fitted)
+    result = property_verdicts.contraction_rates(
+        rows, record, ["extra_column"], scenarios=scenarios
+    )
+    assert [row["cell"] for row in result] == [f"rate_{scenario}" for scenario in scenarios]
+    assert [row["role"] for row in result] == ["control", "positive", "positive"]
+    assert [row["passed"] for row in result] == [upper >= 0.0, upper < 0.0, upper < 0.0]
+    for scenario, row, (selected, arguments) in zip(scenarios, result, calls, strict=True):
+        assert selected["cell"].tolist() == [f"{scenario}_n{n}" for n in (20, 40, 80)]
+        assert arguments == {
+            "property_name": "double_robust_contraction",
+            "statistic": "bias",
+            "bootstrap_replicates": record.margins.bootstrap_replicates,
+            "confidence_level": record.margins.confidence_level,
+            "seed": stream_seed(record, "double_robust_contraction", scenario),
+        }
+        assert row["rate_sizes"] == "20;40;80"
+        assert row["n"] == 80
+        assert row["replicates"] == 3
+        assert np.isnan(row["extra_column"])
+        assert row["slope_ci_upper"] == upper

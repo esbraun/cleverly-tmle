@@ -75,7 +75,6 @@ from ..data.validate import (
     MIN_CONTINUOUS_LEVELS,
     arm_indicators,
     check_covariates,
-    check_weights,
     encode_clusters,
     encode_treatment,
     infer_family,
@@ -83,11 +82,9 @@ from ..data.validate import (
 from ..data.weighting import (
     WeightReport,
     WeightSpec,
+    _prepare_weights,
     describe_weights,
     effective_sample_size,
-    resolve_weight_kind,
-    warn_if_concentrated,
-    warn_if_counts,
 )
 from ..exceptions import DataError, DataWarning
 from ..utils.frames import (
@@ -541,20 +538,13 @@ class LongitudinalData:
         # functions: the normalisation, the refusals and the warnings are statements about
         # what a weight *means*, and they cannot mean one thing at one time point and
         # another over several.
-        label = weights_name or "weights"
-        kind = resolve_weight_kind(weights_type, n)
-        obs_weights = check_weights(weights, n, label)
-        if weights is None:
-            spec = WeightSpec(kind=kind, estimated=weights_estimated)
-        else:
-            warn_if_counts(np.asarray(weights, dtype=float), label)
-            warn_if_concentrated(obs_weights, label)
-            spec = WeightSpec(
-                kind=kind,
-                estimated=weights_estimated,
-                name=label,
-                scale=float(np.mean(np.asarray(weights, dtype=float))),
-            )
+        obs_weights, spec = _prepare_weights(
+            weights,
+            n,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            weights_name=weights_name,
+        )
 
         return cls(
             outcome=y,

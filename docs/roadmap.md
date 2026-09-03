@@ -26,27 +26,6 @@ published theory do not enter this sequence.
 | 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
 
-## Maintenance plan
-
-This theory-neutral cleanup shares existing behavior and removes an unused study property.
-It preserves the scientific priorities in the main roadmap.
-
-| work | planned change | acceptance evidence |
-| --- | --- | --- |
-| Observation weights | Share weight intake between `CausalData` and `LongitudinalData` in `data.weighting`. | Preserve normalized arrays, validation order, weight metadata, warning messages, and warning locations. |
-| DR-TMLE contraction evidence | Share contraction verdicts and rate rows between the binary and multi-arm studies. | Preserve coverage boundaries, control inversion, scenario order, bootstrap seeds, and both committed property summaries. |
-| Unused study property | Remove `Margins.coverage_at_se_floor`, which has no caller or serialized field. | Keep the underlying coverage function and the serialized margin declarations unchanged. |
-
-Add focused tests for constructor parity, warning locations, and contraction verdict boundaries.
-Run Ruff, mypy, the full fast suite, the prose report, and `nox -s docs` before handoff.
-Recompute the two property summaries and compare them with their baseline values.
-Study regeneration is unnecessary if the refactor preserves those values and the fitted arrays.
-
-Keep framework hooks, public delegates, and independent scientific oracles.
-Their shared syntax does not establish removable code or a shared implementation contract.
-Defer broader study wrapper changes because their laws, estimators, and registry declarations differ.
-Remove this plan after implementation and review.
-
 ## Future investigations
 
 These items are hard stops. Move one into the main roadmap only after a published paper supplies

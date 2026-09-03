@@ -281,6 +281,7 @@ import numpy as np
 
 from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
+from .validate import check_weights
 
 __all__ = [
     "CONCENTRATED_DESIGN_EFFECT",
@@ -385,6 +386,33 @@ def resolve_weight_kind(kind: str | None, n: int) -> WeightKind:
     return "probability"
 
 
+def _prepare_weights(
+    weights: Any,
+    n: int,
+    *,
+    weights_type: str | None,
+    weights_estimated: bool,
+    weights_name: str | None,
+) -> tuple[FloatArray, WeightSpec]:
+    """Validate a container's weights and retain their declared meaning and original scale."""
+    label = weights_name or "weights"
+    kind = resolve_weight_kind(weights_type, n)
+    obs_weights = check_weights(weights, n, label)
+    if weights is None:
+        spec = WeightSpec(kind=kind, estimated=weights_estimated)
+    else:
+        # The private emitters account for this frame, preserving construction warning locations.
+        _warn_if_counts(np.asarray(weights, dtype=float), label)
+        _warn_if_concentrated(obs_weights, label)
+        spec = WeightSpec(
+            kind=kind,
+            estimated=weights_estimated,
+            name=label,
+            scale=float(np.mean(np.asarray(weights, dtype=float))),
+        )
+    return obs_weights, spec
+
+
 def warn_if_counts(weights: FloatArray, name: str) -> None:
     """Warn when weights supplied as probabilities look like counts.
 
@@ -394,6 +422,10 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
     worth naming when the evidence is strong: all values whole numbers, at least one, and
     averaging clearly above one.
     """
+    _warn_if_counts(weights, name)
+
+
+def _warn_if_counts(weights: FloatArray, name: str) -> None:
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or np.unique(w).size < 2:
         return
@@ -409,7 +441,7 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
         "rows instead; if they are sampling weights, ignore this. See "
         "cleverly.data.weighting.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=4,
     )
 
 
@@ -449,6 +481,10 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
     ``g_bounds="auto"`` truncates harder, and the central limit theorem behind the
     interval has that many terms to work with, not ``n``.
     """
+    _warn_if_concentrated(weights, name)
+
+
+def _warn_if_concentrated(weights: FloatArray, name: str) -> None:
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or float(w.sum()) <= 0:
         return
@@ -463,7 +499,7 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
         "it, and the asymptotics behind the interval have that many terms. Inspect "
         "data.weight_report() before trusting the interval.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=4,
     )
 
 

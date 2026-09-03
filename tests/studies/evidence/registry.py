@@ -95,13 +95,6 @@ class Margins:
         if not 0.0 < self.confidence_level < 1.0:
             raise ValueError(f"confidence_level must be in (0, 1); got {self.confidence_level}")
 
-    @property
-    def coverage_at_se_floor(self) -> float:
-        """The coverage the sanity band's lower limit corresponds to, for the record."""
-        from tests.studies.evidence.inference import coverage_for_se_ratio
-
-        return coverage_for_se_ratio(self.se_ratio_sanity[0], alpha=self.alpha)
-
     def as_json(self) -> dict[str, object]:
         return {
             "confidence_level": self.confidence_level,

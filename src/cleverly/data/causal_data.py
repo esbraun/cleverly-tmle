@@ -67,11 +67,9 @@ from .validate import (
 from .weighting import (
     WeightReport,
     WeightSpec,
+    _prepare_weights,
     describe_weights,
     effective_sample_size,
-    resolve_weight_kind,
-    warn_if_concentrated,
-    warn_if_counts,
 )
 
 __all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
@@ -404,20 +402,13 @@ class CausalData:
                 )
 
         w, w_names, dropped = check_covariates(covariates, list(covariate_names))
-        label = weights_name or "weights"
-        kind = resolve_weight_kind(weights_type, n)
-        obs_weights = check_weights(weights, n, label)
-        if weights is None:
-            spec = WeightSpec(kind=kind, estimated=weights_estimated)
-        else:
-            warn_if_counts(np.asarray(weights, dtype=float), label)
-            warn_if_concentrated(obs_weights, label)
-            spec = WeightSpec(
-                kind=kind,
-                estimated=weights_estimated,
-                name=label,
-                scale=float(np.mean(np.asarray(weights, dtype=float))),
-            )
+        obs_weights, spec = _prepare_weights(
+            weights,
+            n,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            weights_name=weights_name,
+        )
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
         z = None
         if intermediate is not None:

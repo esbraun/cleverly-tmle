@@ -371,6 +371,69 @@ def fitted_rate_row(
     return row
 
 
+def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
+    """Each ladder rung's own claim: does the interval still cover at this size?
+
+    The rung is *not* judged on its bias.  ``double_robustness`` already judges the bias
+    against the equivalence margin, and repeating that verdict at three more sizes would
+    publish the same red cell four times without adding a statement.  What a rung adds is
+    whether the interval remains usable as ``n`` grows in a one-correct regime, and the
+    control adds the case where it must not.
+    """
+    margins = record.margins
+    ladder = summary["property"] == "double_robust_contraction"
+    positive = ladder & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = (
+        summary.loc[positive, "coverage_ci_lower"] >= margins.coverage_floor
+    )
+    control = ladder & (summary["role"] == "control")
+    summary.loc[control, "passed"] = (
+        summary.loc[control, "coverage_ci_upper"] < margins.coverage_floor
+    )
+
+
+def _contracts(fitted: Rate) -> bool:
+    """Whether the fitted slope establishes that the bias shrinks with ``n`` at all.
+
+    A *direction*, not an exponent.  Three points give a wide interval, so requiring the
+    second-order ``-1`` would fail a correct estimator on Monte Carlo error; requiring the
+    whole interval below zero is what this ladder can actually support and is enough to
+    separate a decaying remainder from an inconsistent estimator.
+    """
+    return bool(fitted.interval.high < 0.0)
+
+
+def contraction_rates(
+    rows: pd.DataFrame, record: StudyRecord, columns: Any, *, scenarios: Sequence[str]
+) -> list[dict[str, Any]]:
+    """One fitted contraction slope per scenario, as a published row.
+
+    A positive scenario must establish that its bias contracts.  The control must fail to,
+    and that is the half that gives the family teeth -- an inconsistent estimator's bias does
+    not shrink with ``n``, so its slope interval straddles zero and a rule that only asked the
+    positives to contract could be passed by an implementation that had stopped estimating
+    anything.
+    """
+    ladder = rows.loc[rows["property"] == "double_robust_contraction"]
+    return [
+        fitted_rate_row(
+            ladder.loc[ladder["cell"].str.startswith(f"{scenario}_n")],
+            record,
+            columns,
+            ladder_property="double_robust_contraction",
+            property_name="double_robust_contraction",
+            cell=f"rate_{scenario}",
+            role="control" if scenario == "both_wrong" else "positive",
+            statistic="bias",
+            seed_labels=("double_robust_contraction", scenario),
+            verdict=(
+                (lambda fitted: not _contracts(fitted)) if scenario == "both_wrong" else _contracts
+            ),
+        )
+        for scenario in scenarios
+    ]
+
+
 def _rate_row(
     rates: list[dict[str, Any]],
     rows: pd.DataFrame,
