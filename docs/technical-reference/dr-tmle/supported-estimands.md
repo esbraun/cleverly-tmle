@@ -88,16 +88,16 @@ because they are built from `nuisance.propensity`. `tests/unit/test_remainder_dr
 whole expansion at two tilted laws, and keeps the wrong transport as a control that fails.
 
 `tests/unit/test_simulated_confounding.py` adds the applied evidence. It refits nonuniform-weight
-complete-outcome fits across every supported binary surface parameter. It also unweights the
-reduced regressions alone, and requires the admitted cell to move. Neither file establishes
-interval validity or weighted parity with the canonical implementation.
+complete-outcome fits for each binary parameter the surface supports. It also removes the weight
+from the reduced regressions alone, and requires the cell estimate to move. Neither file
+establishes interval validity or weighted parity with the canonical implementation.
 
 ## Refused by name
 
 Each because the derivation read here does not cover it, not because the loop would not run. Every
 row raises at construction or at `fit`, with a message naming what a derivation would need. The
-`weights_estimated=` row is the one exception. It raises nowhere. It records that the caller
-estimated the weights, and no interval claim here covers that estimation.
+`weights_estimated=` row is the one exception. The fit raises nowhere. It records that the
+caller estimated the weights, and no interval claim here covers that estimation.
 
 | refused | why |
 | --- | --- |

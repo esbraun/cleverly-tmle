@@ -354,8 +354,8 @@ remainder conditions.
 transports its conditional expectations, mechanism, marginal means, and scores to $P_w$. It keeps
 a wrong-transport control with a nonzero remainder.
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions`
-adds the applied witness. It unweights the reduced regressions alone and requires the admitted
-cell to move.
+adds the applied witness. It removes the weight from the reduced regressions alone, and it
+requires the cell estimate to move.
 
 The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight argument. It supplies no
 weighted numerical comparator. This surface therefore claims no weighted R parity and broadens no
@@ -382,7 +382,8 @@ weight vector to mean one.
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_surface_is_invariant_to_a_common_weight_scale`
 pins ordinary TMLE to 1e-12.
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_drtmle_surface_is_invariant_to_a_common_weight_scale`
-applies the same tolerance to DR-TMLE. The supplied scale is itself a descriptive measurement, so
+applies the same tolerance to the DR-TMLE cells. The supplied scale is itself a descriptive
+measurement, so
 `weight_report.scale` does change with it.
 
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the

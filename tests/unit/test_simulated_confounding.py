@@ -30,7 +30,7 @@ from cleverly import (
     RiskRatio,
 )
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
-from cleverly.estimators import TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Shift
@@ -1031,7 +1031,7 @@ def test_fixed_weight_drtmle_controls_detect_dropped_weights_and_tmle_fallback()
 def test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Unweight the reductions alone, and the admitted cell has to move.
+    """Remove the weight from the reductions alone, and the cell estimate has to move.
 
     The dropped-weight control removes the weight from every learner at once, so the
     primary outcome regression and mechanism dominate the separation it reports. The
@@ -1045,15 +1045,18 @@ def test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions(
     surface = simulated_confounding(result, grid=grid, random_state=31)
     witness = surface.cells[3]
 
-    unweighted = _fit(method="drtmle", weight_scale=1.0)
-    original = type(unweighted.estimator)._fit_reduced
+    # ``surface`` is already materialized, so patching the class now reaches the manual
+    # refit below and nothing else.  Reusing ``result`` rather than a second fit is what
+    # keeps the comparison exact: a strict inequality against an independent fit would
+    # pass vacuously if the two fits ever diverged.
+    original = DRTMLE._fit_reduced
 
     def unweighted_reductions(self: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
         flat = replace(data, weights=np.ones_like(data.weights))
         return original(self, flat, *args, **kwargs)
 
-    monkeypatch.setattr(type(unweighted.estimator), "_fit_reduced", unweighted_reductions)
-    mutated = _manual_repeated_refit(unweighted, surface, treatment=0.2, outcome=0.3)
+    monkeypatch.setattr(DRTMLE, "_fit_reduced", unweighted_reductions)
+    mutated = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
 
     assert witness.estimate is not None
     assert abs(witness.estimate - mutated["ate"].psi) > 1e-3
