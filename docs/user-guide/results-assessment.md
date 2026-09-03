@@ -181,6 +181,8 @@ An ordinary-TMLE fit can declare fixed probability weights. The surface keeps ea
 weight on its row during every treatment replacement, outcome replacement, and complete refit.
 Read `surface.target_measure` to distinguish `unweighted` from `fixed_empirical_tilt`.
 `surface.weight_report` records the weight column, kind, supplied scale, and concentration.
+The label follows the declared weight column, so read `surface.weight_report.is_weighted` to learn
+whether the realized tilt is nonconstant.
 
 Under `fixed_empirical_tilt`, each cell evaluates its parameter on the perturbed weighted
 empirical law. This operation does not reproduce the original sampling or selection mechanism.

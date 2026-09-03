@@ -225,6 +225,8 @@ estimate, bound, p-value, confidence interval, robustness value, threshold, or p
 `target_measure` records how the operation reads the analysis rows. It is `unweighted` when the
 fit declares no weights. It is `fixed_empirical_tilt` when the fit declares fixed weights.
 `weight_report` carries the weight kind, column, scale, effective size, and concentration measures.
+The label follows the declared weight column, so read `weight_report.is_weighted` to learn whether
+the realized tilt is nonconstant.
 
 **How.** The operation draws one row-level standard-normal latent vector. It reuses that vector
 and one refit seed across the complete grid. Each cell starts from the original data.
@@ -346,10 +348,19 @@ reported association records that finite-sample imbalance. Each cell reports the
 functional on its perturbed weighted empirical law. This statement does not claim that the
 operation reproduces the sampling or selection mechanism.
 
+Hartman and Huang (2024) treat sensitivity to a confounder that the weighting model omits. They
+report a bound, a robustness value, and a benchmark. This surface reports none of those, so their
+method does not govern it.
+
 The induced treatment association uses weighted means, variances, and covariance. Numeric
 calibration also uses weighted scaling, model fitting, prediction-change fractions, and moments.
-Constant weights use the exact unweighted calculation path. A common weight scale changes neither
-the surface cells nor their descriptive measurements.
+Constant weights use the exact unweighted calculation path. A common weight scale leaves the cell
+estimates, the displacements, the induced associations, and the calibration strengths numerically
+unchanged. The agreement is numerical rather than bitwise, because `check_weights` normalizes each
+weight vector to mean one.
+`tests/unit/test_simulated_confounding.py::test_fixed_weight_surface_is_invariant_to_a_common_weight_scale`
+pins that agreement to 1e-12. The supplied scale is itself a descriptive measurement, so
+`weight_report.scale` does change with it.
 
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
@@ -375,6 +386,13 @@ The surface also refuses a result with no replay state, a result with no identif
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with
 itself. The stored draw count, `config.crossfit.repeats`, and the replay estimator's `repeats`
 must state the same number. Each is a statement about the object you hold.
+
+The surface also refuses three observation-weight compositions. It refuses a weight kind other
+than `probability`, because it supports fixed probability weights only. It refuses a result whose
+`weights_name` and `WeightSpec` name disagree, which is inconsistent weight provenance. It refuses
+nonconstant observation weights with no declared weight column.
+`tests/unit/test_simulated_confounding.py::test_weight_refusals_and_provenance_tampering_precede_draws_and_refits`
+pins all three before the first draw and refit.
 
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set

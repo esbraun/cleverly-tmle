@@ -261,11 +261,14 @@ previous reader had is not a citation; a page number is.
   binomial outcome tail flip. These are secondary finite-sample conventions only. `cleverly` uses
   original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,
   explicit grids, and retained failures. It does not copy automatic ranges, categorical
-  encoded-column deletion, or cumulative mutation of shared data.
+  encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
+  argument in `_include_confounders_effect`, so this source supplies the perturbation and the
+  refit only. It does not supply the weighted evaluation.
 - Hartman & Huang (2024), [*Sensitivity Analysis for Survey
   Weights*](https://doi.org/10.1017/pan.2023.12), *Political Analysis* 32(1):1-16.
-  Their method perturbs error in survey-weight construction. It does not keep a fixed empirical
-  tilt while treatment and outcome change, so it answers a different sensitivity question.
+  Their method bounds the bias from a confounder that the weighting model omits. It supplies a
+  bound, a robustness value, and a benchmarking procedure. This surface supplies none of those, so
+  it answers a different sensitivity question.
 - Hu, Zou, Gu, Ji, Lopez & Kale (2022), [*A flexible sensitivity analysis approach for unmeasured
   confounding with multiple treatments and a binary outcome with application to SEER-Medicare lung
   cancer data*](https://doi.org/10.1214/21-AOAS1530), *The Annals of Applied Statistics*
@@ -276,6 +279,12 @@ previous reader had is not a citation; a page number is.
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
   latent treatment perturbation and no refit law for this surface. Cited by roadmap item F8.
+- Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
+  Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
+  arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
+  a bias correction from those models. That construction does not perturb the treatment and the
+  outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
+  and a mixed latent cause for this surface. Cited by roadmap item F9.
 
 ## Negative controls
 

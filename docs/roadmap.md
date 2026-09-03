@@ -325,8 +325,9 @@ records the shipped rows, perturbation laws, repeat aggregation, provenance, and
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
-contrast contract. The table below omits multi-arm treatment, which waits on published theory as
-[F8](#f8-multi-arm-simulated-confounding-stress-surface).
+contrast contract. The table below omits two theory stops. Multi-arm treatment waits on published
+theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
+published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
 
 | refused family | what it still needs |
 | --- | --- |
