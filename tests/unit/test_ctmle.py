@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 from itertools import pairwise
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -24,7 +24,7 @@ from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.learners.crossfit import make_folds
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, mean_one_weights
 
 TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
 
@@ -130,7 +130,9 @@ class _RecordingClassifier(ClassifierMixin, BaseEstimator):
         )
 
 
-def _selector(frame: object, **overrides: object) -> tuple[_Selector, object]:
+def _selector(
+    frame: object, *, weights: str | None = None, **overrides: object
+) -> tuple[_Selector, object]:
     """A selector wired up exactly as ``CTMLE._nuisances`` wires one."""
     estimator = CTMLE(**{**CTMLE_KWARGS, **overrides})
     data = estimator._prepare(
@@ -139,7 +141,7 @@ def _selector(frame: object, **overrides: object) -> tuple[_Selector, object]:
         treatment="A",
         covariates=None,
         delta=None,
-        weights=None,
+        weights=weights,
         id=None,
         intermediate=None,
     )
@@ -148,6 +150,45 @@ def _selector(frame: object, **overrides: object) -> tuple[_Selector, object]:
     config = estimator._config(data, ("ate",), scaler, folds)
     base = estimator._fit_nuisances(data, folds, scaler, None)
     return _Selector(estimator, data, base, config.g_bounds, None), base
+
+
+def _weighted(frame: Any) -> Any:
+    """The same frame with a nonconstant observation weight column.
+
+    :func:`mean_one_weights` says why the profile has mean one and why it is nonconstant.
+    The weighted fixture therefore differs from the unweighted one in the row mass alone.
+    """
+    weighted_frame = frame.copy()
+    weighted_frame["weight"] = mean_one_weights(len(frame))
+    return weighted_frame
+
+
+def _weighted_correlation(left: Any, right: Any, weights: Any) -> float:
+    """Weighted Pearson correlation, written out longhand."""
+    left_centered = left - np.average(left, weights=weights)
+    right_centered = right - np.average(right, weights=weights)
+    covariance = np.average(left_centered * right_centered, weights=weights)
+    scale = np.sqrt(
+        np.average(left_centered**2, weights=weights)
+        * np.average(right_centered**2, weights=weights)
+    )
+    return float(covariance / scale)
+
+
+def _closed_form_partial_correlation(
+    left: Any, right: Any, conditional: Any, weights: Any
+) -> float:
+    """``(r_xy - r_xa r_ya) / sqrt((1 - r_xa^2)(1 - r_ya^2))``, for one binary conditional.
+
+    The published closed form, and a second implementation of what
+    :func:`_weighted_partial_correlation` computes by residualising both variables on ``A``
+    with a weighted least-squares fit. Nothing here calls that function, so an expectation
+    built on this cannot move with the code it is checking.
+    """
+    xy = _weighted_correlation(left, right, weights)
+    xa = _weighted_correlation(left, conditional, weights)
+    ya = _weighted_correlation(right, conditional, weights)
+    return float((xy - xa * ya) / np.sqrt((1.0 - xa**2) * (1.0 - ya**2)))
 
 
 @pytest.fixture(scope="module")
@@ -161,8 +202,24 @@ def selector(instrument_frame) -> _Selector:
     return _selector(instrument_frame)[0]
 
 
+@pytest.fixture(scope="module")
+def weighted_selector(instrument_frame) -> _Selector:
+    return _selector(_weighted(instrument_frame), weights="weight")[0]
+
+
 class TestLoss:
-    def test_squared_error_matches_the_formula(self, selector) -> None:
+    def test_the_weighted_fixture_carries_a_nonconstant_row_mass(
+        self, selector, weighted_selector
+    ) -> None:
+        # Every formula check below runs against both selectors. This is what stops the
+        # weighted run from being a second copy of the unweighted one.
+        assert np.allclose(selector.data.weights, 1.0)
+        assert not np.allclose(weighted_selector.data.weights, 1.0)
+        assert float(np.mean(weighted_selector.data.weights)) == pytest.approx(1.0, rel=1e-12)
+
+    @pytest.mark.parametrize("fixture", ["selector", "weighted_selector"])
+    def test_squared_error_matches_the_formula(self, fixture, request) -> None:
+        selector = request.getfixturevalue(fixture)
         rows = selector.all_rows
         candidate = selector._candidate(("W1",), selector.base.outcome, rows, None, "t", 1)
         residual = selector.scaled - candidate.targeted.observed
@@ -178,8 +235,10 @@ class TestLoss:
         frame, _ = make_binary_outcome(n=400, seed=2)
         assert _selector(frame)[0].loss_kind == "loglik"
 
-    def test_the_log_likelihood_matches_the_formula(self, instrument_frame) -> None:
-        selector = _selector(instrument_frame, loss="loglik")[0]
+    @pytest.mark.parametrize("weights", [None, "weight"])
+    def test_the_log_likelihood_matches_the_formula(self, instrument_frame, weights) -> None:
+        frame = instrument_frame if weights is None else _weighted(instrument_frame)
+        selector = _selector(frame, weights=weights, loss="loglik")[0]
         rows = selector.all_rows
         candidate = selector._candidate(("W1",), selector.base.outcome, rows, None, "t", 1)
         q = np.clip(candidate.targeted.observed, 1e-12, 1.0 - 1e-12)
@@ -236,16 +295,25 @@ class TestPenalty:
         candidate = selector._candidate(("W2",), selector.base.outcome, rows, None, "t", 1)
         assert candidate.risk == candidate.loss
 
-    def test_treatment_risk_is_weighted_binomial_deviance(self, selector) -> None:
+    @pytest.mark.parametrize("fixture", ["selector", "weighted_selector"])
+    def test_treatment_risk_is_weighted_binomial_deviance(self, fixture, request) -> None:
+        """And the weight factor is what the weighted case rejects when it goes missing.
+
+        The deviance is the one selector quantity the fitted estimate never reads, so a
+        dropped ``w *`` here changes a reported diagnostic and nothing else. The
+        unweighted-expectation assertion is the control: without it the weighted case
+        would pass against an implementation that summed the log likelihood bare.
+        """
+        selector = request.getfixturevalue(fixture)
         rows = selector.all_rows
         candidate = selector._candidate(("W1",), selector.base.outcome, rows, None, "g-risk", 1)
         propensity = np.clip(candidate.propensity.values[:, 1], 1e-12, 1.0 - 1e-12)
         treatment = selector.data.treatment
-        expected = -np.sum(
-            selector.data.weights
-            * (treatment * np.log(propensity) + (1.0 - treatment) * np.log(1.0 - propensity))
-        )
+        deviance = treatment * np.log(propensity) + (1.0 - treatment) * np.log(1.0 - propensity)
+        expected = -np.sum(selector.data.weights * deviance)
         assert candidate.treatment_risk == pytest.approx(float(expected), rel=1e-12)
+        if fixture == "weighted_selector":
+            assert candidate.treatment_risk != pytest.approx(float(-np.sum(deviance)), rel=1e-6)
 
 
 class TestPaths:
@@ -310,27 +378,46 @@ class TestPaths:
         monkeypatch.setattr(selector, "loss", lambda targeted, rows: float(targeted[0]))
         assert selector._ordering(selector.all_rows, None) == ("W2", "W3", "W1")
 
+    @pytest.mark.parametrize("weights", [None, "weight"])
     def test_partial_correlation_ordering_matches_weighted_residualization(
-        self, instrument_frame
+        self, instrument_frame, weights
     ) -> None:
-        selector = _selector(instrument_frame, strategy="ordered", preorder="partial_correlation")[
-            0
-        ]
-        residual = selector.scaled - selector.base.outcome.observed
-        scores = {
-            name: abs(
-                _weighted_partial_correlation(
-                    residual,
-                    selector.data.covariates[:, column],
-                    selector.data.treatment,
-                    selector.data.weights,
+        """And the expectation is built without calling the function the order comes from.
+
+        The score is ``_weighted_partial_correlation``, so an expectation that calls it
+        moves with any defect in it and the two sides agree for the wrong reason.
+        :func:`_closed_form_partial_correlation` is the published formula instead, and it
+        residualises nothing.
+
+        The unweighted control is the other half. On the weighted fixture the two masses
+        rank the covariates differently, ``('W2', 'W1', 'W3')`` weighted against
+        ``('W2', 'W3', 'W1')`` unweighted, so an ordering that read no mass would fail here.
+        """
+        frame = instrument_frame if weights is None else _weighted(instrument_frame)
+        selector = _selector(
+            frame, weights=weights, strategy="ordered", preorder="partial_correlation"
+        )[0]
+        rows = selector.all_rows
+        usable = rows[selector.data.observed[rows]]
+        residual = selector.scaled[usable] - selector.base.outcome.observed[usable]
+        treated = (selector.data.treatment[usable] == selector.data.arm_codes[1]).astype(float)
+
+        def ranked(mass):
+            scores = {
+                name: abs(
+                    _closed_form_partial_correlation(
+                        residual, selector.data.covariates[usable, column], treated, mass
+                    )
                 )
-            )
-            for column, name in enumerate(selector.data.covariate_names)
-        }
-        assert selector._ordering(selector.all_rows, None) == tuple(
-            sorted(scores, key=scores.__getitem__, reverse=True)
-        )
+                for column, name in enumerate(selector.data.covariate_names)
+            }
+            return tuple(sorted(scores, key=scores.__getitem__, reverse=True))
+
+        mass = selector.data.weights[usable]
+        assert selector._ordering(rows, None) == ranked(mass)
+        if weights is not None:
+            assert not np.allclose(mass, 1.0)
+            assert ranked(np.ones_like(mass)) != ranked(mass)
 
     def test_partial_correlation_preorder_places_the_larger_magnitude_first(
         self, instrument_frame, monkeypatch
@@ -352,20 +439,7 @@ class TestPaths:
         conditional = np.array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0])
         weights = np.array([1.0, 2.0, 1.0, 4.0, 2.0, 3.0])
 
-        def correlation(x: np.ndarray, y: np.ndarray) -> float:
-            x_centered = x - np.average(x, weights=weights)
-            y_centered = y - np.average(y, weights=weights)
-            covariance = np.average(x_centered * y_centered, weights=weights)
-            scale = np.sqrt(
-                np.average(x_centered**2, weights=weights)
-                * np.average(y_centered**2, weights=weights)
-            )
-            return float(covariance / scale)
-
-        xy = correlation(left, right)
-        xa = correlation(left, conditional)
-        ya = correlation(right, conditional)
-        expected = (xy - xa * ya) / np.sqrt((1.0 - xa**2) * (1.0 - ya**2))
+        expected = _closed_form_partial_correlation(left, right, conditional, weights)
         assert _weighted_partial_correlation(left, right, conditional, weights) == pytest.approx(
             expected, rel=1e-12
         )
@@ -388,14 +462,42 @@ class TestPaths:
         # Each fluctuates from the same initial fit, so none of them chains onto another.
         assert {candidate.n_steps for candidate in path} == {1}
 
-    def test_the_intercept_candidate_is_the_marginal_treatment_rate(self, selector) -> None:
+    @pytest.mark.parametrize("fixture", ["selector", "weighted_selector"])
+    def test_the_intercept_candidate_is_the_marginal_treatment_rate(self, fixture, request) -> None:
+        """Every path's first candidate is the arm's *weighted* share of the fitting rows.
+
+        :meth:`_Selector._intercept_propensity` computes ``sum(w 1{A = a}) / sum(w)`` per
+        fold rather than a row count, so the expectation is rebuilt fold by fold at the same
+        mass. A marginal-rate comparison alone cannot see the weight factor: this profile is
+        independent of treatment, so the weighted and unweighted marginal rates are 0.4918
+        and 0.4929, closer together than the cross-fitting jitter that comparison allows for.
+        The per-fold reconstruction separates them, and the unweighted control below is what
+        states that it does.
+        """
+        selector = request.getfixturevalue(fixture)
+        data = selector.data
         # Cross-fitted, so each row gets the rate computed without it.
         values = selector.propensity((), None, "i")
         assert values.values.min() > 0.0 and values.values.max() < 1.0
         np.testing.assert_allclose(values.values.sum(axis=1), 1.0)
         assert float(np.mean(values.values[:, 1])) == pytest.approx(
-            float(np.mean(selector.data.treatment)), abs=0.02
+            float(np.average(data.treatment, weights=data.weights)), abs=0.02
         )
+
+        def rebuilt(mass):
+            expected = np.empty_like(values.values)
+            for fit_rows, test in selector.base.folds:
+                total = float(np.sum(mass[fit_rows]))
+                expected[test] = [
+                    np.sum(mass[fit_rows] * (data.treatment[fit_rows] == arm)) / total
+                    for arm in data.arm_codes
+                ]
+            return expected
+
+        np.testing.assert_allclose(values.values, rebuilt(data.weights), rtol=1e-12)
+        if fixture == "weighted_selector":
+            assert not np.allclose(data.weights, 1.0)
+            assert not np.allclose(values.values, rebuilt(np.ones_like(data.weights)), atol=1e-6)
 
 
 class TestSelection:
@@ -687,6 +789,36 @@ class TestReporting:
 
     def test_the_intercept_candidate_is_labelled(self, selection) -> None:
         assert "(intercept)" in selection.summary()
+
+    def test_the_outcome_adaptive_treatment_risk_is_the_weighted_deviance(
+        self, instrument_frame
+    ) -> None:
+        """``strategy='oat'`` reports its own deviance, and no selector path reaches it.
+
+        :meth:`CTMLE._outcome_adaptive_nuisances` builds the mechanism itself rather than
+        scoring candidates, so ``_Selector._candidate`` never runs and the selector's own
+        deviance check above says nothing about this number. The mechanism is fitted on the
+        weights either way, so the estimate does not move when the reported risk loses its
+        weight factor. That leaves this the only check that can see it.
+        """
+        result = (
+            CTMLE(**{**TMLE_KWARGS, "strategy": "oat"})
+            .fit(_weighted(instrument_frame), outcome="Y", treatment="A", weights="weight")
+            .single()
+        )
+        selection = result.extra["ctmle"]
+        data = result.data
+        propensity = result.nuisance.propensity
+        columns = np.array([propensity.column_for(float(arm)) for arm in data.treatment], dtype=int)
+        observed = np.clip(propensity.values[np.arange(data.n), columns], 1e-12, 1.0)
+        deviance = np.log(observed)
+
+        assert selection.strategy == "oat"
+        assert not np.allclose(data.weights, 1.0)
+        assert selection.treatment_risk == pytest.approx(
+            float(-np.sum(data.weights * deviance)), rel=1e-12
+        )
+        assert selection.treatment_risk != pytest.approx(float(-np.sum(deviance)), rel=1e-6)
 
 
 class TestValidation:

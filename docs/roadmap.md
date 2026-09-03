@@ -331,7 +331,6 @@ published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
 
 | refused family | what it still needs |
 | --- | --- |
-| fixed observation weights with collaborative TMLE | a transport argument for the path the selector chooses at the tilted law |
 | estimated observation weights | replayable weight-model provenance and a refit rule |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |

@@ -162,6 +162,14 @@ the stronger collaborative-double-robust theorem, and no interval is claimed val
 both nuisance limits are wrong. ``n_bootstrap=`` reruns selection and can diagnose its
 finite-sample contribution, but does not create that missing theorem.
 
+Fixed probability weights replace the empirical law by its normalized weighted version.
+The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
+cross-validated risk and the plug-in. The outcome-adaptive route uses it in both nuisance
+fits, targeting and the plug-in. The simulated common-cause surface keeps each weight with
+its observed row and reruns this complete fit. That surface refuses a clustered fit and
+refuses estimated weights. Canonical ``ctmle`` and archived ``ctmle3`` provide no weighted
+comparator, so no numerical parity is claimed for that composition.
+
 State of the evidence
 ---------------------
 

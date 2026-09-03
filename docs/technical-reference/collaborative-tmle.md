@@ -91,6 +91,19 @@ step from the selected candidate's own targeted regression, not from the initial
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
 selection.
 
+**A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
+probability weights for this operation. The operation refuses a clustered fit, and it refuses
+estimated weights.
+
+Each cell keeps the weight with its observed row and refits the complete collaborative estimator.
+Selector strategies use the normalized weights in their nuisance fits, losses, penalties,
+cross-validated risks, targeting, and plug-in. The outcome-adaptive strategy uses them in its
+outcome and categorical mechanism fits, targeting, and plug-in. See the
+[simulated common-cause contract](validation-methods.md#simulated-common-cause-stress-surface).
+
+The canonical R `ctmle` and archived `ctmle3` implementations provide no weighted comparator.
+This fixed-weight surface claims no numerical parity with either implementation.
+
 **`CTMLE` on an `incremental=` fit is wrong by construction**, not a gap. Each candidate mechanism
 defines a different estimand, so the search would select between estimands rather than between
 estimators.

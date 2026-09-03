@@ -761,16 +761,6 @@ def _validate_request(
         )
     if data.cluster is not None:
         raise CapabilityError("simulated_confounding does not support clustered fits")
-    weighted_estimator_supported = type(estimator) is TMLE or (
-        treatment_family == "binary" and type(estimator) is DRTMLE
-    )
-    if data.weights_name is not None and not weighted_estimator_supported:
-        raise CapabilityError(
-            "simulated_confounding supports fixed observation weights with ordinary TMLE and "
-            "binary complete-outcome DR-TMLE only; "
-            f"weighted {type(estimator).__name__} lacks perturb-and-refit evidence for this "
-            "composition"
-        )
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(
@@ -1175,11 +1165,11 @@ def simulated_confounding(
     outcome-stratified splitting can change assignments after the surface perturbs that
     variable.
 
-    An ordinary-TMLE fit, or a binary complete-outcome DR-TMLE fit, can declare fixed
-    probability weights. Every replacement and refit keeps the normalized weight on its
-    original row. The induced association and numeric calibration use the same weighted
-    empirical law. Estimated weights, weighted collaborative TMLE, and clustered fits are
-    refused before a draw.
+    An ordinary-TMLE fit can declare fixed probability weights. Binary complete-outcome
+    collaborative-TMLE and DR-TMLE fits can also declare them. Every replacement and refit
+    keeps the normalized weight on its original row. The induced association and numeric
+    calibration use the same weighted empirical law. Estimated weights and clustered fits
+    are refused before a draw.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is

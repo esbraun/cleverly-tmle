@@ -8,6 +8,12 @@ analysis is exercised on a case where the correct answer is known by constructio
 * the robustness value on a fit with a *known* confounder withheld;
 * the missingness tilt at ``gamma = 0``, which must reproduce the MAR estimate exactly;
 * refutation tests, where a placebo treatment must yield no effect.
+
+Every fixture above carries unit observation weights, so none of those cases can see a
+diagnostic or a tilt that drops the weights.  ``weighted_missing_fit`` is the one that
+can: :class:`TestPositivityUnderObservationWeights` and
+:class:`TestTheTiltUnderObservationWeights` run on it, and each writes its expectation out
+from the displayed formula rather than from the helper it is checking.
 """
 
 from __future__ import annotations
@@ -58,6 +64,60 @@ def poor_overlap() -> object:
         return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
 
 
+def _weight_by_covariate_rank(column: np.ndarray) -> np.ndarray:
+    """``np.linspace(0.5, 1.5, n)``, handed out in the order ``column`` ranks the rows.
+
+    ``linspace`` gives the profile a fixed nonconstant shape, and the covariate order
+    gives it something to say.  Handed out by row index it would be independent of
+    everything the fit uses, so the weighted and the unweighted answer would differ only
+    by sampling noise and the witnesses below could state no margin at all.
+    """
+    values = np.asarray(column, dtype=float)
+    return np.linspace(0.5, 1.5, values.size)[np.argsort(np.argsort(values))]
+
+
+def _kish(weights: np.ndarray) -> float:
+    """Kish's effective sample size, ``(sum w)^2 / sum w^2``, written out.
+
+    A sibling of the helper of the same name in
+    :mod:`tests.unit.test_sensitivity_multi_arm`.  Six lines duplicated rather than
+    shared, because the only home both modules could import from is ``tests/conftest.py``
+    and this change does not own it.
+    """
+    w = np.asarray(weights, dtype=float)
+    return float(w.sum() ** 2 / np.square(w).sum())
+
+
+def _top_share(weights: np.ndarray, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of the rows."""
+    w = np.asarray(weights, dtype=float)
+    count = max(1, int(np.ceil(fraction * w.size)))
+    return float(np.sort(w)[-count:].sum() / w.sum())
+
+
+@pytest.fixture(scope="module")
+def weighted_missing_fit() -> object:
+    """One weighted fit, carrying missing outcomes, for the two weighted witnesses.
+
+    Missingness costs the positivity witness nothing and the tilt cannot run without it,
+    so the two share a fit rather than paying for one each.
+    """
+    frame, _ = make_missing_outcome(n=800, seed=11)
+    weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
+    return (
+        fast_tmle(estimands=("ate", "att", "atc", "ey1", "ey0"))
+        .fit(
+            weighted,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+            weights="obs_weight",
+        )
+        .single()
+    )
+
+
 class TestPositivity:
     def test_good_overlap_is_reported_as_adequate(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
@@ -98,6 +158,53 @@ class TestPositivity:
             "treated",
             "control",
         }
+
+
+class TestPositivityUnderObservationWeights:
+    """The leverage a weighted point-treatment fit reports is the *product* of the two.
+
+    The sibling of
+    ``tests/e2e/test_ltmle.py::TestObservationWeights::test_the_diagnostics_fold_the_weights_into_the_leverage``,
+    which makes this statement for the longitudinal estimator and cites
+    ``result.diagnostics.support()`` as having made the same choice.  This is the check
+    that holds the point-treatment side to it.  Both the module docstring of
+    :mod:`cleverly.sensitivity.positivity` and
+    ``docs/technical-reference/validation-methods.md`` state the claim in prose.
+
+    Every check in :class:`TestPositivity` above passes unchanged on an implementation
+    that ignores the observation weights, because none of its fits carries any.
+    """
+
+    def test_the_diagnostics_fold_the_weights_into_the_leverage(self, weighted_missing_fit) -> None:
+        report = weighted_missing_fit.diagnostics.support()
+        data = weighted_missing_fit.data
+        lower, upper = weighted_missing_fit.config.g_bounds
+        bounded = np.clip(weighted_missing_fit.nuisance.propensity.arm(1.0), lower, upper)
+        treated = np.asarray(data.treatment == 1.0)
+
+        for arm, mask, covariate in (
+            ("treated", treated, 1.0 / bounded),
+            ("control", ~treated, 1.0 / (1.0 - bounded)),
+        ):
+            clever = covariate[mask]
+            leverage = clever * data.weights[mask]
+            nominal = float(mask.sum())
+
+            ess = report.effective_sample_size[arm]
+            assert ess["effective"] == pytest.approx(_kish(leverage), abs=0)
+            assert ess["ratio"] == pytest.approx(_kish(leverage) / nominal, abs=0)
+            share = report.weight_share[arm]
+            assert share["top_1pct"] == pytest.approx(_top_share(leverage, 0.01), abs=0)
+            assert share["top_5pct"] == pytest.approx(_top_share(leverage, 0.05), abs=0)
+
+            # The observation weighting materially changes the leverage rather than
+            # merely carrying an unused array alongside it.
+            assert not np.allclose(leverage, clever)
+            # And it changes what is *reported*.  The smaller of the two arms moves by 15
+            # units of effective sample size and by 0.017 of the top-5% share; the other
+            # moves by 65 and by 0.037.
+            assert abs(_kish(leverage) - _kish(clever)) > 10.0
+            assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
 
 class TestTruncationCurve:
@@ -381,6 +488,107 @@ class TestMissingnessTilt:
     def test_a_ratio_estimand_is_excluded(self, missing_fit) -> None:
         with pytest.raises(ValueError, match="no tiltable estimands"):
             missing_fit.sensitivity.missingness(estimands=["rr"])
+
+
+class TestTheTiltUnderObservationWeights:
+    r"""The tilted curve averages over the population the weights describe.
+
+    A weighted fit reports a weighted estimand, so the MNAR curve through it has to be
+    weighted at every ``gamma`` and not only at the origin.  The tilt takes three separate
+    averages -- one for a mean, one for an unconditional contrast, one for a conditional
+    effect whose weight is the arm indicator times the observation weight -- and none of
+    them is reachable from the ``gamma = 0`` identity alone, because at ``gamma = 0`` the
+    mixture collapses to the fit's own targeted regression and the ``ate`` moves by 0.0004
+    where the weighted and unweighted averages of the *tilted* regression differ by 0.065.
+
+    So the check is the mixing formula from the module docstring of
+    :mod:`cleverly.sensitivity.missingness`, written out at a nonzero ``gamma``:
+
+    .. math::
+
+        \bar Q^{\text{full}}_\gamma(a, W)
+          = \pi_a(W) \bar Q^*(a, W)
+          + (1 - \pi_a(W)) \operatorname{expit}(\operatorname{logit} \bar Q^*(a, W) + \gamma).
+
+    ``tipping_gamma`` needs no witness of its own: it reaches the same three averages
+    through :func:`~cleverly.sensitivity.missingness.missingness_tilt`, one probe at a
+    time, and has no arithmetic of its own past the root search.
+    """
+
+    #: Far enough from the origin that the mixture is doing work, and inside the range an
+    #: analyst reads: the module's own default grid runs to 2.
+    GAMMA = 1.25
+
+    def _longhand(self, result, name: str, gamma: float, *, weighted: bool) -> float:
+        """One tilted estimand, from the displayed formula and the fit's own nuisances."""
+        from cleverly.utils.bounds import expit, logit
+
+        data = result.data
+        weights = data.weights if weighted else np.ones(data.n)
+        group = "mean" if name in ("ey1", "ate") else name
+        draws = []
+        for repeat in result.repeats:
+            scaler = repeat.nuisance.scaler
+            arms = repeat.nuisance.arms
+            observed = repeat.nuisance.bounded_missingness(result.config.missingness_bound)
+            targeted = repeat.fluctuations[group].targeted
+
+            def full(arm: float, targeted=targeted, observed=observed, arms=arms):
+                q = np.asarray(targeted.arms[arm], dtype=float)
+                pi = observed[:, arms.index(arm)]
+                return pi * q + (1.0 - pi) * expit(logit(q) + gamma)
+
+            if name == "ey1":
+                scaled = float(np.average(full(1.0), weights=weights))
+                draws.append(scaler.unscale_level(scaled) if not scaler.is_identity else scaled)
+                continue
+            contrast = full(1.0) - full(0.0)
+            if name == "ate":
+                over = weights
+            else:
+                conditioning = 1.0 if name == "att" else 0.0
+                over = weights * np.asarray(data.treatment == conditioning, dtype=float)
+            scaled = float(np.average(contrast, weights=over))
+            draws.append(scaler.unscale_difference(scaled) if not scaler.is_identity else scaled)
+        return float(np.median(draws))
+
+    @pytest.mark.parametrize("name", ["ey1", "ate", "att", "atc"])
+    def test_the_tilted_estimate_averages_over_the_weighted_population(
+        self, weighted_missing_fit, name: str
+    ) -> None:
+        curve = nw.from_native(
+            weighted_missing_fit.sensitivity.missingness([self.GAMMA], estimands=[name]),
+            eager_only=True,
+        )
+        expected = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
+        assert float(curve["psi"][0]) == pytest.approx(expected, rel=1e-12)
+
+    @pytest.mark.parametrize("name", ["ey1", "ate", "att", "atc"])
+    def test_the_unweighted_average_is_a_different_number(
+        self, weighted_missing_fit, name: str
+    ) -> None:
+        """The control that makes the comparison above worth making.
+
+        Both sides come from this module's own arithmetic.  The measured gaps are 0.348
+        for ``ey1``, 0.065 for ``ate``, 0.058 for ``att`` and 0.066 for ``atc``, against a
+        ``rel=1e-12`` tolerance above.
+        """
+        weighted = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=True)
+        unweighted = self._longhand(weighted_missing_fit, name, self.GAMMA, weighted=False)
+        assert abs(weighted - unweighted) > 0.02
+
+    def test_the_curve_still_passes_through_the_weighted_estimate(
+        self, weighted_missing_fit
+    ) -> None:
+        """``gamma = 0`` is the MAR analysis of the *weighted* fit, not of the sample."""
+        for name in ("ey1", "ate", "att", "atc"):
+            curve = nw.from_native(
+                weighted_missing_fit.sensitivity.missingness([0.0], estimands=[name]),
+                eager_only=True,
+            )
+            assert float(curve["psi"][0]) == pytest.approx(
+                weighted_missing_fit.psi(name), rel=1e-12
+            )
 
 
 class TestValidation:

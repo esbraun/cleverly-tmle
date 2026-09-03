@@ -6,6 +6,9 @@ the test is about estimator machinery rather than flexible learning.
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +161,112 @@ FAST_KWARGS: dict[str, Any] = {
 def fast_tmle(**overrides: Any) -> TMLE:
     """A quick, reproducible estimator for tests."""
     return TMLE(**{**FAST_KWARGS, **overrides})
+
+
+def mean_one_weights(n: int, spread: tuple[float, float] = (0.5, 1.5)) -> Any:
+    """``n`` nonconstant observation weights whose mean is exactly one.
+
+    :func:`cleverly.data.validate.check_weights` returns ``w * (n / w.sum())``, so a
+    profile whose mean is already one survives the constructor unchanged. That is what a
+    weighted fixture wants: the stored mass is the mass the test wrote down, and a test
+    that compares a hand computation against the estimator is comparing the same numbers.
+
+    The profile is nonconstant for the opposite reason. A weight factor multiplied by a
+    constant one is invisible, so a formula check run on unit weights agrees with a copy
+    of the code that never reads the mass. Widening ``spread`` about one keeps the mean and
+    increases the margin a mutation control has over its gate.
+    """
+    low, high = spread
+    if not np.isclose(0.5 * (low + high), 1.0):
+        raise ValueError(f"spread {spread} is not centred on one")
+    return np.linspace(low, high, n)
+
+
+def unweight(monkeypatch: pytest.MonkeyPatch, cls: type, method: str) -> None:
+    """Run one production method against unit weights, unchanged otherwise.
+
+    This is the deliberate-mutation control the fixed-weight compositions rest on. A
+    weighted fit whose components silently ignore the row mass reports a number that reads
+    like a weighted answer, so each component gets a case that unweights that component
+    alone and asserts the result moves.
+
+    ``np.ones_like`` has mean one, so the normalisation
+    :func:`cleverly.data.validate.check_weights` applies is a no-op and the only difference
+    is the mass the patched method sees.
+
+    The mass reaches a method one of two ways, and the helper reads the signature to tell
+    which. A method that takes a ``data`` argument gets a replaced argument. A method that
+    reads ``self.data`` gets the attribute swapped for the duration of the call, which is
+    what ``_Selector`` needs: :meth:`_Selector.target` reads ``self.data.weights`` twice,
+    and a patch that covered one read would leave the other weighted.
+
+    Either way the swap reaches whatever the patched method calls, so a case is a *dynamic
+    extent* and not one function body. Two cases nest when one patched method delegates to
+    another, and a caller that relies on the cases being disjoint has to say so.
+    """
+    original = getattr(cls, method)
+    signature = inspect.signature(original)
+
+    if "data" in signature.parameters:
+
+        def unweighted(self: Any, *args: Any, **kwargs: Any) -> Any:
+            bound = signature.bind(self, *args, **kwargs)
+            data = bound.arguments["data"]
+            bound.arguments["data"] = replace(data, weights=np.ones_like(data.weights))
+            return original(*bound.args, **bound.kwargs)
+    else:
+
+        def unweighted(self: Any, *args: Any, **kwargs: Any) -> Any:
+            saved = self.data
+            self.data = replace(saved, weights=np.ones_like(saved.weights))
+            try:
+                return original(self, *args, **kwargs)
+            finally:
+                self.data = saved
+
+    monkeypatch.setattr(cls, method, unweighted)
+
+
+def assert_scale_normalizes_away(
+    build: Callable[[float], Any],
+    scales: Sequence[float] = (1.0, 13.0),
+) -> list[Any]:
+    """Fit the same weighted design at several common weight scales, and say what that shows.
+
+    ``build(scale)`` returns a fitted result whose weight column is ``scale`` times one
+    fixed mean-one profile. :func:`cleverly.data.validate.check_weights` divides the column
+    by its own mean, so every scale produces the *same stored array* to within floating
+    point. The first assertion states that up front rather than leaving a reader to infer
+    it: a cell-by-cell comparison of two surfaces built on identical numbers passes for any
+    deterministic implementation, weighted or not, so it is not evidence about weighting.
+
+    What the comparison can still show is on the other two assertions. ``weight_spec.scale``
+    records the mean of the column as supplied, so the normalisation stays recoverable. And
+    every reported estimate agrees across the scales, which fails for an implementation that
+    reads the raw column instead of the normalised one.
+
+    Returns the fitted results, in ``scales`` order, so a caller can go on to compare
+    whatever the scale is meant to leave alone.
+    """
+    results = [build(float(scale)) for scale in scales]
+    reference = results[0]
+    for scale, result in zip(scales, results, strict=True):
+        spec = result.data.weight_spec
+        assert spec is not None, f"scale {scale} produced a result carrying no weight_spec"
+        assert spec.scale == pytest.approx(scale), (
+            f"weight_spec.scale is {spec.scale} for a column supplied at {scale}"
+        )
+        # Stated, not hidden: the stored mass is scale-free, so everything below runs on
+        # one set of numbers and cannot separate a weighted fit from an unweighted one.
+        np.testing.assert_allclose(
+            result.data.weights, reference.data.weights, rtol=0.0, atol=1e-15
+        )
+        for alias, estimate in result.estimates.items():
+            assert estimate.psi == pytest.approx(reference.estimates[alias].psi, abs=1e-12), (
+                f"{alias} moved between weight scales {scales[0]} and {scale}; the fit is "
+                f"reading the raw weight column rather than the normalised one"
+            )
+    return results
 
 
 class OracleTreatment(BaseEstimator):
