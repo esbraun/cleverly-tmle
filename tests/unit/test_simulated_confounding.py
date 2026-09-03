@@ -30,7 +30,7 @@ from cleverly import (
     RiskRatio,
 )
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
-from cleverly.estimators import TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Shift
@@ -41,6 +41,7 @@ from cleverly.sensitivity import (
 )
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity.simulated_confounding import (
+    _BINARY_PARAMETER_TARGETS,
     _binary_calibration,
     _continuous_calibration,
     _flip_binary,
@@ -96,6 +97,11 @@ def _fit(
             selection_folds=2,
             selection_inner_folds=2,
         )
+    elif method == "drtmle":
+        configured_method = DRTMLEMethod(
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        )
     return study.identify(ATE()).estimate(
         method=configured_method,
         outcome_learner=outcome_learner,
@@ -145,6 +151,11 @@ def _fit_binary_mean(
             selection_estimand=(
                 "ey" if treatment is None else "ey1" if treatment == 1.0 else "ey0"
             ),
+        )
+    elif method == "drtmle":
+        configured_method = DRTMLEMethod(
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
     return study.identify(CounterfactualMean(treatment=treatment)).estimate(
         method=configured_method,
@@ -849,6 +860,208 @@ def test_fixed_weights_run_every_supported_ordinary_tmle_parameter_surface() -> 
     assert exercised == {"ate", "ey", "ey1", "ey0", "rr", "or", "ey_shift", "ate_shift"}
 
 
+def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> None:
+    """Exercise each admitted parameter through a real weighted DR-TMLE refit."""
+    multiple_means = _fit_binary_mean(
+        treatment=None,
+        method="drtmle",
+        weight_scale=1.0,
+    )
+    cases = [
+        (_fit(method="drtmle", weight_scale=1.0), ("ate",)),
+        (
+            _fit_binary_mean(treatment=1.0, method="drtmle", weight_scale=1.0),
+            ("ey1",),
+        ),
+        (
+            _fit_binary_mean(treatment=0.0, method="drtmle", weight_scale=1.0),
+            ("ey0",),
+        ),
+        (multiple_means, tuple(multiple_means.estimates)),
+        (_fit_ratio(target="rr", method="drtmle", weight_scale=1.0), ("rr",)),
+        (_fit_ratio(target="or", method="drtmle", weight_scale=1.0), ("or",)),
+    ]
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0, 0.2))
+    exercised: set[str] = set()
+
+    for result, aliases in cases:
+        assert type(result.estimator).__name__ == "DRTMLE"
+        for alias in aliases:
+            surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=7)
+            assert surface.complete
+            assert surface.target_measure == "fixed_empirical_tilt"
+            assert surface.weight_report == result.data.weight_report()
+            assert surface.cells[0].estimate == result[alias].psi
+            assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
+            exercised.add(result.parameter_keys[alias].estimand)
+
+    assert exercised == set(_BINARY_PARAMETER_TARGETS)
+
+
+def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
+    result = _fit(method="drtmle", weight_scale=2.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    cell = surface.cells[3]
+
+    assert surface.target_measure == "fixed_empirical_tilt"
+    assert cell.estimate == manual["ate"].psi
+    assert cell.displacement == manual["ate"].inference_value - result["ate"].inference_value
+    assert cell.displacement != 0.0
+
+
+def test_fixed_weight_drtmle_ratio_cell_equals_a_manual_log_refit() -> None:
+    result = _fit_ratio(target="rr", method="drtmle", weight_scale=2.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, estimand="rr", grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    cell = surface.cells[3]
+
+    assert surface.movement_scale == "log_ratio"
+    assert cell.estimate == manual["rr"].psi
+    assert cell.displacement == manual["rr"].inference_value - result["rr"].inference_value
+    assert cell.displacement == pytest.approx(
+        float(np.log(manual["rr"].psi) - np.log(result["rr"].psi)),
+        rel=1e-12,
+    )
+    assert cell.displacement != pytest.approx(cell.estimate - result["rr"].psi, abs=1e-3)
+
+
+def test_fixed_weight_drtmle_preserves_weight_provenance_on_every_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _fit(method="drtmle", weight_scale=2.0)
+    calls = _record_refits(result, monkeypatch)
+    surface = simulated_confounding(result, grid=_grid(), random_state=31)
+
+    assert surface.complete
+    assert len(calls) == 3
+    for replacement, seed in calls:
+        assert seed == surface.root_seed
+        assert np.array_equal(replacement.weights, result.data.weights)
+        assert replacement.weight_spec is result.data.weight_spec
+        assert replacement.weights_name == result.data.weights_name == "weight"
+
+    outcome_only, treatment_only, both = (replacement for replacement, _ in calls)
+    assert not np.array_equal(outcome_only.outcome, result.data.outcome)
+    assert np.array_equal(outcome_only.treatment, result.data.treatment)
+    assert np.array_equal(treatment_only.outcome, result.data.outcome)
+    assert not np.array_equal(treatment_only.treatment, result.data.treatment)
+    assert not np.array_equal(both.outcome, result.data.outcome)
+    assert not np.array_equal(both.treatment, result.data.treatment)
+
+
+def test_fixed_weight_drtmle_repeat_median_cache_and_serialization_round_trip() -> None:
+    result = _fit(method="drtmle", repeats=3, weight_scale=4.0)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        "random_state": 31,
+    }
+    surface = result.sensitivity.simulated_confounding(**kwargs)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.0)
+    per_draw = [repeat.psi["ate"] for repeat in manual.repeats]
+
+    assert result.sensitivity.simulated_confounding(**kwargs) is surface
+    assert surface.complete
+    assert surface.n_repeats == 3
+    assert surface.repeat_aggregation == "coordinatewise_median"
+    assert surface.cells[1].estimate == manual["ate"].psi == float(np.median(per_draw))
+    assert len(set(per_draw)) == 3
+    assert sorted(per_draw).index(surface.cells[1].estimate) == 1
+
+    # The facade memoizes the surface into ``assessment_cache``, and ``dumps`` carries that
+    # cache with it.  Reading it back through the facade would compare the restored object
+    # with itself and refit nothing, so the free function runs the replay instead.
+    restored = loads(dumps(result))
+    assert np.array_equal(restored.data.weights, result.data.weights)
+    replayed = simulated_confounding(restored, **kwargs)
+    assert replayed == surface
+    assert replayed.weight_report == restored.data.weight_report()
+
+
+def test_fixed_weight_drtmle_surface_is_invariant_to_a_common_weight_scale() -> None:
+    unit_scale = _fit(method="drtmle", weight_scale=1.0)
+    larger_scale = _fit(method="drtmle", weight_scale=13.0)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        "random_state": 7,
+    }
+    left = simulated_confounding(unit_scale, **kwargs)
+    right = simulated_confounding(larger_scale, **kwargs)
+
+    assert left.weight_report.scale == pytest.approx(1.0)
+    assert right.weight_report.scale == pytest.approx(13.0)
+    for left_cell, right_cell in zip(left.cells, right.cells, strict=True):
+        assert left_cell.estimate == pytest.approx(right_cell.estimate, abs=1e-12)
+        assert left_cell.displacement == pytest.approx(right_cell.displacement, abs=1e-12)
+        assert left_cell.induced_treatment_association == pytest.approx(
+            right_cell.induced_treatment_association,
+            abs=1e-12,
+        )
+
+
+def test_fixed_weight_drtmle_controls_detect_dropped_weights_and_tmle_fallback() -> None:
+    """Separate the admitted fit from both tempting but incorrect implementations."""
+    weighted_drtmle = _fit(method="drtmle", weight_scale=1.0)
+    surface = simulated_confounding(
+        weighted_drtmle,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    witness = surface.cells[3]
+    dropped_weights = _manual_repeated_refit(
+        _fit(method="drtmle"),
+        surface,
+        treatment=0.2,
+        outcome=0.3,
+    )
+    ordinary_tmle = _manual_repeated_refit(
+        _fit(weight_scale=1.0),
+        surface,
+        treatment=0.2,
+        outcome=0.3,
+    )
+
+    assert witness.estimate is not None
+    assert abs(witness.estimate - dropped_weights["ate"].psi) > 1e-2
+    assert abs(witness.estimate - ordinary_tmle["ate"].psi) > 1e-2
+
+
+def test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Remove the weight from the reductions alone, and the cell estimate has to move.
+
+    The dropped-weight control removes the weight from every learner at once, so the
+    primary outcome regression and mechanism dominate the separation it reports. The
+    transport claim this surface rests on is narrower. It is a claim about which
+    conditional expectations :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}` are, and a
+    fit that weighted its primary nuisances while fitting the reductions at the sampling
+    law would satisfy every other control here.
+    """
+    result = _fit(method="drtmle", weight_scale=1.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3))
+    surface = simulated_confounding(result, grid=grid, random_state=31)
+    witness = surface.cells[3]
+
+    # ``surface`` is already materialized, so patching the class now reaches the manual
+    # refit below and nothing else.  Reusing ``result`` rather than a second fit is what
+    # keeps the comparison exact: a strict inequality against an independent fit would
+    # pass vacuously if the two fits ever diverged.
+    original = DRTMLE._fit_reduced
+
+    def unweighted_reductions(self: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
+        flat = replace(data, weights=np.ones_like(data.weights))
+        return original(self, flat, *args, **kwargs)
+
+    monkeypatch.setattr(DRTMLE, "_fit_reduced", unweighted_reductions)
+    mutated = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+
+    assert witness.estimate is not None
+    assert abs(witness.estimate - mutated["ate"].psi) > 1e-3
+
+
 def _manual_weighted_correlation(left: Any, right: Any, weights: Any) -> float:
     left_centered = left - np.average(left, weights=weights)
     right_centered = right - np.average(right, weights=weights)
@@ -952,8 +1165,8 @@ def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scale
     ("case", "message"),
     [
         ("estimated", "cannot replay estimated observation weights"),
-        ("collaborative", "fixed observation weights with ordinary TMLE only"),
-        ("drtmle", "fixed observation weights with ordinary TMLE only"),
+        ("drtmle-estimated", "cannot replay estimated observation weights"),
+        ("collaborative", "binary complete-outcome DR-TMLE only"),
         ("cluster", "clustered fits"),
         ("kind", "fixed probability weights only"),
         ("name", "column and WeightSpec names disagree"),
@@ -965,13 +1178,14 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     case: str,
     message: str,
 ) -> None:
-    method = case if case in {"collaborative", "drtmle"} else "tmle"
-    if method == "collaborative":
-        method = "collaborative_tmle"
+    method = {
+        "collaborative": "collaborative_tmle",
+        "drtmle-estimated": "drtmle",
+    }.get(case, "tmle")
     result = _fit(
         method=method,
         weight_scale=1.0,
-        weights_estimated=case == "estimated",
+        weights_estimated=case in {"estimated", "drtmle-estimated"},
     )
     if case == "cluster":
         result = replace(

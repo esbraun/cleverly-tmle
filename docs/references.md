@@ -264,6 +264,12 @@ previous reader had is not a citation; a page number is.
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- Fixed-weight binary DR-TMLE surfaces compose that DoWhy perturbation with Benkeser, Carone, van
+  der Laan & Gilbert (2017), Theorem 1. The theorem supplies the complete-outcome corrected curve
+  and remainder conditions. Existing exact-law tests transport every term to the fixed tilt
+  $dP_w=w\,dP/E_P[w]$. The joint law factorizes as $P_w\times\Phi$ because each weight depends only
+  on its observed row. The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight
+  argument, so it supplies no weighted comparison.
 - Hartman & Huang (2024), [*Sensitivity Analysis for Survey
   Weights*](https://doi.org/10.1017/pan.2023.12), *Political Analysis* 32(1):1-16.
   Their method bounds the bias from a confounder that the weighting model omits. It supplies a
