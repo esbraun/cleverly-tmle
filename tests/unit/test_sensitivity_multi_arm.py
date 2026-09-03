@@ -28,9 +28,10 @@ conditional effects whose weights are an arm indicator that a three-armed treatm
 from a 0/1 column into the codes 0, 1, 2 -- and that an arm whose outcomes are never
 missing is left exactly where it was however the others are tilted.
 
-The E-value's own arithmetic is checked against published values in
-:mod:`tests.unit.test_sensitivity_units`; what is checked here is which parameters it
-reaches and which mean its risk-difference conversion divides by.
+The direct estimator fixtures in this module predate structured ``ParameterKey`` metadata.
+E-value routing now refuses those legacy artifacts instead of recovering arm identities by
+parsing display aliases. Typed-workflow E-value branches are covered by
+:mod:`tests.unit.test_post_fit_assessment_battery`.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
+from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity.missingness import missingness_tilt, tipping_gamma
 from cleverly.sensitivity.omitted_variable import (
     omitted_variable_bounds,
@@ -491,7 +493,8 @@ class TestTheRestOfTheFacade:
             exact_fit.sensitivity.omitted_confounding()
 
         item = exact_fit.sensitivity.run_all()["omitted_confounding"]
-        assert item.status == "unavailable"
+        assert item.status == "warning"
+        assert "declined this request" in item.detail
         assert "ate[high vs low]" in item.detail
 
     def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, missing_fit: Any) -> None:
@@ -709,7 +712,7 @@ class TestTheTiltReportsWhatEachArmReceived:
             assert set(frame[f"gamma[{label}]"]) == {1.5}
 
 
-class TestTheEValueAtThreeArms:
+class TestALegacyEValueNeedsStructuredParameterKeys:
     @pytest.fixture(scope="class")
     def binary_outcome_fit(self) -> Any:
         """A three-armed fit on the law, whose binary outcome makes a risk ratio real."""
@@ -727,49 +730,29 @@ class TestTheEValueAtThreeArms:
             .single()
         )
 
-    def test_a_ratio_named_for_its_arms_reaches_the_exact_formula(
+    def test_a_named_ratio_is_not_recovered_by_parsing_its_alias(
         self, binary_outcome_fit: Any
     ) -> None:
-        from cleverly.sensitivity import evalue_from_rr
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
+            binary_outcome_fit.sensitivity.evalue("rr[high vs low]")
 
-        name = "rr[high vs low]"
-        report = binary_outcome_fit.sensitivity.evalue(name)
-        assert report.estimand == name
-        assert not report.approximate
-        assert report.point == pytest.approx(evalue_from_rr(binary_outcome_fit.psi(name)))
+    def test_the_default_does_not_guess_a_reported_ratio(self, binary_outcome_fit: Any) -> None:
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
+            binary_outcome_fit.sensitivity.evalue()
 
-    def test_the_default_picks_a_reported_ratio(self, binary_outcome_fit: Any) -> None:
-        # "rr" is not a parameter of this fit; the *stem* is what the preference order is
-        # over, and picking the first bare name that happened to exist found none at all.
-        assert binary_outcome_fit.sensitivity.evalue().estimand.startswith("rr[")
-
-    def test_a_risk_difference_divides_by_the_reference_arms_own_mean(
+    def test_a_risk_difference_does_not_guess_its_reference_mean(
         self, binary_outcome_fit: Any
     ) -> None:
-        """The baseline is the arm the contrast is taken against, found by arm.
+        """A display alias is not evidence of the arm identity needed for conversion."""
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
+            binary_outcome_fit.sensitivity.evalue("ate[high vs low]")
 
-        Hard-coding ``ey0`` would divide by ``ey[high]`` here -- the arm whose *code* is
-        zero -- while the contrast is against ``"low"``, so the conversion would answer
-        for a pair of parameters that never appear together in any report.
-        """
-        report = binary_outcome_fit.sensitivity.evalue("ate[high vs low]")
-        baseline = binary_outcome_fit.psi("ey[low]")
-        expected = (baseline + binary_outcome_fit.psi("ate[high vs low]")) / baseline
-        assert report.risk_ratio == pytest.approx(expected, rel=1e-12)
-        assert report.approximate
-
-    def test_a_level_is_refused_by_name(self, binary_outcome_fit: Any) -> None:
-        with pytest.raises(ValueError, match="written for a contrast of two arms"):
+    def test_a_level_is_refused_before_legacy_alias_parsing(self, binary_outcome_fit: Any) -> None:
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
             binary_outcome_fit.sensitivity.evalue("ey[low]")
 
-    def test_two_arms_divide_by_the_declared_reference_too(self) -> None:
-        """The same rule at two arms, where the old constant was right by default only.
-
-        With ``reference=1`` the ``ate`` is ``E[Y^1|A] - E[Y^0|A]`` reversed --
-        ``E[Y^0] - E[Y^1]`` -- so the baseline the conversion needs is ``ey1``. Dividing
-        by ``ey0``, as the constant did, converts the difference against one arm into a
-        ratio against the other.
-        """
+    def test_two_arms_still_require_structured_reference_identity(self) -> None:
+        """Even an apparently unambiguous binary alias is not a routing contract."""
         from cleverly.datasets import make_binary_outcome
 
         frame, _ = make_binary_outcome(n=800, seed=5)
@@ -787,11 +770,10 @@ class TestTheEValueAtThreeArms:
             .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
             .single()
         )
-        report = fit.sensitivity.evalue("ate")
-        baseline = fit.psi("ey1")
-        assert report.risk_ratio == pytest.approx((baseline + fit.psi("ate")) / baseline, rel=1e-12)
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
+            fit.sensitivity.evalue("ate")
 
-    def test_a_missing_baseline_says_which_mean_it_needs(self) -> None:
+    def test_a_missing_baseline_is_secondary_to_missing_structured_identity(self) -> None:
         fit = (
             TMLE(
                 outcome_learner=law.OracleMultiOutcome(),
@@ -805,7 +787,7 @@ class TestTheEValueAtThreeArms:
             .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
             .single()
         )
-        with pytest.raises(ValueError, match="is contrasted against"):
+        with pytest.raises(CapabilityError, match="structured parameter keys"):
             fit.sensitivity.evalue("ate[high vs low]")
 
 

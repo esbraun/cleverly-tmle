@@ -15,6 +15,7 @@ Reports provide stable summaries and dataframe output for downstream analysis.
    cleverly.ParameterEstimate
    cleverly.ParameterKey
    cleverly.AssessmentCapability
+   cleverly.AssessmentReport
    cleverly.AssessmentStatus
    cleverly.DiagnosticReport
    cleverly.ValidationReport

@@ -13,8 +13,10 @@ import sklearn.linear_model
 
 from cleverly import (
     ATE,
+    AssessmentReport,
     AssessmentStatus,
     CapabilityError,
+    CausalResult,
     CausalStudy,
     LongitudinalTreatment,
     PointTreatment,
@@ -94,11 +96,23 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
         assert declared == expected
-        methods = {"tmle", "collaborative_tmle", "drtmle"} if family == "point" else {"tmle"}
-        assert all(set(item.methods) == methods for item in family_rows)
+        if family == "point":
+            corrections = next(item for item in family_rows if item.operation == "corrections")
+            assert set(corrections.methods) == {"drtmle"}
+            assert all(item.methods for item in family_rows)
     assert len({(item.result_family, item.operation) for item in ASSESSMENT_CAPABILITIES}) == len(
         ASSESSMENT_CAPABILITIES
     )
+
+
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_every_declared_method_is_constructible(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    result = request.getfixturevalue(fixture_name)
+    for surface in (result.diagnostics, result.sensitivity):
+        for row in surface.capabilities:
+            for method in row.methods:
+                constructed = result.identified_effect._method(method, {})
+                assert constructed.name == method
 
 
 def test_capabilities_declare_artifacts_cost_and_replay_semantics(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -235,6 +249,17 @@ def test_every_sensitivity_operation_is_declared_and_routed(  # type: ignore[no-
         assert route.needs_estimand == (parameter.name == "estimand" and parameter.default == "ate")
 
 
+def test_every_seeded_combined_route_accepts_random_state_in_its_real_signature(
+    point_result,
+) -> None:  # type: ignore[no-untyped-def]
+    for surface in (point_result.diagnostics, point_result.sensitivity):
+        for capability in surface.capabilities:
+            if not capability.accepts_random_state:
+                continue
+            function, _ = surface._routed_callable(capability.operation)
+            assert "random_state" in inspect.signature(function).parameters
+
+
 def test_sensitivity_routing_reads_structured_parameter_keys(point_result) -> None:  # type: ignore[no-untyped-def]
     routed = arm_parameters(point_result)
     key = point_result.parameter_keys["ate"]
@@ -262,6 +287,18 @@ def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -
     before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
     after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
+    assert isinstance(after, pd.DataFrame)
+    pd.testing.assert_frame_equal(after, before, check_exact=True)
+
+
+def test_a_combined_report_retains_and_replays_a_returned_frame(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    combined = point_result.diagnostics.run_all(include_retargets=True)
+    before = combined.report("truncation_curve")
+    assert isinstance(before, pd.DataFrame)
+    pd.testing.assert_frame_equal(combined.reports()["truncation_curve"], before, check_exact=True)
+
+    restored = load(point_result.save(tmp_path / "combined-frame.joblib"))
+    after = restored.diagnostics.run_all(include_retargets=True).report("truncation_curve")
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
 
@@ -331,53 +368,173 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         assert "grid" in item.detail
         assert any("simulated_confounding" in step for step in item.next_steps)
 
-    def test_every_argument_free_row_really_is_argument_free(self, point_result) -> None:  # type: ignore[no-untyped-def]
-        """The gate that would have caught this: call what the report claims it can call."""
-        import inspect
+    def test_required_arguments_and_the_common_seed_run_and_are_retained(
+        self, point_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(
+            include_refits=True,
+            arguments={"benchmark": {"covariates": ("W1",)}},
+            random_state=91,
+        )
+        item = report["benchmark"]
+        assert item.status is AssessmentStatus.COMPLETED
+        assert item.arguments["covariates"] == ("W1",)
+        assert item.arguments["random_state"] == 91
+        assert report.report("benchmark").random_state == 91
+        first_keys = set(point_result.assessment_cache)
 
-        for row in point_result.sensitivity.capabilities:
+        second = point_result.sensitivity.run_all(
+            include_refits=True,
+            arguments={"benchmark": {"covariates": ("W1",)}},
+            random_state=92,
+        )
+        assert second.report("benchmark").random_state == 92
+        assert set(point_result.assessment_cache) - first_keys
+
+    def test_seed_conflicts_and_unknown_operations_fail_before_any_operation_runs(
+        self, point_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        before = set(point_result.assessment_cache)
+        with pytest.raises(ValueError, match="supplied both"):
+            point_result.sensitivity.run_all(
+                arguments={"benchmark": {"covariates": ("W1",), "random_state": 2}},
+                random_state=1,
+            )
+        with pytest.raises(KeyError, match="not_an_operation"):
+            point_result.assess(arguments={"not_an_operation": {}})
+        assert set(point_result.assessment_cache) == before
+
+
+def test_assess_is_on_the_public_protocol_and_presents_each_owned_row_once(
+    point_result, longitudinal_result
+) -> None:  # type: ignore[no-untyped-def]
+    for result in (point_result, longitudinal_result):
+        assert isinstance(result, CausalResult)
+        battery = result.assess()
+        assert isinstance(battery, AssessmentReport)
+        frame = battery.to_frame()
+        for owned in ("score_equations", "support", "nuisance_models"):
+            assert list(frame["check"]).count(owned) == 1
+        assert set(frame["surface"]) == {"validation", "diagnostics", "sensitivity"}
+
+
+def _run_argument_free_routes(result):  # type: ignore[no-untyped-def]
+    ran = set()
+    for surface in (result.diagnostics, result.sensitivity):
+        for declared in surface.capabilities:
+            row = surface.capability(declared.operation)
             if row.requires_arguments or not row.available:
                 continue
-            signature = inspect.signature(getattr(point_result.sensitivity, row.operation))
-            required = [
-                name
-                for name, parameter in signature.parameters.items()
-                if parameter.default is inspect.Parameter.empty
-                and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
-            ]
-            assert not required, f"{row.operation} needs {required} but declares none"
+            function, _ = surface._routed_callable(row.operation)
+            assert inspect.signature(function)
+            # Bind the underlying implementation, not the facade's **kwargs wrapper.
+            surface._bind_arguments(row.operation, {}, partial=False)
+            getattr(surface, row.operation)()
+            ran.add(row.operation)
+    return ran
 
-    @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
-    @pytest.mark.parametrize("error", [KeyError("arm 'high'"), TypeError("unexpected 'subset'")])
-    def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # type: ignore[no-untyped-def]
-        self, point_result, monkeypatch: pytest.MonkeyPatch, facade: str, error: Exception
-    ) -> None:
-        """The merge that produced ``_run_all`` took the union of two caught-exception sets.
 
-        That handed the diagnostics side ``KeyError`` and ``TypeError``, which no routed
-        operation raises as a refusal: every ``raise KeyError`` in the package is a lookup
-        on an already-computed report, and every ``raise TypeError`` is structural.  A bug
-        of either kind then printed as ``unavailable`` -- a status the user guide reserves
-        for a question the fit has no derivation for -- so the report read as a scientific
-        finding about the fit rather than as the defect it was.
-        """
-        surface = getattr(point_result, facade)
-        operation = next(
-            row.operation
-            for row in surface.capabilities
-            if row.available and not row.requires_arguments and row.execution == "summarize"
-        )
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_every_argument_free_row_really_binds_and_runs(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    assert _run_argument_free_routes(request.getfixturevalue(fixture_name))
 
-        def broken(*_args: object, **_kwargs: object) -> object:
-            raise error
 
-        monkeypatch.setattr(type(surface), operation, broken, raising=True)
-        # ``_run_all`` memoizes on the result, and this fixture is module-scoped, so an
-        # earlier test in the class has already banked a clean report under this key.
-        point_result.assessment_cache.clear()
-        with pytest.raises(type(error)):
-            surface.run_all()
-        point_result.assessment_cache.clear()
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+@pytest.mark.parametrize("error", [KeyError("arm 'high'"), TypeError("unexpected 'subset'")])
+def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, facade: str, error: Exception
+) -> None:
+    """A structural failure must not look like a scientific refusal."""
+    surface = getattr(point_result, facade)
+    operation = next(
+        row.operation
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution == "summarize"
+    )
+
+    def broken(*_args: object, **_kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(type(surface), operation, broken, raising=True)
+    point_result.assessment_cache.clear()
+    with pytest.raises(type(error)):
+        surface.run_all()
+    point_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+def test_a_refusal_is_a_warning_and_later_diagnostics_still_run(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, facade: str
+) -> None:
+    """One unsupported diagnostic must not discard accepted diagnostic reports."""
+    surface = getattr(point_result, facade)
+    runnable = [
+        row.operation
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution == "summarize"
+    ]
+    refused, accepted = runnable[:2]
+
+    def decline(*_args: object, **_kwargs: object) -> object:
+        raise CapabilityError("the fitted artifacts do not support this requested variant")
+
+    monkeypatch.setattr(type(surface), refused, decline, raising=True)
+    point_result.assessment_cache.clear()
+    report = surface.run_all()
+
+    assert report[refused].status is AssessmentStatus.WARNING
+    assert "declined this request" in report[refused].detail
+    assert report[accepted].status not in {
+        AssessmentStatus.NOT_APPLICABLE,
+        AssessmentStatus.UNAVAILABLE,
+    }
+    assert report.report(accepted) is not None
+    point_result.assessment_cache.clear()
+
+
+def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Median-repeat refusals stay informative while independent analyses continue."""
+    repeated = dataclasses.replace(
+        point_result,
+        repeats=point_result.repeats * 2,
+        assessment_cache={},
+    )
+
+    requested = {"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
+    report = repeated.sensitivity.run_all(arguments=requested)
+
+    assert report["omitted_confounding"].status is AssessmentStatus.WARNING
+    assert "median-combined repeats" in report["omitted_confounding"].detail
+    assert report["evalue"].status is AssessmentStatus.COMPLETED
+    assert report.report("evalue").estimand == "ate"
+    arguments = report["omitted_confounding"].arguments
+    assert arguments["cf_y"] == 0.23
+    assert arguments["cf_d"] == 0.17
+    assert arguments["rho"] == 1.0
+    restored = load(repeated.save(tmp_path / "refused-arguments.joblib"))
+    replayed = restored.sensitivity.run_all(arguments=requested)
+    assert replayed["omitted_confounding"].arguments == arguments
+    assert replayed == report
+
+
+def test_a_refusal_before_seed_resolution_keeps_the_seed_unspecified(
+    point_result, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    module = importlib.import_module("cleverly.validation.refute")
+
+    def unexpected_seed(*args, **kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("the refused request must not resolve a stochastic seed")
+
+    monkeypatch.setattr(module, "resolve_assessment_seed", unexpected_seed)
+    result = dataclasses.replace(point_result, assessment_cache={})
+    report = result.diagnostics.run_all(
+        include_refits=True,
+        arguments={"refute": {"tests": ("bootstrap_measurement_error",)}},
+    )
+    assert report["refute"].status is AssessmentStatus.WARNING
+    assert "BootstrapMeasurementError declaration" in report["refute"].detail
+    assert report["refute"].arguments["random_state"] is None
+    assert report["refute"].arguments["tests"] == ("bootstrap_measurement_error",)
 
 
 class TestSupportDiagnosticsSeeAPerInterventionReport:
@@ -530,6 +687,25 @@ class TestCapabilityRowsDoNotContradictThemselves:
         assert rows["missingness"].reason is None
         # And the operation really does run, which is what made the old row wrong.
         assert missing_outcome_result.sensitivity.missingness() is not None
+
+    def test_missing_outcome_argument_free_routes_bind_and_run(
+        self, missing_outcome_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert {"missingness", "tipping_gamma"} <= _run_argument_free_routes(missing_outcome_result)
+
+    def test_missing_estimator_disables_retargeting_but_not_stored_missingness(
+        self, missing_outcome_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        restored = dataclasses.replace(
+            missing_outcome_result,
+            estimator=None,
+            assessment_cache={},
+        )
+
+        assert not restored.replayability.retarget_cached_nuisances
+        assert not restored.diagnostics.capability("truncation_curve").available
+        assert restored.sensitivity.capability("missingness").available
+        assert restored.sensitivity.missingness() is not None
 
     def test_the_longitudinal_reason_stays_on_the_longitudinal_row(
         self, longitudinal_result

@@ -10,7 +10,7 @@ import pytest
 import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
-from cleverly import PositivityWarning, load
+from cleverly import AssessmentStatus, CapabilityError, PositivityWarning, load
 from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
@@ -483,7 +483,10 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
 
     np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
     assert result.extra["drtmle"].guard == ()
-    assert result.diagnostics.corrections().contract == "none"
+    capability = result.diagnostics.capability("corrections")
+    assert capability.status is AssessmentStatus.NOT_APPLICABLE
+    with pytest.raises(CapabilityError, match="subtracts no correction term"):
+        result.diagnostics.corrections()
     assert result.diagnostics.score_equations().passed
 
 

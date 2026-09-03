@@ -20,7 +20,7 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from cleverly import AssessmentStatus
+from cleverly import AssessmentStatus, CapabilityError
 from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -354,6 +354,11 @@ class TestAnEmptyGuardIsAPlainTMLE:
         )
         assert fluctuation.reduction is None and fluctuation.mechanism is None
         assert bare.nuisance.reduced is None
+        capability = bare.diagnostics.capability("corrections")
+        assert capability.status is AssessmentStatus.NOT_APPLICABLE
+        assert "subtracts no correction term" in capability.reason
+        with pytest.raises(CapabilityError, match="subtracts no correction term"):
+            bare.diagnostics.corrections()
         # And in the *report* as well as in the arrays: `corrected` is read off the
         # reduction records, so this fit gets a plain fit's verdict word for word.
         check = bare.diagnostics.score_equations()
@@ -428,6 +433,11 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_there_is_a_row_per_arm_and_per_equation(self, fit) -> None:
         """Per arm and **before** the contrast -- an ATE-only check cannot see a cancelling pair."""
+        # Complete the argument-free contract on the method-specific route, which is
+        # intentionally unavailable on the ordinary-TMLE fixtures in that contract suite.
+        capability = fit.diagnostics.capability("corrections")
+        assert capability.available and not capability.requires_arguments
+        fit.diagnostics._bind_arguments("corrections", {}, partial=False)
         check = fit.diagnostics.corrections()
 
         assert {(row.arm, row.equation) for row in check.rows} == {
@@ -518,7 +528,8 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_a_plain_fit_gets_no_such_rows(self, ordinary) -> None:
         """No estimand outside this variant reports a correction, so none gains a row."""
-        assert ordinary.diagnostics.corrections().rows == ()
+        with pytest.raises(CapabilityError, match="does not use the correction system"):
+            ordinary.diagnostics.corrections()
         assert {row.kind for row in ordinary.diagnostics.score_equations().rows} == {
             "fluctuation",
             "influence curve",
@@ -1399,7 +1410,8 @@ class TestTheContractSaysWhichEstimator:
 
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""
-        assert ordinary.diagnostics.corrections().contract == "none"
+        with pytest.raises(CapabilityError, match="does not use the correction system"):
+            ordinary.diagnostics.corrections()
 
     def test_a_complete_data_fit_has_no_observation_witness_to_report(self, pinched) -> None:
         """``nan``, not zero, and the difference is the whole point of the sentinel.

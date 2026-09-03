@@ -1,5 +1,37 @@
 # Results, inference, and assessment
 
+## Run the assessment battery
+
+Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
+
+```python
+battery = result.assess()
+print(battery.summary())
+support = battery.report("support")
+```
+
+The default call reads stored artifacts. It does not refit nuisance models or retarget cached
+nuisances. `battery.attention` contains explicit failures and warnings. `battery.omissions`
+contains analyses that were not applicable or were unavailable.
+
+Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
+
+```text
+battery = result.assess(
+    include_refits=True,
+    include_retargets=True,
+    random_state=21,
+    arguments={
+        "benchmark": {"covariates": ("W1", "W2")},
+        "simulated_confounding": {"grid": grid},
+    },
+)
+```
+
+The common seed reaches `refute`, `benchmark`, and `simulated_confounding`. A seeded fit reuses
+its fit seed when you omit this argument. An unseeded fit draws a seed and records it on the
+returned row.
+
 ## Result structure
 
 `CausalResult` is a read-only mapping from stable aliases to `ParameterEstimate` objects.
@@ -40,34 +72,42 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
-corrections = result.diagnostics.corrections()
+corrections = (
+    result.diagnostics.corrections()
+    if result.diagnostics.capability("corrections").available
+    else None
+)
 stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
-Combined reports distinguish five states: `passed`, `failed`, `warning`, `not_applicable`, and
-`unavailable`. “Not applicable” means the scientific question has no such analysis; “unavailable”
-means the question is meaningful but the fit lacks a derivation or saved artifact.
+The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
+correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
-An `unavailable` row reached that state one of two ways, and its `detail` says which. A row whose
-capability declaration already refuses it carries that declaration’s own reason. A row that had to
-inspect the fit before it could refuse is prefixed `refused on inspection:`, and it names the
-operation to call directly for the refusal in full. Two such rows are an E-value on a fit that
-reported no contrast, and a missingness tilt on a fit with no missing outcomes. Nothing else is
-caught: an error a capability did not declare propagates, because a report that renders a bug as
-“unavailable” states a scientific conclusion about the fit that nobody established.
+Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
+verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
+uses an existing diagnostic rule or records an expected refusal during an aggregate run.
+The aggregate run then continues with other accepted diagnostics. Direct calls still raise the
+precise refusal. `not_applicable` and `unavailable` appear in `omissions`.
+
+Known omissions carry the capability's reason. Examples include an E-value without a supported
+contrast and a missingness analysis without missing outcomes. An operation can also refuse after
+invocation, such as omitted-confounding sensitivity on median-combined repeats. That row becomes
+a `warning`, retains its invocation arguments, and names the direct call. Other accepted
+diagnostics still run. Structural errors, such as invalid argument names, still stop the report.
 
 A combined report runs only the operations that summarise stored artifacts. The two costlier
 classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
 nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
-ones:
+ones. An E-value that derives a risk ratio also requires `include_retargets=True`. Explicit
+odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
 ```
 
-`run_all` passes no seed, so `refute()` draws from the seed of the fit. Give the fit a seed if
-you need the same refutation twice.
+Pass required choices with `arguments={"operation": {...}}`. The report row retains the effective
+arguments and the returned object. Use `report.report(name)` to retrieve that object.
 
 Use generated outcomes to test the full pipeline against a declared effect. The dummy operation
 uses independent Gaussian noise and declares zero. The simulated operation uses a standardized

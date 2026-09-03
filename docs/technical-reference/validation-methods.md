@@ -136,22 +136,21 @@ reports the weighted effective sample size and warns when the weights concentrat
 
 ### The status contract
 
-Every diagnostic returns one of five states, and the states are part of the contract rather than a
+Every assessment row returns one of six states, and the states are part of the contract rather than a
 presentation choice.
 
 | status | what it means |
 | --- | --- |
 | `passed` | the check ran and its condition holds |
 | `failed` | the check ran and its condition does not hold |
-| `warning` | the check ran and the result needs qualification |
+| `warning` | the check ran and needs qualification, or an aggregate run caught an expected refusal |
+| `completed` | a descriptive analysis ran and defines no pass or fail rule |
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, and a derivation or a fitted artifact is missing |
 
-An `unavailable` row says which of two routes it took. A row that a capability declaration already
-refuses carries that declaration's reason. A row that had to inspect the fit first is prefixed
-`refused on inspection:`. Nothing else is caught. An error that no capability declared propagates,
-because a report that renders a defect as `unavailable` states a scientific conclusion nobody
-established.
+Known omissions carry the capability's reason and remain `unavailable` or `not_applicable`.
+An expected refusal after invocation becomes a `warning` and retains the bound invocation
+arguments. The report continues with other accepted operations. Structural errors still propagate.
 
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
@@ -159,6 +158,15 @@ declares, for each operation and each result family, the answer, the required ar
 and the execution class. The two costly classes are disjoint and are named separately. A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
 cached ones. `run_all` excludes both by default, and each skipped row names the flag that runs it.
+The `arguments` mapping supplies required analyst choices for named operations.
+
+An operation can decline caller-supplied arguments after its capability precheck. The combined
+report records that refusal as a warning and continues with later operations. A direct call still
+raises `CapabilityError` with the full refusal. Structural exceptions still stop the report.
+
+The top-level `random_state` reaches `refute`, `benchmark`, and `simulated_confounding` only.
+A seeded fit supplies its fit seed when this value is absent. An unseeded fit draws and records a
+seed. Supplying the seed both places is an error.
 
 ## Sensitivity to untestable assumptions
 
@@ -500,9 +508,28 @@ implements VanderWeele and Ding (2017): $E = RR + \sqrt{RR(RR-1)}$. It computes 
 point estimate and, separately, for the confidence limit, because the second is the one an
 adversarial reader asks for.
 
-Two scale conversions are available and both are flagged approximate. An odds ratio converts as
-$\sqrt{OR}$, which needs a rare outcome. A standardized mean difference converts as
-$\exp(0.91 d)$.
+The selected path depends on the reported contrast and retained artifacts.
+
+| request | E-value path |
+| --- | --- |
+| reported risk ratio | use it directly and mark the result exact |
+| unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs require `include_retargets=True` |
+| explicit reported odds ratio | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
+| binary ATE with no estimator and a reported reference-arm mean | hold the baseline risk fixed and mark the result approximate |
+| Gaussian marginal ATE | standardize by the observed outcome standard deviation and mark the result approximate |
+| ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
+| level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
+| collaborative TMLE, DR-TMLE, CV evaluation, or controlled direct effect needing derivation | report `unavailable` and name the missing evidence or target |
+
+Several eligible contrasts require an explicit alias. Combined runs select availability and cost
+from that alias before applying the cost flags.
+
+For rare outcomes, the odds ratio itself approximates the risk ratio. The square-root
+transformation addresses common outcomes and can lie above or below the risk ratio.
+See [VanderWeele's analysis](https://pmc.ncbi.nlm.nih.gov/articles/PMC5617805/).
+The Gaussian path first applies Chinn's odds-ratio to standardized-mean-difference relation.
+It then applies the common-outcome square-root approximation before calculating the E-value.
+This retains an approximate analysis, not an exact continuous-outcome risk ratio.
 
 ### Missingness tilt and tipping gamma
 

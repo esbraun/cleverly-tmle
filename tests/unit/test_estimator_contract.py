@@ -109,6 +109,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "ATE",
         "ATT",
         "AssessmentCapability",
+        "AssessmentReport",
         "AssessmentStatus",
         "BackdoorMeanContrast",
         "CapabilityError",
@@ -443,6 +444,7 @@ def _package_classes() -> dict[str, type]:
 #: * ``argument`` -- the backend is a parameter of ``to_frame`` because the object was not
 #:   built from a fit at all.
 BACKEND_ROUTES: dict[str, str] = {
+    "AssessmentReport": "field",
     "CausalResult": "protocol",
     "CausalData": "field",
     "CorrectionCheck": "field",

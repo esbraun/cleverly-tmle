@@ -64,7 +64,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -80,6 +80,9 @@ from ..inference.results import (
     smooth_contrast,
     sole_estimate,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..assessment import AssessmentReport
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
@@ -456,6 +459,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: persistence writes this alongside the sequential artifacts it was computed from.
     assessment_cache: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def assessment_family(self) -> str:
+        """Return the declared assessment capability family."""
+        return "longitudinal"
+
+    @property
+    def assessment_method(self) -> str:
+        """Return the method recorded by this fitted artifact."""
+        name = getattr(self.method, "name", None)
+        return name if isinstance(name, str) and name else "tmle"
+
     # ------------------------------------------------------------- mapping API
 
     def __getitem__(self, name: str) -> ParameterEstimate:
@@ -588,6 +602,66 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         from ..assessment import validate_result
 
         return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Run requested operations that retarget cached nuisances.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        cleverly.AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+
+        See Also
+        --------
+        LongitudinalResult.validate : Run stored-artifact validation.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run diagnostics alone.
+        """
+        from ..assessment import AssessmentReport
+
+        supplied = {} if arguments is None else dict(arguments)
+        diagnostic_names = {row.operation for row in self.diagnostics.capabilities}
+        sensitivity_names = {row.operation for row in self.sensitivity.capabilities}
+        known = diagnostic_names | sensitivity_names
+        unknown = sorted(set(supplied) - known)
+        if unknown:
+            raise KeyError(f"unknown assessment operation(s): {unknown}")
+        diagnostics_arguments = {k: v for k, v in supplied.items() if k in diagnostic_names}
+        sensitivity_arguments = {k: v for k, v in supplied.items() if k in sensitivity_names}
+        self.diagnostics._validated_arguments(diagnostics_arguments, random_state)
+        self.sensitivity._validated_arguments(sensitivity_arguments, random_state)
+        return AssessmentReport(
+            validation=self.validate(),
+            diagnostics=self.diagnostics.run_all(
+                include_refits=include_refits,
+                include_retargets=include_retargets,
+                arguments=diagnostics_arguments,
+                random_state=random_state,
+            ),
+            sensitivity=self.sensitivity.run_all(
+                include_refits=include_refits,
+                include_retargets=include_retargets,
+                arguments=sensitivity_arguments,
+                random_state=random_state,
+            ),
+        )
 
     @property
     def replayability(self) -> Any:

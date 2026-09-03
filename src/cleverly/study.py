@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
@@ -28,6 +28,9 @@ from .msm import MSM, MSMSet
 from .targets import TARGETS
 from .targets.base import Identification, parameter_name
 from .utils.frames import as_frame
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .assessment import AssessmentReport
 
 __all__ = [
     "ATC",
@@ -112,6 +115,8 @@ class CausalResult(Protocol):
         Runtime and dependency information for the fit.
     assessment_cache : mapping
         Saved diagnostic and sensitivity artifacts.
+    assessment_family : str
+        Result-owned capability family declaration.
     """
 
     estimates: Mapping[str, Any]
@@ -120,6 +125,7 @@ class CausalResult(Protocol):
     parameter_keys: Mapping[str, Any]
     provenance: Any
     assessment_cache: Mapping[str, Any]
+    assessment_family: str
 
     @property
     def estimate(self) -> Any:
@@ -210,6 +216,34 @@ class CausalResult(Protocol):
 
     def validate(self) -> Any:
         """Run validation checks available without new arguments."""
+        ...
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Run requested operations that retarget cached nuisances.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
         ...
 
     @property

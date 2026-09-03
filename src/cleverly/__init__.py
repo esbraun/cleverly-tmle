@@ -34,6 +34,7 @@ from __future__ import annotations
 from ._version import __version__
 from .assessment import (
     AssessmentCapability,
+    AssessmentReport,
     AssessmentStatus,
     DiagnosticReport,
     Replayability,
@@ -105,6 +106,7 @@ __all__ = [
     "ATE",
     "ATT",
     "AssessmentCapability",
+    "AssessmentReport",
     "AssessmentStatus",
     "BackdoorMeanContrast",
     "CapabilityError",

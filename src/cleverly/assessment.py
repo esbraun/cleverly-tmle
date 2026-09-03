@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import inspect
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from functools import cached_property
 from typing import Any, Literal
@@ -30,10 +31,12 @@ from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
+    "INTERPRETERS",
     "SENSITIVITY_ROUTES",
     "STITCHED_SCORE_Z_TOLERANCE",
     "AssessmentCapability",
     "AssessmentItem",
+    "AssessmentReport",
     "AssessmentStatus",
     "DiagnosticReport",
     "DiagnosticsFacade",
@@ -93,6 +96,7 @@ class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
     PASSED = "passed"
     FAILED = "failed"
     WARNING = "warning"
+    COMPLETED = "completed"
     NOT_APPLICABLE = "not_applicable"
     UNAVAILABLE = "unavailable"
 
@@ -128,6 +132,8 @@ class AssessmentCapability:
     requires_arguments : tuple of str
         Arguments the caller must pass. An entry either has no default, or has a
         default that the operation refuses on this result family.
+    accepts_random_state : bool
+        Whether a combined run can forward its top-level seed.
     """
 
     operation: str
@@ -148,6 +154,7 @@ class AssessmentCapability:
     #: here rather than special-cased by name in ``run_all``, which knows nothing about
     #: any particular operation.
     requires_arguments: tuple[str, ...] = ()
+    accepts_random_state: bool = False
 
 
 def _capability(
@@ -163,11 +170,17 @@ def _capability(
     status: AssessmentStatus = AssessmentStatus.PASSED,
     reason: str | None = None,
     requires_arguments: Sequence[str] = (),
+    methods: Sequence[str] | None = None,
+    accepts_random_state: bool = False,
 ) -> AssessmentCapability:
     return AssessmentCapability(
         operation=operation,
         result_family=family,
-        methods=("tmle", "collaborative_tmle", "drtmle") if family == "point" else ("tmle",),
+        methods=tuple(
+            methods
+            if methods is not None
+            else (("tmle", "collaborative_tmle", "drtmle") if family == "point" else ("tmle",))
+        ),
         available=available,
         status=status,
         required_artifacts=tuple(artifacts),
@@ -177,6 +190,7 @@ def _capability(
         cost=cost,
         reason=reason,
         requires_arguments=tuple(requires_arguments),
+        accepts_random_state=accepts_random_state,
     )
 
 
@@ -207,6 +221,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "point",
         artifacts=("doubly-robust correction state",),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
+        methods=("drtmle",),
     ),
     _capability(
         "truncation_curve",
@@ -223,6 +238,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         execution="refit",
         deterministic=False,
         cost="expensive",
+        accepts_random_state=True,
         interpretation="behavior under placebo, noise, and subsampling perturbations",
     ),
     _capability(
@@ -340,12 +356,23 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
 
 
 def _family(result: Any) -> str:
-    name = type(result).__name__
-    if name == "TMLEResult":
-        return "point"
-    if name == "LongitudinalResult":
-        return "longitudinal"
-    raise TypeError(f"assessment has no declared result family for {name}")
+    family = getattr(result, "assessment_family", None)
+    if not isinstance(family, str) or not family:
+        raise TypeError(
+            "assessment requires the fitted artifact to declare a non-empty assessment_family"
+        )
+    return family
+
+
+def _method(result: Any) -> str:
+    method = getattr(result, "method", None)
+    name = getattr(method, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    declared = getattr(result, "assessment_method", None)
+    if isinstance(declared, str) and declared:
+        return declared
+    raise TypeError("assessment requires the fitted artifact to declare its fitted method")
 
 
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
@@ -363,6 +390,13 @@ class AssessmentItem:
     status: AssessmentStatus
     detail: str
     next_steps: tuple[str, ...] = ()
+    _report: Any = field(default=None, compare=False, repr=False)
+    arguments: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+    @property
+    def report(self) -> Any:
+        """Return the operation's retained report object."""
+        return _unpack_cached(self._report)
 
 
 @dataclass(frozen=True)
@@ -388,8 +422,9 @@ class DiagnosticReport:
 
     Notes
     -----
-    An unavailable item remains in the report. This makes a skipped or refused
-    operation visible to the caller.
+    A skipped or refused item remains in the report. A capability known to be unsupported
+    is an omission. A refusal raised during an aggregate run is an informative warning,
+    and later operations still run.
 
     Examples
     --------
@@ -458,6 +493,50 @@ class DiagnosticReport:
             backend=self.backend,
         )
 
+    def report(self, name: str) -> Any:
+        """Return the retained object for an operation that ran.
+
+        Parameters
+        ----------
+        name : str
+            Operation name.
+
+        Returns
+        -------
+        Any
+            The operation's retained report or dataframe.
+
+        Raises
+        ------
+        KeyError
+            If the operation did not run or returned no object.
+        """
+        item = self[name]
+        value = item.report
+        if value is None:
+            raise KeyError(f"diagnostic {name!r} did not run or retained no report")
+        return value
+
+    def reports(self) -> dict[str, Any]:
+        """Return retained objects for operations that ran.
+
+        Returns
+        -------
+        dict of str to Any
+            Operation names mapped to their retained reports.
+        """
+        return {item.name: item.report for item in self.items if item.report is not None}
+
+    def next_steps(self) -> tuple[str, ...]:
+        """Return de-duplicated next steps in report order.
+
+        Returns
+        -------
+        tuple of str
+            Suggested follow-up actions in their first-seen order.
+        """
+        return tuple(dict.fromkeys(step for item in self.items for step in item.next_steps))
+
     def summary(self) -> str:
         """Return a printable table of operation statuses.
 
@@ -467,8 +546,11 @@ class DiagnosticReport:
             A printable table, one line per requested operation.
         """
         return format_table(
-            ["diagnostic", "status", "detail"],
-            [[item.name, item.status.value, item.detail] for item in self.items],
+            ["diagnostic", "status", "detail", "next step"],
+            [
+                [item.name, item.status.value, item.detail, "; ".join(item.next_steps)]
+                for item in self.items
+            ],
         )
 
 
@@ -600,6 +682,150 @@ class ValidationReport:
 
 
 @dataclass(frozen=True)
+class AssessmentReport:
+    """Collect validation, diagnostics, and sensitivity in one post-fit battery.
+
+    Parameters
+    ----------
+    validation : ValidationReport
+        Checks that read stored fitted artifacts.
+    diagnostics : DiagnosticReport
+        Method and support diagnostics.
+    sensitivity : DiagnosticReport
+        Sensitivity analyses and explicit omissions.
+    """
+
+    validation: ValidationReport
+    diagnostics: DiagnosticReport
+    sensitivity: DiagnosticReport
+
+    @property
+    def backend(self) -> str | None:
+        """Return the backend inherited from the validation surface."""
+        return self.validation.backend
+
+    def _presented(self) -> tuple[tuple[str, AssessmentItem], ...]:
+        owned = {"score_equations", "support", "nuisance_models"}
+        return (
+            *(("validation", item) for item in self.validation.items),
+            *(("diagnostics", item) for item in self.diagnostics.items if item.name not in owned),
+            *(("sensitivity", item) for item in self.sensitivity.items),
+        )
+
+    @property
+    def attention(self) -> tuple[AssessmentItem, ...]:
+        """Return rows with an explicit failure or warning."""
+        statuses = {AssessmentStatus.FAILED, AssessmentStatus.WARNING}
+        return tuple(item for _, item in self._presented() if item.status in statuses)
+
+    @property
+    def omissions(self) -> tuple[AssessmentItem, ...]:
+        """Return rows that were not applicable or unavailable."""
+        statuses = {AssessmentStatus.NOT_APPLICABLE, AssessmentStatus.UNAVAILABLE}
+        return tuple(item for _, item in self._presented() if item.status in statuses)
+
+    def next_steps(self) -> tuple[str, ...]:
+        """Return de-duplicated next steps in presentation order.
+
+        Returns
+        -------
+        tuple of str
+            Suggested follow-up actions in their first-seen order.
+        """
+        return tuple(
+            dict.fromkeys(step for _, item in self._presented() for step in item.next_steps)
+        )
+
+    def report(self, name: str, *, surface: str | None = None) -> Any:
+        """Return one retained report by operation and optional surface.
+
+        Parameters
+        ----------
+        name : str
+            Operation name.
+        surface : {"validation", "diagnostics", "sensitivity"} or None
+            Surface to select when names overlap.
+
+        Returns
+        -------
+        Any
+            Retained operation report.
+        """
+        matches = [
+            (owner, item)
+            for owner, item in self._presented()
+            if item.name == name and (surface is None or owner == surface)
+        ]
+        if not matches:
+            raise KeyError(f"no presented assessment report named {name!r}")
+        if len(matches) > 1:
+            owners = [owner for owner, _ in matches]
+            raise KeyError(
+                f"assessment report {name!r} is ambiguous across {owners}; pass surface="
+            )
+        value = matches[0][1].report
+        if value is None:
+            raise KeyError(f"assessment operation {name!r} did not run or retained no report")
+        return value
+
+    def to_frame(self, data: Any = None) -> Any:
+        """Return one row per presented surface and operation.
+
+        Parameters
+        ----------
+        data : Any
+            Optional dataframe whose backend selects the output type.
+
+        Returns
+        -------
+        Any
+            A pandas or Polars dataframe with a ``surface`` column.
+        """
+        rows = self._presented()
+        backend = self.validation.backend
+        return emit_frame(
+            {
+                "surface": [surface for surface, _ in rows],
+                "check": [item.name for _, item in rows],
+                "status": [item.status.value for _, item in rows],
+                "detail": [item.detail for _, item in rows],
+                "next_steps": ["; ".join(item.next_steps) for _, item in rows],
+            },
+            data,
+            backend=backend,
+        )
+
+    def summary(self) -> str:
+        """Return the three report sections and their attention lists.
+
+        Returns
+        -------
+        str
+            Printable validation, diagnostics, sensitivity, attention, and omission sections.
+        """
+        sections = []
+        for surface in ("validation", "diagnostics", "sensitivity"):
+            rows = [(owner, item) for owner, item in self._presented() if owner == surface]
+            sections.extend(
+                [
+                    surface.capitalize(),
+                    "-" * len(surface),
+                    format_table(
+                        ["operation", "status", "detail", "next step"],
+                        [
+                            [item.name, item.status.value, item.detail, "; ".join(item.next_steps)]
+                            for _, item in rows
+                        ],
+                    ),
+                    "",
+                ]
+            )
+        sections.append("Attention: " + (", ".join(item.name for item in self.attention) or "none"))
+        sections.append("Omissions: " + (", ".join(item.name for item in self.omissions) or "none"))
+        return "\n".join(sections)
+
+
+@dataclass(frozen=True)
 class Replayability:
     """Describe which post-fit actions a saved result can reproduce.
 
@@ -639,7 +865,7 @@ def replayability(result: Any) -> Replayability:
 
     estimator = getattr(result, "estimator", None)
     if estimator is None:
-        return Replayability(True, True, False, False, False, ("estimator configuration",))
+        return Replayability(True, False, False, False, False, ("estimator configuration",))
     return Replayability(True, True, False, True, False)
 
 
@@ -1282,6 +1508,28 @@ class _CapabilityFacade:
     def capability(self, operation: str) -> AssessmentCapability:
         for item in self.capabilities:
             if item.operation == operation:
+                method = _method(self._result)
+                if method not in item.methods:
+                    reason = (
+                        "the fitted method does not use the correction system"
+                        if operation == "corrections"
+                        else f"the fitted method {method!r} does not support this operation"
+                    )
+                    return replace(
+                        item,
+                        available=False,
+                        status=AssessmentStatus.NOT_APPLICABLE,
+                        reason=reason,
+                    )
+                if operation == "corrections" and method == "drtmle":
+                    reduced = getattr(self._result, "extra", {}).get("drtmle")
+                    if not tuple(getattr(reduced, "guard", ())):
+                        return replace(
+                            item,
+                            available=False,
+                            status=AssessmentStatus.NOT_APPLICABLE,
+                            reason="the fitted DR-TMLE guard subtracts no correction term",
+                        )
                 return item
         raise KeyError(f"unknown {self._kind} {operation!r}")
 
@@ -1298,10 +1546,29 @@ class _CapabilityFacade:
             )
         return item
 
-    def _run_all(self, *, include_refits: bool, include_retargets: bool) -> DiagnosticReport:
+    def _capability_for_arguments(
+        self, operation: str, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve request-specific availability and cost before aggregate execution."""
+        return self.capability(operation)
+
+    def _run_all(
+        self,
+        *,
+        include_refits: bool,
+        include_retargets: bool,
+        arguments: Mapping[str, Mapping[str, Any]] | None,
+        random_state: int | None,
+    ) -> DiagnosticReport:
+        supplied = self._validated_arguments(arguments, random_state)
+
         def compute() -> DiagnosticReport:
             items = []
             for capability in self.capabilities:
+                operation_arguments = dict(supplied.get(capability.operation, {}))
+                capability = self._capability_for_arguments(
+                    capability.operation, operation_arguments
+                )
                 # Availability first. A row that is unavailable *and* expensive is refused
                 # for the reason it declares, not for a cost the caller could have paid --
                 # "pass include_refits=True" is a false instruction when no flag can make
@@ -1315,7 +1582,12 @@ class _CapabilityFacade:
                 if skipped is not None:
                     items.append(skipped)
                     continue
-                if capability.requires_arguments:
+                missing_arguments = tuple(
+                    name
+                    for name in capability.requires_arguments
+                    if name not in operation_arguments
+                )
+                if missing_arguments:
                     # A combined report runs every operation argument-free, so one with a
                     # required argument and no default cannot appear in it.  Choosing a
                     # value here -- which covariates to benchmark against -- would be a
@@ -1324,7 +1596,7 @@ class _CapabilityFacade:
                     # agree in number.  ``", ".join`` alone rendered "an explicit grid,
                     # estimand argument", which reads as one argument named "grid,
                     # estimand".
-                    names = capability.requires_arguments
+                    names = missing_arguments
                     needed = (
                         names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
                     )
@@ -1346,30 +1618,41 @@ class _CapabilityFacade:
                     )
                     continue
                 try:
-                    report = getattr(self, capability.operation)()
+                    if capability.accepts_random_state and random_state is not None:
+                        operation_arguments["random_state"] = random_state
+                    report = getattr(self, capability.operation)(**operation_arguments)
                 except CapabilityError as error:
-                    # Only the refusal type, deliberately.  Merging the two facades' handlers
-                    # took the *union* of what each caught, which handed the diagnostics side
-                    # ``KeyError`` and ``TypeError`` -- and no routed operation raises either
-                    # as a refusal.  Every ``raise KeyError`` in the package is a lookup on an
-                    # already-computed report and every ``raise TypeError`` is structural, so
-                    # catching them turned a signature or state bug into a scientific-sounding
-                    # ``unavailable``.  ``tests/e2e/test_ltmle.py`` records what that costs: a
-                    # missing keyword inside a loop was reported as "too unstable to
-                    # bootstrap", a statistical diagnosis of an engineering fault.
+                    # A capability refusal is an expected result of asking a broad battery to
+                    # inspect one fitted object.  Keep it visible as a warning and continue to
+                    # later rows.  Catch only the refusal type: ``KeyError`` and ``TypeError``
+                    # are structural defects, and turning either into a scientific-sounding
+                    # report row would hide an implementation error.
                     items.append(
                         AssessmentItem(
                             capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            f"refused on inspection: {error}",
+                            AssessmentStatus.WARNING,
+                            f"the operation declined this request: {error}",
                             (
                                 f"call result.{self._attribute}.{capability.operation}() "
                                 f"directly for the refusal in full",
                             ),
+                            arguments=self._effective_arguments(
+                                capability.operation, operation_arguments, None
+                            ),
                         )
                     )
                 else:
-                    items.append(_diagnostic_item(capability.operation, report))
+                    effective = self._effective_arguments(
+                        capability.operation, operation_arguments, report
+                    )
+                    interpreted = INTERPRETERS[capability.operation](report, self._result)
+                    items.append(
+                        replace(
+                            interpreted,
+                            _report=_pack_cached(report, self._result.data.backend),
+                            arguments=effective,
+                        )
+                    )
             return DiagnosticReport(
                 tuple(items),
                 include_refits=include_refits,
@@ -1381,9 +1664,92 @@ class _CapabilityFacade:
             self._result,
             f"{self._attribute}.run_all",
             (),
-            {"include_refits": include_refits, "include_retargets": include_retargets},
+            {
+                "include_refits": include_refits,
+                "include_retargets": include_retargets,
+                "arguments": supplied,
+                "random_state": random_state,
+            },
             compute,
         )
+
+    def _validated_arguments(
+        self,
+        arguments: Mapping[str, Mapping[str, Any]] | None,
+        random_state: int | None,
+    ) -> dict[str, dict[str, Any]]:
+        if arguments is None:
+            return {}
+        if not isinstance(arguments, Mapping):
+            raise TypeError("arguments must be a mapping from operation names to mappings")
+        declared = {row.operation for row in self.capabilities}
+        unknown = sorted(set(arguments) - declared)
+        if unknown:
+            raise KeyError(f"unknown {self._kind} operation(s): {unknown}")
+        validated: dict[str, dict[str, Any]] = {}
+        for operation, values in arguments.items():
+            if not isinstance(values, Mapping):
+                raise TypeError(f"arguments[{operation!r}] must be a mapping")
+            kwargs = dict(values)
+            capability = self.capability(operation)
+            if random_state is not None and "random_state" in kwargs:
+                raise ValueError(
+                    f"random_state was supplied both to run_all and arguments[{operation!r}]"
+                )
+            if "random_state" in kwargs and not capability.accepts_random_state:
+                raise TypeError(f"{operation!r} does not accept random_state")
+            self._bind_arguments(operation, kwargs, partial=True)
+            validated[operation] = kwargs
+        return validated
+
+    def _routed_callable(self, operation: str) -> tuple[Callable[..., Any], bool]:
+        if self._attribute == "sensitivity":
+            route = SENSITIVITY_ROUTES[operation]
+            module = importlib.import_module(f".sensitivity.{route.module}", __package__)
+            return getattr(module, route.function), True
+        if operation == "refute":
+            from .validation.refute import refute
+
+            return refute, True
+        return getattr(type(self), operation), False
+
+    def _with_default_parameter(
+        self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> tuple[Any, ...]:
+        """Resolve a sensitivity parameter in the subclass that owns those routes."""
+        raise NotImplementedError  # pragma: no cover - diagnostics never need this route
+
+    def _bind_arguments(
+        self, operation: str, kwargs: Mapping[str, Any], *, partial: bool
+    ) -> inspect.BoundArguments:
+        function, result_first = self._routed_callable(operation)
+        positional: tuple[Any, ...] = (self._result,) if result_first else (self,)
+        if self._attribute == "sensitivity" and SENSITIVITY_ROUTES[operation].needs_estimand:
+            positional += self._with_default_parameter(operation, (), dict(kwargs))
+        binder = (
+            inspect.signature(function).bind_partial
+            if partial
+            else inspect.signature(function).bind
+        )
+        return binder(*positional, **kwargs)
+
+    def _effective_arguments(
+        self, operation: str, kwargs: Mapping[str, Any], report: Any
+    ) -> dict[str, Any]:
+        bound = self._bind_arguments(operation, kwargs, partial=False)
+        bound.apply_defaults()
+        function, _ = self._routed_callable(operation)
+        first = next(iter(inspect.signature(function).parameters))
+        effective = dict(bound.arguments)
+        effective.pop(first, None)
+        for name, parameter in inspect.signature(function).parameters.items():
+            if parameter.kind is inspect.Parameter.VAR_KEYWORD:
+                effective.update(effective.pop(name, {}))
+        if effective.get("random_state") is None:
+            resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
+            if resolved is not None:
+                effective["random_state"] = resolved
+        return effective
 
 
 def _cost_refusal(
@@ -1460,7 +1826,20 @@ class DiagnosticsFacade(_CapabilityFacade):
     @property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
         """Return declared operations and their availability."""
-        return assessment_capabilities(self._result)
+        rows = assessment_capabilities(self._result)
+        if replayability(self._result).retarget_cached_nuisances:
+            return rows
+        return tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason="retargeting requires the fitted estimator that produced the result",
+            )
+            if row.operation == "truncation_curve" and row.available
+            else row
+            for row in rows
+        )
 
     def stagewise(self) -> LongitudinalDiagnostics:
         """Return support and targeting diagnostics by longitudinal stage.
@@ -1724,16 +2103,26 @@ class DiagnosticsFacade(_CapabilityFacade):
             )
         from .validation.refute import refute
 
+        bound = inspect.signature(refute).bind(self._result, **kwargs)
+        bound.apply_defaults()
+        effective = dict(bound.arguments)
+        effective.pop("result", None)
+
         return _cached(
             self._result,
             "diagnostics.refute",
             (),
-            kwargs,
+            effective,
             lambda: refute(self._result, **kwargs),
         )
 
     def run_all(
-        self, *, include_refits: bool = False, include_retargets: bool = False
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
     ) -> DiagnosticReport:
         """Run available diagnostics that need no new arguments.
 
@@ -1743,6 +2132,10 @@ class DiagnosticsFacade(_CapabilityFacade):
             Include operations that refit nuisance models.
         include_retargets : bool
             Include operations that retarget cached nuisance predictions.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
 
         Returns
         -------
@@ -1776,7 +2169,12 @@ class DiagnosticsFacade(_CapabilityFacade):
         >>> report.include_refits, report.include_retargets
         (False, False)
         """
-        return self._run_all(include_refits=include_refits, include_retargets=include_retargets)
+        return self._run_all(
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
 
 def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
@@ -1787,18 +2185,272 @@ def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
     )
 
 
-def _diagnostic_item(name: str, report: Any) -> AssessmentItem:
-    passed = getattr(report, "passed", None)
-    if passed is False:
-        return AssessmentItem(name, AssessmentStatus.FAILED, "the diagnostic reported a failure")
-    if name == "support":
-        warning = _support_warning(report)
+def _score_item(report: Any, result: Any) -> AssessmentItem:
+    ratios = []
+    for row in getattr(report, "rows", ()):
+        if hasattr(row, "ratio"):
+            ratios.append(float(row.ratio))
+        elif getattr(row, "kind", None) == "stitching":
+            ratios.append(abs(float(row.z)) / float(report.z_tolerance))
+        else:
+            ratios.append(float(row.relative_score) / float(report.tolerance))
+    passed = bool(getattr(report, "passed", False))
+    conditioning = _reduction_conditioning_warning(result) if passed else None
+    status = (
+        AssessmentStatus.WARNING
+        if conditioning
+        else AssessmentStatus.PASSED
+        if passed
+        else AssessmentStatus.FAILED
+    )
+    worst = max((value for value in ratios if np.isfinite(value)), default=float("nan"))
+    detail = f"{len(ratios)} score row(s); worst abs(score) / threshold = {worst:.3g}"
+    if conditioning:
+        detail += f"; {conditioning}"
+    steps = (
+        ("inspect result.repeats[*].fluctuations['mean'].reduction.ill_conditioned",)
+        if conditioning
+        else ()
+        if passed
+        else ("inspect result.diagnostics.score_equations()",)
+    )
+    return AssessmentItem("score_equations", status, detail, steps)
+
+
+def _support_metrics(report: Any) -> tuple[float | None, float | None]:
+    truncated: list[float] = []
+    ess: list[float] = []
+    if hasattr(report, "truncated"):
+        truncated.append(float(report.truncated.get("fraction", 0.0)))
+        for values in getattr(report, "effective_sample_size", {}).values():
+            if "ratio" in values:
+                ess.append(float(values["ratio"]))
+        for values in getattr(report, "mechanisms", {}).values():
+            if "ess_ratio" in values:
+                ess.append(float(values["ess_ratio"]))
+    if isinstance(report, LongitudinalDiagnostics):
+        truncated.extend(float(row.share_truncated) for row in report.rows)
+        ess.extend(float(row.effective_n / row.n_followed) for row in report.rows if row.n_followed)
+    if isinstance(report, Mapping):
+        truncated.extend(float(getattr(row, "capped_fraction", 0.0)) for row in report.values())
+        ess.extend(float(getattr(row, "ess_ratio", np.nan)) for row in report.values())
+    regimes = getattr(report, "regimes", None)
+    if regimes:
+        ess.extend(float(getattr(row, "ess_ratio", np.nan)) for row in regimes.values())
+    clean_ess = [value for value in ess if np.isfinite(value)]
+    return (max(truncated) if truncated else None, min(clean_ess) if clean_ess else None)
+
+
+def _support_item(report: Any, _result: Any) -> AssessmentItem:
+    warning = _support_warning(report)
+    truncated, ess = _support_metrics(report)
+    facts = []
+    if truncated is not None:
+        facts.append(f"truncated fraction {truncated:.1%}")
+    if ess is not None:
+        facts.append(f"minimum effective-sample-size ratio {ess:.1%}")
+    if warning:
+        facts.append(warning)
+    detail = "; ".join(facts) if facts else "stored support report completed"
+    return AssessmentItem(
+        "support",
+        AssessmentStatus.WARNING if warning else AssessmentStatus.PASSED,
+        detail,
+        () if warning is None else ("inspect result.diagnostics.support()",),
+    )
+
+
+def _nuisance_item(report: Any, _result: Any) -> AssessmentItem:
+    findings = tuple(getattr(report, "findings", ()))
+    if findings:
         return AssessmentItem(
-            name,
-            AssessmentStatus.WARNING if warning else AssessmentStatus.PASSED,
-            warning or "no material support warning in the stored diagnostic",
+            "nuisance_models",
+            AssessmentStatus.WARNING,
+            "; ".join(findings),
+            ("inspect result.diagnostics.nuisance_models()",),
         )
-    return AssessmentItem(name, AssessmentStatus.PASSED, "completed from stored fitted artifacts")
+    if isinstance(report, LongitudinalNuisanceDiagnostics):
+        finite = [row.mse for row in report.rows if np.isfinite(row.mse)]
+        detail = f"{len(finite)} stagewise held-out loss value(s) are available"
+    else:
+        detail = f"{len(getattr(report, 'models', ()))} nuisance model report(s) are available"
+    return AssessmentItem("nuisance_models", AssessmentStatus.COMPLETED, detail)
+
+
+def _correction_item(report: Any, _result: Any) -> AssessmentItem:
+    identity = [abs(float(row.residual)) for row in report.rows if np.isfinite(row.residual)]
+    magnitude = [abs(float(row.reported)) for row in report.rows]
+    detail = (
+        f"contract={report.contract}; maximum identity residual "
+        f"{max(identity, default=float('nan')):.3g}; maximum reported correction magnitude "
+        f"{max(magnitude, default=float('nan')):.3g}"
+    )
+    return AssessmentItem(
+        "corrections",
+        AssessmentStatus.PASSED if report.passed else AssessmentStatus.FAILED,
+        detail,
+        () if report.passed else ("inspect result.diagnostics.corrections()",),
+    )
+
+
+def _frame_payload(frame: Any) -> dict[str, list[Any]]:
+    if type(frame).__module__.startswith("polars"):
+        return frame.to_dict(as_series=False)
+    return frame.to_dict(orient="list")
+
+
+def _range(values: Sequence[Any]) -> tuple[float, float] | None:
+    finite = [float(value) for value in values if value is not None and np.isfinite(value)]
+    return (min(finite), max(finite)) if finite else None
+
+
+def _truncation_item(report: Any, _result: Any) -> AssessmentItem:
+    payload = _frame_payload(report)
+    bounds = _range(payload.get("bound", payload.get("g_bound", ())))
+    estimates = _range(payload.get("psi", payload.get("estimate", ())))
+    return AssessmentItem(
+        "truncation_curve",
+        AssessmentStatus.COMPLETED,
+        f"evaluated bound range {bounds}; estimate range {estimates}",
+    )
+
+
+def _refute_item(report: Any, _result: Any) -> AssessmentItem:
+    failed = [test.name for test in report.tests if not test.passed]
+    return AssessmentItem(
+        "refute",
+        AssessmentStatus.FAILED if failed else AssessmentStatus.PASSED,
+        "all refutation tests passed"
+        if not failed
+        else f"failed tests {failed}; inspect their retained draws",
+        ()
+        if not failed
+        else tuple(f"inspect result.diagnostics.refute().draws_frame({name!r})" for name in failed),
+    )
+
+
+def _omitted_item(report: Any, _result: Any) -> AssessmentItem:
+    spans = report.lower <= report.null_hypothesis <= report.upper
+    return AssessmentItem(
+        "omitted_confounding",
+        AssessmentStatus.WARNING if spans else AssessmentStatus.COMPLETED,
+        f"cf_y={report.cf_y:.3g}, cf_d={report.cf_d:.3g}, rho={report.rho:.3g}; "
+        f"bias-adjusted interval [{report.lower:.4g}, {report.upper:.4g}]",
+        () if not spans else ("inspect the retained omitted-confounding bounds",),
+    )
+
+
+def _robustness_item(report: Any, _result: Any) -> AssessmentItem:
+    return AssessmentItem(
+        "robustness_value",
+        AssessmentStatus.COMPLETED,
+        f"point robustness value {report['rv']:.4g}; confidence-limit value {report['rva']:.4g}",
+    )
+
+
+def _elements_item(report: Any, _result: Any) -> AssessmentItem:
+    return AssessmentItem(
+        "elements",
+        AssessmentStatus.COMPLETED,
+        f"sigma2={report.sigma2:.4g}, nu2={report.nu2:.4g}, max_bias={report.max_bias:.4g}",
+    )
+
+
+def _contour_item(report: Any, _result: Any) -> AssessmentItem:
+    payload = _frame_payload(report)
+    return AssessmentItem(
+        "contour",
+        AssessmentStatus.COMPLETED,
+        f"grid {len(set(payload['cf_d']))} x {len(set(payload['cf_y']))}; "
+        f"cf_d range {_range(payload['cf_d'])}; cf_y range {_range(payload['cf_y'])}; "
+        f"value range {_range(payload['value'])}; inspect the retained frame",
+    )
+
+
+def _benchmark_item(report: Any, _result: Any) -> AssessmentItem:
+    return AssessmentItem(
+        "benchmark",
+        AssessmentStatus.COMPLETED,
+        f"covariates={report.covariates}; cf_y={report.cf_y:.3g}, cf_d={report.cf_d:.3g}, "
+        f"rho={report.rho:.3g}, delta_psi={report.delta_psi:.4g}",
+    )
+
+
+def _simulated_item(report: Any, _result: Any) -> AssessmentItem:
+    movements = [
+        abs(float(cell.displacement))
+        for cell in report.successful_cells
+        if cell.displacement is not None
+    ]
+    corner = report.cells[-1].induced_treatment_association if report.cells else None
+    detail = (
+        f"maximum successful displacement {max(movements, default=float('nan')):.4g}; "
+        f"failed cells {len(report.failures)}; corner association {corner}"
+    )
+    return AssessmentItem(
+        "simulated_confounding",
+        AssessmentStatus.WARNING if report.failures else AssessmentStatus.COMPLETED,
+        detail,
+        () if not report.failures else ("inspect the retained cell failures",),
+    )
+
+
+def _evalue_item(report: Any, _result: Any) -> AssessmentItem:
+    detail = (
+        f"point={report.point:.4g}, limit={report.limit:.4g}, source scale={report.scale}; "
+        + ("approximate conversion" if report.approximate else "exact risk-ratio branch")
+    )
+    if report.limit == 1.0:
+        detail += "; the interval already includes the null"
+    return AssessmentItem("evalue", AssessmentStatus.COMPLETED, detail)
+
+
+def _missingness_item(report: Any, _result: Any) -> AssessmentItem:
+    payload = _frame_payload(report)
+    return AssessmentItem(
+        "missingness",
+        AssessmentStatus.COMPLETED,
+        f"gamma range {_range(payload['gamma'])}; estimate range {_range(payload['psi'])}",
+    )
+
+
+def _tipping_item(report: Any, _result: Any) -> AssessmentItem:
+    detail = (
+        "no tipping value occurred in the searched interval"
+        if report is None
+        else f"tipping gamma {float(report):.4g}"
+    )
+    return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
+
+
+def _stagewise_item(report: Any, _result: Any) -> AssessmentItem:
+    truncated, ess = _support_metrics(report)
+    return AssessmentItem(
+        "stagewise",
+        AssessmentStatus.COMPLETED,
+        f"{len(report.rows)} stage row(s); maximum truncated fraction {truncated}; "
+        f"minimum effective-sample-size ratio {ess}",
+    )
+
+
+INTERPRETERS: dict[str, Callable[[Any, Any], AssessmentItem]] = {
+    "score_equations": _score_item,
+    "support": _support_item,
+    "nuisance_models": _nuisance_item,
+    "corrections": _correction_item,
+    "truncation_curve": _truncation_item,
+    "refute": _refute_item,
+    "stagewise": _stagewise_item,
+    "omitted_confounding": _omitted_item,
+    "robustness_value": _robustness_item,
+    "elements": _elements_item,
+    "contour": _contour_item,
+    "benchmark": _benchmark_item,
+    "simulated_confounding": _simulated_item,
+    "evalue": _evalue_item,
+    "missingness": _missingness_item,
+    "tipping_gamma": _tipping_item,
+}
 
 
 def _support_warning(report: Any) -> str | None:
@@ -1842,61 +2494,18 @@ def validate_result(result: Any) -> ValidationReport:
 
     def compute() -> ValidationReport:
         diagnostics = result.diagnostics
-        score = diagnostics.score_equations()
-        score_passed = bool(getattr(score, "passed", False))
-        score_rows = tuple(getattr(score, "rows", ()))
-        conditioning = _reduction_conditioning_warning(result) if score_passed else None
+        reports = {
+            "score_equations": diagnostics.score_equations(),
+            "support": diagnostics.support(),
+            "nuisance_models": diagnostics.nuisance_models(),
+        }
         items = [
-            AssessmentItem(
-                "score_equations",
-                (
-                    AssessmentStatus.WARNING
-                    if conditioning
-                    else AssessmentStatus.PASSED
-                    if score_passed
-                    else AssessmentStatus.FAILED
-                ),
-                (
-                    conditioning or f"all {len(score_rows)} stored score checks converged"
-                    if score_passed
-                    else "one or more stored score equations failed its convergence check"
-                ),
-                (("inspect result.repeats[*].fluctuations['mean'].reduction.ill_conditioned"),)
-                if conditioning
-                else ()
-                if score_passed
-                else ("inspect result.diagnostics.score_equations()",),
+            replace(
+                INTERPRETERS[name](report, result),
+                _report=_pack_cached(report, result.data.backend),
             )
+            for name, report in reports.items()
         ]
-        support = diagnostics.support()
-        warning = _support_warning(support)
-        items.append(
-            AssessmentItem(
-                "support",
-                AssessmentStatus.WARNING if warning else AssessmentStatus.PASSED,
-                warning or "stored support diagnostics show no material warning",
-                () if not warning else ("inspect result.diagnostics.support()",),
-            )
-        )
-        nuisance = diagnostics.nuisance_models()
-        finite = []
-        if isinstance(nuisance, LongitudinalNuisanceDiagnostics):
-            finite = [row.mse for row in nuisance.rows if np.isfinite(row.mse)]
-        nuisance_status = (
-            AssessmentStatus.WARNING
-            if isinstance(nuisance, LongitudinalNuisanceDiagnostics) and not finite
-            else AssessmentStatus.PASSED
-        )
-        items.append(
-            AssessmentItem(
-                "nuisance_models",
-                nuisance_status,
-                "stagewise held-out losses are available"
-                if isinstance(nuisance, LongitudinalNuisanceDiagnostics)
-                else "out-of-fold nuisance fit and calibration diagnostics are available",
-                ("inspect result.diagnostics.nuisance_models()",),
-            )
-        )
         return ValidationReport(tuple(items), result.data.backend)
 
     return _cached(result, "validate", (), {}, compute)
@@ -2086,6 +2695,7 @@ class SensitivityFacade(_CapabilityFacade):
                     else "benchmarking requires a replayable point-treatment estimator"
                 ),
                 requires_arguments=("covariates",),
+                accepts_random_state=True,
                 family=family,
             ),
             _capability(
@@ -2107,6 +2717,7 @@ class SensitivityFacade(_CapabilityFacade):
                 requires_arguments=("grid", "estimand")
                 if continuous or binary_needs_estimand
                 else ("grid",),
+                accepts_random_state=True,
                 family=family,
             ),
             standard(
@@ -2115,11 +2726,7 @@ class SensitivityFacade(_CapabilityFacade):
                 interpretation="bias bounds over a grid of confounding strengths",
                 cost="moderate",
             ),
-            standard(
-                "evalue",
-                artifacts=("ratio-scale estimate",),
-                interpretation="minimum risk-ratio association needed to explain away an effect",
-            ),
+            self._evalue_row(),
             tilt(
                 "missingness",
                 interpretation="departure from missing-at-random identification",
@@ -2129,6 +2736,29 @@ class SensitivityFacade(_CapabilityFacade):
                 interpretation="missingness departure at which the conclusion reaches its null",
             ),
         )
+
+    def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
+        from .sensitivity.evalue import _evalue_capability
+
+        available, status, reason, execution = _evalue_capability(self._result, estimand)
+        return _capability(
+            "evalue",
+            _family(self._result),
+            artifacts=("structured arm contrast", "ratio or derivation artifacts"),
+            interpretation="minimum risk-ratio association needed to explain away an effect",
+            available=available,
+            status=AssessmentStatus.PASSED if status is None else AssessmentStatus(status),
+            reason=reason,
+            execution=execution,
+            cost="moderate" if execution == "retarget" else "cheap",
+        )
+
+    def _capability_for_arguments(
+        self, operation: str, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        if operation == "evalue":
+            return self._evalue_row(arguments.get("estimand"))
+        return super()._capability_for_arguments(operation, arguments)
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
         """Bound omitted-confounder bias for a reported estimand.
@@ -2336,7 +2966,9 @@ class SensitivityFacade(_CapabilityFacade):
 
     def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         """Refuse by the declared capability, then call the declared implementation."""
-        self._require(operation)
+        explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
+        if not explicit_evalue:
+            self._require(operation)
         route = SENSITIVITY_ROUTES[operation]
         if route.needs_estimand:
             # Before the cache key, so an implicit call and the explicit call it resolves
@@ -2344,11 +2976,15 @@ class SensitivityFacade(_CapabilityFacade):
             args = self._with_default_parameter(operation, args, kwargs)
         module = importlib.import_module(f".sensitivity.{route.module}", __package__)
         function = getattr(module, route.function)
+        bound = inspect.signature(function).bind(self._result, *args, **kwargs)
+        bound.apply_defaults()
+        effective = dict(bound.arguments)
+        effective.pop(next(iter(inspect.signature(function).parameters)), None)
         return _cached(
             self._result,
             f"sensitivity.{operation}",
-            args,
-            kwargs,
+            (),
+            effective,
             lambda: function(self._result, *args, **kwargs),
         )
 
@@ -2409,7 +3045,12 @@ class SensitivityFacade(_CapabilityFacade):
         return (candidates[0],) if len(candidates) == 1 else args
 
     def run_all(
-        self, *, include_refits: bool = False, include_retargets: bool = False
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
     ) -> DiagnosticReport:
         """Run available sensitivity analyses that need no new arguments.
 
@@ -2419,10 +3060,19 @@ class SensitivityFacade(_CapabilityFacade):
             Include operations that refit nuisance models.
         include_retargets : bool
             Include operations that retarget cached nuisance predictions.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
 
         Returns
         -------
         DiagnosticReport
             One item for every declared sensitivity operation.
         """
-        return self._run_all(include_refits=include_refits, include_retargets=include_retargets)
+        return self._run_all(
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
