@@ -1154,7 +1154,9 @@ def test_a_derived_result_starts_with_an_empty_cache_it_owns():
     assert set(clone.assessment_cache) - keys
 
     # The constructor refuses the argument outright rather than accepting and ignoring it.
-    with pytest.raises(TypeError, match="init=False"):
+    # ``replace`` raises ``ValueError`` before Python 3.13 and ``TypeError`` from 3.13 on,
+    # so this pins the refusal rather than the class the interpreter chose for it.
+    with pytest.raises((TypeError, ValueError), match="init=False"):
         replace(result, assessment_cache={})
 
 
