@@ -13,6 +13,7 @@ One fit, shared: each class below reads a different part of the same result.
 from __future__ import annotations
 
 import math
+import re
 import warnings
 from dataclasses import replace
 from itertools import pairwise
@@ -20,7 +21,7 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from cleverly import AssessmentStatus
+from cleverly import AssessmentStatus, CapabilityError
 from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -247,7 +248,6 @@ class TestWhatItReports:
                     },
                 ),
             ),
-            assessment_cache={},
         )
 
         assert warned.diagnostics.score_equations().passed
@@ -258,7 +258,7 @@ class TestWhatItReports:
         assert restored.validate()["score_equations"].status is AssessmentStatus.WARNING
 
     def test_validation_passes_cleanly_without_ill_conditioned_rounds(self, fit) -> None:
-        item = replace(fit, assessment_cache={}).validate()["score_equations"]
+        item = replace(fit).validate()["score_equations"]
         assert item.status is AssessmentStatus.PASSED
 
 
@@ -354,6 +354,11 @@ class TestAnEmptyGuardIsAPlainTMLE:
         )
         assert fluctuation.reduction is None and fluctuation.mechanism is None
         assert bare.nuisance.reduced is None
+        capability = bare.diagnostics.capability("corrections")
+        assert capability.status is AssessmentStatus.NOT_APPLICABLE
+        assert "subtracts no correction term" in capability.reason
+        with pytest.raises(CapabilityError, match="subtracts no correction term"):
+            bare.diagnostics.corrections()
         # And in the *report* as well as in the arrays: `corrected` is read off the
         # reduction records, so this fit gets a plain fit's verdict word for word.
         check = bare.diagnostics.score_equations()
@@ -428,6 +433,11 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_there_is_a_row_per_arm_and_per_equation(self, fit) -> None:
         """Per arm and **before** the contrast -- an ATE-only check cannot see a cancelling pair."""
+        # Complete the argument-free contract on the method-specific route, which is
+        # intentionally unavailable on the ordinary-TMLE fixtures in that contract suite.
+        capability = fit.diagnostics.capability("corrections")
+        assert capability.available and not capability.requires_arguments
+        fit.diagnostics._bind_arguments("corrections", {}, partial=False)
         check = fit.diagnostics.corrections()
 
         assert {(row.arm, row.equation) for row in check.rows} == {
@@ -518,11 +528,42 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_a_plain_fit_gets_no_such_rows(self, ordinary) -> None:
         """No estimand outside this variant reports a correction, so none gains a row."""
-        assert ordinary.diagnostics.corrections().rows == ()
+        with pytest.raises(CapabilityError, match="does not use the correction system"):
+            ordinary.diagnostics.corrections()
         assert {row.kind for row in ordinary.diagnostics.score_equations().rows} == {
             "fluctuation",
             "influence curve",
         }
+
+    def test_a_plain_fits_verdict_names_no_call_that_would_refuse(self, ordinary) -> None:
+        """The next step a failing verdict prints must be one its own reader can take.
+
+        ``corrections()`` raises on every method but a guarded ``DRTMLE``, so a verdict
+        that told every reader to call it sent most of them to an exception instead of to
+        the diagnostic. The rule under test is the behaviour and not the wording: a call
+        the text names on its own must succeed on the result that printed the text, and a
+        call that belongs to another method must say which method that is. Built from rows
+        because no fixture here produces an identity failure -- a fit that exhibits one is
+        a fit this package does not produce, and the sentence is still shipped.
+        """
+        real = ordinary.diagnostics.score_equations()
+        broken = replace(real.rows[0], kind="identity", passed=False, score=1.0, threshold=1e-9)
+        failing = replace(real, rows=(broken, *real.rows[1:]))
+        text = f"{failing.summary()} {failing.one_line()}".replace("\n", " ")
+        operations = {row.operation for row in ordinary.diagnostics.capabilities}
+
+        # The pair: the identity advice is *present*, so the loop below is judging the
+        # sentence this test exists for rather than passing on an empty verdict.
+        assert "corrections()" in text
+        checked = set()
+        for sentence in re.split(r"(?<=[.;]) ", text):
+            for call in re.findall(r"(?:res\.\w+\.)?(\w+)\(\)", sentence):
+                if call not in operations or "DR-TMLE" in sentence:
+                    continue
+                getattr(ordinary.diagnostics, call)()  # must not raise for this reader
+                checked.add(call)
+        assert "corrections" not in checked
+        assert checked, "the verdict names no working next step at all"
 
     def test_the_means_it_reports_are_weighted(self, fit) -> None:
         """Every score here is weighted, so a check taking plain means would be a different check.
@@ -1399,7 +1440,8 @@ class TestTheContractSaysWhichEstimator:
 
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""
-        assert ordinary.diagnostics.corrections().contract == "none"
+        with pytest.raises(CapabilityError, match="does not use the correction system"):
+            ordinary.diagnostics.corrections()
 
     def test_a_complete_data_fit_has_no_observation_witness_to_report(self, pinched) -> None:
         """``nan``, not zero, and the difference is the whole point of the sentinel.

@@ -14,7 +14,6 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, CapabilityError, load
-from cleverly.assessment import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -22,6 +21,7 @@ from cleverly.datasets import (
 )
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
+from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates

@@ -37,6 +37,7 @@ SECTION = "^{name}\n-{{4,}}$"
 #: every object or of none.  A pro-forma example on all 140 curated objects would be noise,
 #: and noise is what a reader learns to skip.
 EXAMPLE_TARGETS = (
+    "cleverly.estimators.TMLEResult.assess",
     # Entry points and design.
     "cleverly.CausalStudy",
     "cleverly.PointTreatment",

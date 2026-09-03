@@ -219,26 +219,31 @@ class NuisanceDiagnostics:
         str
             A reading of the diagnostics that says what to do about them.
         """
+        notes = list(self.findings)
+        for model in self.models:
+            auc = model.metrics.get("auc")
+            if model.name == "propensity" and auc is not None and auc < 0.55:
+                notes.append(
+                    f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
+                    "excellent and confounding by these covariates is limited"
+                )
+        if not notes:
+            return "VERDICT: nuisance fits look reasonable."
+        return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
+
+    @property
+    def findings(self) -> tuple[str, ...]:
+        """Return findings that meet an existing diagnostic warning rule."""
         notes: list[str] = []
         for model in self.models:
             auc = model.metrics.get("auc")
             slope = model.metrics.get("calibration_slope")
-            if model.name == "propensity" and auc is not None:
-                if auc > 0.9:
-                    notes.append(
-                        f"the propensity model separates the arms almost perfectly "
-                        f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit"
-                    )
-                elif auc < 0.55:
-                    notes.append(
-                        f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
-                        "excellent and confounding by these covariates is limited"
-                    )
+            if model.name == "propensity" and auc is not None and auc > 0.9:
+                notes.append(
+                    f"the propensity model separates the arms almost perfectly "
+                    f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit"
+                )
             if model.name == "missingness" and auc is not None and auc > 0.9:
-                # The same reading as for the propensity, and for the same reason: this
-                # probability divides the clever covariate, so predicting it almost
-                # perfectly means some rows had virtually no chance of being observed and
-                # the estimate is extrapolating to them.
                 notes.append(
                     f"the missingness model predicts almost perfectly (AUC {auc:.3f}); some "
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
@@ -249,11 +254,11 @@ class NuisanceDiagnostics:
                     f"{model.name} is poorly calibrated (slope {slope:.2f}, ideal 1.0); its "
                     "predicted probabilities are systematically off, which biases the weights"
                 )
-            if model.learner_weights.get("mean", 0.0) > 0.8:
+            mean_weight = model.learner_weights.get("mean", 0.0)
+            if mean_weight > 0.8:
                 notes.append(
-                    f"{model.name} put {model.learner_weights['mean']:.0%} of its weight on the "
-                    "marginal mean -- no candidate beat predicting the average, so this model "
-                    "is contributing almost nothing"
+                    f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean -- "
+                    "no candidate beat predicting the average, so this model contributes little"
                 )
             r2 = model.metrics.get("r2")
             if model.name == "outcome" and r2 is not None and r2 < 0.05:
@@ -261,9 +266,7 @@ class NuisanceDiagnostics:
                     f"the outcome model explains little variance (R^2 {r2:.3f}); the estimate is "
                     "close to inverse-probability weighting and will be correspondingly noisy"
                 )
-        if not notes:
-            return "VERDICT: nuisance fits look reasonable."
-        return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
+        return tuple(notes)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()

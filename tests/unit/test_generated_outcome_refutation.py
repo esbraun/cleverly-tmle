@@ -132,7 +132,6 @@ def _result_for(data: CausalData, estimator: Any) -> Any:
         ),
         parameter_keys={"ate": ParameterKey("ate", "ate", value=1, reference=0)},
         intermediate_value=None,
-        assessment_cache={},
     )
 
 

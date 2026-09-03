@@ -1,5 +1,45 @@
 # Results, inference, and assessment
 
+## Run the assessment battery
+
+Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
+
+```python
+battery = result.assess()
+print(battery.summary())
+support = battery.report("support")
+```
+
+The default call reads stored artifacts and runs the cheap E-value retarget when applicable. It does not refit nuisance models. `battery.attention` contains explicit failures and warnings. `battery.omissions`
+contains analyses that were not applicable or were unavailable.
+
+Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
+
+```text
+battery = result.assess(
+    include_refits=True,
+    include_retargets=True,
+    random_state=21,
+    arguments={
+        "benchmark": {"covariates": ("W1", "W2")},
+        "simulated_confounding": {"grid": grid},
+    },
+)
+```
+
+The common seed reaches `refute`, `benchmark`, and `simulated_confounding`. A seeded fit reuses
+its fit seed when you omit this argument. An unseeded fit draws a seed and records it on the
+returned row.
+
+`assess()` refuses `arguments` for `score_equations`. The validation battery owns that name and
+runs it argument-free. The battery presents the validation row for it, so it would compute your
+answer and then hide it. Call `result.diagnostics.run_all(arguments=...)`, or call the operation
+itself.
+
+The battery also owns `support` and `nuisance_models`, but neither one accepts an argument. An
+argument for either is a `TypeError` from the signature. An empty mapping applies nothing, so
+`assess()` accepts it for all three names.
+
 ## Result structure
 
 `CausalResult` is a read-only mapping from stable aliases to `ParameterEstimate` objects.
@@ -40,34 +80,57 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
-corrections = result.diagnostics.corrections()
+corrections = (
+    result.diagnostics.corrections()
+    if result.diagnostics.capability("corrections").available
+    else None
+)
 stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
-Combined reports distinguish five states: `passed`, `failed`, `warning`, `not_applicable`, and
-`unavailable`. “Not applicable” means the scientific question has no such analysis; “unavailable”
-means the question is meaningful but the fit lacks a derivation or saved artifact.
+The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
+correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
-An `unavailable` row reached that state one of two ways, and its `detail` says which. A row whose
-capability declaration already refuses it carries that declaration’s own reason. A row that had to
-inspect the fit before it could refuse is prefixed `refused on inspection:`, and it names the
-operation to call directly for the refusal in full. Two such rows are an E-value on a fit that
-reported no contrast, and a missingness tilt on a fit with no missing outcomes. Nothing else is
-caught: an error a capability did not declare propagates, because a report that renders a bug as
-“unavailable” states a scientific conclusion about the fit that nobody established.
+Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
+verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
+uses an existing diagnostic rule. An expected refusal becomes `unavailable`.
+The aggregate run then continues with other accepted diagnostics. Direct calls still raise the
+precise refusal. `not_applicable` and `unavailable` appear in `omissions`.
 
-A combined report runs only the operations that summarise stored artifacts. The two costlier
+Known omissions carry the capability's reason. Examples include an E-value without a supported
+contrast and a missingness analysis without missing outcomes. An operation can also refuse after
+invocation, such as omitted-confounding sensitivity on median-combined repeats. That row becomes
+an `unavailable` omission, retains its invocation arguments, and names the direct call. Other accepted
+diagnostics still run. Structural errors, such as invalid argument names, still stop the report.
+
+A combined report runs summaries and cheap retargets by default. The two costlier
 classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
 nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
-ones:
+ones. These moderate retargets require `include_retargets=True`. The E-value retarget is cheap and runs by default.
+Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python
 everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
 ```
 
-`run_all` passes no seed, so `refute()` draws from the seed of the fit. Give the fit a seed if
-you need the same refutation twice.
+Pass required choices with `arguments={"operation": {...}}`. The report row retains the effective
+arguments and the returned object. Use `report.report(name)` to retrieve that object.
+
+A refusal names the first thing that is wrong. An operation that needs a choice you did not pass
+names that choice, and not a cost flag. No flag supplies the covariates for `benchmark`, so the
+row says so under every flag.
+
+A completed `tipping_gamma` search can return `None` when its interval contains no tipping point.
+Use `battery.report(name, surface="diagnostics")` to retrieve a diagnostic that also appears under validation.
+
+The E-value row records its source alias, such as `estimand="ate"`, for replay.
+A derived ratio can have a different output alias, such as `rr`.
+For a default odds-ratio source, the row keeps `estimand=None` because an explicit alias chooses the approximation.
+The returned E-value records that source in `source_estimand`.
+
+The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
+It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
 
 Use generated outcomes to test the full pipeline against a declared effect. The dummy operation
 uses independent Gaussian noise and declares zero. The simulated operation uses a standardized
@@ -318,8 +381,8 @@ collaborative surface makes no numerical parity claim with those implementations
 Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
 or mixed level.
 
-A combined call excludes refits and retargets by default. Each skipped row names the flag that
-would run it. Longitudinal
+A combined call excludes refits and retargets by default. A row skipped for cost alone names the
+flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
 operations without a published derivation are reported unavailable rather than borrowing
 point-treatment formulas, and each refusal gives the reason its own capability row declares.
 
@@ -334,6 +397,14 @@ assert restored.parameter_keys == result.parameter_keys
 assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
+
+Read `result.diagnostics.capabilities` before you run an operation on a restored artifact. Each
+row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
+The row says which slot is missing, so you learn the answer before the operation runs.
+
+The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
+does not. The cache key records the operation and its arguments, and it records nothing about the
+result that answered them, so a derived result starts with an empty cache of its own.
 
 The joblib artifact contains the complete result graph, including nuisance estimator templates,
 so successfully restored results retain refit-based assessment. Joblib uses pickle internally:

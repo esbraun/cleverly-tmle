@@ -216,7 +216,6 @@ def _result(data: CausalData, estimator: _RecordingEstimator | None = None) -> _
         estimates={"ate": SimpleNamespace(psi=fitted.statistic(data.covariates), std_error=1.0)},
         data=data,
         intermediate_value=None,
-        assessment_cache={},
     )
 
 

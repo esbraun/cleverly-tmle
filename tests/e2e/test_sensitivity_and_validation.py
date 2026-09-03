@@ -411,10 +411,11 @@ class TestEValue:
         assert "Chinn" in evalue.note
         assert evalue.point > 1.0
 
-    def test_the_odds_ratio_conversion_is_flagged_as_rare_outcome(self, binary_fit) -> None:
+    def test_the_odds_ratio_conversion_is_flagged_for_common_outcomes(self, binary_fit) -> None:
         evalue = binary_fit.sensitivity.evalue("or")
         assert evalue.approximate
-        assert "rare outcome" in evalue.note
+        assert "common outcomes" in evalue.note
+        assert "understates" not in evalue.note
         assert evalue.risk_ratio == pytest.approx(np.sqrt(binary_fit.psi("or")))
 
 
@@ -478,8 +479,8 @@ class TestMissingnessTilt:
             assert "pass include_retargets=True" in default[operation].detail
 
         asked = missing_fit.sensitivity.run_all(include_retargets=True)
-        assert asked["missingness"].status is AssessmentStatus.PASSED
-        assert asked["tipping_gamma"].status is AssessmentStatus.PASSED
+        assert asked["missingness"].status is AssessmentStatus.COMPLETED
+        assert asked["tipping_gamma"].status is AssessmentStatus.COMPLETED
 
     def test_the_tilt_needs_missing_outcomes(self, good_overlap) -> None:
         with pytest.raises(CapabilityError, match="not_applicable"):

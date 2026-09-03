@@ -356,8 +356,8 @@ def tipping_gamma(
 
     Returns
     -------
-    float
-        The tilt at which the conclusion reaches its null, or ``nan`` when no tilt
+    float or None
+        The tilt at which the conclusion reaches its null, or ``None`` when no tilt
         inside ``search`` does.
     """
     from scipy import optimize

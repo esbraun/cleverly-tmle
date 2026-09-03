@@ -86,6 +86,41 @@ def parameter_name(stem: str, *, arm: Any = None, versus: Any = None) -> str:
     return f"{stem}[{arm} vs {versus}]"
 
 
+def arm_alias(stem: str, *, arm: Any, versus: Any = None, collapse: bool) -> str:
+    """The reported name of an arm-indexed parameter, given whether the fit collapses it.
+
+    One rule, stated once.  Four call sites had to get from a target and a pair of arms to
+    the name the fit reports it under, and all four wrote the same conditional: a two-armed
+    fit keeps the bare stem, and any other fit names its arms.  Written four times it is
+    four chances for a report and its sensitivity analysis to disagree about what a
+    parameter is called.
+
+    ``collapse`` is the caller's own answer to "does this fit have exactly two arms",
+    because the callers read it from different objects.  A study and the sensitivity
+    modules read ``data.is_binary_treatment``; :meth:`TargetContext.name_for` reads its own
+    arm set and its ``always_label`` override.
+
+    Parameters
+    ----------
+    stem : str
+        The target the parameter came from, as :func:`parameter_name` means it.
+    arm : Any
+        The label of the arm the parameter is about.
+    versus : Any
+        The label of the reference arm of a contrast, or ``None`` for a level.
+    collapse : bool
+        Whether to report the bare stem instead of naming the arms.
+
+    Returns
+    -------
+    str
+        The reported parameter name.
+    """
+    if collapse:
+        return parameter_name(stem)
+    return parameter_name(stem, arm=arm, versus=versus)
+
+
 def parameter_stem(name: str) -> str:
     """The target a reported parameter came from: everything before the ``[``.
 
@@ -411,14 +446,14 @@ class TargetContext:
         """The parameter name for a per-arm or per-contrast estimate of ``stem``.
 
         Collapses to the bare stem on a two-armed fit unless :attr:`always_label` says
-        otherwise; see :func:`parameter_name`.
+        otherwise; see :func:`arm_alias`, which is the same rule the study and the
+        sensitivity modules apply.
         """
-        if self.is_binary and not self.always_label:
-            return parameter_name(stem)
-        return parameter_name(
+        return arm_alias(
             stem,
             arm=self.label(arm),
             versus=None if versus is None else self.label(versus),
+            collapse=self.is_binary and not self.always_label,
         )
 
     def finish(

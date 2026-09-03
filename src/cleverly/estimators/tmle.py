@@ -358,6 +358,8 @@ class TMLE:
     does not mutate the estimator's configuration.
     """
 
+    _assessment_method = "tmle"
+
     def __init__(
         self,
         *,
@@ -449,6 +451,9 @@ class TMLE:
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
+
+    def _uses_corrections(self) -> bool:
+        return False
 
     def _validate_settings(self) -> None:
         if self.fluctuation not in ("logistic", "linear"):
@@ -940,6 +945,8 @@ class TMLE:
             data=data,
             config=config,
             estimator=self,
+            fitted_method=self._assessment_method,
+            solved_corrections=self._uses_corrections(),
             provenance=provenance_record(
                 data, fold_draws, random_state=self.random_state, run_id=self.run_id
             ),

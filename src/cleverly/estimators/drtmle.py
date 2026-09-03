@@ -437,6 +437,8 @@ class DRTMLE(TMLE):
     canonical implementation.
     """
 
+    _assessment_method = "drtmle"
+
     def __init__(
         self,
         *,
@@ -493,6 +495,9 @@ class DRTMLE(TMLE):
         fitted = copy(self)
         fitted._treatment_probabilities = treatment_probabilities
         return TMLE.fit(fitted, data, **roles)
+
+    def _uses_corrections(self) -> bool:
+        return bool(self.guard)
 
     def _validate_drtmle_settings(self) -> None:
         unknown = [name for name in self.guard if name not in GUARDS]

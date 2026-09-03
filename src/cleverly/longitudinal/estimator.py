@@ -64,7 +64,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -80,6 +80,9 @@ from ..inference.results import (
     smooth_contrast,
     sole_estimate,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..assessment import AssessmentReport
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
@@ -390,8 +393,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Typed public method configuration.
     parameter_keys : dict of str to ParameterKey
         Structured identities for reported aliases.
+    fitted_method : str
+        Method identity stamped by the estimator.
+
+    Attributes
+    ----------
     assessment_cache : dict
-        Saved diagnostic and sensitivity outputs.
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache. Persistence restores the mapping without
+        the constructor.
 
     See Also
     --------
@@ -452,9 +462,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     identified_effect: Any = None
     method: Any = None
     parameter_keys: dict[str, Any] = field(default_factory=dict)
-    #: Assessment results keyed by operation and normalized arguments. Structured
-    #: persistence writes this alongside the sequential artifacts it was computed from.
-    assessment_cache: dict[str, Any] = field(default_factory=dict)
+    fitted_method: str = "tmle"
+    #: Assessment results keyed by operation and normalized arguments. Persistence writes
+    #: this alongside the sequential artifacts it was computed from.
+    #:
+    #: ``init=False`` for the reason :attr:`cleverly.estimators.TMLEResult
+    #: .assessment_cache` gives: the key names the operation and its arguments and not
+    #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
+    #: would answer for a fit that never produced it.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+
+    #: Which family of assessment declarations applies to this result.  See
+    #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
+    #: :attr:`fitted_method`.
+    assessment_family: ClassVar[str] = "longitudinal"
 
     # ------------------------------------------------------------- mapping API
 
@@ -588,6 +609,47 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         from ..assessment import validate_result
 
         return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets; cheap E-value retargets run by default.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        cleverly.AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+
+        See Also
+        --------
+        LongitudinalResult.validate : Run stored-artifact validation.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run diagnostics alone.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def replayability(self) -> Any:

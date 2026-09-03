@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -39,7 +39,13 @@ from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..assessment import DiagnosticsFacade, Replayability, SensitivityFacade, ValidationReport
+    from ..assessment import (
+        AssessmentReport,
+        DiagnosticsFacade,
+        Replayability,
+        SensitivityFacade,
+        ValidationReport,
+    )
     from ..validation.score import ScoreCheck
 
 __all__ = [
@@ -426,8 +432,18 @@ class TMLEResult:
         Typed public method configuration.
     parameter_keys : dict of str to ParameterKey
         Structured identities for reported aliases.
+    fitted_method : str
+        Method identity stamped by the estimator; unknown for unstamped artifacts.
+    solved_corrections : bool
+        Whether the fit participated in the guarded correction system.
+
+    Attributes
+    ----------
     assessment_cache : dict
-        Saved diagnostic and sensitivity outputs.
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache. A result derived with
+        :func:`dataclasses.replace` therefore starts empty and cannot serve the original
+        result's verdicts. Persistence restores the mapping without the constructor.
 
     See Also
     --------
@@ -490,9 +506,26 @@ class TMLEResult:
     method: Any = None
     #: Alias-to-structured-key mapping. Routing must read this rather than parse aliases.
     parameter_keys: dict[str, Any] = field(default_factory=dict)
+    fitted_method: str = "unknown"
+    solved_corrections: bool = False
     #: Persistent assessment results, keyed by operation plus normalized arguments.
     #: Filling this mapping never changes the fitted parameter or its summary.
-    assessment_cache: dict[str, Any] = field(default_factory=dict)
+    #:
+    #: ``init=False`` because the key records the operation and its arguments and nothing
+    #: about the result that answered them.  ``dataclasses.replace`` used to pass the
+    #: original's mapping straight through, so a result derived by ``attach_bootstrap`` --
+    #: which changes ``estimates``, and therefore every sensitivity answer -- served the
+    #: original's cached verdicts under a different method stamp.  A constructed result
+    #: now owns an empty cache, and joblib persistence restores the saved mapping through
+    #: ``__setstate__`` rather than through ``__init__``.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+
+    #: Which family of assessment declarations applies to this result.  A class constant
+    #: rather than a property: the family is a property of the result *type*, and nothing
+    #: a fit can do changes it.  ``cleverly.assessment`` reads it to pick the capability
+    #: table.  The method identity is :attr:`fitted_method`, which is the only name for
+    #: it, because two names for one value drift.
+    assessment_family: ClassVar[str] = "point"
 
     # --------------------------------------------------------------- repeats
 
@@ -778,6 +811,67 @@ class TMLEResult:
         from ..assessment import validate_result
 
         return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets; cheap E-value retargets run by default.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        cleverly.AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+
+        See Also
+        --------
+        TMLEResult.validate : Run the stored-artifact validation checks.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run diagnostics alone.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> result = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... ).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> result.assess().validation.passed
+        True
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def replayability(self) -> Replayability:

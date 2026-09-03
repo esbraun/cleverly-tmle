@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
@@ -26,8 +26,11 @@ from .methods import (
 )
 from .msm import MSM, MSMSet
 from .targets import TARGETS
-from .targets.base import Identification, parameter_name
+from .targets.base import Identification, arm_alias, parameter_name
 from .utils.frames import as_frame
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .assessment import AssessmentReport
 
 __all__ = [
     "ATC",
@@ -112,6 +115,23 @@ class CausalResult(Protocol):
         Runtime and dependency information for the fit.
     assessment_cache : mapping
         Saved diagnostic and sensitivity artifacts.
+    assessment_family : str
+        Result-owned capability family declaration.
+    estimate : ParameterEstimate
+        The sole parameter estimate. A concrete result raises ``ValueError`` here when it
+        reports more than one parameter, so ``isinstance`` does not presence-check it.
+        Use :meth:`psi` or item access to name the parameter you want.
+
+    Notes
+    -----
+    :func:`typing.runtime_checkable` gives ``isinstance`` a presence check over every
+    member this class body declares. On Python 3.11 that check reads each member with
+    :func:`hasattr`, which *calls* a property and swallows only ``AttributeError``. A
+    member whose read can raise anything else therefore turns ``isinstance`` into an
+    exception. ``estimate`` is such a member, so this class declares it under
+    :data:`typing.TYPE_CHECKING`: a type checker still sees it, and the runtime check
+    does not read it. Add a new member here only when reading it on every supported
+    result cannot raise.
     """
 
     estimates: Mapping[str, Any]
@@ -120,11 +140,14 @@ class CausalResult(Protocol):
     parameter_keys: Mapping[str, Any]
     provenance: Any
     assessment_cache: Mapping[str, Any]
+    assessment_family: str
 
-    @property
-    def estimate(self) -> Any:
-        """Return the primary parameter estimate."""
-        ...
+    if TYPE_CHECKING:  # pragma: no cover - kept out of the runtime presence check
+
+        @property
+        def estimate(self) -> Any:
+            """Return the primary parameter estimate."""
+            ...
 
     def psi(self, name: str | None = None) -> float:
         """Return one point estimate by alias.
@@ -210,6 +233,34 @@ class CausalResult(Protocol):
 
     def validate(self) -> Any:
         """Run validation checks available without new arguments."""
+        ...
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets; cheap E-value retargets run by default.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
         ...
 
     @property
@@ -1900,16 +1951,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     if code == reference_code:
                         continue
                     value = data.arm_label(code)
-                    alias = (
-                        target
-                        if data.is_binary_treatment
-                        else parameter_name(target, arm=value, versus=reference)
+                    alias = arm_alias(
+                        target,
+                        arm=value,
+                        versus=reference,
+                        collapse=data.is_binary_treatment,
                     )
                     base[alias] = ParameterKey(alias, target, value=value, reference=reference)
             elif target in {"par", "paf"}:
-                alias = (
-                    target if data.is_binary_treatment else parameter_name(target, arm=reference)
-                )
+                alias = arm_alias(target, arm=reference, collapse=data.is_binary_treatment)
                 base[alias] = ParameterKey(alias, target, value=reference)
             elif target == "ey_obs":
                 base[target] = ParameterKey(target, target)
