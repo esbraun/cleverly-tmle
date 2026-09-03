@@ -30,10 +30,12 @@ from cleverly import (
     RiskRatio,
 )
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
-from cleverly.estimators import DRTMLE, TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators.ctmle import _Selector
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Shift
+from cleverly.learners.crossfit import make_folds
 from cleverly.sensitivity import (
     ConfounderStrengthGrid,
     SimulatedConfoundingResult,
@@ -53,6 +55,19 @@ from cleverly.sensitivity.simulated_confounding import (
     _treatment_association,
     _weighted_std,
 )
+from cleverly.utils import resolve_g_bounds
+
+
+def _collaborative_method(
+    *,
+    selection_estimand: str = "ate",
+    overrides: dict[str, Any] | None = None,
+) -> CollaborativeTMLEMethod:
+    settings = dict(overrides or {})
+    if settings.get("strategy", "greedy") != "oat":
+        settings.setdefault("selection_folds", 2)
+        settings.setdefault("selection_inner_folds", 2)
+    return CollaborativeTMLEMethod(selection_estimand=selection_estimand, **settings)
 
 
 def _fit(
@@ -65,6 +80,7 @@ def _fit(
     weight_scale: float | None = None,
     weights_estimated: bool = False,
     constant_weights: bool = False,
+    collaborative_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     if family == "gaussian":
         frame, _ = make_linear_ate(n=120, seed=seed, backend=backend)
@@ -93,10 +109,7 @@ def _fit(
     )
     configured_method: Any = method
     if method == "collaborative_tmle":
-        configured_method = CollaborativeTMLEMethod(
-            selection_folds=2,
-            selection_inner_folds=2,
-        )
+        configured_method = _collaborative_method(overrides=collaborative_kwargs)
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
             reduced_outcome_learner=LinearRegression(),
@@ -121,6 +134,7 @@ def _fit_binary_mean(
     seed: int = 7,
     family: str = "gaussian",
     weight_scale: float | None = None,
+    collaborative_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     if family == "binomial":
         frame, _ = make_binary_outcome(n=120, seed=seed)
@@ -145,12 +159,11 @@ def _fit_binary_mean(
     )
     configured_method: Any = method
     if method == "collaborative_tmle":
-        configured_method = CollaborativeTMLEMethod(
-            selection_folds=2,
-            selection_inner_folds=2,
+        configured_method = _collaborative_method(
             selection_estimand=(
                 "ey" if treatment is None else "ey1" if treatment == 1.0 else "ey0"
             ),
+            overrides=collaborative_kwargs,
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
@@ -176,6 +189,7 @@ def _fit_ratio(
     reference: float | None = None,
     repeats: int = 1,
     weight_scale: float | None = None,
+    collaborative_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     frame, _ = make_binary_outcome(n=120, seed=seed)
     weight_name = None
@@ -193,10 +207,9 @@ def _fit_ratio(
     )
     configured_method: Any = method
     if method == "collaborative_tmle":
-        configured_method = CollaborativeTMLEMethod(
-            selection_folds=2,
-            selection_inner_folds=2,
+        configured_method = _collaborative_method(
             selection_estimand=target,
+            overrides=collaborative_kwargs,
         )
     elif method == "drtmle":
         configured_method = DRTMLEMethod(
@@ -1062,6 +1075,482 @@ def test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions(
     assert abs(witness.estimate - mutated["ate"].psi) > 1e-3
 
 
+def test_fixed_weights_run_every_supported_binary_ctmle_parameter_surface() -> None:
+    """Exercise each admitted parameter through a real weighted C-TMLE refit."""
+    multiple_means = _fit_binary_mean(
+        treatment=None,
+        method="collaborative_tmle",
+        weight_scale=1.0,
+    )
+    cases = [
+        (_fit(method="collaborative_tmle", weight_scale=1.0), ("ate",)),
+        (
+            _fit_binary_mean(
+                treatment=1.0,
+                method="collaborative_tmle",
+                weight_scale=1.0,
+            ),
+            ("ey1",),
+        ),
+        (
+            _fit_binary_mean(
+                treatment=0.0,
+                method="collaborative_tmle",
+                weight_scale=1.0,
+            ),
+            ("ey0",),
+        ),
+        (multiple_means, tuple(multiple_means.estimates)),
+        (
+            _fit_ratio(target="rr", method="collaborative_tmle", weight_scale=1.0),
+            ("rr",),
+        ),
+        (
+            _fit_ratio(target="or", method="collaborative_tmle", weight_scale=1.0),
+            ("or",),
+        ),
+    ]
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0, 0.2))
+    exercised: set[str] = set()
+
+    for result, aliases in cases:
+        assert type(result.estimator) is CTMLE
+        for alias in aliases:
+            surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=7)
+            assert surface.complete
+            assert surface.target_measure == "fixed_empirical_tilt"
+            assert surface.weight_report == result.data.weight_report()
+            assert surface.cells[0].estimate == result[alias].psi
+            assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
+            exercised.add(result.parameter_keys[alias].estimand)
+
+    assert exercised == set(_BINARY_PARAMETER_TARGETS)
+
+
+@pytest.mark.parametrize(
+    ("collaborative_kwargs", "strategy", "preorder"),
+    [
+        ({"strategy": "greedy"}, "greedy", None),
+        ({"strategy": "ordered", "preorder": "logistic"}, "ordered", "logistic"),
+        (
+            {"strategy": "ordered", "preorder": "partial_correlation"},
+            "ordered",
+            "partial_correlation",
+        ),
+        (
+            {"strategy": "ordered", "ordering": ("W4", "W3", "W2", "W1")},
+            "ordered",
+            "custom",
+        ),
+        (
+            {
+                "strategy": "discrete",
+                "candidates": ((), ("W1",), ("W1", "W2", "W3", "W4")),
+            },
+            "discrete",
+            None,
+        ),
+        ({"strategy": "oat"}, "oat", None),
+    ],
+)
+def test_fixed_weights_run_every_binary_ctmle_strategy_surface(
+    collaborative_kwargs: dict[str, Any],
+    strategy: str,
+    preorder: str | None,
+) -> None:
+    result = _fit(
+        method="collaborative_tmle",
+        weight_scale=1.0,
+        collaborative_kwargs=collaborative_kwargs,
+    )
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.15), outcome=(0.0,)),
+        random_state=17,
+    )
+    diagnostic = result.extra["ctmle"]
+
+    assert surface.complete
+    assert surface.target_measure == "fixed_empirical_tilt"
+    assert surface.cells[1].estimate is not None
+    assert result.method.strategy == result.estimator.strategy == strategy
+    assert diagnostic.strategy == strategy
+    if strategy != "oat":
+        assert diagnostic.preorder == preorder
+    if collaborative_kwargs.get("ordering") is not None:
+        assert result.estimator.ordering == collaborative_kwargs["ordering"]
+    if collaborative_kwargs.get("candidates") is not None:
+        assert result.estimator.candidates == collaborative_kwargs["candidates"]
+
+
+def test_fixed_weight_ctmle_additive_cell_equals_a_manual_complete_refit() -> None:
+    result = _fit(method="collaborative_tmle", weight_scale=2.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    cell = surface.cells[3]
+
+    assert surface.target_measure == "fixed_empirical_tilt"
+    assert cell.estimate == manual["ate"].psi
+    assert cell.displacement == manual["ate"].inference_value - result["ate"].inference_value
+    assert cell.displacement != 0.0
+
+
+def test_fixed_weight_ctmle_ratio_cell_equals_a_manual_log_refit() -> None:
+    result = _fit_ratio(target="rr", method="collaborative_tmle", weight_scale=2.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+    surface = simulated_confounding(result, estimand="rr", grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    cell = surface.cells[3]
+
+    assert surface.movement_scale == "log_ratio"
+    assert cell.estimate == manual["rr"].psi
+    assert cell.displacement == manual["rr"].inference_value - result["rr"].inference_value
+    assert cell.displacement == pytest.approx(
+        float(np.log(manual["rr"].psi) - np.log(result["rr"].psi)),
+        rel=1e-12,
+    )
+    assert cell.displacement != pytest.approx(cell.estimate - result["rr"].psi, abs=1e-3)
+
+
+def _manual_ctmle_squared_loss(
+    selector: _Selector,
+    targeted: Any,
+    rows: Any,
+    *,
+    weights: Any | None = None,
+) -> float:
+    """Squared loss without calling the selector's production scoring methods."""
+    eligible = np.asarray(rows)[selector.data.observed[rows]]
+    mass = selector.data.weights[eligible] if weights is None else np.asarray(weights)[eligible]
+    residual = selector.scaled[eligible] - targeted.observed[eligible]
+    return float(np.sum(mass * residual**2))
+
+
+def _manual_ctmle_ate_curve(
+    selector: _Selector,
+    candidate: Any,
+    rows: Any,
+    *,
+    weights: Any | None = None,
+) -> Any:
+    """Binary ATE curve from its displayed formula, independent of ``influence``."""
+    index = np.asarray(rows)
+    mass = selector.data.weights[index] if weights is None else np.asarray(weights)[index]
+    residual = selector.scaled[index] - candidate.targeted.observed[index]
+    curves: dict[float, Any] = {}
+    for arm in selector.data.arm_codes:
+        prediction = candidate.targeted.arms[arm][index]
+        psi = float(np.average(prediction, weights=mass))
+        clever = candidate.submodel.column_for(float(arm))[index]
+        curves[float(arm)] = mass * (clever * residual + prediction - psi)
+    return curves[1.0] - curves[0.0]
+
+
+def _manual_curve_penalty(curve: Any) -> float:
+    """Published variance-plus-bias penalty, without calling ``_penalty_of``."""
+    matrix = np.asarray(curve, dtype=float).reshape(len(curve), -1)
+    return float(
+        np.sum(np.var(matrix, axis=0, ddof=1))
+        + matrix.shape[0] * np.sum(np.mean(matrix, axis=0) ** 2)
+    )
+
+
+def _manual_ctmle_nested_risk(
+    selector: _Selector,
+    path: Any,
+    folds: Any,
+) -> Any:
+    """Rebuild nested CV scoring without calling ``cross_validate`` or ``score``."""
+    loss = np.zeros(len(path))
+    curves = np.zeros((len(path), selector.data.n))
+    for fold, (train, test) in enumerate(folds):
+        train_folds, train_mask = selector._nested_folds(train)
+        fold_base = selector._selection_base(train_folds, train_mask)
+        fold_data = selector.data.subset(train)
+        fold_bounds = resolve_g_bounds(
+            selector.est.g_bounds,
+            selector.est._bounds_n(fold_data),
+            for_att=False,
+        )
+        fold_selector = _Selector(
+            selector.est,
+            selector.data,
+            fold_base,
+            fold_bounds,
+            selector.intermediate_value,
+            seed=selector.seed,
+            train_folds=train_folds,
+            train_mask=train_mask,
+        )
+        fold_path = fold_selector.build_path(train=train, tag=f"manual-cv{fold}")
+        for position, candidate in enumerate(fold_path[: len(path)]):
+            loss[position] += _manual_ctmle_squared_loss(
+                fold_selector,
+                candidate.targeted,
+                test,
+            )
+            curves[position, test] = _manual_ctmle_ate_curve(
+                fold_selector,
+                candidate,
+                test,
+            )
+    return loss + np.array([_manual_curve_penalty(curve) for curve in curves])
+
+
+def test_fixed_weight_ctmle_selector_components_recompute_from_the_refit() -> None:
+    """Independently rebuild weighted loss, penalty, folds, and nested CV risk."""
+    result = _fit(
+        method="collaborative_tmle",
+        weight_scale=1.0,
+        collaborative_kwargs={"strategy": "discrete", "candidates": ((), ("W1",), ("W1", "W2"))},
+    )
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    refit = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+    selection = refit.extra["ctmle"]
+    selector = _Selector(
+        refit.estimator,
+        refit.data,
+        refit.nuisance,
+        refit.config.g_bounds,
+        refit.intermediate_value,
+        seed=surface.root_seed,
+    )
+    rows = np.arange(refit.data.n)
+    targeted = refit.nuisance.targeting_outcome
+    assert targeted is not None
+    submodel = selector.submodel(refit.nuisance.propensity)
+    path = selector.build_path(train=None, tag="stored-refit")
+    chosen = SimpleNamespace(targeted=targeted, submodel=submodel)
+    manual_loss = _manual_ctmle_squared_loss(selector, targeted, rows)
+    manual_curve = _manual_ctmle_ate_curve(selector, chosen, rows)
+    manual_penalty = _manual_curve_penalty(manual_curve)
+    rebuilt_folds = make_folds(
+        refit.data.n,
+        refit.estimator.selection_folds,
+        stratify=refit.estimator._fold_strata(refit.data),
+        cluster=refit.data.cluster,
+        random_state=surface.root_seed,
+    )
+    manual_cv_risk = _manual_ctmle_nested_risk(selector, path, rebuilt_folds)
+
+    assert not np.allclose(refit.data.weights, 1.0)
+    assert manual_loss == pytest.approx(selection.train_loss[selection.selected], rel=1e-12)
+    assert manual_penalty == pytest.approx(selection.penalty[selection.selected], rel=1e-12)
+    np.testing.assert_allclose(manual_cv_risk, selection.cv_risk, rtol=1e-12, atol=0.0)
+    np.testing.assert_array_equal(rebuilt_folds.assignment, selection.folds.assignment)
+
+
+@pytest.mark.parametrize("component", ["loss", "influence_penalty"])
+def test_fixed_weight_ctmle_component_mutations_move_nested_risk(
+    component: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dropping mass from either scored term must change the recorded CV criterion."""
+    result = _fit(
+        method="collaborative_tmle",
+        weight_scale=1.0,
+        collaborative_kwargs={
+            "strategy": "discrete",
+            "candidates": ((), ("W1",), ("W1", "W2")),
+        },
+    )
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    baseline = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+
+    if component == "loss":
+
+        def unweighted_loss(self: _Selector, targeted: Any, rows: Any) -> float:
+            return _manual_ctmle_squared_loss(
+                self,
+                targeted,
+                rows,
+                weights=np.ones(self.data.n),
+            )
+
+        monkeypatch.setattr(_Selector, "loss", unweighted_loss)
+    else:
+
+        def unweighted_influence(
+            self: _Selector,
+            targeted: Any,
+            submodel: Any,
+            rows: Any,
+        ) -> Any:
+            candidate = SimpleNamespace(targeted=targeted, submodel=submodel)
+            return _manual_ctmle_ate_curve(
+                self,
+                candidate,
+                rows,
+                weights=np.ones(self.data.n),
+            )
+
+        monkeypatch.setattr(_Selector, "influence", unweighted_influence)
+
+    mutated = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+    weighted_risk = baseline.extra["ctmle"].cv_risk
+    mutated_risk = mutated.extra["ctmle"].cv_risk
+
+    assert np.max(np.abs(weighted_risk - mutated_risk)) > 1e-6
+
+
+def test_fixed_weight_ctmle_preserves_provenance_repeat_cache_and_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _fit(
+        method="collaborative_tmle",
+        repeats=3,
+        weight_scale=4.0,
+        collaborative_kwargs={"strategy": "ordered", "preorder": "partial_correlation"},
+    )
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        "random_state": 31,
+    }
+    surface = result.sensitivity.simulated_confounding(**kwargs)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
+    per_draw = [repeat.psi["ate"] for repeat in manual.repeats]
+
+    assert result.sensitivity.simulated_confounding(**kwargs) is surface
+    assert surface.complete
+    assert surface.root_seed == 31
+    assert surface.n_repeats == 3
+    assert surface.repeat_aggregation == "coordinatewise_median"
+    assert surface.cells[3].estimate == manual["ate"].psi == float(np.median(per_draw))
+    assert result.estimator.strategy == "ordered"
+    assert result.estimator.preorder == "partial_correlation"
+
+    restored = loads(dumps(result))
+    replayed = simulated_confounding(restored, **kwargs)
+    assert replayed == surface
+    assert np.array_equal(restored.data.weights, result.data.weights)
+    assert restored.data.weight_spec == result.data.weight_spec
+    assert restored.data.weights_name == result.data.weights_name == "weight"
+    assert restored.estimator.strategy == "ordered"
+    assert restored.estimator.preorder == "partial_correlation"
+
+    calls = _record_refits(result, monkeypatch)
+    retained = simulated_confounding(result, grid=_grid(), random_state=37)
+    assert retained.complete
+    assert len(calls) == 3
+    for replacement, seed in calls:
+        assert seed == retained.root_seed == 37
+        assert np.array_equal(replacement.weights, result.data.weights)
+        assert replacement.weight_spec is result.data.weight_spec
+        assert replacement.weights_name == result.data.weights_name == "weight"
+
+
+@pytest.mark.parametrize("strategy", ["greedy", "oat"])
+def test_fixed_weight_ctmle_surface_is_invariant_to_a_common_weight_scale(
+    strategy: str,
+) -> None:
+    method = {"strategy": strategy}
+    unit_scale = _fit(method="collaborative_tmle", weight_scale=1.0, collaborative_kwargs=method)
+    larger_scale = _fit(method="collaborative_tmle", weight_scale=13.0, collaborative_kwargs=method)
+    kwargs = {
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        "random_state": 7,
+    }
+    left = simulated_confounding(unit_scale, **kwargs)
+    right = simulated_confounding(larger_scale, **kwargs)
+
+    assert left.weight_report.scale == pytest.approx(1.0)
+    assert right.weight_report.scale == pytest.approx(13.0)
+    for left_cell, right_cell in zip(left.cells, right.cells, strict=True):
+        assert left_cell.estimate == pytest.approx(right_cell.estimate, abs=1e-12)
+        assert left_cell.displacement == pytest.approx(right_cell.displacement, abs=1e-12)
+        assert left_cell.induced_treatment_association == pytest.approx(
+            right_cell.induced_treatment_association,
+            abs=1e-12,
+        )
+
+
+def test_fixed_weight_ctmle_controls_detect_selector_weights_and_tmle_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _fit(
+        method="collaborative_tmle",
+        weight_scale=1.0,
+        collaborative_kwargs={
+            "strategy": "discrete",
+            "candidates": ((), ("W1",), ("W2",), ("W1", "W2", "W3", "W4")),
+        },
+    )
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    witness = surface.cells[3]
+
+    original_init = _Selector.__init__
+
+    def unweighted_selector(
+        self: Any, estimator: Any, data: Any, *args: Any, **kwargs: Any
+    ) -> None:
+        original_init(
+            self,
+            estimator,
+            replace(data, weights=np.ones_like(data.weights)),
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(_Selector, "__init__", unweighted_selector)
+    dropped = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+    ordinary = _manual_repeated_refit(
+        _fit(weight_scale=1.0),
+        surface,
+        treatment=0.2,
+        outcome=0.3,
+    )
+
+    assert witness.estimate is not None
+    assert abs(witness.estimate - dropped["ate"].psi) > 1e-3
+    assert abs(witness.estimate - ordinary["ate"].psi) > 1e-3
+
+
+def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _fit(
+        method="collaborative_tmle",
+        weight_scale=1.0,
+        collaborative_kwargs={"strategy": "oat"},
+    )
+    surface = simulated_confounding(
+        result,
+        grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3)),
+        random_state=31,
+    )
+    witness = surface.cells[3]
+    original = CTMLE._outcome_adaptive_nuisances
+
+    def unweighted_oat(
+        self: Any, data: Any, base: Any, *, seed: int | None
+    ) -> tuple[Any, dict[str, Any]]:
+        return original(
+            self,
+            replace(data, weights=np.ones_like(data.weights)),
+            base,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(CTMLE, "_outcome_adaptive_nuisances", unweighted_oat)
+    dropped = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+
+    assert witness.estimate is not None
+    assert abs(witness.estimate - dropped["ate"].psi) > 1e-4
+
+
 def _manual_weighted_correlation(left: Any, right: Any, weights: Any) -> float:
     left_centered = left - np.average(left, weights=weights)
     right_centered = right - np.average(right, weights=weights)
@@ -1166,7 +1655,7 @@ def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scale
     [
         ("estimated", "cannot replay estimated observation weights"),
         ("drtmle-estimated", "cannot replay estimated observation weights"),
-        ("collaborative", "binary complete-outcome DR-TMLE only"),
+        ("collaborative-estimated", "cannot replay estimated observation weights"),
         ("cluster", "clustered fits"),
         ("kind", "fixed probability weights only"),
         ("name", "column and WeightSpec names disagree"),
@@ -1179,13 +1668,18 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     message: str,
 ) -> None:
     method = {
-        "collaborative": "collaborative_tmle",
+        "collaborative-estimated": "collaborative_tmle",
         "drtmle-estimated": "drtmle",
     }.get(case, "tmle")
     result = _fit(
         method=method,
         weight_scale=1.0,
-        weights_estimated=case in {"estimated", "drtmle-estimated"},
+        weights_estimated=case
+        in {
+            "estimated",
+            "drtmle-estimated",
+            "collaborative-estimated",
+        },
     )
     if case == "cluster":
         result = replace(

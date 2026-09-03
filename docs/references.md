@@ -105,6 +105,11 @@ previous reader had is not a citation; a page number is.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   DOI 10.1177/0962280217729845.
+- The R `ctmle` 0.1.2 implementation at commit
+  [`18de559f`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
+  `R/ctmle_general.R` and `R/functions_general.R` contain `ctmleGeneral`, `stage2_general`,
+  and `cv_general`. Their public arguments and internal fits, sums, means, and variances have no
+  observation-weight input. This source supplies no fixed-weight comparison.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
   `R/LF_oat.R` fits categorical treatment on the complete vector of treatment-specific
@@ -270,6 +275,15 @@ previous reader had is not a citation; a page number is.
   $dP_w=w\,dP/E_P[w]$. The joint law factorizes as $P_w\times\Phi$ because each weight depends only
   on its observed row. The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight
   argument, so it supplies no weighted comparison.
+- Fixed-weight binary C-TMLE surfaces compose the DoWhy perturbation with van der Laan & Gruber
+  (2010), Sections 2, 5.1, and 6. Those sections define C-TMLE for a generic law and select the
+  candidate path against empirical outcome loss with an optional influence-curve penalty. The
+  package substitutes the tilted law $dP_w=w\,dP/E_P[w]$ and its normalized empirical measure.
+  Exact-law and sensitivity tests route that measure through nuisance fits, targeting, loss,
+  penalty, cross-validated risk, and the plug-in; the sensitivity witness independently rebuilds
+  the scoring arithmetic and carries dropped-weight mutations. The outcome-adaptive route uses the
+  same measure for its categorical mechanism. The pinned R `ctmle` and archived `ctmle3` sources
+  have no weighted comparison, so this composition claims no parity with either.
 - Hartman & Huang (2024), [*Sensitivity Analysis for Survey
   Weights*](https://doi.org/10.1017/pan.2023.12), *Political Analysis* 32(1):1-16.
   Their method bounds the bias from a confounder that the weighting model omits. It supplies a

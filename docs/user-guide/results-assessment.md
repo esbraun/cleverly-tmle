@@ -177,9 +177,9 @@ movements = surface.to_frame()
 calibration = surface.calibration_frame()
 ```
 
-An ordinary-TMLE fit can declare fixed probability weights. A binary complete-outcome DR-TMLE fit
-can also declare them. The surface keeps each normalized weight on its row during every treatment
-replacement, outcome replacement, and complete refit.
+An ordinary-TMLE fit can declare fixed probability weights. Binary complete-outcome collaborative
+TMLE and DR-TMLE fits can also declare them. The surface keeps each normalized weight on its row
+during every treatment replacement, outcome replacement, and complete refit.
 Read `surface.target_measure` to distinguish `unweighted` from `fixed_empirical_tilt`.
 `surface.weight_report` records the weight column, kind, supplied scale, and concentration.
 The label follows the declared weight column, so read `surface.weight_report.is_weighted` to learn
@@ -306,9 +306,12 @@ confidence interval, robustness value, or pass/fail result. Calibration reports 
 source conventions for numeric covariates. It does not change the declared grid.
 
 The operation refuses estimated weights before it draws the latent vector. The fitted result does
-not store the weight model needed after a perturbation. It also refuses fixed weights with
-collaborative TMLE. That method chooses its own adjustment path by a weighted loss, and no cited
-source carries that choice to the weighted empirical law.
+not store the weight model needed after a perturbation. A fixed-weight collaborative fit reruns
+its selector or outcome-adaptive treatment fit at each cell. It uses the normalized row weights
+in every nuisance fit, loss, penalty, targeting step, and plug-in.
+
+The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
+collaborative surface makes no numerical parity claim with those implementations.
 
 Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
 or mixed level.

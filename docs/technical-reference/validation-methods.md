@@ -307,8 +307,8 @@ Ratio surfaces require a binomial outcome. The other rows support Gaussian and b
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
-Every ordinary-TMLE row accepts fixed probability weights. Each binary complete-outcome DR-TMLE
-row also accepts them. The collaborative-TMLE rows accept unweighted fits only.
+Every binary row accepts fixed probability weights for ordinary TMLE, collaborative TMLE, and
+complete-outcome DR-TMLE. Continuous rows accept them for exact ordinary TMLE.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
 repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
@@ -337,9 +337,9 @@ The continuous path keeps the fitted modified treatment policies fixed. Each cel
 the observed dose and outcome before the complete refit.
 
 **Fixed observation weights.** Ordinary-TMLE surfaces accept declared fixed probability weights
-for every row in the support table. Binary complete-outcome DR-TMLE surfaces also accept them.
-The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps each normalized weight on its original
-row during both replacements and every complete refit.
+for every row in the support table. Binary complete-outcome collaborative-TMLE and DR-TMLE
+surfaces also accept them. The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps each
+normalized weight on its original row during both replacements and every complete refit.
 
 The latent value stays independent and standard normal. Each weight depends only on its own
 observed row, so the joint law factorizes:
@@ -357,9 +357,28 @@ a wrong-transport control with a nonzero remainder.
 adds the applied witness. It removes the weight from the reduced regressions alone, and it
 requires the cell estimate to move.
 
+Van der Laan and Gruber (2010), Sections 2, 5.1, and 6, define C-TMLE for a generic law and its
+empirical distribution. Replacing that law by $P_w$ makes $P_{n,w}$ the empirical measure.
+Selector strategies use the same normalized row mass in nuisance fits, targeting, outcome loss,
+the influence-curve penalty, cross-validated risk, and the plug-in. The outcome-adaptive strategy
+uses it in the outcome fits, categorical mechanism fit, targeting, and plug-in.
+
+The fixed-weight C-TMLE tests cover greedy selection, both data-adaptive ordered preorders, an
+explicit ordering, discrete selection, and outcome-adaptive fitting. They independently reconstruct
+a selected path's weighted loss, influence-curve penalty, fold assignment, and nested
+cross-validated risk without calling the production scoring methods. Component mutations drop
+weights from the loss or influence penalty and move the stored nested-risk array. End-to-end
+mutations drop all selector weights, drop outcome-adaptive mechanism weights, or substitute
+ordinary TMLE; each changes a nonzero surface cell.
+
 The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight argument. It supplies no
 weighted numerical comparator. This surface therefore claims no weighted R parity and broadens no
 interval claim.
+
+The canonical R `ctmle` 0.1.2 source at commit `18de559f` also accepts no observation-weight
+argument. Its `ctmleGeneral`, `stage2_general`, and `cv_general` paths use unweighted operations.
+The archived `ctmle3` source supplies outcome-adaptive control flow but no weighted comparison.
+The fixed-weight C-TMLE surface therefore claims parity with neither implementation.
 
 Conditional on the observed rows and fixed weights, the simulation draws each latent value
 independently from a standard normal law without using either. After that draw, the realized
@@ -385,6 +404,8 @@ pins ordinary TMLE to 1e-12.
 applies the same tolerance to the DR-TMLE cells. The supplied scale is itself a descriptive
 measurement, so
 `weight_report.scale` does change with it.
+`tests/unit/test_simulated_confounding.py::test_fixed_weight_ctmle_surface_is_invariant_to_a_common_weight_scale`
+applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
@@ -397,7 +418,6 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a missing outcome | not written yet | the surface has no missingness law and no observation refit |
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
 | estimated observation weights | not written yet | the result lacks the fitted weight model needed after a perturbation |
-| fixed observation weights with collaborative TMLE | not written yet | the selector scores its path by a weighted loss, and no source or exact-law test transports that choice to $P_w$ |
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See the [future investigation](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, and strata need a shared per-stratum contract |

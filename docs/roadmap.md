@@ -324,63 +324,6 @@ The [technical contract](technical-reference/validation-methods.md#simulated-com
 records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
-#### Next increment: fixed-weight collaborative-TMLE stress surfaces
-
-Allow fixed probability weights for each binary complete-outcome collaborative-TMLE composition
-that the surface already supports without weights. Cover the greedy, ordered, discrete, and
-outcome-adaptive strategies. Do not broaden the missing-outcome, multi-arm, or clustered surfaces.
-
-This increment composes two published contracts. Sharma and Kiciman (2020) and pinned DoWhy commit
-`2116d5c` supply the binary perturbation and complete refit. Van der Laan and Gruber (2010),
-Sections 2, 5.1, and 6, define C-TMLE for a generic law and its empirical distribution. They select
-the candidate path by cross-validated outcome loss and an optional influence-curve penalty.
-
-Fixed weights define the tilted law $dP_w=w\,dP/E_P[w]$. Replace the paper's $P$ by $P_w$ and its
-$P_n$ by the normalized weighted empirical law $P_{n,w}$. The selector then needs the same row
-mass in every nuisance fit, targeting score, outcome loss, influence-curve penalty, and plug-in.
-The package already routes weights through those shared C-TMLE operations.
-
-The latent value remains independent and standard normal. The weighted joint law factorizes because
-each fixed weight stays with its observed row:
-
-$$
-d(P_w\times\Phi)(o,u)=\frac{w(o)}{E_P[w]}\,dP(o)\,d\Phi(u).
-$$
-
-The outcome-adaptive strategy has no candidate path or selector loss. Its transport instead needs
-weighted outcome predictions, a weighted categorical mechanism fit on those predictions, weighted
-targeting, and a weighted plug-in. Test that route separately from the three selector strategies.
-
-The canonical R `ctmle` 0.1.2 source at commit `18de559f` has no observation-weight argument.
-`ctmleGeneral`, `stage2_general`, and `cv_general` use unweighted regressions, sums, means, and
-variances. Pinned `ctmle3` supplies secondary outcome-adaptive control flow but no weighted
-comparison. Do not claim weighted parity with either implementation.
-
-Do not add a perturbation or refit branch. `CausalData.with_treatment` and
-`CausalData.with_outcome` already preserve row-aligned weight provenance. The surface loop already
-delegates repeats and estimator work to `estimator.refit`. If a test finds a routing defect, fix the
-shared C-TMLE operation instead of compensating inside sensitivity code.
-
-Acceptance requires a real nonuniform-weight C-TMLE refit for every supported binary parameter
-family. Representative additive and ratio cells must equal manual replacements and complete
-refits. The ratio witness must compare stored log estimates.
-
-Exercise greedy, both data-adaptive ordered preorders, explicit ordering, discrete selection, and
-outcome-adaptive fitting. A selector witness must recompute the weighted loss, penalty, and
-cross-validated risk from stored arrays. A nonzero mutation must show that dropping weights from
-selection or substituting ordinary TMLE changes the admitted cell. Give the outcome-adaptive route
-its own dropped-weight mutation because it has no selector artifact.
-
-Retain weights, `WeightSpec`, the weight column, strategy settings, and the root seed on every
-replacement. Cover repeat medians, cache replay, persistence, and common weight-scale invariance.
-Keep every current pre-draw refusal for estimated weights, missing outcomes, clusters, and invalid
-weight provenance. The result remains qualitative and reports no corrected inference or verdict.
-
-Update the technical contract, user guide, source notes, and refusal inventory. After
-implementation, remove this increment and delete the completed fixed-weight collaborative row
-below. No registered study needs regeneration if fitted C-TMLE behavior stays unchanged. The
-increment changes assessment eligibility, tests, and documentation only.
-
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits two theory stops. Multi-arm treatment waits on published
 theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
@@ -388,7 +331,6 @@ published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
 
 | refused family | what it still needs |
 | --- | --- |
-| fixed observation weights with collaborative TMLE | a transport argument for the path the selector chooses at the tilted law |
 | estimated observation weights | replayable weight-model provenance and a refit rule |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
