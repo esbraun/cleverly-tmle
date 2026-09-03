@@ -12,6 +12,7 @@ from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import DataError
+from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
 from cleverly.sensitivity._parameters import arm_parameters
 
 
@@ -46,6 +47,33 @@ def _fit(frame: pd.DataFrame):  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.fixture(scope="module")
+def weighted_stratified_fit():  # type: ignore[no-untyped-def]
+    frame = _frame()
+    weights = np.where(frame["V"].to_numpy() == "high", 2.4, 0.4)
+    weights *= np.where(frame["A"].to_numpy() == 1, 1.7, 0.6)
+    frame = frame.assign(wt=weights)
+    return (
+        TMLE(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            estimands=("ate", "att", "atc"),
+            simultaneous=False,
+            random_state=2,
+        )
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=("W", "V"),
+            strata=("V",),
+            weights="wt",
+        )
+        .single()
+    )
+
+
 def test_joint_targeting_returns_marginal_and_conditional_parameters() -> None:
     result = _fit(_frame())
     assert {"ate", "ate[V='low']", "ate[V='high']"}.issubset(result.estimates)
@@ -68,6 +96,128 @@ def test_marginal_point_estimate_is_the_empirical_stratum_mixture() -> None:
         for code in range(data.n_strata)
     )
     assert result["ate"].psi == pytest.approx(mixture, abs=1e-12)
+
+
+def test_stratified_score_blocks_use_weighted_stratum_mass(weighted_stratified_fit) -> None:
+    result = weighted_stratified_fit
+    data = result.data
+    assert data.strata is not None
+    bounds = result.config.g_bounds
+    base = mean_submodel(
+        data.treatment,
+        result.nuisance.bounded_propensity(bounds),
+        arms=result.nuisance.arms,
+    )
+    actual = result.estimator._stratified_submodel(
+        data,
+        result.nuisance,
+        "mean",
+        bounds,
+        None,
+        None,
+        None,
+        result.config.reference_arm,
+    )
+
+    for code in range(data.n_strata):
+        mask = data.strata == code
+        mass = float(np.average(mask, weights=data.weights))
+        row_share = float(mask.mean())
+        block = slice(code * base.dim, (code + 1) * base.dim)
+        expected = base.observed * mask[:, None] / mass
+        wrong = base.observed * mask[:, None] / row_share
+        np.testing.assert_allclose(actual.observed[:, block], expected)
+        assert mass != pytest.approx(row_share, abs=1e-3)
+        assert not np.allclose(actual.observed[:, block], wrong, rtol=0.0, atol=1e-6)
+
+
+def test_conditional_influence_curves_read_the_weighted_score_blocks(
+    weighted_stratified_fit,
+) -> None:
+    result = weighted_stratified_fit
+    data = result.data
+    assert data.strata is not None
+    base = mean_submodel(
+        data.treatment,
+        result.nuisance.bounded_propensity(result.config.g_bounds),
+        arms=result.nuisance.arms,
+    )
+    fluctuation = result.fluctuations["mean"]
+
+    for code in range(data.n_strata):
+        index = np.flatnonzero(data.strata == code).astype(np.int64)
+        direct = result.estimator._estimates_for(
+            data,
+            result.nuisance,
+            "mean",
+            base,
+            fluctuation,
+            ("ate",),
+            result.config.alpha_sig,
+            result.config.reference_arm,
+            index=index,
+        )["ate"]
+        conditional = result[f"ate[{data.stratum_label(code)}]"]
+        expected_curve = np.zeros(data.n)
+        expected_curve[index] = direct.influence_curve * (data.n / index.size)
+        assert conditional.psi == pytest.approx(direct.psi, abs=1e-12)
+        np.testing.assert_allclose(conditional.influence_curve, expected_curve, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("group", "builder"),
+    (("att", att_submodel), ("atc", atc_submodel)),
+)
+def test_within_stratum_conditional_effect_blocks_use_weighted_arm_fractions(
+    weighted_stratified_fit, group, builder
+) -> None:
+    result = weighted_stratified_fit
+    data = result.data
+    assert data.strata is not None
+    bounds = result.config.g_bounds_conditional
+    propensity = result.nuisance.bounded_propensity(bounds)
+    actual = result.estimator._stratified_submodel(
+        data,
+        result.nuisance,
+        group,
+        bounds,
+        None,
+        None,
+        None,
+        result.config.reference_arm,
+    )
+
+    for code in range(data.n_strata):
+        mask = data.strata == code
+        mass = float(np.average(mask, weights=data.weights))
+        fractions = np.array(
+            [
+                np.average(data.treatment[mask] == arm, weights=data.weights[mask])
+                for arm in result.nuisance.arms
+            ]
+        )
+        unweighted = np.array(
+            [np.mean(data.treatment[mask] == arm) for arm in result.nuisance.arms]
+        )
+        expected_base = builder(
+            data.treatment,
+            propensity,
+            arms=result.nuisance.arms,
+            arm_fractions=fractions,
+            reference=result.config.reference_arm,
+        )
+        wrong_base = builder(
+            data.treatment,
+            propensity,
+            arms=result.nuisance.arms,
+            arm_fractions=unweighted,
+            reference=result.config.reference_arm,
+        )
+        block = slice(code * expected_base.dim, (code + 1) * expected_base.dim)
+        expected = expected_base.observed * mask[:, None] / mass
+        wrong = wrong_base.observed * mask[:, None] / mass
+        np.testing.assert_allclose(actual.observed[:, block], expected)
+        assert not np.allclose(actual.observed[:, block], wrong, rtol=0.0, atol=1e-6)
 
 
 def test_strata_must_remain_in_the_adjustment_set() -> None:

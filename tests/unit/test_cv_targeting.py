@@ -24,10 +24,10 @@ from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import _average_over_folds
 from cleverly.fluctuation import restrict, stitch
-from cleverly.fluctuation.submodel import att_submodel, mean_submodel
+from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
 from cleverly.inference import cross_validated_variance, influence_variance
 from cleverly.learners.crossfit import Folds, make_folds
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, mean_one_weights
 
 #: Every estimand the binary-outcome fixture supports: the three that are linear in
 #: the targeted predictions and the four that are not.
@@ -43,6 +43,23 @@ def cv_fit() -> object:
     return (
         TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")})
         .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def weighted_fold_fit() -> object:
+    frame, _ = make_linear_ate(n=300, seed=17)
+    frame = frame.assign(wt=mean_one_weights(len(frame), spread=(0.1, 1.9)))
+    return (
+        TMLE(
+            **{
+                **FAST_KWARGS,
+                "targeting_scheme": "fold",
+                "estimands": ("ate", "ey1", "att", "atc"),
+            }
+        )
+        .fit(frame, outcome="Y", treatment="A", weights="wt")
         .single()
     )
 
@@ -89,13 +106,74 @@ class TestFoldWiseTargeting:
             covered = np.concatenate([record.index for record in fluctuation.folds])
             assert np.array_equal(np.sort(covered), np.arange(cv_fit.n))
 
-    def test_the_reported_epsilon_is_the_mass_weighted_fold_average(self, cv_fit) -> None:
-        for fluctuation in cv_fit.fluctuations.values():
-            sizes = np.array([record.n for record in fluctuation.folds], dtype=float)
+    def test_the_reported_epsilon_is_the_mass_weighted_fold_average(
+        self, weighted_fold_fit
+    ) -> None:
+        for fluctuation in weighted_fold_fit.fluctuations.values():
+            masses = np.array(
+                [weighted_fold_fit.data.weights[record.index].sum() for record in fluctuation.folds]
+            )
             stacked = np.vstack([record.epsilon for record in fluctuation.folds])
-            expected = np.average(stacked, axis=0, weights=sizes)
-            # Equal, unweighted folds here, so the mass weights are the fold sizes.
+            expected = np.average(stacked, axis=0, weights=masses)
+            row_weighted = np.average(
+                stacked,
+                axis=0,
+                weights=[record.n for record in fluctuation.folds],
+            )
             assert fluctuation.epsilon == pytest.approx(expected, abs=1e-12)
+            assert not np.allclose(expected, row_weighted, rtol=0.0, atol=1e-6)
+
+    @pytest.mark.parametrize(
+        ("group", "builder"),
+        (("att", att_submodel), ("atc", atc_submodel)),
+    )
+    def test_conditional_effect_score_blocks_use_each_folds_weighted_arm_fractions(
+        self, weighted_fold_fit, group, builder
+    ) -> None:
+        result = weighted_fold_fit
+        bounds = result.config.g_bounds_conditional
+        propensity = result.nuisance.bounded_propensity(bounds)
+        actual = result.estimator._submodel(
+            result.data,
+            result.nuisance,
+            group,
+            bounds,
+            None,
+            None,
+            None,
+            result.config.reference_arm,
+        )
+
+        for _, index in result.nuisance.folds:
+            fold_weights = result.data.weights[index]
+            fractions = np.array(
+                [
+                    np.average(result.data.treatment[index] == arm, weights=fold_weights)
+                    for arm in result.nuisance.arms
+                ]
+            )
+            unweighted = np.array(
+                [np.mean(result.data.treatment[index] == arm) for arm in result.nuisance.arms]
+            )
+            expected = builder(
+                result.data.treatment,
+                propensity,
+                arms=result.nuisance.arms,
+                arm_fractions=fractions,
+                reference=result.config.reference_arm,
+            )
+            wrong = builder(
+                result.data.treatment,
+                propensity,
+                arms=result.nuisance.arms,
+                arm_fractions=unweighted,
+                reference=result.config.reference_arm,
+            )
+
+            np.testing.assert_allclose(actual.observed[index], expected.observed[index])
+            assert not np.allclose(
+                actual.observed[index], wrong.observed[index], rtol=0.0, atol=1e-6
+            )
 
     def test_a_pooled_fit_records_no_fold_detail(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=18)
