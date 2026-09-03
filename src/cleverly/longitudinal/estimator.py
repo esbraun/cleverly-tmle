@@ -64,7 +64,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -395,8 +395,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Structured identities for reported aliases.
     fitted_method : str
         Method identity stamped by the estimator.
+
+    Attributes
+    ----------
     assessment_cache : dict
-        Saved diagnostic and sensitivity outputs.
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache. Persistence restores the mapping without
+        the constructor.
 
     See Also
     --------
@@ -457,21 +462,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     identified_effect: Any = None
     method: Any = None
     parameter_keys: dict[str, Any] = field(default_factory=dict)
-    #: Assessment results keyed by operation and normalized arguments. Structured
-    #: persistence writes this alongside the sequential artifacts it was computed from.
-    assessment_cache: dict[str, Any] = field(default_factory=dict)
-
     fitted_method: str = "tmle"
+    #: Assessment results keyed by operation and normalized arguments. Persistence writes
+    #: this alongside the sequential artifacts it was computed from.
+    #:
+    #: ``init=False`` for the reason :attr:`cleverly.estimators.TMLEResult
+    #: .assessment_cache` gives: the key names the operation and its arguments and not
+    #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
+    #: would answer for a fit that never produced it.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
 
-    @property
-    def assessment_family(self) -> str:
-        """Return the declared assessment capability family."""
-        return "longitudinal"
-
-    @property
-    def assessment_method(self) -> str:
-        """Return the method recorded by this fitted artifact."""
-        return self.fitted_method
+    #: Which family of assessment declarations applies to this result.  See
+    #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
+    #: :attr:`fitted_method`.
+    assessment_family: ClassVar[str] = "longitudinal"
 
     # ------------------------------------------------------------- mapping API
 

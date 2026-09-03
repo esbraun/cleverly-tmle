@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import inspect
 import re
+import typing
 
 import pandas as pd
 import pytest
@@ -328,6 +329,10 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         They did not: one skipped everything non-``summarize`` and the other only
         ``refit``, so ``tipping_gamma`` -- a root search over full missingness retargets --
         ran in a bare ``sensitivity.run_all()`` while ``truncation_curve`` did not.
+
+        A row that also needs a caller argument is judged by
+        ``test_a_cost_flag_is_never_named_before_a_required_argument`` instead. No flag
+        makes such a row run, so naming its cost would be a false instruction.
         """
         surface = getattr(point_result, facade)
         rows = {row.operation: row for row in surface.capabilities if row.available}
@@ -337,12 +342,15 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         for operation, row in rows.items():
             if row.execution == "summarize":
                 continue
-            flag = "include_refits" if row.execution == "refit" else "include_retargets"
             assert report[operation].status is AssessmentStatus.UNAVAILABLE
+            if row.requires_arguments:
+                assert "has no basis to choose" in report[operation].detail
+                continue
+            flag = "include_refits" if row.execution == "refit" else "include_retargets"
             assert f"pass {flag}=True" in report[operation].detail
 
         for row in rows.values():
-            if row.execution == "retarget":
+            if row.execution == "retarget" and not row.requires_arguments:
                 assert report[row.operation].detail != (
                     surface.run_all(include_retargets=True)[row.operation].detail
                 )
@@ -416,6 +424,169 @@ def test_assess_is_on_the_public_protocol_and_presents_each_owned_row_once(
         for owned in ("score_equations", "support", "nuisance_models"):
             assert list(frame["check"]).count(owned) == 1
         assert set(frame["surface"]) == {"validation", "diagnostics", "sensitivity"}
+
+
+def _runtime_protocol_members(protocol: type) -> frozenset[str]:
+    """The names ``isinstance`` presence-checks, on every interpreter this package runs on.
+
+    ``typing.get_protocol_members`` arrived in 3.13 and ``__protocol_attrs__`` in 3.12, so
+    read whichever this interpreter has. The set itself is the same on 3.11: it is what
+    ``typing._get_protocol_attrs`` returns, and what ``_ProtocolMeta.__instancecheck__``
+    loops over there.
+    """
+    members = getattr(typing, "get_protocol_members", None)
+    if members is not None:  # pragma: no branch - one branch per interpreter
+        return frozenset(members(protocol))
+    return frozenset(  # pragma: no cover - taken on Python 3.11 only
+        getattr(protocol, "__protocol_attrs__", None) or typing._get_protocol_attrs(protocol)  # type: ignore[attr-defined]
+    )
+
+
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_no_runtime_protocol_member_raises_when_isinstance_reads_it(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    """``isinstance(result, CausalResult)`` must answer rather than raise.
+
+    Python 3.11 checks a runtime protocol by calling ``hasattr`` for every member, which
+    *invokes* a property and swallows only ``AttributeError``. ``CausalResult.estimate``
+    was such a member, and ``LongitudinalResult.estimate`` raises ``ValueError`` on a
+    multi-parameter fit, so ``isinstance`` raised there on 3.11 while 3.12 and 3.13
+    passed. Python 3.12 reads the members with ``inspect.getattr_static`` instead, so this
+    test asserts the 3.11 predicate directly rather than calling ``isinstance``.
+
+    The witness for the mechanism, not only for its symptom: the longitudinal fixture
+    reports three parameters, so its ``estimate`` still raises. A member added to the
+    protocol whose read raises anything at all fails the loop below on every interpreter.
+    """
+    result = request.getfixturevalue(fixture_name)
+    members = _runtime_protocol_members(CausalResult)
+    assert members
+    assert "estimate" not in members
+
+    # 3.11's ``_ProtocolMeta.__instancecheck__`` body, run here on 3.13.
+    assert all(
+        hasattr(result, attr)
+        and (not callable(getattr(CausalResult, attr, None)) or getattr(result, attr) is not None)
+        for attr in members
+    )
+    assert isinstance(result, CausalResult)
+
+
+def test_the_multi_parameter_estimate_that_broke_the_protocol_check_still_refuses(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """The nonzero witness for the test above.
+
+    Dropping ``estimate`` from the runtime membership must not weaken the refusal it
+    exists for. If this fit ever reported one parameter the loop above would pass for a
+    reason that has nothing to do with the fix.
+    """
+    assert len(longitudinal_result.estimates) > 1
+    with pytest.raises(ValueError, match="multiple parameters"):
+        _ = longitudinal_result.estimate
+    assert "estimate" in CausalResult.__doc__
+
+
+def test_assess_refuses_an_argument_for_an_operation_the_validation_battery_owns(
+    point_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """A caller's own question must not be answered and then discarded.
+
+    ``assess`` presents the validation row for these three names and hides the diagnostics
+    row of the same name. Forwarding ``arguments`` to the diagnostics side therefore ran
+    the caller's tolerance, recorded a ``failed`` row, and then showed the argument-free
+    ``passed`` row. ``attention`` never named the failure.
+    """
+    with pytest.raises(CapabilityError, match="score_equations"):
+        point_result.assess(arguments={"score_equations": {"tolerance": 1e-30}})
+
+    # The nonzero witness: the refused tolerance really does change the verdict, so the
+    # discarded row was a ``failed`` one rather than a second copy of the same answer.
+    strict = point_result.diagnostics.score_equations(tolerance=1e-30)
+    assert not strict.passed
+    assert point_result.diagnostics.score_equations().passed
+
+    # The refusal names a call that answers the question, and that call works.
+    direct = point_result.diagnostics.run_all(arguments={"score_equations": {"tolerance": 1e-30}})
+    assert direct["score_equations"].status is AssessmentStatus.FAILED
+
+    # Every other operation still accepts its arguments through ``assess``.
+    battery = point_result.assess(arguments={"omitted_confounding": {"cf_y": 0.03}})
+    assert battery.report("omitted_confounding").cf_y == pytest.approx(0.03)
+
+
+def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> None:  # type: ignore[no-untyped-def]
+    """A refusal names the first thing that is wrong, not the first gate in the code.
+
+    The cost gate ran before the required-argument gate, so a combined report told the
+    caller to pass ``include_refits=True`` for ``benchmark``. The caller passed it, and the
+    next report said ``benchmark`` needs an explicit ``covariates`` argument that no flag
+    supplies. The instruction was false when it was given.
+
+    Both facades are read together because only the sensitivity side declares a required
+    argument today. Reading them one at a time would skip the diagnostics half, and a
+    skipped check reads exactly like a passing one.
+    """
+    surfaces = [point_result.diagnostics, point_result.sensitivity]
+    demanding = [
+        (surface, row)
+        for surface in surfaces
+        for row in surface.capabilities
+        if row.available and row.requires_arguments
+    ]
+    assert demanding, "no available row declares a required argument"
+
+    for flags in ({}, {"include_refits": True, "include_retargets": True}):
+        for surface, row in demanding:
+            item = surface.run_all(**flags)[row.operation]
+            assert item.status is AssessmentStatus.UNAVAILABLE
+            assert row.requires_arguments[0] in item.detail
+            assert "include_refits" not in item.detail
+            assert "include_retargets" not in item.detail
+
+    # The paired witness: a row of the same cost and no required argument still names its
+    # flag, so the assertions above are about the argument gate rather than about cost.
+    priced = [
+        (surface, row)
+        for surface in surfaces
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution != "summarize"
+    ]
+    assert priced
+    for surface, row in priced:
+        flag = "include_refits" if row.execution == "refit" else "include_retargets"
+        assert f"pass {flag}=True" in surface.run_all()[row.operation].detail
+
+
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+def test_capabilities_never_claims_a_row_that_replayability_forbids(point_result, facade) -> None:  # type: ignore[no-untyped-def]
+    """Availability is authoritative before execution, for every row and not four of them.
+
+    ``truncation_curve``, ``benchmark`` and ``simulated_confounding`` each read their own
+    replay slot in their own facade. ``refute`` read the same slot only when it ran, so a
+    restored result reported ``refute`` available and then raised. This check derives the
+    requirement from the row rather than naming the operations.
+    """
+    detached = dataclasses.replace(point_result, estimator=None)
+    replay = detached.replayability
+    assert not replay.refit_nuisances and not replay.retarget_cached_nuisances
+
+    surface = getattr(detached, facade)
+    gated = {row.operation for row in surface.capabilities if row.requires_replay}
+    assert gated, f"the {facade} facade declares no replay-gated row"
+
+    for row in surface.capabilities:
+        if row.requires_replay is None:
+            continue
+        assert not row.available
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert "estimator configuration" in (row.reason or "")
+        with pytest.raises(CapabilityError, match="no longer carries"):
+            surface._require(row.operation)
+
+    # The nonzero control: the same rows are available while the estimator is present, so
+    # the gate is reading replayability rather than refusing everything.
+    intact = {row.operation for row in getattr(point_result, facade).capabilities if row.available}
+    assert gated <= intact
 
 
 def _run_argument_free_routes(result):  # type: ignore[no-untyped-def]
@@ -497,7 +668,6 @@ def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result
     repeated = dataclasses.replace(
         point_result,
         repeats=point_result.repeats * 2,
-        assessment_cache={},
     )
 
     requested = {"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
@@ -526,7 +696,7 @@ def test_a_refusal_before_seed_resolution_keeps_the_seed_unspecified(
         pytest.fail("the refused request must not resolve a stochastic seed")
 
     monkeypatch.setattr(module, "resolve_assessment_seed", unexpected_seed)
-    result = dataclasses.replace(point_result, assessment_cache={})
+    result = dataclasses.replace(point_result)
     report = result.diagnostics.run_all(
         include_refits=True,
         arguments={"refute": {"tests": ("bootstrap_measurement_error",)}},
@@ -699,7 +869,6 @@ class TestCapabilityRowsDoNotContradictThemselves:
         restored = dataclasses.replace(
             missing_outcome_result,
             estimator=None,
-            assessment_cache={},
         )
 
         assert not restored.replayability.retarget_cached_nuisances
@@ -762,7 +931,7 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
     ],
 )
 def test_unavailable_longitudinal_arguments_never_bind_point_data(longitudinal_result, arguments):
-    result = dataclasses.replace(longitudinal_result, assessment_cache={})
+    result = dataclasses.replace(longitudinal_result)
     battery = result.assess(arguments=arguments)
     assert battery.sensitivity[next(iter(arguments))].status is AssessmentStatus.UNAVAILABLE
     with pytest.raises(TypeError):
@@ -837,7 +1006,7 @@ def test_default_strength_provenance_uses_supplied_arguments(point_result, suppl
 
 
 def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_result, monkeypatch):
-    result = dataclasses.replace(point_result, assessment_cache={})
+    result = dataclasses.replace(point_result)
     module = importlib.import_module("cleverly.validation.refute")
     calls = []
     original = module.refute
@@ -859,9 +1028,7 @@ def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_res
 def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_result):
     from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
 
-    repeated = dataclasses.replace(
-        point_result, repeats=point_result.repeats * 2, assessment_cache={}
-    )
+    repeated = dataclasses.replace(point_result, repeats=point_result.repeats * 2)
     sensitivity = repeated.sensitivity.run_all()
     warning = AssessmentItem("support", AssessmentStatus.WARNING, "positivity warning")
     battery = AssessmentReport(ValidationReport((warning,)), DiagnosticReport(()), sensitivity)
@@ -876,12 +1043,11 @@ def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
 ):
     import joblib
 
-    from cleverly.assessment import _CachedFrame
+    from cleverly._assessment_cache import _CachedFrame
 
     result = dataclasses.replace(
         point_result,
         data=dataclasses.replace(point_result.data, backend=backend),
-        assessment_cache={},
     )
     calls = []
     original = _CachedFrame.from_frame.__func__

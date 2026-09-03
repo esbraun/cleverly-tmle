@@ -518,11 +518,11 @@ The selected path depends on the reported contrast and retained artifacts.
 | reported risk ratio | use it directly and mark the result exact |
 | unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a finite positive reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
-| Gaussian ATE, ATT, or ATC | standardize by the observed outcome standard deviation and mark the result approximate |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
+| Gaussian ATE, ATT, or ATC | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| binomial ATE without exact retarget support or a valid reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
+| binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 
 Several eligible contrasts require an explicit alias. Combined runs select availability and cost
 from that alias before applying the cost flags.
@@ -532,6 +532,24 @@ Explicit structured keys remain authoritative. No routing step parses display al
 The fixed-baseline approximation ignores baseline sampling error and requires the contrast's matching reference arm.
 Its availability does not depend on persistence or estimator retention.
 
+A usable reference-arm mean is finite, positive, and separated from zero by its own standard error.
+The conversion divides by that mean, so a mean at zero leaves the ratio without a stable denominator.
+The library also refuses a risk difference at or below the negative of that mean.
+Such a difference implies a nonpositive risk in the contrast arm, and no risk ratio describes one.
+Both refusals report `unavailable` and name the two reported numbers.
+
+The conversion is affine, so the lower interval bound can leave the parameter space while the point ratio stays inside it.
+Only the lower bound can leave it. `normal_ci` gives `high >= psi`, and the refusals above force `baseline.psi > 0` and `baseline.psi + psi > 0`.
+The report truncates the lower bound at 0, records the untruncated value in `truncated_bound`, and repeats it in the note.
+The `to_dict` mapping and the battery row both carry that value, so no surface presents the 0 as a converted confidence limit.
+
+What the truncation means for the confidence limit depends on the side of the null the point ratio is on.
+
+| point ratio | bound the E-value reads | effect of the truncation |
+| --- | --- | --- |
+| at or above the null | the truncated lower bound | the interval covers the null, so the confidence-limit E-value is 1 |
+| below the null | the untruncated upper bound | none. The interval can still exclude the null, and the confidence-limit E-value can exceed 1 |
+
 For rare outcomes, the odds ratio itself approximates the risk ratio. The square-root
 transformation addresses common outcomes and can lie above or below the risk ratio.
 See [VanderWeele's analysis](https://pmc.ncbi.nlm.nih.gov/articles/PMC5617805/).
@@ -540,6 +558,11 @@ The Gaussian path first applies Chinn's odds-ratio to standardized-mean-differen
 It then applies the common-outcome square-root approximation before calculating the E-value.
 The resulting conversion is $RR \approx \exp((1.81 / 2)d) = \exp(0.905d)$.
 This retains an approximate analysis, not an exact continuous-outcome risk ratio.
+
+A weighted fit standardizes by the weighted outcome standard deviation.
+The estimate targets the population the observation weights describe, and the standardizing scale describes the same population.
+The weighted form divides by the reliability-weight correction $\sum w - \sum w^2 / \sum w$.
+That correction is $n - 1$ when every weight is one, so an unweighted fit reports the plain sample standard deviation.
 
 ### Missingness tilt and tipping gamma
 

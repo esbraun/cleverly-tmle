@@ -25,10 +25,10 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly.assessment import _longitudinal_msm_scores
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
+from cleverly.validation.longitudinal import _longitudinal_msm_scores
 
 #: How long each regimen treats for -- the summary the working model is a dose-response
 #: in. A table rather than anything parsed out of the label, which is what ``MSM.linear``

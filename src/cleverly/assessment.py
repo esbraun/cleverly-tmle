@@ -8,33 +8,49 @@ scalar result family, including deliberate refusals.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import inspect
-import json
 from collections.abc import Callable, Mapping, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
+from types import MappingProxyType
 from typing import Any, Literal
 
 import numpy as np
 
-from ._typing import FloatArray, IntArray
-from .data.weighting import effective_sample_size
+from ._assessment_cache import (
+    _RETAIN_PACKED,
+    _cache_key,
+    _cached,
+    _frame_payload,
+    _normalize,
+    _pack_cached,
+    _unpack_cached,
+)
 from .exceptions import CapabilityError
-from .inference.cluster import cluster_sums
 from .utils.frames import emit_frame
 from .utils.text import format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
+from .validation.longitudinal import (
+    STITCHED_SCORE_Z_TOLERANCE,
+    LongitudinalDiagnostics,
+    LongitudinalNuisanceDiagnostics,
+    LongitudinalNuisanceRow,
+    LongitudinalScoreDiagnostics,
+    LongitudinalScoreRow,
+    LongitudinalStageRow,
+    _longitudinal_nuisances,
+    _longitudinal_scores,
+    _longitudinal_stagewise,
+)
 from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
-    "INTERPRETERS",
     "SENSITIVITY_ROUTES",
     "STITCHED_SCORE_Z_TOLERANCE",
+    "VALIDATION_OPERATIONS",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentReport",
@@ -43,7 +59,10 @@ __all__ = [
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
+    "LongitudinalNuisanceRow",
     "LongitudinalScoreDiagnostics",
+    "LongitudinalScoreRow",
+    "LongitudinalStageRow",
     "Replayability",
     "SensitivityFacade",
     "SensitivityRoute",
@@ -54,25 +73,17 @@ __all__ = [
 ]
 
 
-#: How far a cross-fitted longitudinal fit's *stitched* score may sit from zero, in
-#: standard errors of its own residual, before :func:`_longitudinal_scores` calls it a
-#: defect rather than sampling.
+#: The operations the validation battery owns, in the order it runs them.
 #:
-#: The stitched score is not a solved equation.  Each outer fold fits its ``epsilon`` on
-#: the rows it does not report, so what the pooled residual has to be is a mean-zero draw,
-#: and the scale to judge a mean-zero draw on is its own standard error.  Measured over 300
-#: replications of ``make_longitudinal`` at ``n=500`` and five folds, the mean ``|z|`` per
-#: parameter ran from 0.006 to 0.08.  Four standard errors is therefore a long way outside
-#: anything the construction produces, while a fold-mapping or stitching defect -- which
-#: multiplies the residual by a constant rather than perturbing it -- moves ``z`` by orders
-#: of magnitude and cannot hide under it.
-#:
-#: Not a caller argument.  ``tolerance`` on
-#: :meth:`~cleverly.assessment.DiagnosticsFacade.score_equations` is a *relative-score*
-#: tolerance, and one number cannot mean both "close enough to solved" and "consistent with
-#: noise"; passing it to both gates would silently apply ``1e-3`` standard errors here and
-#: fail every cross-fitted fit.
-STITCHED_SCORE_Z_TOLERANCE = 4.0
+#: :func:`validate_result` runs each one argument-free, and
+#: :meth:`AssessmentReport._presented` shows the validation row rather than the
+#: diagnostics row of the same name.  A caller argument for one of these names would
+#: therefore be answered on the diagnostics surface and then discarded, so
+#: :func:`assess_result` refuses it instead.  That refusal needs a name here *and* a
+#: parameter the caller could fill: ``support`` and ``nuisance_models`` take none, so an
+#: argument for either is a ``TypeError`` from the signature rather than a composition
+#: this module has to rule out.
+VALIDATION_OPERATIONS: tuple[str, ...] = ("score_equations", "support", "nuisance_models")
 
 
 class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
@@ -135,6 +146,9 @@ class AssessmentCapability:
         default that the operation refuses on this result family.
     accepts_random_state : bool
         Whether a combined run can forward its top-level seed.
+    requires_replay : str or None
+        Name of the :class:`Replayability` field the operation needs. ``None`` means the
+        operation reads stored artifacts only.
     """
 
     operation: str
@@ -156,6 +170,12 @@ class AssessmentCapability:
     #: any particular operation.
     requires_arguments: tuple[str, ...] = ()
     accepts_random_state: bool = False
+    #: The :class:`Replayability` field this operation needs from the stored result.
+    #: One declaration per row, applied once in :meth:`_CapabilityFacade._capability_map`,
+    #: because two facades each patching their own rows left ``refute`` claiming
+    #: ``available=True`` on a result with no estimator while ``truncation_curve``,
+    #: ``benchmark`` and ``simulated_confounding`` beside it reported the truth.
+    requires_replay: str | None = None
 
 
 def _capability(
@@ -173,6 +193,7 @@ def _capability(
     requires_arguments: Sequence[str] = (),
     methods: Sequence[str] | None = None,
     accepts_random_state: bool = False,
+    requires_replay: str | None = None,
 ) -> AssessmentCapability:
     return AssessmentCapability(
         operation=operation,
@@ -192,6 +213,7 @@ def _capability(
         reason=reason,
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
+        requires_replay=requires_replay,
     )
 
 
@@ -231,6 +253,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         execution="retarget",
         cost="moderate",
         interpretation="estimate stability across declared mechanism bounds",
+        requires_replay="retarget_cached_nuisances",
     ),
     _capability(
         "refute",
@@ -241,6 +264,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         cost="expensive",
         accepts_random_state=True,
         interpretation="behavior under placebo, noise, and subsampling perturbations",
+        requires_replay="refit_nuisances",
     ),
     _capability(
         "stagewise",
@@ -366,7 +390,7 @@ def _family(result: Any) -> str:
 
 
 def _method(result: Any) -> str:
-    declared = getattr(result, "assessment_method", None)
+    declared = getattr(result, "fitted_method", None)
     if isinstance(declared, str) and declared:
         return declared
     raise TypeError("assessment requires the fitted artifact to declare its fitted method")
@@ -398,6 +422,10 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
 class _AbsentReport(Enum):
     TOKEN = "absent report"
+
+
+#: What an interpreter reads when nobody supplied arguments for its operation.
+_NO_ARGUMENTS: Mapping[str, Any] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -433,6 +461,38 @@ class AssessmentItem:
     def report(self) -> Any:
         """Return the retained payload, or None when this operation did not run."""
         return None if self._report is _AbsentReport.TOKEN else _unpack_cached(self._report)
+
+
+def _item_columns(items: Sequence[AssessmentItem], **extra: Any) -> dict[str, Any]:
+    """The frame payload every assessment surface emits, after any leading columns."""
+    return {
+        **extra,
+        "check": [item.name for item in items],
+        "status": [item.status.value for item in items],
+        "detail": [item.detail for item in items],
+        "next_steps": ["; ".join(item.next_steps) for item in items],
+    }
+
+
+def _item_rows(items: Sequence[AssessmentItem], *, next_steps: bool = True) -> list[list[str]]:
+    """The printable rows of a report table, with or without the next-step column."""
+    return [
+        [item.name, item.status.value, item.detail]
+        + (["; ".join(item.next_steps)] if next_steps else [])
+        for item in items
+    ]
+
+
+def _retained(item: AssessmentItem, what: str) -> Any:
+    """The payload an operation kept, or a ``KeyError`` naming what did not run."""
+    if item._report is _AbsentReport.TOKEN:
+        raise KeyError(f"{what} {item.name!r} did not run")
+    return item.report
+
+
+def _distinct_steps(items: Sequence[AssessmentItem]) -> tuple[str, ...]:
+    """Every suggested next step across ``items``, in its first-seen order."""
+    return tuple(dict.fromkeys(step for item in items for step in item.next_steps))
 
 
 @dataclass(frozen=True)
@@ -518,16 +578,7 @@ class DiagnosticReport:
         Any
             A pandas or Polars dataframe with one row per operation.
         """
-        return emit_frame(
-            {
-                "check": [item.name for item in self.items],
-                "status": [item.status.value for item in self.items],
-                "detail": [item.detail for item in self.items],
-                "next_steps": ["; ".join(item.next_steps) for item in self.items],
-            },
-            data,
-            backend=self.backend,
-        )
+        return emit_frame(_item_columns(self.items), data, backend=self.backend)
 
     def report(self, name: str) -> Any:
         """Return the retained object for an operation that ran.
@@ -547,10 +598,7 @@ class DiagnosticReport:
         KeyError
             If the operation did not run.
         """
-        item = self[name]
-        if item._report is _AbsentReport.TOKEN:
-            raise KeyError(f"diagnostic {name!r} did not run")
-        return item.report
+        return _retained(self[name], "diagnostic")
 
     def reports(self) -> dict[str, Any]:
         """Return retained objects for operations that ran.
@@ -572,7 +620,7 @@ class DiagnosticReport:
         tuple of str
             Suggested follow-up actions in their first-seen order.
         """
-        return tuple(dict.fromkeys(step for item in self.items for step in item.next_steps))
+        return _distinct_steps(self.items)
 
     def summary(self) -> str:
         """Return a printable table of operation statuses.
@@ -582,13 +630,7 @@ class DiagnosticReport:
         str
             A printable table, one line per requested operation.
         """
-        return format_table(
-            ["diagnostic", "status", "detail", "next step"],
-            [
-                [item.name, item.status.value, item.detail, "; ".join(item.next_steps)]
-                for item in self.items
-            ],
-        )
+        return format_table(["diagnostic", "status", "detail", "next step"], _item_rows(self.items))
 
 
 @dataclass(frozen=True)
@@ -686,16 +728,7 @@ class ValidationReport:
         Any
             A pandas or Polars dataframe with one row per check.
         """
-        return emit_frame(
-            {
-                "check": [item.name for item in self.items],
-                "status": [item.status.value for item in self.items],
-                "detail": [item.detail for item in self.items],
-                "next_steps": ["; ".join(item.next_steps) for item in self.items],
-            },
-            data,
-            backend=self.backend,
-        )
+        return emit_frame(_item_columns(self.items), data, backend=self.backend)
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -712,7 +745,7 @@ class ValidationReport:
                 "-" * len(heading),
                 format_table(
                     ["check", "status", "detail"],
-                    [[item.name, item.status.value, item.detail] for item in self.items],
+                    _item_rows(self.items, next_steps=False),
                 ),
             ]
         )
@@ -769,9 +802,7 @@ class AssessmentReport:
         tuple of str
             Suggested follow-up actions in their first-seen order.
         """
-        return tuple(
-            dict.fromkeys(step for _, item in self._presented() for step in item.next_steps)
-        )
+        return _distinct_steps([item for _, item in self._presented()])
 
     def report(self, name: str, *, surface: str | None = None) -> Any:
         """Return one retained report by operation and optional surface.
@@ -794,11 +825,7 @@ class AssessmentReport:
             candidates = tuple((surface, item) for item in getattr(self, surface).items)
         else:
             candidates = self._presented()
-        matches = [
-            (owner, item)
-            for owner, item in candidates
-            if item.name == name and (surface is None or owner == surface)
-        ]
+        matches = [(owner, item) for owner, item in candidates if item.name == name]
         if not matches:
             raise KeyError(f"no presented assessment report named {name!r}")
         if len(matches) > 1:
@@ -806,10 +833,7 @@ class AssessmentReport:
             raise KeyError(
                 f"assessment report {name!r} is ambiguous across {owners}; pass surface="
             )
-        item = matches[0][1]
-        if item._report is _AbsentReport.TOKEN:
-            raise KeyError(f"assessment operation {name!r} did not run")
-        return item.report
+        return _retained(matches[0][1], "assessment operation")
 
     def to_frame(self, data: Any = None) -> Any:
         """Return one row per presented surface and operation.
@@ -825,17 +849,10 @@ class AssessmentReport:
             A pandas or Polars dataframe with a ``surface`` column.
         """
         rows = self._presented()
-        backend = self.validation.backend
         return emit_frame(
-            {
-                "surface": [surface for surface, _ in rows],
-                "check": [item.name for _, item in rows],
-                "status": [item.status.value for _, item in rows],
-                "detail": [item.detail for _, item in rows],
-                "next_steps": ["; ".join(item.next_steps) for _, item in rows],
-            },
+            _item_columns([item for _, item in rows], surface=[surface for surface, _ in rows]),
             data,
-            backend=backend,
+            backend=self.validation.backend,
         )
 
     def summary(self) -> str:
@@ -848,18 +865,12 @@ class AssessmentReport:
         """
         sections = []
         for surface in ("validation", "diagnostics", "sensitivity"):
-            rows = [(owner, item) for owner, item in self._presented() if owner == surface]
+            rows = [item for owner, item in self._presented() if owner == surface]
             sections.extend(
                 [
                     surface.capitalize(),
                     "-" * len(surface),
-                    format_table(
-                        ["operation", "status", "detail", "next step"],
-                        [
-                            [item.name, item.status.value, item.detail, "; ".join(item.next_steps)]
-                            for _, item in rows
-                        ],
-                    ),
+                    format_table(["operation", "status", "detail", "next step"], _item_rows(rows)),
                     "",
                 ]
             )
@@ -912,614 +923,73 @@ def replayability(result: Any) -> Replayability:
     return Replayability(True, True, False, True, False)
 
 
-@dataclass(frozen=True)
-class _CachedFrame:
-    columns: tuple[str, ...]
-    values: tuple[tuple[Any, ...], ...]
-    backend: str | None
-
-    @classmethod
-    def from_frame(cls, frame: Any, backend: str | None) -> _CachedFrame:
-        payload = _frame_payload(frame)
-        columns = tuple(str(column) for column in payload)
-        values = tuple(
-            tuple(_python_scalar(value) for value in payload[column]) for column in columns
-        )
-        return cls(columns, values, backend)
-
-    def materialize(self) -> Any:
-        return emit_frame(dict(zip(self.columns, self.values, strict=True)), backend=self.backend)
+#: What each :class:`Replayability` slot lets an operation do, in the words a refusal uses.
+_REPLAY_WORK: dict[str, str] = {
+    "summarize_existing_artifacts": "summarizing the stored artifacts",
+    "retarget_cached_nuisances": "retargeting the cached nuisances",
+    "evaluate_stored_representer": "evaluating the stored representer",
+    "refit_nuisances": "refitting the nuisance models",
+    "evaluate_new_data": "scoring new observations",
+}
 
 
-def _python_scalar(value: Any) -> Any:
-    return value.item() if isinstance(value, np.generic) else value
+def _require_argument_mapping(arguments: Any) -> None:
+    """Refuse a per-operation argument block that is not a mapping.
 
-
-def _pack_cached(value: Any, backend: str | None) -> Any:
-    module = type(value).__module__
-    if module.startswith("pandas") or module.startswith("polars"):
-        return _CachedFrame.from_frame(value, backend)
-    return value
-
-
-def _unpack_cached(value: Any) -> Any:
-    return value.materialize() if isinstance(value, _CachedFrame) else value
-
-
-def _normalize(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        digest = hashlib.sha256(np.ascontiguousarray(value).view(np.uint8)).hexdigest()
-        return {"array": [list(value.shape), str(value.dtype), digest]}
-    if isinstance(value, np.generic):
-        return value.item()
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        return {
-            str(key): _normalize(item)
-            for key, item in sorted(value.items(), key=lambda x: str(x[0]))
-        }
-    if isinstance(value, (tuple, list)):
-        return [_normalize(item) for item in value]
-    return {"object": repr(value), "type": type(value).__qualname__}
-
-
-def _cache_key(operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]) -> str:
-    normalized = {"args": _normalize(tuple(args)), "kwargs": _normalize(kwargs)}
-    return f"{operation}:{json.dumps(normalized, sort_keys=True, separators=(',', ':'))}"
-
-
-_RETAIN_PACKED: ContextVar[bool] = ContextVar("assessment_retain_packed", default=False)
-
-
-def _cached(
-    result: Any,
-    operation: str,
-    args: Sequence[Any],
-    kwargs: Mapping[str, Any],
-    compute: Callable[[], Any],
-) -> Any:
-    cache = result.assessment_cache
-    key = _cache_key(operation, args, kwargs)
-    if key not in cache:
-        value = compute()
-        cache[key] = _pack_cached(value, getattr(result.data, "backend", None))
-    return cache[key] if _RETAIN_PACKED.get() else _unpack_cached(cache[key])
-
-
-@dataclass(frozen=True)
-class LongitudinalStageRow:
-    regimen: str
-    cause: str | None
-    horizon: int | None
-    time: int
-    n_followed: int
-    assignment: float | str
-    max_weight: float
-    effective_n: float
-    share_truncated: float
-    epsilon: tuple[float, ...]
-    converged: bool
-
-
-@dataclass(frozen=True)
-class LongitudinalDiagnostics:
-    """A row per regimen and node: how much data it had, and how hard it leaned on it.
-
-    ``n_followed`` is the number of units that followed the regimen and stayed under
-    observation through the node -- the sample the regression there was fitted on.
-    ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which is
-    where sequential positivity shows up: they are properties of the *product* of the
-    node-by-node mechanisms and can be alarming while every node looks fine.  On a weighted
-    fit they describe ``w / prod g`` rather than ``1 / prod g``, because the two
-    reweightings multiply -- see
-    :attr:`~cleverly.longitudinal.sequential.RegimenFit.leverage`.  For the weighting's own
-    cost, and the estimand statement that goes with it, see ``result.data.weight_report()``.
-
-    ``share_assigned_1`` is the fraction of the units at risk at that node whom the regimen
-    would treat.  For a static regimen it is exactly ``0`` or ``1``, so the column doubles
-    as a check on the plan the fit actually ran; for a dynamic rule it is the number a
-    reader needs, since what a rule assigns is a property of the data rather than of the
-    declaration and appears nowhere in the settings report.
-
-    **When any treatment node is categorical the column is** ``assigned_shares``
-    **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
-    presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same question
-    about a point treatment.  A single share cannot answer it at three arms: "the fraction
-    assigned arm 1" is the fraction assigned whichever label happens to sort second, which
-    is not a quantity anybody asked for, and a static plan on a third arm would report ``0``
-    exactly as a plan on the first arm does.  A wholly two-level panel keeps
-    ``share_assigned_1`` and its values unchanged, so the switch is visible in the columns
-    rather than hidden in them.
-
-    ``share_truncated`` compares the raw and bounded cumulative probabilities on the same
-    ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals when the
-    configured cap replaced every contributing row.
+    Owned here rather than restated per caller: ``assess_result`` has to split the block
+    across two facades before either can validate it, so it reaches the same wrong type
+    first and must refuse it in the same words.
     """
-
-    rows: tuple[LongitudinalStageRow, ...]
-    epsilon_names: tuple[str, ...]
-    categorical: bool
-    survival: bool
-    competing: bool
-    backend: str | None = None
-
-    def to_frame(self, data: Any = None) -> Any:
-        assignment = "assigned_shares" if self.categorical else "share_assigned_1"
-        payload: dict[str, Any] = {
-            "regimen": [row.regimen for row in self.rows],
-            **({"cause": [row.cause for row in self.rows]} if self.competing else {}),
-            **({"horizon": [row.horizon for row in self.rows]} if self.survival else {}),
-            "time": [row.time for row in self.rows],
-            "n_followed": [row.n_followed for row in self.rows],
-            assignment: [row.assignment for row in self.rows],
-            "max_weight": [row.max_weight for row in self.rows],
-            "effective_n": [row.effective_n for row in self.rows],
-            "share_truncated": [row.share_truncated for row in self.rows],
-        }
-        for position, name in enumerate(self.epsilon_names):
-            payload[name] = [row.epsilon[position] for row in self.rows]
-        payload["converged"] = [row.converged for row in self.rows]
-        return emit_frame(payload, data, backend=self.backend)
+    if arguments is not None and not isinstance(arguments, Mapping):
+        raise TypeError("arguments must be a mapping from operation names to mappings")
 
 
-@dataclass(frozen=True)
-class LongitudinalScoreRow:
-    """One verdict about one node's targeting.
+def _accepts_arguments(facade: _CapabilityFacade, operation: str) -> bool:
+    """Whether ``operation`` declares a parameter a caller could fill.
 
-    ``converged`` is the fit's own flag: whether that node's Newton step settled against
-    the targeting tolerance it was configured with.  ``passed`` additionally holds the row
-    to the tolerance the *caller* asked for.  They are kept apart because they can
-    disagree, and because only their conjunction is safe -- a caller tolerance may tighten
-    the verdict and may never license a fluctuation whose step failed.
-
-    ``kind`` says which question the row answers, because a cross-fitted fit poses two and
-    they have different right answers.
-
-    ``component`` names an MSM score component. Such a row pools all live regimen cells,
-    so ``regimen`` and ``horizon`` are ``None``. Ordinary regimen rows have no component.
-
-    ``"solver"``
-        Did the fluctuation reach the root of the equation it was *given*?  On an ordinary
-        fit that equation is the node's own score and ``relative_score`` is it.  On a
-        cross-fitted fit it is each outer fold's score on its training complement, and
-        ``relative_score`` is the largest across the folds.  Either way the answer should
-        be at solver tolerance, and a failure here is a solver failure.
-
-    ``"stitching"``
-        Is the score of the *stitched* fit where sampling alone would leave it?  Emitted
-        only on a cross-fitted fit, where the answer is not zero and is not meant to be:
-        every fold fits its ``epsilon`` on rows it does not report, so the pooled residual
-        is noise about zero rather than a solved equation.  ``z`` is that residual over its
-        own standard error and ``relative_score`` is the raw magnitude, reported so the
-        reader can see what the ``z`` is a ratio of.  A stitching, indexing or fold-mapping
-        defect moves ``z`` by orders of magnitude, which is what this row is for.
+    Read from the routed callable rather than from a list of names, so an operation that
+    gains or loses a parameter needs no second edit here.  The first parameter is the
+    result or the facade itself, which no caller supplies.
     """
-
-    regimen: str | None
-    cause: str | None
-    horizon: int | None
-    time: int
-    component: str | None
-    kind: str
-    score: float
-    relative_score: float
-    #: The score over its own standard error.  ``nan`` on a ``"solver"`` row, whose claim
-    #: is that the score is zero rather than that it is small relative to anything.
-    z: float
-    converged: bool
-    passed: bool
-    n_iter: int
-    failure: str | None
+    function, _ = facade._routed_callable(operation)
+    return len(inspect.signature(function).parameters) > 1
 
 
-@dataclass(frozen=True)
-class LongitudinalScoreDiagnostics:
-    """Stagewise targeting verdicts, gated at the tolerances they were asked for.
-
-    ``tolerance`` bounds a ``"solver"`` row's *relative* score -- the largest score
-    component as a fraction of its maximum possible magnitude, which is the quantity the
-    sequential targeting loop itself gates on.  The point-treatment report answers the same
-    question on a different scale, comparing the score in the outcome's own units against
-    ``tolerance * se / sqrt(n)``; see :data:`~cleverly.validation.score.DEFAULT_TOLERANCE`.
-    The number is carried here so a report says which gate produced its verdict.
-
-    ``z_tolerance`` bounds a ``"stitching"`` row instead, in standard errors, because that
-    row's score is not a solved equation and holding it to a relative tolerance would fail
-    every cross-fitted fit for doing exactly what it is supposed to do.  A fit with no
-    cross-fitting emits no such row and ``z_tolerance`` never binds.
-    """
-
-    rows: tuple[LongitudinalScoreRow, ...]
-    tolerance: float
-    backend: str | None = None
-    z_tolerance: float = STITCHED_SCORE_Z_TOLERANCE
-
-    @property
-    def passed(self) -> bool:
-        return all(row.passed for row in self.rows)
-
-    def to_frame(self, data: Any = None) -> Any:
-        return emit_frame(
-            {
-                "regimen": [row.regimen for row in self.rows],
-                "cause": [row.cause for row in self.rows],
-                "horizon": [row.horizon for row in self.rows],
-                "time": [row.time for row in self.rows],
-                "component": [row.component for row in self.rows],
-                "kind": [row.kind for row in self.rows],
-                "score": [row.score for row in self.rows],
-                "relative_score": [row.relative_score for row in self.rows],
-                "z": [row.z for row in self.rows],
-                "converged": [row.converged for row in self.rows],
-                "passed": [row.passed for row in self.rows],
-                "n_iter": [row.n_iter for row in self.rows],
-                "failure": [row.failure for row in self.rows],
-            },
-            data,
-            backend=self.backend,
-        )
-
-
-@dataclass(frozen=True)
-class LongitudinalNuisanceRow:
-    regimen: str
-    cause: str | None
-    horizon: int | None
-    time: int
-    n: int
-    mse: float
-
-
-@dataclass(frozen=True)
-class LongitudinalNuisanceDiagnostics:
-    """Stagewise loss of each sequential outcome/pseudo-outcome regression."""
-
-    rows: tuple[LongitudinalNuisanceRow, ...]
-    backend: str | None = None
-
-    def to_frame(self, data: Any = None) -> Any:
-        return emit_frame(
-            {
-                "regimen": [row.regimen for row in self.rows],
-                "cause": [row.cause for row in self.rows],
-                "horizon": [row.horizon for row in self.rows],
-                "time": [row.time for row in self.rows],
-                "n": [row.n for row in self.rows],
-                "mse": [row.mse for row in self.rows],
-            },
-            data,
-            backend=self.backend,
-        )
-
-
-def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
-    """What a regimen assigns at one node, as ``"active=0.62, none=0.38"``.
-
-    The categorical counterpart of ``share_assigned_1``, and written in the *labels* rather
-    than the dense codes for the reason every user-facing string in this package is: a
-    reader asked to translate ``2.0`` back to ``"none"`` has been handed the encoding rather
-    than the answer.  Every level appears, including one the regimen never assigns, so the
-    shares in a row sum to one and a zero is legible as "not this arm" rather than as a
-    level the fit forgot about.
-
-    Deliberately a string and not a column per level: the level sets are per node, so
-    numeric columns would be ragged across a frame whose rows are ``(regimen, time)`` pairs,
-    and most of them empty.
-    """
-    if not assigned.size:
-        return ""
-    return ", ".join(
-        f"{level}={float(np.mean(assigned == float(code))):.3g}"
-        for code, level in enumerate(levels)
+def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapability:
+    """Refuse a row the fitted method does not declare."""
+    if (
+        not item.available
+        or method in item.methods
+        or (method == "unknown" and item.execution == "summarize")
+    ):
+        return item
+    reason = (
+        # An artifact records a method or it does not. Reading "the fitted method
+        # 'unknown' does not support this operation" sent a reader to look up a method
+        # named ``unknown``, when the cause is that the artifact names no method at all.
+        "this artifact records no fitted method, so its support for this operation "
+        "cannot be established"
+        if method == "unknown"
+        else f"the fitted method {method!r} does not support this operation"
     )
+    return replace(item, available=False, status=AssessmentStatus.NOT_APPLICABLE, reason=reason)
 
 
-def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
-    """One row per node: how heavy the weights got and how much the bounds moved.
-
-    ``max_weight`` and ``effective_n`` read ``step.clever``, and ``share_truncated`` reads
-    ``fit.cumulative``.  On a cross-fitted fit those are not two views of one array: the
-    covariate is stitched from each fold's own mechanism slab while ``cumulative`` is the
-    out-of-fold mechanism, so ``1 / cumulative`` does not reproduce the weight.  Each column
-    is read from the array that answers its own question -- what a row was weighted by, and
-    how far the bounds moved the mechanism -- rather than both from whichever one is nearer.
-    """
-    terms = () if result.msm is None else result.msm.terms
-    epsilon_names = ("epsilon",) if result.msm is None else tuple(f"epsilon[{t}]" for t in terms)
-    # One column shape for the whole frame rather than one per row: the level sets are a
-    # property of the data, so whether a share is answerable by a single number is settled
-    # before any node is read.
-    categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
-    rows = []
-    # Read off the fit's own fields rather than the key it is filed under: on a survival fit
-    # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
-    # be the one column here nobody could group by.
-    for fit in result.fits.values():
-        for step in fit.steps:
-            weights = (fit.obs_weights * step.clever)[step.trained_on]
-            assigned = fit.assignment[step.at_risk, step.time - 1]
-            assignment: float | str = (
-                _assigned_shares(assigned, result.data.treatment_levels[step.time - 1])
-                if categorical
-                else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
-            )
-            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-            rows.append(
-                LongitudinalStageRow(
-                    regimen=fit.regimen.label,
-                    cause=fit.cause,
-                    horizon=fit.horizon if result.data.is_survival else None,
-                    time=step.time,
-                    n_followed=step.n_trained,
-                    assignment=assignment,
-                    max_weight=float(np.max(weights)) if weights.size else float("nan"),
-                    effective_n=effective_sample_size(weights, on_degenerate=0.0),
-                    share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
-                    epsilon=tuple(float(value) for value in step.fluctuation.epsilon),
-                    converged=bool(step.fluctuation.converged),
-                )
-            )
-    return LongitudinalDiagnostics(
-        tuple(rows),
-        epsilon_names,
-        categorical,
-        result.data.is_survival,
-        result.data.is_competing,
-        result.data.backend,
+def _replay_gated(item: AssessmentCapability, replay: Replayability) -> AssessmentCapability:
+    """Refuse a row whose declared replay slot this stored result cannot supply."""
+    slot = item.requires_replay
+    if not item.available or slot is None or getattr(replay, slot):
+        return item
+    missing = list(replay.unreconstructible)
+    return replace(
+        item,
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        reason=(
+            f"{_REPLAY_WORK[slot]} needs artifacts this stored result no longer carries; "
+            f"unavailable slots: {missing}"
+        ),
     )
-
-
-def _standardized_score(contribution: FloatArray, cluster: IntArray | None = None) -> FloatArray:
-    """Standardize mean score components by their independent-unit standard errors."""
-    values = np.asarray(contribution, dtype=float)
-    if values.ndim == 1:
-        values = values[:, None]
-    n = values.shape[0]
-    if n < 2:
-        return np.full(values.shape[1], np.nan)
-    if cluster is None:
-        standard_error = np.std(values, axis=0, ddof=1) / np.sqrt(n)
-    else:
-        sums = cluster_sums(values, np.asarray(cluster))
-        n_clusters = sums.shape[0]
-        if n_clusters < 2:
-            return np.full(values.shape[1], np.nan)
-        standard_error = np.sqrt(n_clusters * np.var(sums, axis=0, ddof=1) / n**2)
-    mean = np.mean(values, axis=0)
-    return np.divide(
-        mean,
-        standard_error,
-        out=np.full(values.shape[1], np.nan),
-        where=standard_error > 0.0,
-    )
-
-
-def _stitched_score_z(step: Any, weights: FloatArray, cluster: IntArray | None = None) -> float:
-    r"""The stitched score over its own standard error.
-
-    The score is :math:`P_n[w H (Z - \bar Q^*)]`. Independent rows use the row-level
-    standard error. Clustered rows first sum their contributions within cluster and use
-    the same finite-sample scaling as the inference layer.
-
-    Returns ``nan`` when the residual has no spread, which is a degenerate node rather than
-    a perfect one and is not something to report a ``z`` of zero for.
-    """
-    contribution = weights * step.clever * (step.pseudo_outcome - step.targeted)
-    return float(_standardized_score(contribution, cluster)[0])
-
-
-def _msm_node_contributions(
-    result: Any, msm_fit: Any, time: int
-) -> tuple[FloatArray, FloatArray, Any]:
-    """Per-unit pooled score and scale contributions for one longitudinal MSM node."""
-    model = msm_fit.model
-    weights = np.asarray(result.data.weights, dtype=float)
-    contribution = np.zeros((result.data.n, model.n_terms), dtype=float)
-    maximum = np.zeros_like(contribution)
-    fluctuation = None
-    for cell_index, (cell, cell_fit) in enumerate(zip(model.cells, msm_fit.fits, strict=True)):
-        if cell.horizon < time:
-            continue
-        step = next(item for item in cell_fit.steps if item.time == time)
-        fluctuation = step.fluctuation
-        multiplier = weights * model.weights[:, cell_index] * step.clever
-        design = msm_fit.fluctuation_design[:, cell_index, :]
-        residual = step.pseudo_outcome - step.targeted
-        contribution += multiplier[:, None] * design * residual[:, None]
-        maximum += np.abs(multiplier[:, None] * design)
-    if fluctuation is None:  # pragma: no cover - a model cell always reaches its own nodes
-        raise RuntimeError(f"the longitudinal MSM has no live cell at time {time}")
-    return contribution, maximum, fluctuation
-
-
-def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
-    """Pooled component-wise node diagnostics for a longitudinal working model."""
-    rows = []
-    for msm_fit in result.msm_fits:
-        times = sorted({step.time for fit in msm_fit.fits for step in fit.steps})
-        for time in times:
-            contribution, maximum, fluctuation = _msm_node_contributions(result, msm_fit, time)
-            pooled_score = np.mean(contribution, axis=0)
-            pooled_scale = np.mean(maximum, axis=0)
-            z = _standardized_score(contribution, result.data.cluster)
-            for component, term in enumerate(msm_fit.model.terms):
-                converged = bool(fluctuation.converged)
-                if fluctuation.folds:
-                    relatives = []
-                    scores = []
-                    for record in fluctuation.folds:
-                        scale = (
-                            np.asarray(record.score_scale, dtype=float)
-                            if record.score_scale is not None
-                            else np.asarray(fluctuation.score_scale, dtype=float)
-                        )
-                        score = float(np.asarray(record.score, dtype=float)[component])
-                        scores.append(abs(score))
-                        relatives.append(abs(score) / max(float(scale[component]), 1e-300))
-                    solver_score = max(scores)
-                    solver_relative = max(relatives)
-                else:
-                    solver_score = abs(float(pooled_score[component]))
-                    solver_relative = solver_score / max(float(pooled_scale[component]), 1e-300)
-                rows.append(
-                    LongitudinalScoreRow(
-                        None,
-                        msm_fit.cause,
-                        None,
-                        time,
-                        term,
-                        "solver",
-                        float(result.scaler.range * solver_score),
-                        solver_relative,
-                        float("nan"),
-                        converged,
-                        converged and solver_relative <= tolerance,
-                        int(fluctuation.n_iter),
-                        fluctuation.failure,
-                    )
-                )
-                if not fluctuation.folds:
-                    continue
-                component_z = float(z[component])
-                relative = abs(float(pooled_score[component])) / max(
-                    float(pooled_scale[component]), 1e-300
-                )
-                rows.append(
-                    LongitudinalScoreRow(
-                        None,
-                        msm_fit.cause,
-                        None,
-                        time,
-                        term,
-                        "stitching",
-                        float(result.scaler.range * pooled_score[component]),
-                        relative,
-                        component_z,
-                        converged,
-                        bool(
-                            np.isfinite(component_z)
-                            and abs(component_z) <= STITCHED_SCORE_Z_TOLERANCE
-                        ),
-                        int(fluctuation.n_iter),
-                        fluctuation.failure,
-                    )
-                )
-    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
-
-
-def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
-    """Every node's targeting verdicts: one row per question the node's fit poses.
-
-    The solver gate is a *conjunction*, and deliberately so.  Sequential targeting settles
-    against its own ``tol`` -- ``1e-10``, far tighter than the default asked for here -- so
-    requiring ``converged`` as well leaves the default verdict exactly what it was while
-    letting a caller tighten it.  Gating on the relative score alone would do the opposite: a
-    node whose Newton step failed but whose residual score happens to sit under a loose
-    tolerance would be reported as passing, which is the one answer this diagnostic must
-    never give.
-
-    A cross-fitted node earns a second row, because the first one stops being able to see
-    the thing that can go wrong.  Its ``K`` solves each reach their own root on their own
-    training complement, so the solver row is at machine precision whatever the stitched fit
-    looks like -- including when the folds were stitched back in the wrong order, or a slab
-    was read for the wrong fold.  The stitching row is where that shows.
-    """
-    if result.msm is not None:
-        return _longitudinal_msm_scores(result, tolerance=tolerance)
-
-    rows = []
-    for fit in result.fits.values():
-        weights = np.asarray(fit.obs_weights, dtype=float)
-        for step in fit.steps:
-            fluctuation = step.fluctuation
-            horizon = fit.horizon if result.data.is_survival else None
-            converged = bool(fluctuation.converged)
-            # On a cross-fitted node the solved equations are the folds' own, and the
-            # aggregate `score` is the stitched fit's -- a different quantity, reported on
-            # the row below.  The worst fold is the honest summary of `K` solves: an
-            # average would let nine good folds hide one that did not move.
-            solver_relative = (
-                max(
-                    float(
-                        np.max(
-                            np.abs(record.score)
-                            / np.maximum(
-                                record.score_scale
-                                if record.score_scale is not None
-                                else fluctuation.score_scale,
-                                1e-300,
-                            )
-                        )
-                    )
-                    for record in fluctuation.folds
-                )
-                if fluctuation.folds
-                else float(fluctuation.relative_score_norm)
-            )
-            solver_score = (
-                max(float(np.max(np.abs(record.score))) for record in fluctuation.folds)
-                if fluctuation.folds
-                else float(fluctuation.score_norm)
-            )
-            rows.append(
-                LongitudinalScoreRow(
-                    fit.regimen.label,
-                    fit.cause,
-                    horizon,
-                    step.time,
-                    None,
-                    "solver",
-                    float(result.scaler.range * solver_score),
-                    solver_relative,
-                    float("nan"),
-                    converged,
-                    converged and solver_relative <= tolerance,
-                    int(fluctuation.n_iter),
-                    fluctuation.failure,
-                )
-            )
-            if not fluctuation.folds:
-                continue
-            z = _stitched_score_z(step, weights, result.data.cluster)
-            rows.append(
-                LongitudinalScoreRow(
-                    fit.regimen.label,
-                    fit.cause,
-                    horizon,
-                    step.time,
-                    None,
-                    "stitching",
-                    float(result.scaler.range * fluctuation.score_norm),
-                    float(fluctuation.relative_score_norm),
-                    z,
-                    converged,
-                    bool(np.isfinite(z) and abs(z) <= STITCHED_SCORE_Z_TOLERANCE),
-                    int(fluctuation.n_iter),
-                    fluctuation.failure,
-                )
-            )
-    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
-
-
-def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
-    rows = []
-    for fit in result.fits.values():
-        for step in fit.steps:
-            mask = step.trained_on
-            residual = np.asarray(step.pseudo_outcome[mask] - step.initial[mask], dtype=float)
-            rows.append(
-                LongitudinalNuisanceRow(
-                    fit.regimen.label,
-                    fit.cause,
-                    fit.horizon if result.data.is_survival else None,
-                    step.time,
-                    int(mask.sum()),
-                    float(np.mean(np.square(residual))) if residual.size else float("nan"),
-                )
-            )
-    return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend)
 
 
 class _CapabilityFacade:
@@ -1532,7 +1002,13 @@ class _CapabilityFacade:
     orders, two spellings of the cost gate, one refusal that re-derived a reason the record
     already carried, different caught-exception sets, and one side that discarded what its
     operations returned and so could only ever report ``passed``.  Subclasses supply
-    :attr:`capabilities` and the two labels below; everything else is settled here.
+    :attr:`_declared` and the two labels below; everything else is settled here.
+
+    A subclass declares what its operations *are*.  It does not decide whether this stored
+    result can run them: the method gate and the replay gate live here and run over every
+    row.  Both were once written per facade, and ``refute`` reached the shipped surface
+    claiming ``available=True`` on a result with no estimator because the diagnostics side
+    patched one row by name and forgot the other.
     """
 
     #: What an operation of this kind is called in a refusal: ``diagnostic 'refute' is ...``.
@@ -1544,24 +1020,21 @@ class _CapabilityFacade:
         self._result = result
 
     @property
-    def capabilities(self) -> tuple[AssessmentCapability, ...]:
+    def _declared(self) -> tuple[AssessmentCapability, ...]:
         raise NotImplementedError  # pragma: no cover - subclasses declare their own
+
+    @property
+    def capabilities(self) -> tuple[AssessmentCapability, ...]:
+        """Return declared operations, gated by the fitted method and by replayability."""
+        return tuple(self._capability_map.values())
 
     @cached_property
     def _capability_map(self) -> dict[str, AssessmentCapability]:
         method = _method(self._result)
+        replay = replayability(self._result)
         return {
-            item.operation: item
-            if not item.available
-            or method in item.methods
-            or (method == "unknown" and item.execution == "summarize")
-            else replace(
-                item,
-                available=False,
-                status=AssessmentStatus.NOT_APPLICABLE,
-                reason=f"the fitted method {method!r} does not support this operation",
-            )
-            for item in self.capabilities
+            item.operation: _replay_gated(_method_gated(item, method), replay)
+            for item in self._declared
         }
 
     def capability(self, operation: str) -> AssessmentCapability:
@@ -1589,70 +1062,74 @@ class _CapabilityFacade:
         """Resolve request-specific availability and cost before aggregate execution."""
         return self.capability(operation)
 
+    def _skipped(
+        self,
+        capability: AssessmentCapability,
+        arguments: Mapping[str, Any],
+        *,
+        include_refits: bool,
+        include_retargets: bool,
+    ) -> AssessmentItem | None:
+        """The row a combined report owes an operation, or ``None`` to run it.
+
+        Availability first, then the missing argument, and the cost last. Every gate above
+        the cost gate refuses for a reason no flag can pay off, and a report that named the
+        cost first sent the caller to ``include_refits=True`` and then, on the very next
+        call, to the argument it never mentioned. A refusal has to name the first thing
+        that is wrong.
+
+        Parameters
+        ----------
+        capability : AssessmentCapability
+            The row resolved for this request, not the bare declaration.
+        arguments : mapping of str to Any
+            Arguments the caller supplied for this operation.
+        include_refits : bool
+            Whether the caller paid for operations that refit nuisance models.
+        include_retargets : bool
+            Whether the caller paid for moderate retargets.
+
+        Returns
+        -------
+        AssessmentItem or None
+            The omission to report, or ``None`` when the operation may run.
+        """
+        if not capability.available:
+            return _item_from_capability(capability)
+        missing = tuple(name for name in capability.requires_arguments if name not in arguments)
+        if missing:
+            return _missing_argument_item(capability, self._attribute, missing)
+        return _cost_refusal(capability, self._attribute, include_refits, include_retargets)
+
     def _run_all(
         self,
         *,
         include_refits: bool,
         include_retargets: bool,
-        arguments: Mapping[str, Mapping[str, Any]] | None,
+        supplied: Mapping[str, Mapping[str, Any]],
         random_state: int | None,
     ) -> DiagnosticReport:
-        supplied = self._validated_arguments(arguments, random_state)
+        """Execute the combined report from arguments :meth:`_validated_arguments` cleared.
+
+        Validation is the caller's job because binding every supplied operation's signature
+        is not free, and the battery reaches this method through ``assess_result``, which
+        has already had to validate both facades to fail before either one runs.  Doing it
+        again here bound each signature a second and a third time per ``assess()`` call.
+        """
 
         def compute() -> DiagnosticReport:
             items = []
-            for capability in self.capabilities:
-                operation_arguments = dict(supplied.get(capability.operation, {}))
-                capability = self._capability_for_arguments(
-                    capability.operation, operation_arguments
-                )
-                # Availability first. A row that is unavailable *and* expensive is refused
-                # for the reason it declares, not for a cost the caller could have paid --
-                # "pass include_refits=True" is a false instruction when no flag can make
-                # the operation exist.
-                if not capability.available:
-                    items.append(_item_from_capability(capability))
-                    continue
-                skipped = _cost_refusal(
-                    capability, self._attribute, include_refits, include_retargets
+            for declared in self.capabilities:
+                operation_arguments = dict(supplied.get(declared.operation, {}))
+                capability = self._capability_for_arguments(declared.operation, operation_arguments)
+                skipped = self._skipped(
+                    capability,
+                    operation_arguments,
+                    include_refits=include_refits,
+                    include_retargets=include_retargets,
                 )
                 if skipped is not None:
                     items.append(skipped)
-                    continue
-                missing_arguments = tuple(
-                    name
-                    for name in capability.requires_arguments
-                    if name not in operation_arguments
-                )
-                if missing_arguments:
-                    # A combined report runs every operation argument-free, so one with a
-                    # required argument and no default cannot appear in it.  Choosing a
-                    # value here -- which covariates to benchmark against -- would be a
-                    # scientific choice made silently on the caller's behalf.
-                    # A row may declare more than one argument, so the sentence has to
-                    # agree in number.  ``", ".join`` alone rendered "an explicit grid,
-                    # estimand argument", which reads as one argument named "grid,
-                    # estimand".
-                    names = missing_arguments
-                    needed = (
-                        names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
-                    )
-                    phrase = (
-                        f"an explicit {needed} argument"
-                        if len(names) == 1
-                        else f"explicit {needed} arguments"
-                    )
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            f"needs {phrase}, which a combined report has no basis to choose",
-                            (
-                                f"call result.{self._attribute}.{capability.operation}() "
-                                f"directly with {needed}",
-                            ),
-                        )
-                    )
                     continue
                 try:
                     if capability.accepts_random_state and random_state is not None:
@@ -1686,20 +1163,9 @@ class _CapabilityFacade:
                     effective = self._effective_arguments(
                         capability.operation, operation_arguments, report
                     )
-                    interpreted = INTERPRETERS[capability.operation](report, self._result)
-                    if capability.operation == "omitted_confounding":
-                        defaults = [
-                            name for name in ("cf_y", "cf_d") if name not in operation_arguments
-                        ]
-                        if defaults:
-                            provenance = (
-                                "at the default strengths"
-                                if len(defaults) == 2
-                                else f"at the default {defaults[0]} strength"
-                            )
-                            interpreted = replace(
-                                interpreted, detail=f"{provenance}; {interpreted.detail}"
-                            )
+                    interpreted = INTERPRETERS[capability.operation](
+                        report, self._result, operation_arguments
+                    )
                     items.append(
                         replace(
                             interpreted,
@@ -1732,10 +1198,9 @@ class _CapabilityFacade:
         arguments: Mapping[str, Mapping[str, Any]] | None,
         random_state: int | None,
     ) -> dict[str, dict[str, Any]]:
+        _require_argument_mapping(arguments)
         if arguments is None:
             return {}
-        if not isinstance(arguments, Mapping):
-            raise TypeError("arguments must be a mapping from operation names to mappings")
         declared = {row.operation for row in self.capabilities}
         unknown = sorted(set(arguments) - declared)
         if unknown:
@@ -1808,9 +1273,11 @@ class _CapabilityFacade:
             # Explicit OR requests choose the approximation; keep None replayable there.
             source = getattr(report, "source_estimand", None)
             if source is not None:
+                from .sensitivity.evalue import _DERIVED_RR
+
                 selection = self._evalue_selection(None)
                 if (
-                    selection.branch != "derived_rr"
+                    selection.branch != _DERIVED_RR
                     or _arm_source_target(self._result, source) != "or"
                 ):
                     effective["estimand"] = source
@@ -1863,6 +1330,31 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         if resolved is not None:
             effective["random_state"] = resolved
     return effective
+
+
+def _missing_argument_item(
+    capability: AssessmentCapability, attribute: str, missing: tuple[str, ...]
+) -> AssessmentItem:
+    """The skip a combined report owes an operation whose argument it cannot choose.
+
+    A combined report runs every operation argument-free, so one with a required argument
+    and no default cannot appear in it.  Choosing a value here -- which covariates to
+    benchmark against -- would be a scientific choice made silently on the caller's behalf.
+
+    A row may declare more than one argument, so the sentence has to agree in number.
+    ``", ".join`` alone rendered "an explicit grid, estimand argument", which reads as one
+    argument named "grid, estimand".
+    """
+    needed = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
+    phrase = (
+        f"an explicit {needed} argument" if len(missing) == 1 else f"explicit {needed} arguments"
+    )
+    return AssessmentItem(
+        capability.operation,
+        AssessmentStatus.UNAVAILABLE,
+        f"needs {phrase}, which a combined report has no basis to choose",
+        (f"call result.{attribute}.{capability.operation}() directly with {needed}",),
+    )
 
 
 def _cost_refusal(
@@ -1941,22 +1433,8 @@ class DiagnosticsFacade(_CapabilityFacade):
     _attribute = "diagnostics"
 
     @cached_property
-    def capabilities(self) -> tuple[AssessmentCapability, ...]:
-        """Return declared operations and their availability."""
-        rows = assessment_capabilities(self._result)
-        if replayability(self._result).retarget_cached_nuisances:
-            return rows
-        return tuple(
-            replace(
-                row,
-                available=False,
-                status=AssessmentStatus.UNAVAILABLE,
-                reason="retargeting requires the fitted estimator that produced the result",
-            )
-            if row.operation == "truncation_curve" and row.available
-            else row
-            for row in rows
-        )
+    def _declared(self) -> tuple[AssessmentCapability, ...]:
+        return assessment_capabilities(self._result)
 
     def stagewise(self) -> LongitudinalDiagnostics:
         """Return support and targeting diagnostics by longitudinal stage.
@@ -2276,7 +1754,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         return self._run_all(
             include_refits=include_refits,
             include_retargets=include_retargets,
-            arguments=arguments,
+            supplied=self._validated_arguments(arguments, random_state),
             random_state=random_state,
         )
 
@@ -2289,7 +1767,9 @@ def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
     )
 
 
-def _score_item(report: Any, result: Any) -> AssessmentItem:
+def _score_item(
+    report: Any, result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     ratios = []
     for row in getattr(report, "rows", ()):
         if hasattr(row, "ratio"):
@@ -2345,14 +1825,21 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
     return (max(truncated) if truncated else None, min(clean_ess) if clean_ess else None)
 
 
-def _support_item(report: Any, _result: Any) -> AssessmentItem:
-    warning = _support_warning(report)
-    truncated, ess = _support_metrics(report)
+def _support_facts(truncated: float | None, ess: float | None) -> list[str]:
+    """Present the two support metrics, on one scale, for every row that reports them."""
     facts = []
     if truncated is not None:
-        facts.append(f"truncated fraction {truncated:.1%}")
+        facts.append(f"maximum truncated fraction {truncated:.1%}")
     if ess is not None:
         facts.append(f"minimum effective-sample-size ratio {ess:.1%}")
+    return facts
+
+
+def _support_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    warning = _support_warning(report)
+    facts = _support_facts(*_support_metrics(report))
     if warning:
         facts.append(warning)
     detail = "; ".join(facts) if facts else "stored support report completed"
@@ -2364,7 +1851,9 @@ def _support_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _nuisance_item(report: Any, _result: Any) -> AssessmentItem:
+def _nuisance_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     findings = tuple(getattr(report, "findings", ()))
     if findings:
         return AssessmentItem(
@@ -2388,7 +1877,9 @@ def _nuisance_item(report: Any, _result: Any) -> AssessmentItem:
     return AssessmentItem("nuisance_models", AssessmentStatus.COMPLETED, detail)
 
 
-def _correction_item(report: Any, _result: Any) -> AssessmentItem:
+def _correction_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     identity = [abs(float(row.residual)) for row in report.rows if np.isfinite(row.residual)]
     magnitude = [abs(float(row.reported)) for row in report.rows]
     detail = (
@@ -2404,14 +1895,6 @@ def _correction_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _frame_payload(frame: Any) -> dict[str, Any]:
-    if isinstance(frame, _CachedFrame):
-        return dict(zip(frame.columns, frame.values, strict=True))
-    if type(frame).__module__.startswith("polars"):
-        return frame.to_dict(as_series=False)
-    return frame.to_dict(orient="list")
-
-
 def _range(values: Sequence[Any]) -> tuple[float, float] | None:
     finite = [float(value) for value in values if value is not None and np.isfinite(value)]
     return (min(finite), max(finite)) if finite else None
@@ -2421,7 +1904,9 @@ def _format_range(values: tuple[float, float] | None) -> str:
     return "no finite values" if values is None else f"[{values[0]:.4g}, {values[1]:.4g}]"
 
 
-def _truncation_item(report: Any, _result: Any) -> AssessmentItem:
+def _truncation_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     payload = _frame_payload(report)
     bounds = _range(payload.get("bound", payload.get("g_bound", ())))
     estimates = _range(payload.get("psi", payload.get("estimate", ())))
@@ -2432,7 +1917,9 @@ def _truncation_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _refute_item(report: Any, _result: Any) -> AssessmentItem:
+def _refute_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     failed = [test.name for test in report.tests if not test.passed]
     return AssessmentItem(
         "refute",
@@ -2446,18 +1933,43 @@ def _refute_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _omitted_item(report: Any, _result: Any) -> AssessmentItem:
+def _omitted_item(
+    report: Any, _result: Any, arguments: Mapping[str, Any] | None = None
+) -> AssessmentItem:
+    """Interpret one omitted-confounding bound, and say which strengths produced it.
+
+    The bound is a statement about an assumed confounder, so a reader who did not choose
+    ``cf_y`` and ``cf_d`` has to be told that the library did.  The prefix is written here
+    rather than by the combined report because it is a fact about *this* operation, and a
+    name-matching branch in generic routing machinery is what the declaration tables exist
+    to remove.
+
+    ``arguments=None`` means the caller's choices are unknown rather than absent, so the
+    row claims no provenance.  ``run_all`` always passes the mapping it cleared, so only a
+    direct call reaches that case.
+    """
     spans = report.lower <= report.null_hypothesis <= report.upper
+    defaults = [] if arguments is None else [n for n in ("cf_y", "cf_d") if n not in arguments]
+    provenance = ""
+    if defaults:
+        provenance = (
+            "at the default strengths; "
+            if len(defaults) == 2
+            else f"at the default {defaults[0]} strength; "
+        )
     return AssessmentItem(
         "omitted_confounding",
         AssessmentStatus.WARNING if spans else AssessmentStatus.COMPLETED,
+        f"{provenance}"
         f"cf_y={report.cf_y:.3g}, cf_d={report.cf_d:.3g}, rho={report.rho:.3g}; "
         f"bias-adjusted interval [{report.lower:.4g}, {report.upper:.4g}]",
         () if not spans else ("inspect the retained omitted-confounding bounds",),
     )
 
 
-def _robustness_item(report: Any, _result: Any) -> AssessmentItem:
+def _robustness_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     return AssessmentItem(
         "robustness_value",
         AssessmentStatus.COMPLETED,
@@ -2465,7 +1977,9 @@ def _robustness_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _elements_item(report: Any, _result: Any) -> AssessmentItem:
+def _elements_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     return AssessmentItem(
         "elements",
         AssessmentStatus.COMPLETED,
@@ -2473,7 +1987,9 @@ def _elements_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _contour_item(report: Any, _result: Any) -> AssessmentItem:
+def _contour_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     payload = _frame_payload(report)
     return AssessmentItem(
         "contour",
@@ -2485,7 +2001,9 @@ def _contour_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _benchmark_item(report: Any, _result: Any) -> AssessmentItem:
+def _benchmark_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     return AssessmentItem(
         "benchmark",
         AssessmentStatus.COMPLETED,
@@ -2494,7 +2012,9 @@ def _benchmark_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _simulated_item(report: Any, _result: Any) -> AssessmentItem:
+def _simulated_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     movements = [
         abs(float(cell.displacement))
         for cell in report.successful_cells
@@ -2513,17 +2033,26 @@ def _simulated_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _evalue_item(report: Any, _result: Any) -> AssessmentItem:
+def _evalue_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     detail = (
         f"point={report.point:.4g}, limit={report.limit:.4g}, source scale={report.scale}; "
         + ("approximate conversion" if report.approximate else "exact risk-ratio branch")
     )
     if report.limit == 1.0:
         detail += "; the interval already includes the null"
+    truncated = getattr(report, "truncated_bound", None)
+    if truncated is not None:
+        # The reported lower bound is the boundary of the parameter space, not a converted
+        # confidence limit.  A row that shows only ``point`` and ``limit`` would hide that.
+        detail += f"; the lower risk-ratio bound is truncated at 0 from {float(truncated):.4g}"
     return AssessmentItem("evalue", AssessmentStatus.COMPLETED, detail)
 
 
-def _missingness_item(report: Any, _result: Any) -> AssessmentItem:
+def _missingness_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     payload = _frame_payload(report)
     return AssessmentItem(
         "missingness",
@@ -2533,7 +2062,9 @@ def _missingness_item(report: Any, _result: Any) -> AssessmentItem:
     )
 
 
-def _tipping_item(report: Any, _result: Any) -> AssessmentItem:
+def _tipping_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     detail = (
         "no tipping value occurred in the searched interval"
         if report is None
@@ -2542,17 +2073,34 @@ def _tipping_item(report: Any, _result: Any) -> AssessmentItem:
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
-def _stagewise_item(report: Any, _result: Any) -> AssessmentItem:
+def _stagewise_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
     truncated, ess = _support_metrics(report)
+    # The same two numbers ``_support_item`` reports, so they carry the same presentation.
+    # Interpolated raw they printed "0.8888888888888887" beside a sibling row reading
+    # "88.9%", and "None" where the sibling says nothing at all.
     return AssessmentItem(
         "stagewise",
         AssessmentStatus.COMPLETED,
-        f"{len(report.rows)} stage row(s); maximum truncated fraction {truncated}; "
-        f"minimum effective-sample-size ratio {ess}",
+        "; ".join(
+            [
+                f"{len(report.rows)} stage row(s)",
+                *_support_facts(truncated, ess),
+            ]
+        ),
     )
 
 
-INTERPRETERS: dict[str, Callable[[Any, Any], AssessmentItem]] = {
+#: How each operation's own report becomes one report row.
+#:
+#: The third argument is what the caller supplied for that operation.  An interpreter that
+#: has to say how its answer was parameterized reads it here, so that the combined report
+#: keeps no branch on an operation name.
+#:
+#: Internal routing rather than a caller surface: the values take report objects this module
+#: builds, so it is deliberately absent from ``__all__``.
+INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]] = {
     "score_equations": _score_item,
     "support": _support_item,
     "nuisance_models": _nuisance_item,
@@ -2613,14 +2161,10 @@ def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -
 
     def compute() -> ValidationReport:
         facade = result.diagnostics if diagnostics is None else diagnostics
-        reports = {
-            "score_equations": facade.score_equations(),
-            "support": facade.support(),
-            "nuisance_models": facade.nuisance_models(),
-        }
+        reports = {name: getattr(facade, name)() for name in VALIDATION_OPERATIONS}
         items = [
             replace(
-                INTERPRETERS[name](report, result),
+                INTERPRETERS[name](report, result, _NO_ARGUMENTS),
                 _report=_pack_cached(report, result.data.backend),
             )
             for name, report in reports.items()
@@ -2639,8 +2183,7 @@ def assess_result(
     random_state: int | None = None,
 ) -> AssessmentReport:
     """Compose a battery from one pair of operation facades."""
-    if arguments is not None and not isinstance(arguments, Mapping):
-        raise TypeError("arguments must be a mapping from operation names to mappings")
+    _require_argument_mapping(arguments)
     supplied = {} if arguments is None else dict(arguments)
     diagnostics, sensitivity = result.diagnostics, result.sensitivity
     diagnostic_names = set(diagnostics._capability_map)
@@ -2648,22 +2191,49 @@ def assess_result(
     unknown = sorted(set(supplied) - diagnostic_names - sensitivity_names)
     if unknown:
         raise KeyError(f"unknown assessment operation(s): {unknown}")
-    diagnostic_arguments = {k: v for k, v in supplied.items() if k in diagnostic_names}
-    sensitivity_arguments = {k: v for k, v in supplied.items() if k in sensitivity_names}
-    diagnostics._validated_arguments(diagnostic_arguments, random_state)
-    sensitivity._validated_arguments(sensitivity_arguments, random_state)
+    # Only an operation that would really hide an answer is refused.  An empty mapping
+    # applies nothing, so nothing can be hidden, and an operation with no parameters can
+    # take no argument at all.  For those two, ``_validated_arguments`` below reports the
+    # precise ``TypeError`` from binding the caller's own keywords, which names the
+    # signature rather than substituting a vaguer refusal.
+    owned = [
+        name
+        for name in VALIDATION_OPERATIONS
+        if supplied.get(name) and _accepts_arguments(diagnostics, name)
+    ]
+    if owned:
+        # The battery presents the validation row for these names and hides the
+        # diagnostics row of the same name.  Running the caller's arguments would answer
+        # the caller's question on the hidden row and then show the argument-free answer,
+        # so a check that failed at the requested tolerance would never reach
+        # ``attention``.  Refuse the composition and name the call that does answer it.
+        calls = ", ".join(f"result.diagnostics.{name}(...)" for name in owned)
+        raise CapabilityError(
+            f"the validation battery owns {owned} and runs each one argument-free, so "
+            f"assess() cannot apply arguments to them; call {calls} for one answer, or "
+            f"result.diagnostics.run_all(arguments=...) for the diagnostics surface"
+        )
+    # Validate both surfaces before either one runs, and carry the cleared arguments
+    # forward.  A block that is wrong for the sensitivity facade must not first make the
+    # diagnostics facade refit anything.
+    diagnostic_arguments = diagnostics._validated_arguments(
+        {k: v for k, v in supplied.items() if k in diagnostic_names}, random_state
+    )
+    sensitivity_arguments = sensitivity._validated_arguments(
+        {k: v for k, v in supplied.items() if k in sensitivity_names}, random_state
+    )
     return AssessmentReport(
         validation=validate_result(result, diagnostics),
-        diagnostics=diagnostics.run_all(
+        diagnostics=diagnostics._run_all(
             include_refits=include_refits,
             include_retargets=include_retargets,
-            arguments=diagnostic_arguments,
+            supplied=diagnostic_arguments,
             random_state=random_state,
         ),
-        sensitivity=sensitivity.run_all(
+        sensitivity=sensitivity._run_all(
             include_refits=include_refits,
             include_retargets=include_retargets,
-            arguments=sensitivity_arguments,
+            supplied=sensitivity_arguments,
             random_state=random_state,
         ),
     )
@@ -2745,8 +2315,7 @@ class SensitivityFacade(_CapabilityFacade):
     _attribute = "sensitivity"
 
     @cached_property
-    def capabilities(self) -> tuple[AssessmentCapability, ...]:
-        """Return sensitivity operations, their availability, cost, and requirements."""
+    def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
         longitudinal = family == "longitudinal"
         missing = (
@@ -2754,7 +2323,9 @@ class SensitivityFacade(_CapabilityFacade):
             if longitudinal
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
-        benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
+        # Whether a *point* fit is replayable is settled by ``requires_replay`` below.
+        # This row only says whether the analysis exists for the family at all.
+        benchmarkable = not longitudinal
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary means fit can use the facade's sole-parameter substitution, but a fit
         # that reports several means needs the caller to choose one.
@@ -2850,10 +2421,11 @@ class SensitivityFacade(_CapabilityFacade):
                 reason=(
                     None
                     if benchmarkable
-                    else "benchmarking requires a replayable point-treatment estimator"
+                    else "no longitudinal benchmarking derivation is registered"
                 ),
                 requires_arguments=("covariates",),
                 accepts_random_state=True,
+                requires_replay="refit_nuisances",
                 family=family,
             ),
             _capability(
@@ -2869,13 +2441,12 @@ class SensitivityFacade(_CapabilityFacade):
                     None
                     if benchmarkable
                     else "no longitudinal simulated-confounder perturbation law is implemented"
-                    if longitudinal
-                    else "simulation requires a replayable point-treatment estimator"
                 ),
                 requires_arguments=("grid", "estimand")
                 if continuous or binary_needs_estimand
                 else ("grid",),
                 accepts_random_state=True,
+                requires_replay="refit_nuisances",
                 family=family,
             ),
             standard(
@@ -2914,7 +2485,7 @@ class SensitivityFacade(_CapabilityFacade):
         return selected
 
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
-        from .sensitivity.evalue import _EValueRefusal
+        from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
 
         status: str | None
         reason: str | None
@@ -2925,7 +2496,7 @@ class SensitivityFacade(_CapabilityFacade):
             available, status, reason, execution = False, error.status, str(error), "summarize"
         else:
             available, status, reason = True, None, None
-            execution = "retarget" if selected.branch == "derived_rr" else "summarize"
+            execution = "retarget" if selected.branch == _DERIVED_RR else "summarize"
         return _capability(
             "evalue",
             _family(self._result),
@@ -3241,6 +2812,6 @@ class SensitivityFacade(_CapabilityFacade):
         return self._run_all(
             include_refits=include_refits,
             include_retargets=include_retargets,
-            arguments=arguments,
+            supplied=self._validated_arguments(arguments, random_state),
             random_state=random_state,
         )

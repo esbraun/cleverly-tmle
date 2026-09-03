@@ -413,7 +413,8 @@ complete estimator are distinct procedures and must not be inferred from the nam
 
 Preserve the fitted recursion, regimen and node metadata, targeting state, diagnostics, and enough
 learner provenance to distinguish replayable operations from those requiring a refit. Round trips
-must preserve estimates, curves, scores, and refusal behavior.
+must preserve estimates, curves, scores, and refusal behavior. Round trips must also preserve the
+cached `AssessmentReport` and the packed payload each `AssessmentItem` carries.
 
 ### S4. Longitudinal sensitivity analysis
 
@@ -427,6 +428,10 @@ Do not substitute a generic nuisance-bound sweep or an ordinary longitudinal ref
 paper and match its sensitivity ratios, factorization, strategy scope, sharpness conditions, and
 optimization representation. Report sampling intervals only if that audit supports them or a
 separate published result supplies them.
+
+Give the new operation its own sensitivity route, capability rows, and report interpreter. Do not
+make the shipped point-treatment sensitivity rows available on a longitudinal result. Each of
+those rows still waits for its own longitudinal derivation.
 
 ### F3. Additional longitudinal estimands
 

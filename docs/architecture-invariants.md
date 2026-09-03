@@ -146,14 +146,30 @@ the persistent cache silently.
 
 Both assessment facades route through one base. Lookup, refusal, and the combined report are
 written once. A refusal therefore always carries the reason its own capability row declares, and a
-combined report reads that declaration the same way on both facades. `run_all` names the two
-expensive classes separately: `include_refits` for operations that refit nuisances and
-`include_retargets` for those that retarget cached ones. They are disjoint, and one
-flag made whichever class it did not name run under the other's permission. Sensitivity
+combined report reads that declaration the same way on both facades. Sensitivity
 implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
 takes an estimand; that table and the declared capabilities are checked against each other in
 both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
 the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
+
+`run_all` sorts every capability row into one of three execution classes. A `summarize` row reads
+stored state and always runs. A `refit` row refits nuisances and runs only under `include_refits`.
+A `retarget` row retargets cached nuisances and runs under `include_retargets`, unless its own row
+declares `cost` as `cheap`. A cheap retarget runs by default, which is how an eligible ordinary
+TMLE fit reports its derived E-value without refitting a nuisance model.
+
+The two flags stay separate because the two costs are disjoint: refutation and benchmarking refit
+nuisances without retargeting, and the truncation curve retargets cached nuisances without
+refitting any. One flag made whichever class it did not name run under the other's permission.
+
+`run_all` applies its gates in one order: availability, then required arguments, then cost. Every
+gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
+told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.
+
+Availability is authoritative before execution. Each capability row names the `Replayability` field
+it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not
+patch one row by name. `refute` read its slot only while running, and so reported `available=True`
+on a result that carries no estimator.
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed

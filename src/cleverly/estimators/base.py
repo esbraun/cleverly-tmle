@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -436,8 +436,14 @@ class TMLEResult:
         Method identity stamped by the estimator; unknown for unstamped artifacts.
     solved_corrections : bool
         Whether the fit participated in the guarded correction system.
+
+    Attributes
+    ----------
     assessment_cache : dict
-        Saved diagnostic and sensitivity outputs.
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache. A result derived with
+        :func:`dataclasses.replace` therefore starts empty and cannot serve the original
+        result's verdicts. Persistence restores the mapping without the constructor.
 
     See Also
     --------
@@ -500,22 +506,26 @@ class TMLEResult:
     method: Any = None
     #: Alias-to-structured-key mapping. Routing must read this rather than parse aliases.
     parameter_keys: dict[str, Any] = field(default_factory=dict)
-    #: Persistent assessment results, keyed by operation plus normalized arguments.
-    #: Filling this mapping never changes the fitted parameter or its summary.
-    assessment_cache: dict[str, Any] = field(default_factory=dict)
-
     fitted_method: str = "unknown"
     solved_corrections: bool = False
+    #: Persistent assessment results, keyed by operation plus normalized arguments.
+    #: Filling this mapping never changes the fitted parameter or its summary.
+    #:
+    #: ``init=False`` because the key records the operation and its arguments and nothing
+    #: about the result that answered them.  ``dataclasses.replace`` used to pass the
+    #: original's mapping straight through, so a result derived by ``attach_bootstrap`` --
+    #: which changes ``estimates``, and therefore every sensitivity answer -- served the
+    #: original's cached verdicts under a different method stamp.  A constructed result
+    #: now owns an empty cache, and joblib persistence restores the saved mapping through
+    #: ``__setstate__`` rather than through ``__init__``.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
 
-    @property
-    def assessment_family(self) -> str:
-        """Return the declared assessment capability family."""
-        return "point"
-
-    @property
-    def assessment_method(self) -> str:
-        """Return the method recorded by this fitted artifact."""
-        return self.fitted_method
+    #: Which family of assessment declarations applies to this result.  A class constant
+    #: rather than a property: the family is a property of the result *type*, and nothing
+    #: a fit can do changes it.  ``cleverly.assessment`` reads it to pick the capability
+    #: table.  The method identity is :attr:`fitted_method`, which is the only name for
+    #: it, because two names for one value drift.
+    assessment_family: ClassVar[str] = "point"
 
     # --------------------------------------------------------------- repeats
 

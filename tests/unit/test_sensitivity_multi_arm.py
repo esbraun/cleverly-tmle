@@ -745,7 +745,7 @@ class TestRawEValuesUseFittedArmIdentity:
         assert report.estimand == "rr[high vs low]"
         assert not report.approximate
         assert report.risk_ratio == pytest.approx(binary_outcome_fit["rr[high vs low]"].psi)
-        detached = replace(binary_outcome_fit, estimator=None, assessment_cache={})
+        detached = replace(binary_outcome_fit, estimator=None)
         approximate = detached.sensitivity.evalue("ate[high vs low]")
         baseline = detached["ey[low]"].psi
         assert approximate.risk_ratio == pytest.approx(
@@ -776,7 +776,7 @@ class TestRawEValuesUseFittedArmIdentity:
             .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
             .single()
         )
-        detached = replace(fit, estimator=None, assessment_cache={})
+        detached = replace(fit, estimator=None)
         report = detached.sensitivity.evalue("ate")
         assert report.risk_ratio == pytest.approx(1 + fit["ate"].psi / fit["ey1"].psi)
         assert report.risk_ratio != pytest.approx(1 + fit["ate"].psi / fit["ey0"].psi)

@@ -31,6 +31,15 @@ The common seed reaches `refute`, `benchmark`, and `simulated_confounding`. A se
 its fit seed when you omit this argument. An unseeded fit draws a seed and records it on the
 returned row.
 
+`assess()` refuses `arguments` for `score_equations`. The validation battery owns that name and
+runs it argument-free. The battery presents the validation row for it, so it would compute your
+answer and then hide it. Call `result.diagnostics.run_all(arguments=...)`, or call the operation
+itself.
+
+The battery also owns `support` and `nuisance_models`, but neither one accepts an argument. An
+argument for either is a `TypeError` from the signature. An empty mapping applies nothing, so
+`assess()` accepts it for all three names.
+
 ## Result structure
 
 `CausalResult` is a read-only mapping from stable aliases to `ParameterEstimate` objects.
@@ -107,6 +116,11 @@ everything = result.diagnostics.run_all(include_refits=True, include_retargets=T
 
 Pass required choices with `arguments={"operation": {...}}`. The report row retains the effective
 arguments and the returned object. Use `report.report(name)` to retrieve that object.
+
+A refusal names the first thing that is wrong. An operation that needs a choice you did not pass
+names that choice, and not a cost flag. No flag supplies the covariates for `benchmark`, so the
+row says so under every flag.
+
 A completed `tipping_gamma` search can return `None` when its interval contains no tipping point.
 Use `battery.report(name, surface="diagnostics")` to retrieve a diagnostic that also appears under validation.
 
@@ -367,8 +381,8 @@ collaborative surface makes no numerical parity claim with those implementations
 Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
 or mixed level.
 
-A combined call excludes refits and retargets by default. Each skipped row names the flag that
-would run it. Longitudinal
+A combined call excludes refits and retargets by default. A row skipped for cost alone names the
+flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
 operations without a published derivation are reported unavailable rather than borrowing
 point-treatment formulas, and each refusal gives the reason its own capability row declares.
 
@@ -383,6 +397,14 @@ assert restored.parameter_keys == result.parameter_keys
 assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
+
+Read `result.diagnostics.capabilities` before you run an operation on a restored artifact. Each
+row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
+The row says which slot is missing, so you learn the answer before the operation runs.
+
+The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
+does not. The cache key records the operation and its arguments, and it records nothing about the
+result that answered them, so a derived result starts with an empty cache of its own.
 
 The joblib artifact contains the complete result graph, including nuisance estimator templates,
 so successfully restored results retain refit-based assessment. Joblib uses pickle internally:

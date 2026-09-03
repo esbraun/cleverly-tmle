@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from ..assessment import _cached, replayability
+from .._assessment_cache import _cached
 from ..exceptions import CapabilityError
 from ..inference.influence import ParameterEstimate, median_estimates
-from ..targets.base import parameter_name
+from ..targets.base import arm_alias
 from ._parameters import arm_parameter_keys
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..estimators.base import TMLEResult
 
 
-def _derived_risk_ratio(result: TMLEResult, source_estimand: str) -> ParameterEstimate:
+def _derived_risk_ratio(
+    result: TMLEResult, source_estimand: str, keys: dict[str, Any] | None = None
+) -> ParameterEstimate:
     """Retarget the source contrast's arms to a marginal risk ratio."""
-    refusal = _risk_ratio_refusal(result, source_estimand)
+    resolved = arm_parameter_keys(result) if keys is None else keys
+    refusal = _risk_ratio_refusal(result, source_estimand, resolved)
     if refusal is not None:
         raise CapabilityError(refusal)
-    key = arm_parameter_keys(result)[source_estimand]
+    key = resolved[source_estimand]
 
-    if result.data.is_binary_treatment:
-        alias = "rr"
-    else:
-        alias = parameter_name("rr", arm=key.value, versus=key.reference)
+    alias = arm_alias(
+        "rr", arm=key.value, versus=key.reference, collapse=result.data.is_binary_treatment
+    )
 
     def compute() -> ParameterEstimate:
         reports = []
@@ -56,13 +58,16 @@ def _derived_risk_ratio(result: TMLEResult, source_estimand: str) -> ParameterEs
     )
 
 
-def _risk_ratio_refusal(result: TMLEResult, source_estimand: str) -> str | None:
+def _risk_ratio_refusal(
+    result: TMLEResult, source_estimand: str, keys: dict[str, Any] | None = None
+) -> str | None:
     """Return why cached-nuisance risk-ratio retargeting cannot run."""
     if result.assessment_family != "point":
         return "derived risk ratios are unavailable for longitudinal results"
-    if source_estimand not in arm_parameter_keys(result):
+    resolved = arm_parameter_keys(result) if keys is None else keys
+    if source_estimand not in resolved:
         return "derived risk ratios require structured parameter keys retained by the fitted result"
-    key = arm_parameter_keys(result)[source_estimand]
+    key = resolved[source_estimand]
     if key.estimand not in {"ate", "or"}:
         return f"derived risk ratios require an ATE or odds-ratio source, not {key.estimand!r}"
     if key.axis != "arm":
@@ -73,7 +78,7 @@ def _risk_ratio_refusal(result: TMLEResult, source_estimand: str) -> str | None:
         return "derived risk ratios are unavailable for a continuous treatment"
     if result.config.family != "binomial":
         return "derived risk ratios require a binomial outcome"
-    method = result.assessment_method
+    method = result.fitted_method
     if method != "tmle":
         return (
             f"derived risk ratios are unavailable for fitted method {method!r}; "
@@ -86,6 +91,8 @@ def _risk_ratio_refusal(result: TMLEResult, source_estimand: str) -> str | None:
             "derived risk ratios are unavailable for controlled direct effects because no "
             "controlled direct risk-ratio target is registered"
         )
+    from ..assessment import replayability
+
     if not replayability(result).retarget_cached_nuisances or result.estimator is None:
         return "derived risk ratios require the fitted estimator's retarget path"
     if not result.repeats:

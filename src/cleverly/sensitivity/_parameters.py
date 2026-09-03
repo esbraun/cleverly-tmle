@@ -15,16 +15,23 @@ would file it under a contrast that does not exist instead of failing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..targets import parameter_name
+from ..targets.base import arm_alias, parameter_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import TargetGroup
 
-__all__ = ["ArmParameter", "arm_parameters", "conditional_stratum", "stratum_refusal"]
+__all__ = [
+    "ArmParameter",
+    "arm_parameter_keys",
+    "arm_parameters",
+    "conditional_stratum",
+    "stratum_refusal",
+]
 
 
 @dataclass(frozen=True)
@@ -53,6 +60,33 @@ class ArmParameter:
     group: TargetGroup
     arm: float
     versus: float | None = None
+
+    def key(self, label: Callable[[float], Any]) -> Any:
+        """This parameter as a :class:`~cleverly.ParameterKey`, in the reported labels.
+
+        The forward map's own view of itself.  :func:`arm_parameter_keys` used to restate
+        which field of an ``ArmParameter`` becomes which field of a key, which is the
+        translation this class is for.
+
+        Parameters
+        ----------
+        label : callable
+            Maps an arm code to the level the fit reports it under, normally
+            ``result.data.arm_label``.
+
+        Returns
+        -------
+        ParameterKey
+            The structured identity of this reported parameter.
+        """
+        from ..study import ParameterKey
+
+        return ParameterKey(
+            self.name,
+            self.stem,
+            value=label(self.arm),
+            reference=None if self.versus is None else label(self.versus),
+        )
 
     @property
     def conditions_on(self) -> float | None:
@@ -179,11 +213,7 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
         for stem, group in (("ate", "mean"), ("att", "att"), ("atc", "atc")):
             # The two-armed report keeps the bare stems, exactly as
             # ``TargetContext.name_for`` collapses them.
-            name = (
-                parameter_name(stem)
-                if binary
-                else parameter_name(stem, arm=label(arm), versus=label(reference))
-            )
+            name = arm_alias(stem, arm=label(arm), versus=label(reference), collapse=binary)
             out[name] = ArmParameter(name, stem, group, arm, reference)
     return out
 
@@ -198,12 +228,7 @@ def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
 
     data = result.data
     keys = {
-        name: ParameterKey(
-            name,
-            parameter.stem,
-            value=data.arm_label(parameter.arm),
-            reference=None if parameter.versus is None else data.arm_label(parameter.versus),
-        )
+        name: parameter.key(data.arm_label)
         for name, parameter in arm_parameters(result).items()
         if name in result.estimates
     }
@@ -212,12 +237,11 @@ def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
         if arm == reference:
             continue
         for target in ("rr", "or"):
-            alias = (
-                target
-                if data.is_binary_treatment
-                else parameter_name(
-                    target, arm=data.arm_label(arm), versus=data.arm_label(reference)
-                )
+            alias = arm_alias(
+                target,
+                arm=data.arm_label(arm),
+                versus=data.arm_label(reference),
+                collapse=data.is_binary_treatment,
             )
             if alias in result.estimates:
                 keys[alias] = ParameterKey(
