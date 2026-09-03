@@ -307,7 +307,9 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 The operation refuses estimated weights before it draws the latent vector. The fitted result does
 not store the weight model needed after a perturbation. It also refuses fixed weights with
-collaborative TMLE. No fitted nonuniform-law construction supports that selector composition.
+collaborative TMLE. The selector scores its path by a weighted loss, and no source or exact-law
+test transports that choice to the tilted law.
+
 Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
 or mixed level.
 

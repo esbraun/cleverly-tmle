@@ -331,7 +331,7 @@ published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
 
 | refused family | what it still needs |
 | --- | --- |
-| fixed observation weights with collaborative TMLE | a fitted nonuniform-law construction and source-backed comparison |
+| fixed observation weights with collaborative TMLE | a transport argument for the path the selector chooses at the tilted law |
 | estimated observation weights | replayable weight-model provenance and a refit rule |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
@@ -456,7 +456,8 @@ regression surface the extension must preserve.
 ### F5. Other refused DR-TMLE compositions
 
 Continue pre-fit refusals for `att`/`atc`, stochastic and incremental interventions, continuous
-shifts, MSMs, mediation, C-TMLE, estimated weights, and missing treatment in the DR-TMLE regime.
+shifts, MSMs, mediation, C-TMLE, and missing treatment in the DR-TMLE regime. `weights_estimated=`
+is not a pre-fit refusal. The fit runs, and no interval claim covers the estimation.
 Ordinary-TMLE implementations do not establish intervals valid when one primary nuisance is
 inconsistent. Each composition waits for its reduced regressions, corrected influence curve,
 remainder, and rate conditions; estimated weights also require their estimation influence term.

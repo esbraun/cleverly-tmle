@@ -424,9 +424,11 @@ class DRTMLE(TMLE):
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions
     on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
-    rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  ``docs/roadmap.md``,
-    *F5. Other refused DR-TMLE compositions*, keeps estimated weights refused until a paper
-    supplies the influence contribution for estimating them.
+    rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  The fit still runs; what
+    ``docs/roadmap.md``, *F5. Other refused DR-TMLE compositions*, withholds is an interval claim,
+    until a paper supplies the influence contribution for estimating them.
+    ``simulated_confounding`` refuses the composition outright, because it cannot replay the
+    weight model after a perturbation.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
     complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those
