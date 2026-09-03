@@ -425,10 +425,14 @@ class DRTMLE(TMLE):
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions
     on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
     rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  ``docs/roadmap.md``,
-    *D2. Other refused DR-TMLE compositions*, keeps estimated weights refused until a paper
-    supplies the influence contribution for estimating them.  No **fitted** weighted
-    ``DRTMLE`` run exists here either; that is an applied stress test nothing has run, and
-    no document tracks it as scheduled work.
+    *F5. Other refused DR-TMLE compositions*, keeps estimated weights refused until a paper
+    supplies the influence contribution for estimating them.
+
+    ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
+    complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those
+    tests pin replacement, replay, weight provenance, and controls against dropped weights and
+    ordinary-TMLE fallback.  They do not establish interval validity or weighted parity with a
+    canonical implementation.
     """
 
     def __init__(

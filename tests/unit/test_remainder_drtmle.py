@@ -681,17 +681,15 @@ class TestAWeightedFitTransportsToTheTiltedLaw:
     :math:`dP_w = w\,dP / E[w]` needs two things: the reduced regressions to be conditional
     expectations under :math:`P_w`, which weighted loss gives; and the mechanism they
     condition on and divide by to be the :math:`P_w`-mechanism rather than :math:`g_0`, which
-    holds because ``nuisance.propensity`` *is* the weighted fit.  Very likely fine, which is
-    exactly the sort of thing this module exists to stop asserting -- and no test anywhere
-    passed a non-uniform weight to a ``DRTMLE`` fit before this one.
+    holds because ``nuisance.propensity`` *is* the weighted fit.  The tests below establish
+    that transport identity independently of fitted behavior.
 
     The instrument is the exact law rather than a fitted run, deliberately.  Transport is an
-    identity about which conditional expectations the reductions are; a fitted weighted
-    comparison would measure the noise in three extra learners and could not distinguish a
-    wrong conditioning law from a bad draw.  What is *not* closed here is the applied stress
-    test of a fitted weighted fit, which nothing has run and no document schedules; see
-    :class:`~cleverly.DRTMLE`'s ``weights_estimated=`` discussion for what that would and
-    would not settle.
+    identity about which conditional expectations the reductions are.  A fitted weighted
+    comparison also measures noise in three extra learners, so it cannot isolate a wrong
+    conditioning law.  ``tests/unit/test_simulated_confounding.py`` now supplies the separate
+    applied witness through nonuniform-weight refits, provenance checks, and active fallback
+    controls.  Those surface tests do not replace this identity or establish interval validity.
     """
 
     @pytest.mark.parametrize("name", ESTIMANDS)

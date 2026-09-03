@@ -307,8 +307,8 @@ Ratio surfaces require a binomial outcome. The other rows support Gaussian and b
 | continuous | one explicitly named marginal `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal `ate_shift[...]` contrast | exact ordinary TMLE |
 
-Every ordinary-TMLE row accepts fixed probability weights. The collaborative-TMLE and DR-TMLE
-rows accept unweighted fits only.
+Every ordinary-TMLE row accepts fixed probability weights. Each binary complete-outcome DR-TMLE
+row also accepts them. The collaborative-TMLE rows accept unweighted fits only.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
 repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
@@ -337,8 +337,25 @@ The continuous path keeps the fitted modified treatment policies fixed. Each cel
 the observed dose and outcome before the complete refit.
 
 **Fixed observation weights.** Ordinary-TMLE surfaces accept declared fixed probability weights
-for every row in the support table. The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps
-each normalized weight on its original row during both replacements and every complete refit.
+for every row in the support table. Binary complete-outcome DR-TMLE surfaces also accept them.
+The weights define $dP_w=w\,dP/E_P[w]$. The operation keeps each normalized weight on its original
+row during both replacements and every complete refit.
+
+The latent value stays independent and standard normal. Fixed row weights preserve this
+factorization:
+
+$$
+d(P_w\times\Phi)(o,u)=\frac{w(o)}{E_P[w]}\,dP(o)\,d\Phi(u).
+$$
+
+Benkeser et al. (2017), Theorem 1, supplies the complete-outcome DR-TMLE corrected curve and its
+remainder conditions. The exact-law tests transport its conditional expectations, mechanism,
+marginal means, and scores to $P_w$. They include a wrong-transport control with a nonzero
+remainder.
+
+The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight argument. It supplies no
+weighted numerical comparator. This surface therefore claims no weighted R parity and broadens no
+interval claim.
 
 Conditional on the observed rows and fixed weights, the simulation draws each latent value
 independently from a standard normal law without using either. After that draw, the realized
@@ -359,8 +376,8 @@ estimates, the displacements, the induced associations, and the calibration stre
 unchanged. The agreement is numerical rather than bitwise, because `check_weights` normalizes each
 weight vector to mean one.
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_surface_is_invariant_to_a_common_weight_scale`
-pins that agreement to 1e-12. The supplied scale is itself a descriptive measurement, so
-`weight_report.scale` does change with it.
+pins ordinary TMLE to 1e-12. The matching DR-TMLE test applies the same tolerance. The supplied
+scale is itself a descriptive measurement, so `weight_report.scale` does change with it.
 
 **Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
@@ -373,7 +390,7 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a missing outcome | not written yet | the surface has no missingness law and no observation refit |
 | a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
 | estimated observation weights | not written yet | the result lacks the fitted weight model needed after a perturbation |
-| fixed observation weights with collaborative TMLE or DR-TMLE | not written yet | the weighted evidence covers ordinary TMLE only |
+| fixed observation weights with collaborative TMLE | not written yet | no fitted nonuniform-law construction or source-backed comparison supports the selector composition |
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See the [future investigation](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT, ATC, and conditional strata | not written yet | ATT and ATC condition on observed-treatment populations, and strata need a shared per-stratum contract |
@@ -387,7 +404,7 @@ and a constant benchmark covariate. It refuses a result whose repeat provenance 
 itself. The stored draw count, `config.crossfit.repeats`, and the replay estimator's `repeats`
 must state the same number. Each is a statement about the object you hold.
 
-The surface also refuses three observation-weight compositions. It refuses a weight kind other
+The surface also refuses three observation-weight states. It refuses a weight kind other
 than `probability`, because it supports fixed probability weights only. It refuses a result whose
 `weights_name` and `WeightSpec` name disagree, which is inconsistent weight provenance. It refuses
 nonconstant observation weights with no declared weight column.
