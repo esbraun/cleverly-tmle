@@ -50,6 +50,7 @@ from cleverly.sensitivity.simulated_confounding import (
     _linear_treatment,
     _perturb_treatment,
     _treatment_association,
+    _weighted_std,
 )
 
 
@@ -615,7 +616,9 @@ def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
 def test_fixed_weight_surface_repeats_cache_and_serialization_round_trip() -> None:
     result = _fit(repeats=3, weight_scale=4.0)
     kwargs = {
-        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        # A nonzero outcome strength runs the weighted outcome replacement under repeats,
+        # which the treatment axis alone never reaches.
+        "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
         "benchmark_covariates": ("W1",),
         "random_state": 31,
     }
@@ -626,6 +629,27 @@ def test_fixed_weight_surface_repeats_cache_and_serialization_round_trip() -> No
     assert surface.weight_report == result.data.weight_report()
     assert surface.weight_report.name == "weight"
     assert surface.n_repeats == 3
+
+    # Without these the round trip would agree even if the restored fit refit no cell and
+    # calibrated no covariate.
+    assert surface.complete
+    assert surface.repeat_aggregation == "coordinatewise_median"
+    assert len(surface.cells) == 4
+    assert all(
+        cell.displacement is not None and abs(cell.displacement) > 1e-6
+        for cell in surface.cells[1:]
+    )
+    # `product` places the outcome-only cell at index 1, so the grid does reach the
+    # outcome axis under repeats. A displacement cannot witness that the replacement
+    # changed the outcome, because this refit seed displaces every cell by fold noise on
+    # its own. `test_fixed_weights_preserve_every_replacement_and_equal_a_manual_refit`
+    # carries that witness, on the replacement the surface hands to the refit.
+    assert surface.cells[1].treatment_strength == 0.0
+    assert surface.cells[1].outcome_strength == 0.2
+    calibrated = {row.role: row for row in surface.calibrations if row.covariate == "W1"}
+    assert set(calibrated) == {"treatment", "outcome"}
+    assert all(np.isfinite(row.strength) for row in calibrated.values())
+    assert abs(calibrated["outcome"].strength) > 0.0
 
     restored = loads(dumps(result))
     replayed = restored.sensitivity.simulated_confounding(**kwargs)
@@ -640,12 +664,23 @@ def test_fixed_weights_preserve_every_replacement_and_equal_a_manual_refit(
     result = _fit(weight_scale=2.0)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
     surface = simulated_confounding(result, grid=grid, random_state=31)
-    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
 
-    assert surface.cells[3].estimate == manual["ate"].psi
-    assert surface.cells[3].displacement == (
-        manual["ate"].inference_value - result["ate"].inference_value
-    )
+    # Every refitted cell, not one of them. A single cell would leave the other two
+    # replacements free to drop the weights, the strengths, or both.
+    assert surface.complete
+    assert len(surface.cells) == 4
+    for cell in surface.cells[1:]:
+        manual = _manual_repeated_refit(
+            result,
+            surface,
+            treatment=cell.treatment_strength,
+            outcome=cell.outcome_strength,
+        )
+        assert cell.estimate == manual["ate"].psi
+        assert cell.displacement == (manual["ate"].inference_value - result["ate"].inference_value)
+        # Non-vacuity. A manual refit that matched a surface which never moved would
+        # agree at the original estimate.
+        assert cell.displacement != 0.0
 
     calls = _record_refits(result, monkeypatch, fail_call=2)
     retained = simulated_confounding(result, grid=grid, random_state=31)
@@ -658,6 +693,41 @@ def test_fixed_weights_preserve_every_replacement_and_equal_a_manual_refit(
         assert np.array_equal(replacement.weights, result.data.weights)
         assert replacement.weight_spec is result.data.weight_spec
         assert replacement.weights_name == result.data.weights_name == "weight"
+
+    # Each axis reached the replacement the surface handed to the refit. `product` orders
+    # the non-anchor cells outcome-only, treatment-only, then both, so each call below
+    # must move its own variable and leave the other one alone. A displacement cannot
+    # witness this, because the refit seed moves every cell by fold noise on its own.
+    outcome_only, treatment_only, both = (replacement for replacement, _ in calls)
+    assert not np.array_equal(outcome_only.outcome, result.data.outcome)
+    assert np.array_equal(outcome_only.treatment, result.data.treatment)
+    assert np.array_equal(treatment_only.outcome, result.data.outcome)
+    assert not np.array_equal(treatment_only.treatment, result.data.treatment)
+    assert not np.array_equal(both.outcome, result.data.outcome)
+    assert not np.array_equal(both.treatment, result.data.treatment)
+
+
+def test_a_fixed_weight_ratio_cell_equals_a_manual_refit_on_the_log_scale() -> None:
+    """A second composition, so the manual-refit evidence is not one estimand and scale.
+
+    A risk ratio reports its movement on the log scale. This pins the weighted cell
+    against a manual refit and against the log rule the module applies.
+    """
+    result = _fit_ratio(target="rr", weight_scale=1.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))
+    surface = simulated_confounding(result, estimand="rr", grid=grid, random_state=31)
+    manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.0)
+    cell = surface.cells[1]
+
+    assert surface.target_measure == "fixed_empirical_tilt"
+    assert surface.movement_scale == "log_ratio"
+    assert cell.estimate == manual["rr"].psi
+    assert cell.displacement == manual["rr"].inference_value - result["rr"].inference_value
+    assert cell.displacement == pytest.approx(
+        float(np.log(manual["rr"].psi) - np.log(result["rr"].psi)), rel=1e-12
+    )
+    # Non-vacuity. A cell that never refit would report the original ratio and no movement.
+    assert cell.displacement != 0.0
 
 
 def test_constant_declared_weights_preserve_unweighted_surface_arithmetic() -> None:
@@ -727,9 +797,12 @@ def test_nonuniform_weights_change_a_weight_dependent_surface() -> None:
     )
 
     assert tilted.original_estimate != pytest.approx(plain.original_estimate, abs=1e-5)
+    # Cell zero is the anchor. It runs no refit and reports the original estimate the line
+    # above already separates, so it cannot witness that the weights reached a refit. Only
+    # the refitted cells carry that evidence, and all three of them move.
     assert any(
         weighted.estimate != pytest.approx(unweighted.estimate, abs=1e-5)
-        for unweighted, weighted in zip(plain.cells, tilted.cells, strict=True)
+        for unweighted, weighted in zip(plain.cells[1:], tilted.cells[1:], strict=True)
     )
 
 
@@ -941,6 +1014,76 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     )
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(result, grid=_grid())
+
+
+def _fit_with_a_support_constant_covariate(*, seed: int = 7) -> Any:
+    """Fit weighted data whose ``W4`` varies on zero-weight rows alone.
+
+    ``check_weights`` allows a zero weight, so such a row carries no mass. ``W4`` is
+    therefore degenerate under the weighted law and calibrates nothing.
+    """
+    frame, _ = make_linear_ate(n=120, seed=seed)
+    weights = np.linspace(0.5, 1.5, len(frame))
+    unsupported = np.zeros(len(frame), dtype=bool)
+    unsupported[::20] = True
+    weights[unsupported] = 0.0
+    frame["weight"] = weights
+    # The supported value is not a binary fraction, so the weighted mean of the column
+    # carries a rounding residual and its weighted standard deviation is not exactly zero.
+    degenerate = np.full(len(frame), 3.14)
+    degenerate[unsupported] = 1.0 + np.arange(int(unsupported.sum()))
+    frame["W4"] = degenerate
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3", "W4"),
+            weights="weight",
+        ),
+    )
+    return study.identify(ATE()).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=seed,
+        simultaneous=False,
+    )
+
+
+def test_a_covariate_constant_on_the_positive_weight_support_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The constant-covariate guard reads the support, not a weighted standard deviation.
+
+    A weighted standard deviation leaves a floating-point residual on this column, so a
+    ``== 0.0`` test on it never fires and the surface reports a meaningless strength near
+    zero. The exact test on the positive-weight support refuses the column instead.
+    """
+    result = _fit_with_a_support_constant_covariate()
+    column = result.data.covariates[:, result.data.covariate_names.index("W4")]
+    weights = result.data.weights
+
+    # The deliberate-mutation control for the guard. Restore the old test and this test
+    # fails, because the residual below is not zero.
+    assert 0.0 < _weighted_std(column, weights) < 1e-8
+    assert np.unique(column[weights > 0.0]).size == 1
+    assert np.unique(column).size > 1
+
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    with pytest.raises(CapabilityError, match="constant covariate 'W4'"):
+        simulated_confounding(result, grid=_grid(), benchmark_covariates=("W4",))
 
 
 def test_repeated_surface_retains_a_complete_refit_failure(
@@ -1568,11 +1711,15 @@ def test_continuous_calibration_uses_the_signed_standardized_coefficient(
     assert rows["treatment"].family == "gaussian"
     assert rows["treatment"].method == "signed standardized marginal coefficient"
     assert rows["treatment"].strength == pytest.approx(
-        _continuous_calibration(result.data.covariates[:, index], result.data.treatment),
+        _continuous_calibration(
+            result.data.covariates[:, index], result.data.treatment, result.data.weights
+        ),
         rel=1e-12,
     )
     assert rows["outcome"].strength == pytest.approx(
-        _continuous_calibration(result.data.covariates[:, index], result.data.outcome),
+        _continuous_calibration(
+            result.data.covariates[:, index], result.data.outcome, result.data.weights
+        ),
         rel=1e-12,
     )
 
@@ -1745,7 +1892,9 @@ def test_failed_refits_and_arm_loss_remain_visible(
     # its association. Cell 1 carries treatment strength zero, so it reports the baseline.
     failed_latent = np.random.default_rng(failed.latent_seed).normal(size=gaussian_result.data.n)
     assert failed.cells[1].induced_treatment_association == pytest.approx(
-        _treatment_association(failed_latent, gaussian_result.data.treatment)
+        _treatment_association(
+            failed_latent, gaussian_result.data.treatment, gaussian_result.data.weights
+        )
     )
     assert failed.cells[1].induced_treatment_association is not None
 
@@ -1829,7 +1978,10 @@ def test_numeric_calibration_matches_the_declared_formulas(
     assert rows["treatment"].strength == pytest.approx(strength)
     assert rows["treatment"].strength == pytest.approx(expected_treatment, rel=1e-12)
     assert rows["treatment"].strength == pytest.approx(
-        _binary_calibration(design, gaussian_result.data.treatment, index), rel=1e-12
+        _binary_calibration(
+            design, gaussian_result.data.treatment, index, gaussian_result.data.weights
+        ),
+        rel=1e-12,
     )
     assert rows["treatment"].family == "binomial"
     assert rows["treatment"].method == "logistic class-prediction change fraction"
@@ -3401,7 +3553,12 @@ def test_the_anchor_cell_reports_the_unperturbed_baseline(low_treated_result: An
 
     assert surface.cells[0].treatment_strength == 0.0
     assert surface.cells[0].induced_treatment_association == pytest.approx(expected, rel=1e-12)
-    assert _treatment_association(latent, low_treated_result.data.treatment) == expected
+    assert (
+        _treatment_association(
+            latent, low_treated_result.data.treatment, low_treated_result.data.weights
+        )
+        == expected
+    )
 
     # Non-vacuity. The treatment is drawn independently of the latent vector, so the
     # baseline is near zero and every perturbed cell sits far above it.

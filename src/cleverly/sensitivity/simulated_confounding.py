@@ -879,7 +879,7 @@ def _validate_request(
                 f"{[name for name in data.covariate_names if name not in categorical]}"
             )
         column = data.covariates[:, data.covariate_names.index(name)]
-        if _weighted_std(column, data.weights) == 0.0:
+        if _is_constant_under_weights(column, data.weights):
             raise CapabilityError(
                 f"simulated_confounding cannot calibrate constant covariate {name!r}"
             )
@@ -956,6 +956,29 @@ def _weighted_std(values: np.ndarray[Any, Any], weights: np.ndarray[Any, Any]) -
     return float(np.sqrt(np.average(np.square(values - mean), weights=weights)))
 
 
+def _is_constant_under_weights(values: np.ndarray[Any, Any], weights: np.ndarray[Any, Any]) -> bool:
+    """Report whether a covariate takes one value on every row the weights keep.
+
+    A zero weight is legal, and a row that carries no mass calibrates nothing. The
+    comparison of distinct values on the positive-weight support is exact, where
+    :func:`_weighted_std` leaves a floating-point residual in place of zero.
+
+    Parameters
+    ----------
+    values : ndarray
+        One numeric adjustment column of the analysis data.
+    weights : ndarray
+        Normalized fixed row masses.
+
+    Returns
+    -------
+    bool
+        ``True`` when the positive-weight rows carry at most one distinct value.
+    """
+    supported = values[weights > 0.0]
+    return bool(supported.size == 0 or np.unique(supported).size <= 1)
+
+
 def _weighted_correlation(
     left: np.ndarray[Any, Any],
     right: np.ndarray[Any, Any],
@@ -982,7 +1005,7 @@ def _weighted_correlation(
 def _treatment_association(
     latent: np.ndarray[Any, Any],
     treatment: np.ndarray[Any, Any],
-    weights: np.ndarray[Any, Any] | None = None,
+    weights: np.ndarray[Any, Any],
 ) -> float | None:
     """Report the realised correlation between the latent vector and one treatment.
 
@@ -997,16 +1020,15 @@ def _treatment_association(
         Shared latent vector drawn for the complete surface.
     treatment : ndarray
         Original or perturbed treatment of one cell.
-    weights : ndarray or None
-        Normalized fixed row masses. ``None`` preserves the unweighted calculation.
+    weights : ndarray
+        Normalized fixed row masses. An unweighted fit supplies a vector of ones.
 
     Returns
     -------
     float or None
         Pearson correlation, or ``None`` when the treatment has zero standard deviation.
     """
-    empirical_weights = np.ones(treatment.size) if weights is None else weights
-    return _weighted_correlation(latent, treatment, empirical_weights)
+    return _weighted_correlation(latent, treatment, weights)
 
 
 def _gaussian_outcome(
@@ -1019,33 +1041,31 @@ def _binary_calibration(
     design: np.ndarray[Any, Any],
     target: np.ndarray[Any, Any],
     index: int,
-    weights: np.ndarray[Any, Any] | None = None,
+    weights: np.ndarray[Any, Any],
 ) -> float:
-    empirical_weights = np.ones(target.size) if weights is None else weights
     model = LogisticRegression(max_iter=1000)
-    if _weights_are_constant(empirical_weights):
+    if _weights_are_constant(weights):
         model.fit(design, target)
     else:
-        model.fit(design, target, sample_weight=empirical_weights)
+        model.fit(design, target, sample_weight=weights)
     baseline = model.predict(design)
     removed = design.copy()
     removed[:, index] = 0.0
     changed = model.predict(removed) != baseline
-    if _weights_are_constant(empirical_weights):
+    if _weights_are_constant(weights):
         return float(np.mean(changed))
-    return float(np.average(changed, weights=empirical_weights))
+    return float(np.average(changed, weights=weights))
 
 
 def _continuous_calibration(
     covariate: np.ndarray[Any, Any],
     target: np.ndarray[Any, Any],
-    weights: np.ndarray[Any, Any] | None = None,
+    weights: np.ndarray[Any, Any],
 ) -> float:
-    empirical_weights = np.ones(target.size) if weights is None else weights
-    correlation = _weighted_correlation(covariate, target, empirical_weights)
+    correlation = _weighted_correlation(covariate, target, weights)
     if correlation is None:
         return float("nan")
-    return correlation * _weighted_std(target, empirical_weights)
+    return correlation * _weighted_std(target, weights)
 
 
 def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderCalibration, ...]:
