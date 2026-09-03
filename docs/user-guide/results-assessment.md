@@ -177,6 +177,17 @@ movements = surface.to_frame()
 calibration = surface.calibration_frame()
 ```
 
+An ordinary-TMLE fit can declare fixed probability weights. The surface keeps each normalized
+weight on its row during every treatment replacement, outcome replacement, and complete refit.
+Read `surface.target_measure` to distinguish `unweighted` from `fixed_empirical_tilt`.
+`surface.weight_report` records the weight column, kind, supplied scale, and concentration.
+The label follows the declared weight column, so read `surface.weight_report.is_weighted` to learn
+whether the realized tilt is nonconstant.
+
+Under `fixed_empirical_tilt`, each cell evaluates its parameter on the perturbed weighted
+empirical law. This operation does not reproduce the original sampling or selection mechanism.
+It conditions on the fixed weights that the fit stores.
+
 The surface keeps the fitted estimator's `repeats` setting. Each non-anchor cell runs one complete
 refit, and the estimator combines its draws with a coordinatewise median. Read `surface.n_repeats`
 and `surface.repeat_aggregation` to confirm that provenance. `repeat_aggregation` names the rule
@@ -269,6 +280,10 @@ carries the same value in a column of that name, and `summary()` prints it. On a
 the column before you read a treatment movement as confounding. A value near the anchor can
 reflect misclassification alone.
 
+For a fixed-weight fit, the association and numeric calibration use the weighted empirical law.
+Calibration weights feature scaling, model fitting, prediction-change fractions, correlations,
+and standard deviations. A common scale change to the weights leaves these values unchanged.
+
 On a continuous fit, the latent variable changes the dose by construction, so the association
 grows with the treatment strength. A confounding path also needs the latent variable to enter the
 outcome, and only a nonzero outcome strength puts it there. A cell in the zero outcome-strength
@@ -288,6 +303,12 @@ original estimate exactly. Additive surfaces record `movement_scale="estimate_di
 Read the output as a qualitative stress surface. It is not a corrected estimate, bound, p-value,
 confidence interval, robustness value, or pass/fail result. Calibration reports model-dependent
 source conventions for numeric covariates. It does not change the declared grid.
+
+The operation refuses estimated weights before it draws the latent vector. The fitted result does
+not store the weight model needed after a perturbation. It also refuses fixed weights with
+collaborative TMLE or DR-TMLE. Their weighted composition lacks estimator-specific source support.
+Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
+or mixed level.
 
 A combined call excludes refits and retargets by default. Each skipped row names the flag that
 would run it. Longitudinal

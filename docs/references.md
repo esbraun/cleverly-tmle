@@ -29,6 +29,12 @@ previous reader had is not a citation; a page number is.
   page 5, defines marginal risk and odds ratios from two counterfactual risks. Section 2.7,
   page 10, reports intervals for both ratios on the log scale. Appendix A, page 34, gives
   their log-scale influence curves.
+- CRAN `tmle` 2.1.1, source at commit
+  [`f8d88a0`](https://github.com/cran/tmle/tree/f8d88a07a3d25c96688221b384043eef7a31fe68).
+  [`R/tmle.R`](https://github.com/cran/tmle/blob/f8d88a07a3d25c96688221b384043eef7a31fe68/R/tmle.R)
+  normalizes `obsWeights`. It routes them through outcome and treatment fitting, targeting,
+  plug-in evaluation, and influence-curve calculations. This source supports the weighted
+  ordinary-TMLE refit. It does not implement a simulated common-cause surface.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
@@ -157,6 +163,14 @@ previous reader had is not a citation; a page number is.
   `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
+- Fixed-weight audit of the same `lmtp` snapshot:
+  [`R/tmle.R`, lines 18-96](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/tmle.R#L18-L96)
+  keeps task weights on training rows and includes them in each targeting fluctuation. Its
+  `run_ensemble` call on lines 44-48 receives no sampling weights, so the nuisance fits are
+  unweighted. [`R/theta.R`, lines 1-15](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/theta.R#L1-L15)
+  supplies the weighted plug-in and influence-function aggregation. These locators support a
+  weight-routing audit for modified treatment policies. The registered comparison is unweighted,
+  and this source does not implement a simulated common-cause surface.
 - Clustered inference audit (2026-08-29): the same `lmtp` snapshot passes its task identifier to
   `ife::ife`. Pinned [`ife` 0.2.3](https://cran.r-project.org/src/contrib/Archive/ife/ife_0.2.3.tar.gz)
   requires equal identifiers before it subtracts arm objects. That subtraction uses the joint
@@ -247,7 +261,14 @@ previous reader had is not a citation; a page number is.
   binomial outcome tail flip. These are secondary finite-sample conventions only. `cleverly` uses
   original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,
   explicit grids, and retained failures. It does not copy automatic ranges, categorical
-  encoded-column deletion, or cumulative mutation of shared data.
+  encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
+  argument in `_include_confounders_effect`, so this source supplies the perturbation and the
+  refit only. It does not supply the weighted evaluation.
+- Hartman & Huang (2024), [*Sensitivity Analysis for Survey
+  Weights*](https://doi.org/10.1017/pan.2023.12), *Political Analysis* 32(1):1-16.
+  Their method bounds the bias from a confounder that the weighting model omits. It supplies a
+  bound, a robustness value, and a benchmarking procedure. This surface supplies none of those, so
+  it answers a different sensitivity question.
 - Hu, Zou, Gu, Ji, Lopez & Kale (2022), [*A flexible sensitivity analysis approach for unmeasured
   confounding with multiple treatments and a binary outcome with application to SEER-Medicare lung
   cancer data*](https://doi.org/10.1214/21-AOAS1530), *The Annals of Applied Statistics*
@@ -258,6 +279,12 @@ previous reader had is not a citation; a page number is.
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
   latent treatment perturbation and no refit law for this surface. Cited by roadmap item F8.
+- Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
+  Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
+  arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
+  a bias correction from those models. That construction does not perturb the treatment and the
+  outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
+  and a mixed latent cause for this surface. Cited by roadmap item F9.
 
 ## Negative controls
 

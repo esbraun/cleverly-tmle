@@ -25,6 +25,7 @@ from ..utils.text import format_table
 from ..validation.simulation import ReplicationFailure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..data import WeightReport
     from ..estimators.base import TMLEResult
 
 __all__ = [
@@ -109,10 +110,10 @@ class SimulatedConfoundingCell:
         the cell failed.
     induced_treatment_association : float or None
         Pearson correlation between the shared latent vector and the treatment of this
-        cell, measured on the analysis data. The anchor cell reports the original
-        treatment, which gives the null level of the same data. Every other cell reports
-        the perturbed treatment. The value is ``None`` when that treatment has zero
-        standard deviation, and when a cell failed before the surface built it.
+        cell, measured on the fit's empirical target measure. The anchor cell reports the
+        original treatment, which gives the null level of the same data. Every other cell
+        reports the perturbed treatment. The value is ``None`` when that treatment has
+        zero standard deviation, and when a cell failed before the surface built it.
     failure : ReplicationFailure or None
         Structured refit or replacement failure retained for this cell.
     """
@@ -171,8 +172,14 @@ class SimulatedConfoundingResult:
         Human-readable treatment perturbation rule.
     outcome_law : str
         Human-readable outcome perturbation rule.
+    weight_report : WeightReport
+        Provenance for the fixed empirical row-mass vector used by every cell.
     backend : str or None
         Dataframe backend used by frame methods.
+
+    Attributes
+    ----------
+    target_measure : {"unweighted", "fixed_empirical_tilt"}
 
     See Also
     --------
@@ -194,7 +201,13 @@ class SimulatedConfoundingResult:
     outcome_family: str
     treatment_law: str
     outcome_law: str
+    weight_report: WeightReport
     backend: str | None = None
+
+    @property
+    def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
+        """Name the empirical measure on which every cell is evaluated."""
+        return "fixed_empirical_tilt" if self.weight_report.name is not None else "unweighted"
 
     @property
     def complete(self) -> bool:
@@ -304,6 +317,7 @@ class SimulatedConfoundingResult:
                     f"refit={self.refit_seed}"
                 ),
                 crossfit,
+                f"target measure: {self.target_measure}",
                 self.treatment_law,
                 self.outcome_law,
                 "",
@@ -319,7 +333,7 @@ class SimulatedConfoundingResult:
                 ),
                 "",
                 "The induced association is the correlation between the latent vector and the "
-                "treatment of the cell.",
+                "treatment of the cell under the target measure.",
                 *self._reading_guard(),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
@@ -725,12 +739,34 @@ def _validate_request(
         raise CapabilityError(
             "simulated_confounding has no controlled-direct-effect or intermediate-variable law"
         )
-    if data.weights_name is not None or data.is_weighted:
+    if data.weights_name is not None and data.weight_spec.estimated:
         raise CapabilityError(
-            "simulated_confounding does not support observation-weighted target populations"
+            "simulated_confounding cannot replay estimated observation weights; the fitted "
+            "result does not store the model needed to re-estimate them after perturbation"
+        )
+    if data.weight_spec.kind != "probability":
+        raise CapabilityError(
+            "simulated_confounding supports fixed probability weights only; "
+            f"got weight kind {data.weight_spec.kind!r}"
+        )
+    if data.weights_name != data.weight_spec.name:
+        raise CapabilityError(
+            "simulated_confounding found inconsistent observation-weight provenance; "
+            "the data column and WeightSpec names disagree"
+        )
+    if data.weights_name is None and data.is_weighted:
+        raise CapabilityError(
+            "simulated_confounding found nonconstant observation weights without a declared "
+            "weight column"
         )
     if data.cluster is not None:
         raise CapabilityError("simulated_confounding does not support clustered fits")
+    if data.weights_name is not None and type(estimator) is not TMLE:
+        raise CapabilityError(
+            "simulated_confounding supports fixed observation weights with ordinary TMLE only; "
+            f"weighted {type(estimator).__name__} lacks estimator-specific perturb-and-refit "
+            "evidence"
+        )
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(
@@ -843,7 +879,7 @@ def _validate_request(
                 f"{[name for name in data.covariate_names if name not in categorical]}"
             )
         column = data.covariates[:, data.covariate_names.index(name)]
-        if float(np.std(column)) == 0.0:
+        if _is_constant_under_weights(column, data.weights):
             raise CapabilityError(
                 f"simulated_confounding cannot calibrate constant covariate {name!r}"
             )
@@ -907,8 +943,69 @@ def _perturb_treatment(
     return _flip_binary(values, _flip_mask(latent, strength))
 
 
+def _weights_are_constant(weights: np.ndarray[Any, Any]) -> bool:
+    """Return whether weighted calculations must preserve the old arithmetic path."""
+    return bool(np.allclose(weights, 1.0))
+
+
+def _weighted_std(values: np.ndarray[Any, Any], weights: np.ndarray[Any, Any]) -> float:
+    """Return a population standard deviation under the normalized empirical weights."""
+    if _weights_are_constant(weights):
+        return float(np.std(values))
+    mean = float(np.average(values, weights=weights))
+    return float(np.sqrt(np.average(np.square(values - mean), weights=weights)))
+
+
+def _is_constant_under_weights(values: np.ndarray[Any, Any], weights: np.ndarray[Any, Any]) -> bool:
+    """Report whether a covariate takes one value on every row the weights keep.
+
+    A zero weight is legal, and a row that carries no mass calibrates nothing. The
+    comparison of distinct values on the positive-weight support is exact, where
+    :func:`_weighted_std` leaves a floating-point residual in place of zero.
+
+    Parameters
+    ----------
+    values : ndarray
+        One numeric adjustment column of the analysis data.
+    weights : ndarray
+        Normalized fixed row masses.
+
+    Returns
+    -------
+    bool
+        ``True`` when the positive-weight rows carry at most one distinct value.
+    """
+    supported = values[weights > 0.0]
+    return bool(supported.size == 0 or np.unique(supported).size <= 1)
+
+
+def _weighted_correlation(
+    left: np.ndarray[Any, Any],
+    right: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> float | None:
+    """Return correlation under the empirical weight tilt, or ``None`` if undefined."""
+    if _weights_are_constant(weights):
+        if float(np.std(left)) == 0.0 or float(np.std(right)) == 0.0:
+            return None
+        return float(np.corrcoef(left, right)[0, 1])
+    left_mean = float(np.average(left, weights=weights))
+    right_mean = float(np.average(right, weights=weights))
+    left_centered = left - left_mean
+    right_centered = right - right_mean
+    left_variance = float(np.average(np.square(left_centered), weights=weights))
+    right_variance = float(np.average(np.square(right_centered), weights=weights))
+    if left_variance == 0.0 or right_variance == 0.0:
+        return None
+    covariance = float(np.average(left_centered * right_centered, weights=weights))
+    correlation = covariance / np.sqrt(left_variance * right_variance)
+    return float(np.clip(correlation, -1.0, 1.0))
+
+
 def _treatment_association(
-    latent: np.ndarray[Any, Any], treatment: np.ndarray[Any, Any]
+    latent: np.ndarray[Any, Any],
+    treatment: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
 ) -> float | None:
     """Report the realised correlation between the latent vector and one treatment.
 
@@ -923,15 +1020,15 @@ def _treatment_association(
         Shared latent vector drawn for the complete surface.
     treatment : ndarray
         Original or perturbed treatment of one cell.
+    weights : ndarray
+        Normalized fixed row masses. An unweighted fit supplies a vector of ones.
 
     Returns
     -------
     float or None
         Pearson correlation, or ``None`` when the treatment has zero standard deviation.
     """
-    if float(np.std(treatment)) == 0.0:
-        return None
-    return float(np.corrcoef(latent, treatment)[0, 1])
+    return _weighted_correlation(latent, treatment, weights)
 
 
 def _gaussian_outcome(
@@ -941,34 +1038,56 @@ def _gaussian_outcome(
 
 
 def _binary_calibration(
-    design: np.ndarray[Any, Any], target: np.ndarray[Any, Any], index: int
+    design: np.ndarray[Any, Any],
+    target: np.ndarray[Any, Any],
+    index: int,
+    weights: np.ndarray[Any, Any],
 ) -> float:
     model = LogisticRegression(max_iter=1000)
-    model.fit(design, target)
+    if _weights_are_constant(weights):
+        model.fit(design, target)
+    else:
+        model.fit(design, target, sample_weight=weights)
     baseline = model.predict(design)
     removed = design.copy()
     removed[:, index] = 0.0
-    return float(np.mean(model.predict(removed) != baseline))
+    changed = model.predict(removed) != baseline
+    if _weights_are_constant(weights):
+        return float(np.mean(changed))
+    return float(np.average(changed, weights=weights))
 
 
-def _continuous_calibration(covariate: np.ndarray[Any, Any], target: np.ndarray[Any, Any]) -> float:
-    return float(np.corrcoef(covariate, target)[0, 1] * np.std(target))
+def _continuous_calibration(
+    covariate: np.ndarray[Any, Any],
+    target: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> float:
+    correlation = _weighted_correlation(covariate, target, weights)
+    if correlation is None:
+        return float("nan")
+    return correlation * _weighted_std(target, weights)
 
 
 def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderCalibration, ...]:
     if not names:
         return ()
     data = result.data
-    design = StandardScaler().fit_transform(data.covariates)
+    if _weights_are_constant(data.weights):
+        design = StandardScaler().fit_transform(data.covariates)
+    else:
+        scaler = StandardScaler().fit(data.covariates, sample_weight=data.weights)
+        design = scaler.transform(data.covariates)
     rows: list[ObservedConfounderCalibration] = []
     for name in names:
         index = data.covariate_names.index(name)
         if data.is_continuous_treatment:
-            treatment_strength = _continuous_calibration(data.covariates[:, index], data.treatment)
+            treatment_strength = _continuous_calibration(
+                data.covariates[:, index], data.treatment, data.weights
+            )
             treatment_family: Literal["binomial", "gaussian"] = "gaussian"
             treatment_method = "signed standardized marginal coefficient"
         else:
-            treatment_strength = _binary_calibration(design, data.treatment, index)
+            treatment_strength = _binary_calibration(design, data.treatment, index, data.weights)
             treatment_family = "binomial"
             treatment_method = "logistic class-prediction change fraction"
         rows.append(
@@ -981,10 +1100,12 @@ def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderC
             )
         )
         if data.family == "binomial":
-            outcome_strength = _binary_calibration(design, data.outcome, index)
+            outcome_strength = _binary_calibration(design, data.outcome, index, data.weights)
             method = "logistic class-prediction change fraction"
         else:
-            outcome_strength = _continuous_calibration(data.covariates[:, index], data.outcome)
+            outcome_strength = _continuous_calibration(
+                data.covariates[:, index], data.outcome, data.weights
+            )
             method = "signed standardized marginal coefficient"
         rows.append(
             ObservedConfounderCalibration(
@@ -1030,8 +1151,8 @@ def simulated_confounding(
     -------
     SimulatedConfoundingResult
         Estimate movements on the scale ``movement_scale`` names, the induced treatment
-        association of each cell, and retained cell failures. The result has no verdict
-        or sensitivity-adjusted inference.
+        association of each cell, fixed-weight provenance, and retained cell failures.
+        The result has no verdict or sensitivity-adjusted inference.
 
     See Also
     --------
@@ -1049,6 +1170,11 @@ def simulated_confounding(
     near the anchor can carry a fold artifact. Second, treatment-stratified or
     outcome-stratified splitting can change assignments after the surface perturbs that
     variable.
+
+    An ordinary-TMLE fit can declare fixed probability weights. Every replacement and
+    refit keeps the normalized weight on its original row. The induced association and
+    numeric calibration use the same weighted empirical law. Estimated weights, weighted
+    collaborative TMLE, weighted DR-TMLE, and clustered fits are refused before a draw.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1105,7 +1231,7 @@ def simulated_confounding(
                     estimate=original,
                     displacement=0.0,
                     induced_treatment_association=_treatment_association(
-                        latent, result.data.treatment
+                        latent, result.data.treatment, result.data.weights
                     ),
                 )
             )
@@ -1121,7 +1247,7 @@ def simulated_confounding(
                 treatment_strength,
                 request.treatment_family,
             )
-            association = _treatment_association(latent, treatment)
+            association = _treatment_association(latent, treatment, result.data.weights)
             replacement = result.data.with_treatment(treatment)
             if result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)
@@ -1193,5 +1319,6 @@ def simulated_confounding(
             if result.data.family == "gaussian"
             else "Binomial outcome is flipped in the declared upper latent-normal tail."
         ),
+        weight_report=result.data.weight_report(),
         backend=result.data.backend,
     )
