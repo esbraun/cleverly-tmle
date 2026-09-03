@@ -41,6 +41,7 @@ from cleverly.sensitivity import (
 )
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity.simulated_confounding import (
+    _BINARY_PARAMETER_TARGETS,
     _binary_calibration,
     _continuous_calibration,
     _flip_binary,
@@ -894,7 +895,7 @@ def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> 
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == {"ate", "ey", "ey1", "ey0", "rr", "or"}
+    assert exercised == set(_BINARY_PARAMETER_TARGETS)
 
 
 def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
@@ -969,8 +970,12 @@ def test_fixed_weight_drtmle_repeat_median_cache_and_serialization_round_trip() 
     assert len(set(per_draw)) == 3
     assert sorted(per_draw).index(surface.cells[1].estimate) == 1
 
+    # The facade memoizes the surface into ``assessment_cache``, and ``dumps`` carries that
+    # cache with it.  Reading it back through the facade would compare the restored object
+    # with itself and refit nothing, so the free function runs the replay instead.
     restored = loads(dumps(result))
-    replayed = restored.sensitivity.simulated_confounding(**kwargs)
+    assert np.array_equal(restored.data.weights, result.data.weights)
+    replayed = simulated_confounding(restored, **kwargs)
     assert replayed == surface
     assert replayed.weight_report == restored.data.weight_report()
 
@@ -1019,8 +1024,39 @@ def test_fixed_weight_drtmle_controls_detect_dropped_weights_and_tmle_fallback()
     )
 
     assert witness.estimate is not None
-    assert witness.estimate != pytest.approx(dropped_weights["ate"].psi, abs=1e-5)
-    assert witness.estimate != pytest.approx(ordinary_tmle["ate"].psi, abs=1e-5)
+    assert abs(witness.estimate - dropped_weights["ate"].psi) > 1e-2
+    assert abs(witness.estimate - ordinary_tmle["ate"].psi) > 1e-2
+
+
+def test_fixed_weight_drtmle_witnesses_the_weight_on_the_reduced_regressions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unweight the reductions alone, and the admitted cell has to move.
+
+    The dropped-weight control removes the weight from every learner at once, so the
+    primary outcome regression and mechanism dominate the separation it reports. The
+    transport claim this surface rests on is narrower. It is a claim about which
+    conditional expectations :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}` are, and a
+    fit that weighted its primary nuisances while fitting the reductions at the sampling
+    law would satisfy every other control here.
+    """
+    result = _fit(method="drtmle", weight_scale=1.0)
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0, 0.3))
+    surface = simulated_confounding(result, grid=grid, random_state=31)
+    witness = surface.cells[3]
+
+    unweighted = _fit(method="drtmle", weight_scale=1.0)
+    original = type(unweighted.estimator)._fit_reduced
+
+    def unweighted_reductions(self: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
+        flat = replace(data, weights=np.ones_like(data.weights))
+        return original(self, flat, *args, **kwargs)
+
+    monkeypatch.setattr(type(unweighted.estimator), "_fit_reduced", unweighted_reductions)
+    mutated = _manual_repeated_refit(unweighted, surface, treatment=0.2, outcome=0.3)
+
+    assert witness.estimate is not None
+    assert abs(witness.estimate - mutated["ate"].psi) > 1e-3
 
 
 def _manual_weighted_correlation(left: Any, right: Any, weights: Any) -> float:
