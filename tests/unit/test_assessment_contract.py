@@ -27,8 +27,9 @@ from cleverly import (
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.sensitivity import ConfounderStrengthGrid
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity._simulated_confounding_request import _fit_wide_refusal
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
 
@@ -204,14 +205,37 @@ def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_resu
 
 def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law(  # type: ignore[no-untyped-def]
     longitudinal_result,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    reason = (
+        "simulated_confounding has no time-indexed latent law for longitudinal treatments, "
+        "censoring, histories, outcomes, and contrasts"
+    )
     capability = longitudinal_result.sensitivity.capability("simulated_confounding")
-    assert capability.reason == (
-        "no longitudinal simulated-confounder perturbation law is implemented"
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(longitudinal_result) == reason
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_calibrate",
+        lambda *args, **kwargs: pytest.fail("refused before calibration"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
     )
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    with pytest.raises(CapabilityError, match=re.escape(capability.reason)):
+    with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + reason
+    )
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(longitudinal_result, grid=grid)
+    assert str(direct_refusal.value) == reason
 
 
 def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]

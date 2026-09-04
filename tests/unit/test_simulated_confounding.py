@@ -29,7 +29,12 @@ from cleverly import (
     PointTreatment,
     RiskRatio,
 )
-from cleverly.datasets import make_binary_outcome, make_linear_ate, make_shift_dose
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_linear_ate,
+    make_missing_outcome,
+    make_shift_dose,
+)
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.ctmle import _LOSS_EPS, _Selector
 from cleverly.estimators.serialize import dumps, loads
@@ -45,6 +50,7 @@ from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
     _TMLE_ONLY_TARGETS,
+    _fit_wide_refusal,
 )
 from cleverly.sensitivity.simulated_confounding import (
     _binary_calibration,
@@ -260,6 +266,30 @@ def binomial_result() -> Any:
 
 
 @pytest.fixture(scope="module")
+def mar_result() -> Any:
+    """A real ordinary-TMLE fit under missing at random."""
+    frame, _ = make_missing_outcome(n=160, seed=23)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+            missingness="Delta",
+        ),
+    )
+    return study.identify(ATE()).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        missingness_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=23,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
 def binary_mean_result() -> Any:
     return _fit_binary_mean(treatment=1.0)
 
@@ -443,6 +473,26 @@ def _record_refits(
 
 def _grid() -> ConfounderStrengthGrid:
     return ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
+
+
+def _forbid_surface_work(result: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail if a fit-wide refusal reaches calibration, a latent draw, or a refit."""
+    monkeypatch.setattr(
+        result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_calibrate",
+        lambda *args, **kwargs: pytest.fail("refused before calibration"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
 
 
 #: One cell, the anchor. ``ConfounderStrengthGrid`` asks only that ``0.0`` appears in each
@@ -849,9 +899,12 @@ def test_fixed_weight_tmle_control_detects_dropped_nuisance_weights(
 
 def test_unweighted_estimated_weight_flag_does_not_create_a_weight_refusal() -> None:
     result = _fit(weights_estimated=True)
+    capability = result.sensitivity.capability("simulated_confounding")
     surface = simulated_confounding(result, grid=_grid(), random_state=7)
 
     assert result.data.weights_name is None
+    assert capability.available
+    assert capability.reason is None
     assert surface.target_measure == "unweighted"
     assert surface.complete
 
@@ -2116,6 +2169,100 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
     )
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(result, grid=_grid())
+
+
+def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
+    mar_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = (
+        "simulated_confounding has no joint observation, treatment, and outcome perturbation "
+        "law with identified missing-outcome refit semantics"
+    )
+    _forbid_surface_work(mar_result, monkeypatch)
+    capability = mar_result.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(mar_result) == reason
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(
+            mar_result,
+            grid=_grid(),
+            benchmark_covariates=("W1",),
+            random_state=29,
+        )
+    assert str(refusal.value) == reason
+
+
+def test_fit_wide_refusals_have_one_order_and_match_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _fit(weight_scale=1.0, weights_estimated=True)
+    cluster_data = replace(
+        base.data,
+        weight_spec=replace(base.data.weight_spec, estimated=False),
+        cluster=np.arange(base.data.n),
+        cluster_name="id",
+    )
+    clustered = replace(base, data=cluster_data)
+    estimated = replace(
+        clustered,
+        data=replace(
+            clustered.data,
+            weight_spec=replace(clustered.data.weight_spec, estimated=True),
+        ),
+    )
+    intermediate = replace(
+        estimated,
+        data=replace(
+            estimated.data,
+            intermediate=np.zeros(estimated.data.n),
+            intermediate_name="Z",
+        ),
+        intermediate_value=0.0,
+    )
+    observed = intermediate.data.observed.copy()
+    observed[0] = False
+    missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
+    cases = (
+        (
+            missing,
+            "simulated_confounding has no joint observation, treatment, and outcome "
+            "perturbation law with identified missing-outcome refit semantics",
+        ),
+        (
+            intermediate,
+            "simulated_confounding has no ordered treatment, intermediate, observation, and "
+            "outcome law with a controlled-direct-effect contrast contract",
+        ),
+        (
+            estimated,
+            "simulated_confounding cannot replay estimated observation weights; the fitted "
+            "result does not store the weight model, target-population semantics, and "
+            "regeneration rule needed after perturbation",
+        ),
+        (
+            clustered,
+            "simulated_confounding has no source-backed choice among row-level, cluster-level, "
+            "and mixed latent causes for clustered fits",
+        ),
+    )
+    _forbid_surface_work(base, monkeypatch)
+    for result, reason in cases:
+        capability = result.sensitivity.capability("simulated_confounding")
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        assert capability.reason == reason
+        assert _fit_wide_refusal(result) == reason
+        with pytest.raises(CapabilityError) as refusal:
+            simulated_confounding(
+                result,
+                grid=_grid(),
+                benchmark_covariates=("W1",),
+                random_state=29,
+            )
+        assert str(refusal.value) == reason
 
 
 def _fit_with_a_support_constant_covariate(*, seed: int = 7) -> Any:

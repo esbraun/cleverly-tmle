@@ -2447,13 +2447,15 @@ class SensitivityFacade(_CapabilityFacade):
         continuous = not longitudinal and bool(
             getattr(self._result.data, "is_continuous_treatment", False)
         )
+        from .sensitivity._simulated_confounding_request import (
+            _eligible_binary_parameter_names,
+            _fit_wide_refusal,
+        )
+
+        simulated_refusal = _fit_wide_refusal(self._result)
         if longitudinal or continuous:
             binary_needs_estimand = False
         else:
-            from .sensitivity._simulated_confounding_request import (
-                _eligible_binary_parameter_names,
-            )
-
             binary_parameters = _eligible_binary_parameter_names(self._result)
             binary_needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
         available = not longitudinal
@@ -2552,13 +2554,13 @@ class SensitivityFacade(_CapabilityFacade):
                 deterministic=False,
                 cost="expensive",
                 interpretation="estimate movement under a simulated common cause",
-                available=benchmarkable,
-                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
-                reason=(
-                    None
-                    if benchmarkable
-                    else "no longitudinal simulated-confounder perturbation law is implemented"
+                available=simulated_refusal is None,
+                status=(
+                    AssessmentStatus.PASSED
+                    if simulated_refusal is None
+                    else AssessmentStatus.UNAVAILABLE
                 ),
+                reason=simulated_refusal,
                 requires_arguments=("grid", "estimand")
                 if continuous or binary_needs_estimand
                 else ("grid",),

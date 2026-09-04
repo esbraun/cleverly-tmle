@@ -393,17 +393,14 @@ def test_attributable_backend_parity_and_sole_alias_facade(target: str) -> None:
 def test_registered_point_targets_have_an_explicit_surface_disposition() -> None:
     binary = {"ate", "att", "atc", "ey", "ey1", "ey0", "par", "paf", "rr", "or"}
     continuous = {"ey_shift", "ate_shift"}
+    policy = {"ey_regime", "ate_regime", "ey_ipsi", "ate_ipsi", "msm"}
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
-        "ey_regime": "stochastic intervention needs its own perturbation audit",
-        "ate_regime": "stochastic contrast needs its own perturbation audit",
-        "ey_ipsi": "incremental intervention needs its own perturbation audit",
-        "ate_ipsi": "incremental contrast needs its own perturbation audit",
-        "msm": "projection needs its own perturbation audit",
     }
     assert binary == set(_BINARY_PARAMETER_TARGETS)
-    assert not (binary & continuous or binary & refused.keys() or continuous & refused.keys())
-    assert binary | continuous | refused.keys() == TARGETS.keys()
+    dispositions = (binary, continuous, policy, refused.keys())
+    assert sum(len(set(group)) for group in dispositions) == len(set().union(*dispositions))
+    assert set().union(*dispositions) == TARGETS.keys()
 
 
 @pytest.mark.parametrize("target", ["par", "paf"])

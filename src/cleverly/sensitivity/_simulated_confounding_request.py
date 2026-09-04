@@ -113,6 +113,62 @@ _CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ES
 _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
 
 
+def _fit_wide_refusal(result: Any) -> str | None:
+    """Return the first simulated-confounding refusal that applies to the whole fit.
+
+    These boundaries do not depend on the requested parameter or strength grid. Keep
+    their order here so execution and capability reporting name the same first missing
+    scientific contract. Parameter-specific replay checks remain in
+    :func:`_validate_request` after this helper.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result inspected by the surface or its assessment facade.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    """
+    if getattr(result, "assessment_family", None) == "longitudinal":
+        return (
+            "simulated_confounding has no time-indexed latent law for longitudinal "
+            "treatments, censoring, histories, outcomes, and contrasts"
+        )
+    data = getattr(result, "data", None)
+    if data is None:
+        return None
+    if getattr(data, "has_missing_outcome", False):
+        return (
+            "simulated_confounding has no joint observation, treatment, and outcome "
+            "perturbation law with identified missing-outcome refit semantics"
+        )
+    if (
+        getattr(data, "has_intermediate", False)
+        or getattr(result, "intermediate_value", None) is not None
+    ):
+        return (
+            "simulated_confounding has no ordered treatment, intermediate, observation, "
+            "and outcome law with a controlled-direct-effect contrast contract"
+        )
+    weight_spec = getattr(data, "weight_spec", None)
+    if getattr(data, "weights_name", None) is not None and getattr(
+        weight_spec, "estimated", False
+    ):
+        return (
+            "simulated_confounding cannot replay estimated observation weights; the fitted "
+            "result does not store the weight model, target-population semantics, and "
+            "regeneration rule needed after perturbation"
+        )
+    if getattr(data, "cluster", None) is not None:
+        return (
+            "simulated_confounding has no source-backed choice among row-level, "
+            "cluster-level, and mixed latent causes for clustered fits"
+        )
+    return None
+
+
 def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | None) -> str | None:
     """Say why this estimator cannot replay this request, or ``None`` when it can.
 
@@ -547,6 +603,9 @@ def _validate_request(
     # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
     from .simulated_confounding import _is_constant_under_weights
 
+    fit_wide_refusal = _fit_wide_refusal(result)
+    if fit_wide_refusal is not None:
+        raise CapabilityError(fit_wide_refusal)
     if type(result) is not TMLEResult:
         raise CapabilityError(
             "simulated_confounding supports point-treatment TMLEResult objects only; "
@@ -595,19 +654,6 @@ def _validate_request(
         )
     if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
-    if data.has_missing_outcome:
-        raise CapabilityError(
-            "simulated_confounding has no missing-outcome perturbation and observation refit"
-        )
-    if data.has_intermediate or result.intermediate_value is not None:
-        raise CapabilityError(
-            "simulated_confounding has no controlled-direct-effect or intermediate-variable law"
-        )
-    if data.weights_name is not None and data.weight_spec.estimated:
-        raise CapabilityError(
-            "simulated_confounding cannot replay estimated observation weights; the fitted "
-            "result does not store the model needed to re-estimate them after perturbation"
-        )
     if data.weight_spec.kind != "probability":
         raise CapabilityError(
             "simulated_confounding supports fixed probability weights only; "
@@ -623,8 +669,6 @@ def _validate_request(
             "simulated_confounding found nonconstant observation weights without a declared "
             "weight column"
         )
-    if data.cluster is not None:
-        raise CapabilityError("simulated_confounding does not support clustered fits")
     identified = result.identified_effect
     if identified is None:
         raise CapabilityError(

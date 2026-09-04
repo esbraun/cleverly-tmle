@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import replace
 
 import numpy as np
@@ -17,6 +18,8 @@ from cleverly.estimators.reduced import MissingOutcomeReducedSet
 from cleverly.estimators.tmle import build_submodel, correction_parts
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.inference.influence import missing_outcome_correction_parts
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+from cleverly.sensitivity._simulated_confounding_request import _fit_wide_refusal
 from cleverly.validation.drtmle import MARGIN_ACTIVE
 
 
@@ -116,6 +119,45 @@ def test_randomized_missing_outcomes_solve_the_reported_equations(randomized_fit
     assert check.passed
     assert {row.equation for row in check.rows} == {"D*_A", "D*_M", "D*_Y"}
     assert len(check.rows) == 6
+
+
+def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work(
+    randomized_fit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = (
+        "simulated_confounding has no joint observation, treatment, and outcome perturbation "
+        "law with identified missing-outcome refit semantics"
+    )
+    monkeypatch.setattr(
+        randomized_fit.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_calibrate",
+        lambda *args, **kwargs: pytest.fail("refused before calibration"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    capability = randomized_fit.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(randomized_fit) == reason
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(
+            randomized_fit,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+            benchmark_covariates=("W1",),
+            random_state=17,
+        )
+    assert str(refusal.value) == reason
 
 
 def test_the_reduced_fit_record_names_the_construction_that_ran(randomized_fit) -> None:
