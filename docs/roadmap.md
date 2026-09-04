@@ -325,6 +325,47 @@ The [technical contract](technical-reference/validation-methods.md#simulated-com
 records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
+#### Next slice: population attributable contrasts
+
+The previous inventory omitted `PopulationAttributableRisk`, `PopulationAttributableFraction`,
+and `NaturalCourseMean`. Audit every registered point target so future omissions fail a test.
+
+Implement binary-treatment PAR for Gaussian and binomial outcomes, and PAF for binomial outcomes.
+Reuse the existing shared latent perturbation and complete estimator refit. Each cell recomputes
+both its observed outcome mean and its reference counterfactual mean. Hold baseline strata and
+fixed observation weights constant. Preserve estimator-owned repeat aggregation.
+
+Hubbard and van der Laan (2008), *Population intervention models in causal inference*, define
+intervention-versus-observed contrasts. PAR reverses their difference; PAF complements their ratio.
+The pinned `tmle3` population-attributable contrasts corroborate these transformations. The
+Sharma papers and pinned DoWhy simulation supply the qualitative perturbation contract only.
+Neither source supplies an inferential guarantee for this surface.
+
+| work | acceptance evidence |
+| --- | --- |
+| Structured selection | Match the typed target, registry, fitted reference, parameter key, alias, and replay configuration before any draw |
+| Movement | Use estimate differences for PAR and PAF; retain negative fractions without a log transform or clipping |
+| Complete replay | Cover ordinary TMLE, complete-outcome DR-TMLE, and eligible outcome-adaptive C-TMLE; preserve weights, repeats, and supported strata |
+| Estimator boundaries | Retain selector-based C-TMLE's PAR/PAF refusal and DR-TMLE's strata refusal; add no new estimator equations |
+| Nonzero controls | Detect a frozen observed mean, a wrong reference arm, a reversed PAR sign, and a wrong PAF complement or denominator |
+| Failed cells | Retain an undefined zero-risk PAF cell with its failure and perturbation diagnostics |
+| Integration | Check facade selection, assessment caching, persistence, backend parity, and natural-course exclusion |
+| Tracking | Inventory every registered point target and keep remaining composition requirements explicit |
+
+Refuse `NaturalCourseMean` before a random draw. Its mean has no counterfactual treatment term,
+just as the zero-delta policy mean has none. PAR and PAF retain that term through their reference
+intervention, so this refusal does not apply to them.
+
+Keep target validation in the request module. Do not duplicate perturbations, cell construction,
+weighted statistics, calibration, or repeat aggregation. Record sources and shipped behavior in
+the technical contract and tutorial when the implementation lands; remove this completed plan.
+
+Run lint, formatting, types, prose review, the complete fast suite, and `nox -s docs` before handoff.
+No study regeneration applies if the change only admits existing refit paths and preserves all
+estimator equations. Reassess that selection if implementation changes a result-determining path.
+
+#### Remaining compositions
+
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
 contrast contract. The table below omits three theory stops. Multi-arm treatment waits on published
 theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
