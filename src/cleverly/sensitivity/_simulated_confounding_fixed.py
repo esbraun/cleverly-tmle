@@ -122,10 +122,6 @@ def _same_items(left: Any, right: Any) -> bool:
     )
 
 
-def _same_arrays(left: Any, right: Any, names: tuple[str, ...]) -> bool:
-    return all(np.array_equal(getattr(left, name), getattr(right, name)) for name in names)
-
-
 def _checked_regimes(state: Any, data: CausalData) -> RegimeSet:
     if type(state) is not RegimeSet:
         raise DataError("the fit lost its cached regime densities")
@@ -218,10 +214,31 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             or checked.arms != expected.arms
             or checked.link != expected.link
             or checked.dose_values
-            or not _same_arrays(
-                checked,
-                expected,
-                ("design", "weights", "clever_weights", "observed_design", "observed_weights"),
+            or not np.array_equal(checked.design, expected.design)
+            or not np.array_equal(checked.weights, expected.weights)
+            or not (
+                checked.clever_weights is expected.clever_weights
+                or (
+                    checked.clever_weights is not None
+                    and expected.clever_weights is not None
+                    and np.array_equal(checked.clever_weights, expected.clever_weights)
+                )
+            )
+            or not (
+                checked.observed_design is expected.observed_design
+                or (
+                    checked.observed_design is not None
+                    and expected.observed_design is not None
+                    and np.array_equal(checked.observed_design, expected.observed_design)
+                )
+            )
+            or not (
+                checked.observed_weights is expected.observed_weights
+                or (
+                    checked.observed_weights is not None
+                    and expected.observed_weights is not None
+                    and np.array_equal(checked.observed_weights, expected.observed_weights)
+                )
             )
             or nuisance.regimes is not None
         ):
