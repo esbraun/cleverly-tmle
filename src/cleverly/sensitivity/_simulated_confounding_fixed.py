@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
@@ -24,6 +25,9 @@ from ..study import MSMProjection, PointTreatment, RegimeContrast, RegimeMean
 from ..targets import TARGETS
 from ..targets.base import parameter_name
 from ..utils.frames import as_frame, matrix_from_columns
+
+if TYPE_CHECKING:
+    from ..estimators.tmle import TMLE
 
 _FIXED_TARGET_TYPES: dict[str, type] = {
     "ey_regime": RegimeMean,
@@ -87,10 +91,10 @@ class _BaselineRows:
 @dataclass(frozen=True)
 class _FrozenRegime:
     name: str
-    values: Any
+    values: FloatArray
     baseline: _BaselineRows
 
-    def density(self, data: CausalData) -> Any:
+    def density(self, data: CausalData) -> FloatArray:
         self.baseline.check_data(data)
         return self.values.copy()
 
@@ -174,7 +178,7 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
     ):
         raise DataError("regime labels or reference disagree")
     alias = parameter_name(key.estimand, arm=key.value, versus=key.reference)
-    replay = copy.copy(estimator)
+    replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
     replay.interventions = tuple(
         _FrozenRegime(name, expected.values[:, :, index].copy(), baseline)
@@ -243,7 +247,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             or nuisance.regimes is not None
         ):
             raise DataError("declared MSM arrays disagree with a stored cross-fitting draw")
-    replay = copy.copy(estimator)
+    replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
     replay.msm = replace(
         model,
