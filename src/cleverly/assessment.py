@@ -2419,8 +2419,8 @@ class SensitivityFacade(_CapabilityFacade):
         # This row only says whether the analysis exists for the family at all.
         benchmarkable = not longitudinal
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
-        # A binary means fit can use the facade's sole-parameter substitution, but a fit
-        # that reports several means needs the caller to choose one.
+        # A binary arm, fixed-regime, or identity-MSM fit can use the facade's sole-
+        # parameter substitution. Several eligible aliases require an explicit choice.
         continuous = not longitudinal and bool(
             getattr(self._result.data, "is_continuous_treatment", False)
         )
@@ -2846,7 +2846,8 @@ class SensitivityFacade(_CapabilityFacade):
         they could have answered for.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
         its own ``"ate"`` default instead. Its binary selection message lists only the
-        aliases the stored estimator can replay, so every alias that estimator's own
+        arm, fixed-regime, and identity-MSM aliases the stored estimator can replay.
+        Every alias that estimator's own
         boundary refuses is dropped, not natural-course means alone. Its continuous
         selection message omits a zero-delta policy mean, which is the natural course and
         which the surface cannot assess.

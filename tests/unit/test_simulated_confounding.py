@@ -3312,7 +3312,7 @@ def test_grid_validation_and_binomial_boundary(
 
 
 @pytest.mark.parametrize("estimand", ["att", "atc", "ate_regime", "msm"])
-def test_unsupported_estimands_are_refused_before_refit(
+def test_relabeling_an_ate_cannot_substitute_another_estimand(
     gaussian_result: Any,
     monkeypatch: pytest.MonkeyPatch,
     estimand: str,
@@ -3327,7 +3327,11 @@ def test_unsupported_estimands_are_refused_before_refit(
     message = (
         "registered binary parameter metadata"
         if estimand in {"att", "atc"}
-        else "only an ATE, ATT, ATC, counterfactual arm mean"
+        else (
+            "fixed-policy parameter metadata"
+            if estimand == "ate_regime"
+            else "identity-link arm-based MSM only"
+        )
     )
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(altered, estimand=estimand, grid=_grid())

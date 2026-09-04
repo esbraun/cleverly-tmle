@@ -273,6 +273,67 @@ that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[
 Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
 while the operation perturbs the observed treatment and outcome.
 
+Binary ordinary-TMLE fits also support fixed regime means, regime contrasts, and identity-link MSM
+coefficients. Select a reported alias when the fit contains more than one eligible parameter.
+
+| fitted target | what the surface preserves |
+| --- | --- |
+| `RegimeMean` or `RegimeContrast` | the `Static`, `Rule`, or `Stochastic` policy at each baseline row |
+| identity-link `MSMProjection` | the arm-specific design, coefficient names, and known projection weights |
+
+The surface refits the treatment and outcome models in each non-anchor cell. It reports additive
+movement and preserves fixed observation weights and baseline strata. It checks callbacks against
+stored inputs before the first draw, then uses those inputs for every cell.
+
+This example compares a known stochastic assignment with never treating.
+
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, PointTreatment, RegimeContrast
+from cleverly.datasets import make_linear_ate
+from cleverly.interventions import Static, Stochastic
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+
+def navigation_probability(w):
+    probability = 0.25 + 0.5 * (np.asarray(w["W1"]) > 0)
+    return np.column_stack([1.0 - probability, probability])
+
+
+policy_frame, _ = make_linear_ate(n=160, seed=31)
+policy_result = (
+    CausalStudy(
+        policy_frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+    )
+    .identify(
+        RegimeContrast(
+            regimens=(Static(0, name="never"), Stochastic(navigation_probability, name="policy")),
+            reference="never",
+        )
+    )
+    .estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=31,
+    )
+)
+policy_surface = policy_result.sensitivity.simulated_confounding(
+    estimand="ate_regime[policy vs never]",
+    grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.25)),
+)
+policy_surface.to_frame()
+```
+
+The probabilities follow the fitted treatment-level order. An incremental intervention instead
+depends on the fitted treatment mechanism, so this fixed-policy surface refuses it.
+The [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+states the remaining policy and projection boundaries.
+
 An `ATT()` or `ATC()` fit without baseline strata reports one eligible alias. The facade selects
 that sole alias when you pass the grid, exactly as it selects a sole counterfactual mean.
 

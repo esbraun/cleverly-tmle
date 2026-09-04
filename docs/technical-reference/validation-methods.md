@@ -255,7 +255,7 @@ identifies its arms, policy, and baseline stratum. The following contracts disti
 | reported field | population contract |
 | --- | --- |
 | `stratum`, `strata_names` | The selected baseline values and their column names. A marginal parameter has no selected stratum |
-| `population="baseline"` | An arm mean, ATE, ratio, PAR, PAF, or modified-policy parameter uses fixed baseline membership |
+| `population="baseline"` | Arm, regime, attributable, modified-policy, and MSM parameters use fixed baseline membership |
 | `population="perturbed_treatment_group"` | ATT and ATC use observed-treatment membership after the cell's perturbation |
 | `conditioning_arm` | The observed arm defining ATT or ATC. Other targets report `None` |
 | `target_population_fraction` in each cell | The conditioning group's weighted share within the baseline population. Other targets report one |
@@ -269,8 +269,9 @@ One latent vector spans all rows and all strata. The operation never subsets row
 fitting and never draws a new latent vector for each stratum. Two calls with the same seed and
 different stratum aliases use the same perturbed datasets.
 
-Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, and
-modified-policy means and contrasts. Binary C-TMLE supports conditional arm means, ATE, and
+Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, regime
+parameters, and identity-link MSM coefficients. It also supports conditional modified-policy
+means and contrasts. Binary C-TMLE supports conditional arm means, ATE, and
 ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation. A
 DR-TMLE fit refuses `strata=` when it fits, so no stratified DR-TMLE result exists for the surface
 to replay.
@@ -393,10 +394,48 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE or collaborative TMLE |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
+| binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
+| binary | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; identity link with fixed design and projection weights |
 | continuous | one explicitly named marginal or baseline-stratum `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_shift[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
+
+**Fixed policies and projections.** A regime surface holds its declared density $q(a\mid W)$
+fixed. It refits the observed treatment mechanism and outcome regression after each perturbation.
+It then targets the same functional, $E_W\sum_a q(a\mid W)Q(a,W)$, on that cell's empirical law.
+Static assignments and baseline rules are degenerate densities under this definition.
+
+An identity-link MSM surface holds its arm-specific design and projection weights fixed.
+The estimator recomputes the projection from the perturbed data. A coefficient uses additive
+movement on its original scale. Projection weights define the working approximation; observation
+weights define the empirical population. The surface preserves both without combining their roles.
+
+The operation checks typed identification, parameter keys, replay configuration, and every fitted
+repeat before it draws the latent vector. It evaluates the original policy or projection callbacks
+and compares their output with the stored arrays. A disagreement raises `CapabilityError`.
+The accepted replay uses copies of those arrays, so callbacks cannot change the target between cells.
+This also prevents an assessment from changing the original estimator's configuration.
+
+| input | what stays fixed |
+| --- | --- |
+| `Static` | the assigned treatment label |
+| `Rule` | the assignment at each original baseline row |
+| `Stochastic` | the complete probability vector at each original baseline row |
+| identity-link `MSM` | terms, arm-specific design, and known projection weights |
+| baseline strata and observation weights | original row membership and normalized weight |
+
+Sofrygin and van der Laan's fixed-intervention iid formula supplies the regime functional and
+influence curve. Van der Laan and Gruber (2010), Section 6, supplies the working projection.
+The pinned DoWhy refuter preserves the target specification when it refits perturbed data.
+Pinned `lmtp` and `tmle3` supply policy and projection implementation provenance.
+The [source locators](../references.md#sensitivity-analysis) distinguish these roles.
+None of these sources supplies a sensitivity-adjusted interval for this composition.
+
+`tests/unit/test_simulated_confounding_policies.py` compares nonzero cells with independent complete
+refits. It also checks static-arm identities, fixed densities, projection weights, callback drift,
+metadata mutations, assessment routing, and persistence. The registered deterministic-regime,
+stochastic-regime, and MSM studies validate the unchanged estimator paths.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
 repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
@@ -586,17 +625,20 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
-| a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
+| an incremental parameter | not written yet | its intervention depends on the refitted treatment mechanism; fixed-policy replay does not implement this contract |
+| a nonlinear or continuous-dose MSM parameter | not written yet | the surface needs a separate link-specific or dose-specific projection audit |
+| a custom intervention type | not written yet | only exact `Static`, `Rule`, and `Stochastic` declarations have an audited baseline-input contract |
+| a regime or MSM under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog lacks the corresponding collaborative score or reduced-dimension correction |
 | continuous-treatment C-TMLE and DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse a modified-treatment-policy functional when they estimate. The surface replays exact ordinary TMLE only |
 | PAR or PAF under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog has no evidenced collaborative score or reduced-dimension correction for these observed-law contrasts |
 | `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
 
-Four rows above record an upstream limit rather than a surface limit. The identified effect's
-method catalog refuses three of them at `estimate()`, before it builds an estimator. `DRTMLE`
-itself refuses the fourth, a baseline stratum, during the fit. No fitted result reaches the surface
-guard in any of the four cases. `_replay_refusal` keeps that guard as defence in depth.
+Some rows above record an upstream limit rather than a surface limit. The identified effect's
+method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.
+`DRTMLE` itself refuses a baseline stratum during the fit. No fitted result reaches the surface
+guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
 
 | composition | layer that refuses | when | message |
 | --- | --- | --- | --- |
@@ -604,6 +646,7 @@ guard in any of the four cases. `_replay_refusal` keeps that guard as defence in
 | a modified-treatment policy under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
 | a baseline stratum under DR-TMLE | `DRTMLE`, in the shared targeting loop of `src/cleverly/estimators/tmle.py` | the fit | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations`. `needs_reduction` holds because a DR-TMLE fit always builds reduced regressions |
 | PAR or PAF under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate PopulationAttributableRisk: no collaborative score is evidenced for this functional`. DR-TMLE names its reduced-dimension correction; PAF names its own type |
+| regime or MSM under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | no collaborative score or reduced-dimension correction is evidenced for this functional |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with

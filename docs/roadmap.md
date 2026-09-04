@@ -341,52 +341,13 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
 | continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
-| fixed binary regimes and stochastic policies | fixed-policy provenance and complete ordinary-TMLE replay; planned below |
-| binary identity-link MSM coefficients | fixed projection provenance and complete ordinary-TMLE replay; planned below |
+| fixed regimes and MSM targets under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
 | incremental targets | preserve delta while rebuilding the intervention from each cell's treatment mechanism |
 | nonlinear and continuous MSM targets | a link-specific and dose-specific projection replay audit |
 
-#### Next PR: fixed-policy and projection stress surfaces
-
-Support ordinary binary-treatment `RegimeMean`, `RegimeContrast`, and identity-link
-`MSMProjection` fits in one review unit. Include `Static`, baseline `Rule`, and known `Stochastic`
-policies, fixed probability weights, baseline strata, both outcome families, and repeated cross-fitting.
-
-The perturbation acts on the observed treatment and outcome. The intervention remains fixed.
-For a regime, preserve the declared density $q(a\mid W)$ while refitting the treatment and outcome
-mechanisms. For an MSM, preserve the design and projection weights at every arm and baseline row.
-This replaces the former blanket requirement to perturb the intervention itself.
-
-| source | role and limit |
-| --- | --- |
-| van der Laan (2010), Part I; Díaz and van der Laan's stochastic-intervention papers | identification and targeting of the existing regime parameters; no sensitivity-adjusted inference |
-| Rosenblum and van der Laan (2010), Section 4 | the existing identity-link working projection and its influence curve |
-| pinned DoWhy `2116d5c`, common-cause refuter, lines 807–844 | perturb the observed data, then refit the original target specification |
-| pinned `lmtp` `f04a2b4`, `R/estimators.R` and `R/shift.R` | rebuild nuisance fits on supplied data while retaining the policy definition |
-| pinned `tmle3` `ed72f8a`, `R/Param_MSM.R` | fixed arm-specific design and projection weights; no simulated-confounding implementation |
-
-The [references](references.md) hold source links. This composition remains a qualitative diagnostic.
-Each cell reports additive movement, with no adjusted interval, bound, p-value, or verdict.
-
-| implementation step | acceptance evidence |
-| --- | --- |
-| separate arm, regime, and MSM target declarations | aliases and population conditioning cannot drift across axes |
-| validate typed, functional, fitted, repeated, and replay metadata before random draws | deliberate mutations fail before every draw and refit |
-| evaluate baseline policy or projection callbacks against cached arrays, then freeze the replay inputs | changed callbacks refuse; accepted callbacks cannot change the target across cells |
-| reuse the existing perturbation, seed, population, refit, aggregation, and failure paths | nonzero complete-refit comparisons, static-arm identity, and weighted population witnesses |
-| expose selection through the shared assessment helper | sole-parameter substitution, explicit ambiguity, caching, and persistence tests |
-| keep unsupported compositions explicit | nonlinear MSM, incremental, custom policy types, and previous composition refusals remain tested |
-| update the technical contract, examples, references, and this roadmap | remove completed plans after implementation; retain distinct remaining rows |
-
-No estimator formula changes are planned. The registered `deterministic-point-treatment-regimes`,
-`stochastic-point-treatment-regimes`, and `point-treatment-msm-projection` studies therefore need no
-regeneration. The fast suite must verify their committed evidence and the new replay contracts.
-Run whole-tree Ruff, mypy, prose review, the fast suite, and `nox -s docs` before the pull request.
-An independent subagent must review the implementation before handoff.
-
-Four rows above name an upstream limit rather than a surface limit. The identified effect's method
-catalog raises `CapabilityError` when it is asked to estimate ATT, ATC, a modified-treatment
-policy, PAR, or PAF under either variant. That refusal happens before the estimator is built. A
+Several rows above name an upstream limit rather than a surface limit. The identified effect's
+method catalog raises `CapabilityError` for the unsupported variant targets in this table.
+That refusal happens before the estimator is built. A
 DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
 `src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
 for the `mean` group.

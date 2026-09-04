@@ -28,6 +28,7 @@ from ..study import (
     RiskRatio,
 )
 from ..targets.base import stratum_alias
+from ._simulated_confounding_fixed import fixed_axis, fixed_replay_refusal, validate_fixed_replay
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .simulated_confounding import ConfounderStrengthGrid
@@ -139,6 +140,9 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     from ..estimators.drtmle import DRTMLE
     from ..estimators.tmle import TMLE
 
+    fixed_refusal = fixed_replay_refusal(estimator, estimand)
+    if fixed_refusal is not None:
+        return fixed_refusal
     if estimand in _CONDITIONAL_TARGETS and type(estimator) is not TMLE:
         return "simulated_confounding supports ATT and ATC under exact ordinary TMLE only"
     if estimand in _ATTRIBUTABLE_TYPES and type(estimator) is not TMLE:
@@ -169,8 +173,10 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
         for alias, key in keys.items()
         if alias in estimates
         and type(key) is ParameterKey
-        and key.estimand in _BINARY_PARAMETER_TARGETS
-        and key.axis == "arm"
+        and (
+            (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
+            or (fixed_axis(key.estimand) is not None and key.axis == fixed_axis(key.estimand))
+        )
         and _replay_refusal(result.estimator, key.estimand, key.stratum) is None
     )
 
@@ -669,7 +675,9 @@ def _validate_request(
     refusal = _replay_refusal(estimator, key.estimand, key.stratum)
     if refusal is not None:
         raise CapabilityError(refusal)
-    if treatment_family == "binary":
+    if treatment_family == "binary" and fixed_axis(key.estimand) is not None:
+        estimator = validate_fixed_replay(result, estimand, key)
+    elif treatment_family == "binary":
         if (
             functional.longitudinal
             or functional.axis != "arm"

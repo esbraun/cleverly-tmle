@@ -300,6 +300,31 @@ previous reader had is not a citation; a page number is.
   Thus observed-treatment membership follows the perturbed data. Fixed baseline strata retain
   their original membership because the perturbation changes neither their names nor values.
   These are qualitative composition conventions; they supply no sensitivity-adjusted interval.
+- Sofrygin and van der Laan (2017), [*Semi-Parametric Estimation and Inference for the Mean Outcome
+  of the Single Time-Point Intervention in a Causally Connected Population*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5650205/),
+  DOI 10.1515/jci-2016-0003. Section 3.2 gives the iid influence curve for a fixed stochastic intervention.
+  The subsection titled "EIC for data-adaptive parameter indexed by fixed stochastic intervention"
+  fixes $q=g^*$ and displays $q/g\,(Y-Q)+E_q Q-\Psi$.
+  The regime stress surface uses this iid formula only. It claims no network inference.
+  Static assignments and baseline rules are degenerate fixed densities.
+  A law-dependent intervention needs the additional derivative that the paper distinguishes.
+- Fixed-regime replay combines that functional with the pinned DoWhy perturbation and complete refit.
+  Pinned `lmtp` [`R/estimators.R`, lines 109–138](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/estimators.R#L109-L138)
+  rebuilds the task and nuisance fits from supplied data.
+  Its [`R/shift.R`, lines 1–45](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/shift.R#L1-L45)
+  retains the supplied policy function. `cleverly` freezes validated baseline densities across cells.
+  This is qualitative replay provenance, not a canonical sensitivity comparison.
+- van der Laan and Gruber (2010), [Section 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/),
+  defines the fixed-weight least-squares MSM projection and its normalized influence curve.
+  A linear working model gives the existing identity-link projection used by the binary MSM surface.
+  The surface holds its design and $h(a,W)$ fixed while refitting each perturbed dataset.
+  Rosenblum and van der Laan (2010), Section 4, supplies a companion fixed-weight construction
+  for a logistic working model. It is not the identity-link formula.
+- Pinned `tmle3` [`R/Param_MSM.R`, lines 72–81 and 115–234](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_MSM.R#L72-L234)
+  supplies arm-counterfactual, custom-weight, design, and projection implementation provenance.
+  It selects a logistic working projection for binary outcomes and a Gaussian projection otherwise.
+  Its conditional-probability weight default is outside this surface's fixed-weight contract.
+  The binary-outcome identity-link surface therefore claims no coefficient parity with that default.
 - DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
   calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
   Its continuous branch uses one column's correlation times the perturbed variable's standard
