@@ -17,7 +17,7 @@ import numpy as np
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import _SIMPLEX_TOLERANCE, as_interventions
+from ..interventions.base import as_interventions, check_regime_density
 from ..msm import MSM, MSMSet, _DataBoundArmFunction
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, PointTreatment, RegimeContrast, RegimeMean
@@ -129,17 +129,12 @@ def _same_arrays(left: Any, right: Any, names: tuple[str, ...]) -> bool:
 def _checked_regimes(state: Any, data: CausalData) -> RegimeSet:
     if type(state) is not RegimeSet:
         raise DataError("the fit lost its cached regime densities")
-    checked = RegimeSet(state.names, state.values, state.reference)
-    values = checked.values
-    if (
-        values.shape != (data.n, data.n_arms, len(checked.names))
-        or not np.all(np.isfinite(values))
-        or np.any(values < 0.0)
-        or np.any(np.abs(values.sum(axis=1) - 1.0) > _SIMPLEX_TOLERANCE)
-    ):
-        raise DataError(
-            "cached regime densities must be finite probability simplexes on fitted rows"
-        )
+    checked = replace(state)
+    check_regime_density(
+        checked.values,
+        label="cached regime densities",
+        shape=(data.n, data.n_arms, len(checked.names)),
+    )
     return checked
 
 

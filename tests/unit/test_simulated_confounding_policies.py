@@ -27,7 +27,7 @@ from cleverly import (
 )
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Rule, Static, Stochastic
 from cleverly.msm import MSM, MSMSet
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
@@ -749,3 +749,14 @@ def test_frozen_msm_refuses_a_missing_treatment_arm() -> None:
     object.__setattr__(data, "treatment_levels", (0,))
     with pytest.raises(CapabilityError, match="original baseline rows and arms"):
         MSMSet.evaluate(replay.msm, data)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_stochastic_density_refuses_nonfinite_values_on_original_fit(value: float) -> None:
+    def density(w: Any) -> np.ndarray:
+        values = _stochastic_density(w)
+        values[0, 0] = value
+        return values
+
+    with pytest.raises(DataError, match="non-finite probability"):
+        _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
