@@ -345,6 +345,31 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | incremental targets | preserve delta while rebuilding the intervention from each cell's treatment mechanism |
 | nonlinear and continuous MSM targets | a link-specific and dose-specific projection replay audit |
 
+#### Next PR: incremental and MSM replay
+
+Implement the remaining ordinary-TMLE incremental and MSM surface rows together.
+Reuse the existing perturbation, complete refit, aggregation, diagnostics, and assessment paths.
+Do not change an estimator or inferential formula to expand this diagnostic.
+
+| contract | implementation and evidence |
+| --- | --- |
+| incremental targets | Accept binary `IncrementalMean` and `IncrementalEffect` with exact `Incremental` declarations. Preserve each multiplier, name, reference, and baseline population. Rebuild each intervention from the cell's refitted mechanism. |
+| incremental source | Kennedy (2019), [equation (1) and Corollaries 1–2](https://arxiv.org/html/1704.00211v3), define the intervention, point-treatment mean, and mechanism contribution. Pinned [`npcausal` `ipsi.R`](https://github.com/ehkennedy/npcausal/blob/56a5ac117a29258b67b94874be662a171b5131f7/R/ipsi.R#L123-L192) corroborates recomputation with fixed multipliers. |
+| natural-course boundary | Refuse an incremental mean at multiplier one before any draw. Keep contrasts with that reference. Both follow the existing natural-course refusal contract. |
+| nonlinear MSMs | Accept ordinary-TMLE coefficients under the built-in identity, log, and logit links. Preserve the link and fixed projection measure. Report coefficient differences on their stored scale. |
+| continuous MSMs | Preserve the declared integration grid and evaluated grid design. Freeze raw grid weights before quadrature. Recompute the observed-dose design, weights, and support mask at each perturbed dose. |
+| MSM sources | [van der Laan and Gruber (2010), Section 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), supplies the least-squares projection. Pinned [`tmle3` `Param_MSM`](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_MSM.R#L115-L234) separates observed and counterfactual evaluations. Its link loss and continuous integration differ, so it supplies no numerical parity claim. |
+| replay provenance | Validate typed identification, structured keys, declarations, and cached arrays across every stored repeat. Share alias, axis, population, and array checks. Refuse inconsistent provenance before a draw or refit. |
+| callbacks | Freeze finite grid evaluations after validation. Continuous observed-dose calls use the declared deterministic functions on the new dose vector. Retain callback or support failures in their cells. |
+| independent witnesses | Reconstruct nonzero perturbations independently and compare complete refits. Mutate incremental mechanism rebuilding, nonlinear link replay, raw quadrature weights, observed-dose design, and support masks. Each relevant control must change the result. |
+| workflow coverage | Exercise both outcome families, fixed observation weights, baseline strata, repeated cross-fitting, labels, both dataframe backends, assessment caching, and persistence. Preserve upstream variant and composition refusals. |
+| handoff and cleanup | Update the technical contract, tutorial, references, and refusal tables. Remove these completed surface rows and this plan from the roadmap. Keep the remaining S5 work and theory stops explicit. |
+
+The existing incremental and point-MSM studies exercise estimator paths that this PR must preserve.
+No regeneration applies if those paths, study inputs, and verdicts remain unchanged.
+Run the complete fast suite, Ruff, mypy, prose review, and `nox -s docs` locally.
+Obtain independent code review and green GitHub Actions before the handoff.
+
 Several rows above name an upstream limit rather than a surface limit. The identified effect's
 method catalog raises `CapabilityError` for the unsupported variant targets in this table.
 That refusal happens before the estimator is built. A
