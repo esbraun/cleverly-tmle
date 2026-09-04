@@ -2833,10 +2833,9 @@ class SensitivityFacade(_CapabilityFacade):
         first would answer about ``ey1`` on an ``ey1``/``ey0`` fit, silently returning a
         statement about a counterfactual mean to someone who asked about an effect.
 
-        ``simulated_confounding`` also answers for the two ratio contrasts, which are not
-        linear functionals and so are absent from the linear set every other operation
-        reads. It consults its own eligible set first, including ordinary-TMLE ATT and
-        ATC targets. It falls back to the linear set when its eligible set does not name
+        ``simulated_confounding`` also answers for ratio and population attributable
+        contrasts. It consults its own eligible set first, including ordinary-TMLE ATT
+        and ATC targets. It falls back to the linear set when its eligible set does not name
         exactly one parameter. Unsupported variants then receive the selected alias and
         explain their source boundary.
 
@@ -2846,8 +2845,9 @@ class SensitivityFacade(_CapabilityFacade):
         :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
         they could have answered for.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
-        its own ``"ate"`` default instead. Its selection message omits zero-delta policy
-        means, including their conditional aliases, because the surface cannot assess them.
+        its own ``"ate"`` default instead. Its selection message omits natural-course
+        means, including zero-delta policies and conditional aliases, because the surface
+        cannot assess them.
 
         Parameters
         ----------

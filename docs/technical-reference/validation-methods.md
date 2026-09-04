@@ -215,7 +215,8 @@ qualitative limits.
 **What it tells you.** `simulated_confounding()` reports the point estimate and its displacement
 at every declared strength pair. `movement_scale` states how to read that displacement.
 The frame from `to_frame()` carries it as a column on every surface, additive and ratio alike.
-Additive parameters use `estimate_difference`. Ratios use `log_ratio` and the signed displacement
+Additive parameters and attributable fractions use `estimate_difference`. Risk and odds ratios
+use `log_ratio` and the signed displacement
 
 $$
 \log(\widehat\psi_{\mathrm{refit}})-\log(\widehat\psi_{\mathrm{original}}).
@@ -254,7 +255,7 @@ identifies its arms, policy, and baseline stratum. The following contracts disti
 | reported field | population contract |
 | --- | --- |
 | `stratum`, `strata_names` | The selected baseline values and their column names. A marginal parameter has no selected stratum |
-| `population="baseline"` | An arm mean, ATE, ratio, or modified-policy parameter uses fixed baseline membership |
+| `population="baseline"` | An arm mean, ATE, ratio, PAR, PAF, or modified-policy parameter uses fixed baseline membership |
 | `population="perturbed_treatment_group"` | ATT and ATC use observed-treatment membership after the cell's perturbation |
 | `conditioning_arm` | The observed arm defining ATT or ATC. Other targets report `None` |
 | `target_population_fraction` in each cell | The conditioning group's weighted share within the baseline population. Other targets report one |
@@ -381,13 +382,14 @@ remains visible as a `ReplicationFailure`. Successful cells report their displac
 original estimate, on the scale `movement_scale` names.
 
 The surface supports these compositions with one or more cross-fitting draws.
-Ratio surfaces require a binomial outcome. The other rows support Gaussian and binomial outcomes.
+Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows support Gaussian and binomial outcomes.
 
 | treatment | parameter | replayed estimator |
 | --- | --- | --- |
 | binary | backdoor-identified marginal ATE | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
+| binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE or collaborative TMLE |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ey_shift[...]` policy mean | exact ordinary TMLE |
@@ -417,6 +419,45 @@ grid. A fit that reports several means also needs one explicit alias.
 
 The binary ratio path keeps the numerator and denominator arms fixed. It validates their direction
 and the stored log estimate before the latent draw. A ratio-only result needs only the grid.
+
+**Population attributable parameters.** Let $\mu$ be the natural-course outcome mean and $\mu_a$
+the counterfactual mean at the declared reference arm. Both means describe the selected baseline
+population and use its fixed weights when declared.
+
+| parameter | cell estimate | displacement scale |
+| --- | --- | --- |
+| `par` | $\widehat\mu_{\mathrm{cell}}-\widehat\mu_{a,\mathrm{cell}}$ | estimate difference |
+| `paf` | $1-\widehat\mu_{a,\mathrm{cell}}/\widehat\mu_{\mathrm{cell}}$ | fraction difference |
+
+Each non-anchor cell recomputes both means from its complete refit. Its natural-course mean uses
+the perturbed outcome, rather than the original outcome. The reference arm and baseline membership
+remain fixed. A sole PAR or PAF alias needs only the grid. A stratified result needs an explicit alias.
+
+Hubbard and van der Laan (2008), Sections 1 and 3, define population-intervention contrasts and
+their observed-outcome contribution. PAR reverses their intervention-minus-observed difference.
+PAF takes the complement of their intervention-to-observed ratio. The pinned `tmle3`
+`tmle3_Spec_PAR.R` composes the same two means, and `delta_functions.R` supplies both contrasts.
+The [source locators](../references.md#point-treatment-and-stochastic-interventions) distinguish
+that parameter construction from the descriptive stress surface.
+
+PAF uses `movement_scale="estimate_difference"`, even though its definition contains a ratio.
+A negative PAF remains valid and is not clipped or logged. A cell with zero observed outcome risk
+cannot define PAF; the surface retains its failure. These conventions do not add sensitivity-adjusted inference.
+
+The public method catalog refuses PAR and PAF under C-TMLE and DR-TMLE before fitting.
+This includes outcome-adaptive C-TMLE. Their joint observed-law and intervention construction
+needs separate estimator evidence. Low-level mean-group arithmetic does not remove that gate.
+The surface preserves the same refusal and replays exact ordinary TMLE only for these targets.
+
+The tests in `tests/unit/test_simulated_confounding_attributable.py` check the composition directly.
+
+| instrument | test |
+| --- | --- |
+| weighted marginal and conditional cells equal a complete refit | `test_attributable_cells_equal_complete_weighted_refits` |
+| observed and reference components remain distinct from frozen-mean, sign, denominator, and arm errors | `test_observed_and_reference_components_move_with_the_cell` |
+| negative fractions retain identity movement, repeated fitting, and persistence | `test_negative_fraction_uses_identity_movement_and_repeat_aggregation` |
+| zero observed risk retains a failed cell | `test_zero_observed_risk_retains_a_failed_fraction_cell` |
+| inconsistent metadata fails before randomness | `test_attributable_metadata_refuses_before_randomness` |
 
 The continuous path keeps the fitted modified treatment policies fixed. Each cell replaces only
 the observed dose and outcome before the complete refit.
@@ -541,10 +582,12 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
 | continuous-treatment C-TMLE and DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse a modified-treatment-policy functional when they estimate. The surface replays exact ordinary TMLE only |
+| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the public method catalog has no evidenced collaborative score or reduced-dimension correction for these observed-law contrasts |
+| `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
 
-Three rows above record an estimator limit rather than a surface limit. The estimator refuses
+Four rows above record an estimator limit rather than a surface limit. The estimator refuses
 first, so no fitted result reaches the surface guard. `_replay_refusal` keeps that guard as defence
 in depth.
 
@@ -553,6 +596,7 @@ in depth.
 | ATT or ATC under C-TMLE or DR-TMLE | `CTMLE` and `DRTMLE` | `estimate()` | `method 'collaborative_tmle' cannot estimate ATT: no collaborative score is evidenced for this functional`. `DRTMLE` names its reduced-dimension correction instead |
 | a modified-treatment policy under C-TMLE or DR-TMLE | `CTMLE` and `DRTMLE` | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
 | a baseline stratum under DR-TMLE | `DRTMLE`, in the shared targeting loop of `src/cleverly/estimators/tmle.py` | the fit | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations`. `needs_reduction` holds because a DR-TMLE fit always builds reduced regressions |
+| PAR or PAF under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate PopulationAttributableRisk: no collaborative score is evidenced for this functional`. DR-TMLE names its reduced-dimension correction; PAF names its own type |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with

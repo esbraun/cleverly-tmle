@@ -18,7 +18,15 @@ import numpy as np
 
 from ..estimators.base import MEAN_GROUP_ESTIMANDS
 from ..exceptions import CapabilityError, DataError
-from ..study import ATC, ATE, ATT, OddsRatio, RiskRatio
+from ..study import (
+    ATC,
+    ATE,
+    ATT,
+    OddsRatio,
+    PopulationAttributableFraction,
+    PopulationAttributableRisk,
+    RiskRatio,
+)
 from ..targets.base import stratum_alias
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -41,7 +49,14 @@ class _ValidatedRequest:
     conditioning_code: float | None
 
 
-_BINARY_PARAMETER_TARGETS = frozenset({"ate", "att", "atc", "ey", "ey1", "ey0", "rr", "or"})
+_BINARY_PARAMETER_TARGETS = frozenset(
+    {"ate", "att", "atc", "ey", "ey1", "ey0", "rr", "or", "par", "paf"}
+)
+
+_ATTRIBUTABLE_TYPES: dict[str, type] = {
+    "par": PopulationAttributableRisk,
+    "paf": PopulationAttributableFraction,
+}
 
 #: The supported binary aliases whose clever covariate conditions on the observed
 #: treatment group instead of averaging over the baseline population.  Derived by
@@ -73,8 +88,8 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     alias that the guard then refused, and the refusal named strata the request never
     asked for.
 
-    Both compositions are refused upstream already, so neither branch is reachable from a
-    real fit. ``CTMLE`` and ``DRTMLE`` reject an estimand outside ``MEAN_GROUP_ESTIMANDS``
+    These compositions are refused upstream already, so the branches defend stored
+    provenance. ``CTMLE`` and ``DRTMLE`` reject an estimand outside ``MEAN_GROUP_ESTIMANDS``
     when they estimate, and stratified reduced-regression targeting is rejected when
     ``TMLE`` fits. This function is the defence in depth of the surface, and it keys on
     the **requested** stratum rather than on whether the data carry strata.
@@ -98,6 +113,12 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
 
     if estimand in _CONDITIONAL_TARGETS and type(estimator) is not TMLE:
         return "simulated_confounding supports ATT and ATC under exact ordinary TMLE only"
+    if estimand in _ATTRIBUTABLE_TYPES and type(estimator) is not TMLE:
+        return (
+            "simulated_confounding supports PAR and PAF under exact ordinary TMLE only; "
+            "C-TMLE and DR-TMLE require an evidenced population-intervention composition "
+            "before the public estimator can replay these targets"
+        )
     if stratum is not None and type(estimator) is DRTMLE:
         return (
             "simulated_confounding cannot replay a requested baseline stratum under "
@@ -221,6 +242,20 @@ def _validate_binary_parameter_state(
                 else typed_estimand.treatment == key.value == expected_value
             )
         )
+    elif target in _ATTRIBUTABLE_TYPES and type(typed_estimand) is _ATTRIBUTABLE_TYPES[target]:
+        typed_attributable: Any = typed_estimand
+        expected_alias = parameter_name(target)
+        fitted_reference = result.data.arm_label(result.config.reference_arm)
+        declared_reference = (
+            levels[0] if typed_attributable.reference is None else typed_attributable.reference
+        )
+        # Unlike a two-arm contrast, this key's value names the reference intervention.
+        # The observed mean is recomputed by the estimator, not represented by an arm key.
+        metadata_matches = (
+            key.value == fitted_reference == declared_reference
+            and key.reference is None
+            and functional.reference == typed_attributable.reference
+        )
 
     registered = TARGETS.get(target)
     # ``TMLE.__init__`` stores ``estimands`` unresolved, so an estimator that never fitted
@@ -241,6 +276,27 @@ def _validate_binary_parameter_state(
         raise CapabilityError(
             "simulated_confounding found inconsistent registered binary parameter metadata"
         )
+    if target in _ATTRIBUTABLE_TYPES:
+        estimate = result.estimates[estimand]
+        expected_scale = "fraction" if target == "paf" else "difference"
+        expected_family = "binomial" if target == "paf" else None
+        if target == "paf" and result.data.family != "binomial":
+            raise CapabilityError(
+                "simulated_confounding supports a population attributable fraction for a "
+                "binary outcome only"
+            )
+        if (
+            registered.scale != expected_scale
+            or registered.requires_family != expected_family
+            or registered.parameter_axis != "arm"
+            or estimate.name != estimand
+            or estimate.scale != expected_scale
+            or not np.isfinite(estimate.psi)
+        ):
+            raise CapabilityError(
+                "simulated_confounding found inconsistent identity-scale attributable "
+                "parameter metadata"
+            )
     if target in {"rr", "or"}:
         estimate = result.estimates[estimand]
         if result.data.family != "binomial":
@@ -434,6 +490,7 @@ def _validate_request(
     from ..study import (
         BackdoorMeanContrast,
         ExplicitAdjustmentProvider,
+        NaturalCourseMean,
         ParameterKey,
     )
 
@@ -536,6 +593,16 @@ def _validate_request(
         raise CapabilityError(
             "simulated_confounding needs registered explicit-adjustment backdoor provenance"
         )
+    key = result.parameter_keys.get(estimand)
+    if (estimand == "ate" and type(identified.estimand) is NaturalCourseMean) or (
+        type(key) is ParameterKey and key.estimand == "ey_obs"
+    ):
+        raise CapabilityError(
+            "simulated_confounding refuses NaturalCourseMean; the natural-course mean is "
+            "E[Y] and carries no counterfactual treatment dependence for a simulated "
+            "common cause to move. Fit a supported PAR or PAF contrast to compare the "
+            "observed mean with a reference intervention"
+        )
     if treatment_family == "continuous" and estimand == "ate":
         vacuous = _zero_delta_policy_means(result)
         admissible = [
@@ -554,10 +621,13 @@ def _validate_request(
         vacuous = (
             _zero_delta_policy_means(result) if treatment_family == "continuous" else frozenset()
         )
-        admissible = [name for name in result.estimates if name not in vacuous]
+        admissible = (
+            list(_eligible_binary_parameter_names(result))
+            if treatment_family == "binary"
+            else [name for name in result.estimates if name not in vacuous]
+        )
         detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
-    key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
         raise CapabilityError(
             f"simulated_confounding needs a structured parameter key for {estimand!r}"
@@ -580,8 +650,8 @@ def _validate_request(
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
             raise CapabilityError(
                 "simulated_confounding supports only an ATE, ATT, ATC, counterfactual arm "
-                "mean, risk ratio, or odds ratio; other parameters are outside its source "
-                "boundary"
+                "mean, risk ratio, odds ratio, population attributable risk, or population "
+                "attributable fraction; other parameters are outside its source boundary"
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:

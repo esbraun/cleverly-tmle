@@ -769,12 +769,13 @@ def simulated_confounding(
     ----------
     result : TMLEResult
         Replayable backdoor-identified binary-treatment ATE, ATT, ATC, counterfactual
-        mean, risk ratio, odds ratio, or continuous modified-policy fit. Baseline strata
-        are supported when the estimator implements their targeting equations.
+        mean, risk ratio, odds ratio, population attributable contrast, or continuous
+        modified-policy fit. Baseline strata require estimator support for their targeting.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
-        ``rr`` or ``or``. A continuous fit requires an explicit ``ey_shift[...]`` alias
+        ``rr`` or ``or``. Population attributable contrasts use ``par`` or ``paf``.
+        A continuous fit requires an explicit ``ey_shift[...]`` alias
         of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
         A conditional target requires its complete reported stratum alias.
     grid : ConfounderStrengthGrid
@@ -821,6 +822,13 @@ def simulated_confounding(
     includes both treatment arms, because treatment is constant within one treatment group.
     Each cell records that group's weighted fraction of its baseline population.
 
+    PAR cells recompute the observed outcome mean minus the reference counterfactual mean.
+    PAF cells recompute one minus the reference mean divided by the observed outcome risk.
+    Both use estimate differences for movement. PAF keeps negative fractions without a
+    log transform or clipping. A zero observed risk leaves a retained failed PAF cell.
+    PAR and PAF support ordinary TMLE only. C-TMLE and DR-TMLE require an evidenced
+    population-intervention composition before the public estimators can fit these targets.
+
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
     non-differential misclassification. Its induced association depends on the treated
@@ -842,7 +850,8 @@ def simulated_confounding(
     A zero-delta shift is the natural course, its policy mean is ``E[Y]``, and it has no
     counterfactual treatment dependence. ``simulated_confounding`` refuses that mean before
     it draws the latent vector. It still accepts an ``ate_shift`` contrast that uses the
-    natural course as its reference.
+    natural course as its reference. The same refusal applies to ``NaturalCourseMean``.
+    PAR and PAF retain counterfactual treatment dependence through their reference intervention.
     """
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")

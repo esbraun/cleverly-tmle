@@ -941,7 +941,7 @@ def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> 
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS - {"par", "paf"}
 
 
 def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
@@ -1164,7 +1164,7 @@ def test_fixed_weights_run_every_supported_binary_ctmle_parameter_surface() -> N
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS - {"par", "paf"}
 
 
 @pytest.mark.parametrize(

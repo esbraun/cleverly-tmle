@@ -281,6 +281,53 @@ ratio in `estimate`. Its `displacement` is the refitted log ratio minus the orig
 The surface and its frame record `movement_scale="log_ratio"`. Exponentiate a displacement to get
 the refitted ratio divided by the original ratio.
 
+A binary `PopulationAttributableRisk` or `PopulationAttributableFraction` fit without strata also
+needs only the grid. PAR compares the natural-course mean with the reference-arm counterfactual
+mean. PAF divides that difference by the natural-course risk. Each cell recomputes both means
+after perturbation and keeps the declared reference arm fixed.
+
+Both surfaces report `movement_scale="estimate_difference"`. For PAF, displacement is a fraction
+difference, and a negative estimate remains valid. A cell with zero natural-course risk retains
+a failure because PAF is undefined there. The surface refuses `NaturalCourseMean`: its observed mean
+has no counterfactual treatment term for this diagnostic.
+
+Use ordinary TMLE for PAR and PAF. It supports marginal parameters and parameters within baseline strata.
+The public method catalog refuses both targets under C-TMLE and DR-TMLE, including outcome-adaptive C-TMLE.
+The
+[technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+states their source and refusal boundaries.
+
+This example evaluates PAR for a continuous outcome under binary treatment.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, PointTreatment, PopulationAttributableRisk
+from cleverly.datasets import make_linear_ate
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+attributable_frame, _ = make_linear_ate(n=160, seed=21)
+attributable_result = CausalStudy(
+    attributable_frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3", "W4"),
+    ),
+).estimate(
+    PopulationAttributableRisk(reference=0),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    n_folds=2,
+    random_state=21,
+    simultaneous=False,
+)
+attributable_surface = attributable_result.sensitivity.simulated_confounding(
+    grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.25)),
+)
+attributable_cells = attributable_surface.to_frame()
+```
+
 For a fit with baseline `strata=`, pass the complete conditional alias from `result.estimates`.
 The operation holds the baseline stratum fixed and refits all rows at every non-anchor cell.
 `surface.stratum` records the selected values. `surface.association_population` identifies the
