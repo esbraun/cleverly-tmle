@@ -702,3 +702,16 @@ def test_continuous_dose_msm_remains_outside_binary_policy_replay(
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
         simulated_confounding(result, estimand="msm[a]", grid=_GRID, random_state=31)
+
+
+@pytest.mark.parametrize("regimens", [(1, 0), (Static(1), 0)])
+def test_bare_regime_levels_replay_and_assess(regimens: tuple[Any, ...]) -> None:
+    result = _estimate(_study(), RegimeContrast(regimens))
+    explicit = _estimate(_study(), RegimeContrast((Static(1), Static(0))))
+    alias = next(iter(result.estimates))
+    kwargs = {"grid": _GRID, "random_state": 31}
+    expected = simulated_confounding(explicit, estimand=alias, **kwargs)
+    surface = result.sensitivity.simulated_confounding(**kwargs)
+    assert surface == expected
+    battery = result.assess(include_refits=True, arguments={"simulated_confounding": kwargs})
+    assert battery.sensitivity["simulated_confounding"].status is AssessmentStatus.COMPLETED

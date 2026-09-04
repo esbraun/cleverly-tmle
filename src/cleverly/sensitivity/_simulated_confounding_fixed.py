@@ -17,7 +17,7 @@ import numpy as np
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import _SIMPLEX_TOLERANCE
+from ..interventions.base import _SIMPLEX_TOLERANCE, as_interventions
 from ..msm import MSM, MSMSet
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, PointTreatment, RegimeContrast, RegimeMean
@@ -142,11 +142,15 @@ def _checked_regimes(state: Any, data: CausalData) -> RegimeSet:
 
 def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any, str]:
     data, estimator = result.data, result.estimator
-    declarations = tuple(functional.interventions)
+    declarations = as_interventions(functional.interventions)
     if (
         not declarations
-        or not _same_items(typed.regimens, declarations)
-        or not _same_items(estimator.interventions, declarations)
+        or not _same_items(typed.regimens, functional.interventions)
+        or len(estimator.interventions) != len(declarations)
+        or any(
+            not (a is b or (type(a) is Static and type(b) is Static and a == b))
+            for a, b in zip(estimator.interventions, declarations, strict=True)
+        )
         or any(type(item) not in {Static, Rule, Stochastic} for item in declarations)
         or typed.reference != functional.reference
         or typed.horizons is not None
