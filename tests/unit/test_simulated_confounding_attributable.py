@@ -34,12 +34,21 @@ from cleverly.sensitivity._simulated_confounding_request import (
 from cleverly.sensitivity.simulated_confounding import _latent_child_seed
 from cleverly.targets import TARGETS
 from cleverly.targets.base import parameter_name, stratum_alias
-from tests.unit.test_simulated_confounding import _STRATEGY_OVERRIDES, _strategy_method
-from tests.unit.test_simulated_confounding_populations import (
-    _alias,
-    _forbid_draw_and_refit,
-    _mask,
-    _replacement,
+from tests.unit._confounding_support import (
+    _STRATEGY_OVERRIDES,
+    _strategy_method,
+)
+from tests.unit._confounding_support import (
+    alias_for as _alias,
+)
+from tests.unit._confounding_support import (
+    baseline_mask as _mask,
+)
+from tests.unit._confounding_support import (
+    forbid_draw_and_refit as _forbid_draw_and_refit,
+)
+from tests.unit._confounding_support import (
+    replacement as _replacement,
 )
 
 #: Outcome-grid strength the zero-cell witness perturbs at.  ``_fit_attributable`` thresholds

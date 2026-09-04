@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from copy import copy
 from dataclasses import replace
 from functools import cache
 from statistics import NormalDist
@@ -14,8 +13,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
     ATC,
@@ -46,7 +43,25 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _zero_delta_policy_means,
 )
 from cleverly.targets.base import parameter_name
-from tests.unit.test_simulated_confounding import _STRATEGY_OVERRIDES, _strategy_method
+from tests.unit._confounding_support import (
+    _STRATEGY_OVERRIDES,
+    _strategy_method,
+    alias_for,
+    confounding_estimate,
+    confounding_study,
+    with_estimator,
+    with_functional,
+    with_key,
+)
+from tests.unit._confounding_support import (
+    baseline_mask as _mask,
+)
+from tests.unit._confounding_support import (
+    forbid_draw_and_refit as _forbid_draw_and_refit,
+)
+from tests.unit._confounding_support import (
+    replacement as _replacement,
+)
 
 
 @cache
@@ -58,21 +73,8 @@ def _fit_population(
     reference: int = 0,
     strata: bool = True,
 ) -> Any:
-    rng = np.random.default_rng(912)
-    n = 180
-    w = rng.normal(size=n)
-    v = np.where(np.arange(n) % 3 == 0, "small", "large")
-    a = rng.binomial(1, 1 / (1 + np.exp(-0.8 * w + 0.9 * (v == "small"))))
-    y = 0.4 + (1.2 + 1.8 * w) * a + 0.5 * w + rng.normal(scale=0.3, size=n)
     continuous = target in {"ey_shift", "ate_shift"}
     binary = target in {"rr", "or", "ey", "ey1", "ey0"}
-    if continuous:
-        a = 0.5 * w + rng.normal(size=n)
-        y = 0.4 + (1.2 + 0.8 * w) * a + 0.5 * w + rng.normal(scale=0.3, size=n)
-    elif binary:
-        y = rng.binomial(1, 1 / (1 + np.exp(-0.3 - 0.5 * a - 0.4 * w)))
-    frame = pd.DataFrame({"W": w, "V": v, "A": a, "Y": y})
-    frame["weight"] = np.where(v == "small", 3.1, 0.7) * np.where(w > 0, 1.8, 0.6)
     policies = (Shift(0.0, cap=10.0, name="natural"), Shift(0.4, cap=10.0, name="up"))
     targets = {
         "ate": ATE(reference=reference),
@@ -89,74 +91,19 @@ def _fit_population(
     configured: Any = method
     if method in _STRATEGY_OVERRIDES:
         configured = _strategy_method(method, selection_estimand=target)
-    return (
-        CausalStudy(
-            frame,
-            design=PointTreatment(
-                outcome="Y",
-                treatment="A",
-                adjustment=("W", "V"),
-                strata=("V",) if strata else (),
-                weights="weight",
-                treatment_kind="continuous" if continuous else "discrete",
-            ),
-        )
-        .identify(targets[target])
-        .estimate(
-            method=configured,
-            outcome_learner=(
-                LogisticRegression(max_iter=1000)
-                if binary
-                else make_pipeline(PolynomialFeatures(2), LinearRegression())
-            ),
-            treatment_learner=LogisticRegression(max_iter=1000),
-            n_folds=2,
-            learner_folds=2,
-            random_state=12,
-            repeats=repeats,
-            simultaneous=False,
-        )
+    return confounding_estimate(
+        confounding_study(
+            law="population", continuous=continuous, binary=binary, strata=strata, weighted=True
+        ),
+        targets[target],
+        method=configured,
+        binary=binary,
+        repeats=repeats,
     )
 
 
 def _alias(result: Any, target: str, stratum: tuple[str, ...] | None) -> str:
-    matches = [
-        alias
-        for alias, key in result.parameter_keys.items()
-        if key.estimand == target
-        and key.stratum == stratum
-        and (target != "ey_shift" or key.value == "up")
-    ]
-    # The all-arm counterfactual target reports one alias per arm.
-    return sorted(matches)[0]
-
-
-def _mask(result: Any, stratum: tuple[str, ...] | None) -> np.ndarray:
-    if stratum is None:
-        return np.ones(result.data.n, dtype=bool)
-    code = result.data.strata_levels.index(stratum)
-    return result.data.strata == code
-
-
-def _replacement(result: Any, surface: Any, treatment: float, outcome: float) -> Any:
-    """Reconstruct the published law without the production perturbation helpers."""
-    data = result.data
-    latent = np.random.default_rng(surface.latent_seed).normal(size=data.n)
-    a = data.treatment.copy()
-    if data.is_continuous_treatment:
-        a += treatment * latent
-    elif treatment:
-        changed = latent >= NormalDist().inv_cdf(1 - treatment)
-        a[changed] = 1 - a[changed]
-    y = data.outcome.copy()
-    if data.family == "gaussian":
-        y -= outcome * latent
-    elif outcome:
-        changed = latent >= NormalDist().inv_cdf(1 - outcome)
-        y[changed] = 1 - y[changed]
-    return data.with_treatment(a).with_outcome(
-        y, family=data.family, name="simulated-confounding outcome"
-    )
+    return alias_for(result, target, stratum, value="up" if target == "ey_shift" else None)
 
 
 def _correlation(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> float:
@@ -165,15 +112,6 @@ def _correlation(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> float:
     return float(
         np.average(x * y, weights=w)
         / np.sqrt(np.average(x * x, weights=w) * np.average(y * y, weights=w))
-    )
-
-
-def _forbid_draw_and_refit(monkeypatch: pytest.MonkeyPatch, estimator: Any) -> None:
-    """Fail the test if the surface draws a latent vector or refits before it refuses."""
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(module, "_latent_child_seed", lambda *_: pytest.fail("drew before refusal"))
-    monkeypatch.setattr(
-        estimator, "refit", lambda *_args, **_kwargs: pytest.fail("refit before refusal")
     )
 
 
@@ -483,9 +421,7 @@ def _tampered(result: Any, change: str, alias: str) -> Any:
     identified = result.identified_effect
     study = identified._study
     if change == "key":
-        keys = dict(result.parameter_keys)
-        keys[alias] = replace(keys[alias], stratum=("absent",))
-        return replace(result, parameter_keys=keys)
+        return with_key(result, alias, stratum=("absent",))
     if change == "levels":
         return replace(result, data=replace(data, strata_levels=(("absent",), ("large",))))
     if change == "names":
@@ -524,18 +460,11 @@ def _tampered(result: Any, change: str, alias: str) -> Any:
     if change == "typed":
         return replace(result, identified_effect=replace(identified, estimand=ATC()))
     if change == "functional":
-        return replace(
-            result,
-            identified_effect=replace(
-                identified, functional=replace(identified.functional, target="atc")
-            ),
-        )
-    estimator = copy(result.estimator)
+        return with_functional(result, target="atc")
     # ``TMLE.__init__`` leaves ``estimands`` unresolved, so ``None`` is the shape an
     # estimator that never fitted carries. The guard must name it, not raise ``TypeError``
     # out of ``tuple(None)``.
-    estimator.estimands = None if change == "replay-unresolved" else ("atc",)
-    return replace(result, estimator=estimator)
+    return with_estimator(result, estimands=None if change == "replay-unresolved" else ("atc",))
 
 
 @pytest.mark.parametrize(

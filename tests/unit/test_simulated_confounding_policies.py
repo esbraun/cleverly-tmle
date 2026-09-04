@@ -11,8 +11,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
     ATE,
@@ -32,9 +30,26 @@ from cleverly.interventions import Incremental, Rule, Static, Stochastic
 from cleverly.msm import MSM, MSMSet
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import _simulated_confounding_fixed as fixed_replay
-from tests.unit.test_simulated_confounding_populations import (
-    _forbid_draw_and_refit,
-    _replacement,
+from tests.unit._confounding_support import (
+    Counter,
+    alias_for,
+    with_estimator,
+    with_functional,
+    with_key,
+    with_last_nuisance,
+    with_typed,
+)
+from tests.unit._confounding_support import (
+    confounding_estimate as _estimate,
+)
+from tests.unit._confounding_support import (
+    confounding_study as _study,
+)
+from tests.unit._confounding_support import (
+    forbid_draw_and_refit as _forbid_draw_and_refit,
+)
+from tests.unit._confounding_support import (
+    replacement as _replacement,
 )
 
 _GRID = ConfounderStrengthGrid(treatment=(0.0, 0.22), outcome=(0.0, 0.17))
@@ -45,7 +60,7 @@ def _stochastic_density(w: Any) -> np.ndarray:
     return np.column_stack((1 - p, p))
 
 
-@dataclass
+@dataclass(frozen=True)
 class _MSMDesign:
     treated: Any = 1
     saturated: bool = False
@@ -57,7 +72,7 @@ class _MSMDesign:
         return np.column_stack(columns)
 
 
-@dataclass
+@dataclass(frozen=True)
 class _MSMWeight:
     treated: Any = 1
 
@@ -90,59 +105,6 @@ def _model(*, saturated: bool = False, labels: bool = False, link: str = "identi
         terms=("intercept", "treatment", "baseline"),
         weights=_MSMWeight(treated),
         link=link,
-    )
-
-
-def _study(
-    *,
-    backend: str = "pandas",
-    labels: bool = False,
-    weighted: bool = False,
-    strata: bool = False,
-    binary: bool = False,
-) -> CausalStudy:
-    rng = np.random.default_rng(317)
-    n = 180
-    w = rng.normal(size=n)
-    v = np.where(np.arange(n) % 3 == 0, "small", "large")
-    a = rng.binomial(1, 1 / (1 + np.exp(-0.7 * w)))
-    linear = 0.4 + 0.8 * w + a * (0.9 + 1.6 * w) + 0.3 * w**2
-    y = (
-        rng.binomial(1, 1 / (1 + np.exp(-linear)))
-        if binary
-        else linear + rng.normal(scale=0.35, size=n)
-    )
-    frame = pd.DataFrame(
-        {"W": w, "V": v, "A": np.where(a, "treated", "control") if labels else a, "Y": y}
-    )
-    frame["weight"] = np.where(w > 0, 2.8, 0.5)
-    if backend == "polars":
-        import polars as pl
-
-        frame = pl.from_pandas(frame)
-    return CausalStudy(
-        frame,
-        design=PointTreatment(
-            outcome="Y",
-            treatment="A",
-            adjustment=("W", "V"),
-            strata=("V",) if strata else (),
-            weights="weight" if weighted else None,
-        ),
-    )
-
-
-def _estimate(study: CausalStudy, target: Any, *, repeats: int = 1, binary: bool = False) -> Any:
-    return study.identify(target).estimate(
-        outcome_learner=LogisticRegression(max_iter=1000)
-        if binary
-        else make_pipeline(PolynomialFeatures(2), LinearRegression()),
-        treatment_learner=LogisticRegression(max_iter=1000),
-        n_folds=2,
-        learner_folds=2,
-        random_state=12,
-        simultaneous=False,
-        repeats=repeats,
     )
 
 
@@ -196,11 +158,11 @@ def _fit_msm(
 def _alias(
     result: Any, *, stratum: tuple[str, ...] | None = None, coefficient: str = "treatment"
 ) -> str:
-    return next(
-        name
-        for name, key in result.parameter_keys.items()
-        if key.stratum == stratum
-        and ((key.term == coefficient) if key.axis == "msm" else key.value == "policy")
+    return alias_for(
+        result,
+        stratum=stratum,
+        coefficient=coefficient if result.config.parameter_axis == "msm" else None,
+        value=None if result.config.parameter_axis == "msm" else "policy",
     )
 
 
@@ -351,8 +313,6 @@ def test_msm_surface_requires_unambiguous_coefficient() -> None:
 
 def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
     """Change one provenance layer, preserving the others as independent witnesses."""
-    result = replace(result, estimator=copy(result.estimator))
-    identified = result.identified_effect
     if field.startswith("key-"):
         name = field.removeprefix("key-")
         changes = {
@@ -365,13 +325,7 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
                 "horizon": 3,
             }[name]
         }
-        return replace(
-            result,
-            parameter_keys={
-                **result.parameter_keys,
-                alias: replace(result.parameter_keys[alias], **changes),
-            },
-        )
+        return with_key(result, alias, **changes)
     if field.startswith("config-"):
         name = field.removeprefix("config-")
         return replace(
@@ -379,49 +333,25 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
             config=replace(result.config, **{name: "arm" if name == "parameter_axis" else 1.0}),
         )
     if field == "functional-target":
-        return replace(
-            result,
-            identified_effect=replace(
-                identified, functional=replace(identified.functional, target="ate")
-            ),
-        )
+        return with_functional(result, target="ate")
     if field == "functional-reference":
-        return replace(
-            result,
-            identified_effect=replace(
-                identified, functional=replace(identified.functional, reference="policy")
-            ),
-        )
+        return with_functional(result, reference="policy")
     if field == "typed-reference":
-        return replace(
-            result,
-            identified_effect=replace(
-                identified, estimand=replace(identified.estimand, reference="policy")
-            ),
-        )
+        return with_typed(result, reference="policy")
     if field == "estimator-reference":
-        result.estimator.reference = "policy"
-        return result
+        return with_estimator(result, reference="policy")
     if field == "estimator-declaration":
-        result.estimator.interventions = tuple(reversed(result.estimator.interventions))
-        return result
+        return with_estimator(result, interventions=tuple(reversed(result.estimator.interventions)))
     if field == "typed-model":
-        return replace(
-            result,
-            identified_effect=replace(
-                identified, estimand=replace(identified.estimand, model=_model(saturated=True))
-            ),
-        )
+        return with_typed(result, model=_model(saturated=True))
     if field == "estimator-model":
-        result.estimator.msm = _model(saturated=True)
-        return result
+        return with_estimator(result, msm=_model(saturated=True))
     if field == "estimate-name":
         return replace(
             result, estimates={**result.estimates, alias: replace(result[alias], name="wrong")}
         )
     # A later draw must be checked even when the first cache agrees with the declaration.
-    draw = result.repeats[-1]
-    nuisance = draw.nuisance
+    nuisance = result.repeats[-1].nuisance
     if field.startswith("regime-"):
         state = nuisance.regimes
         change = field.removeprefix("regime-")
@@ -437,7 +367,7 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
             state = replace(state, values=values)
         else:
             raise AssertionError(field)
-        nuisance = replace(nuisance, regimes=state)
+        return with_last_nuisance(result, regimes=state)
     elif field.startswith("msm-"):
         state = nuisance.msm
         change = field.removeprefix("msm-")
@@ -455,10 +385,9 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
             state = replace(state, link="logit")
         else:
             raise AssertionError(field)
-        nuisance = replace(nuisance, msm=state)
+        return with_last_nuisance(result, msm=state)
     else:
         raise AssertionError(field)
-    return replace(result, repeats=(*result.repeats[:-1], replace(draw, nuisance=nuisance)))
 
 
 @pytest.mark.parametrize(
@@ -541,22 +470,8 @@ def test_msm_provenance_layers_refuse_before_draw_or_refit(
         simulated_confounding(corrupted, estimand=alias, grid=_GRID, random_state=31)
 
 
-@dataclass
-class _CountingDensity:
-    calls: int = 0
-    limit: int | None = None
-    flipped: bool = False
-
-    def __call__(self, w: Any) -> np.ndarray:
-        self.calls += 1
-        if self.limit is not None and self.calls > self.limit:
-            raise AssertionError("policy callback was replayed after validation")
-        values = _stochastic_density(w)
-        return values[:, ::-1] if self.flipped else values
-
-
 def test_regime_callback_is_checked_once_then_frozen_for_every_cell() -> None:
-    density = _CountingDensity()
+    density = Counter(_stochastic_density)
     result = _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)), repeats=3)
     original = result.estimator.interventions
     density.calls, density.limit = 0, 1
@@ -569,9 +484,9 @@ def test_regime_callback_is_checked_once_then_frozen_for_every_cell() -> None:
 def test_changed_callback_cannot_silently_change_the_assessed_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    density = _CountingDensity()
+    density = Counter(_stochastic_density)
     result = _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
-    density.flipped = True
+    density.function = lambda w: _stochastic_density(w)[:, ::-1]
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="declared regime densities disagree"):
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
@@ -632,23 +547,10 @@ def test_nonlinear_msm_refuses_before_draws(link: str, monkeypatch: pytest.Monke
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
 
 
-@dataclass
-class _CountingArmFunction:
-    function: Any
-    calls: int = 0
-    limit: int | None = None
-
-    def __call__(self, arm: Any, frame: Any) -> np.ndarray:
-        self.calls += 1
-        if self.limit is not None and self.calls > self.limit:
-            raise AssertionError("MSM callback was replayed after validation")
-        return self.function(arm, frame)
-
-
 def test_msm_callbacks_are_checked_once_per_arm_then_frozen() -> None:
     model = _model()
-    design = _CountingArmFunction(model.design)
-    weights = _CountingArmFunction(model.weights)
+    design = Counter(model.design)
+    weights = Counter(model.weights)
     declared = replace(model, design=design, weights=weights)
     result = _estimate(_study(weighted=True), MSMProjection(declared), repeats=3)
     design.calls = weights.calls = 0
@@ -746,6 +648,13 @@ def test_bare_regime_levels_replay_and_assess(regimens: tuple[Any, ...]) -> None
     assert battery.sensitivity["simulated_confounding"].status is AssessmentStatus.COMPLETED
 
 
+@pytest.mark.parametrize("target", ["ey_regime", "ate_regime", "msm"])
+def test_fixed_replay_requires_exact_ordinary_tmle(target: str) -> None:
+    assert fixed_replay.fixed_replay_refusal(DRTMLE(), target) == (
+        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only"
+    )
+
+
 @pytest.mark.parametrize("component", ["density", "design", "weights"])
 def test_user_callback_failure_keeps_its_original_error(component: str) -> None:
     broken = False
@@ -791,6 +700,13 @@ def test_stochastic_density_refuses_nonfinite_values_on_original_fit(value: floa
         _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
 
 
+def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _estimate(_study(), MSMProjection(replace(_model(), doses=(0.0, 0.5, 1.0))))
+    _forbid_draw_and_refit(monkeypatch, result.estimator)
+    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
+        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
+
+
 @pytest.mark.parametrize("slot", ["shifts", "incremental"])
 def test_arm_replay_refuses_other_declared_counterfactual_slots(
     slot: str, monkeypatch: pytest.MonkeyPatch
@@ -801,17 +717,3 @@ def test_arm_replay_refuses_other_declared_counterfactual_slots(
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="supports an arm-indexed parameter"):
         simulated_confounding(result, grid=_GRID, random_state=31)
-
-
-@pytest.mark.parametrize("target", ["ey_regime", "ate_regime", "msm"])
-def test_fixed_replay_requires_exact_ordinary_tmle(target: str) -> None:
-    assert fixed_replay.fixed_replay_refusal(DRTMLE(), target) == (
-        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only"
-    )
-
-
-def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
-    result = _estimate(_study(), MSMProjection(replace(_model(), doses=(0.0, 0.5, 1.0))))
-    _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
-        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
