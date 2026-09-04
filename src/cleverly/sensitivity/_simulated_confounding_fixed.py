@@ -1,9 +1,9 @@
 """Validate and freeze baseline policies for complete simulated-confounding refits.
 
-The surface changes A and Y only. A known policy, or an arm-based MSM design, therefore
-keeps its evaluated baseline arrays. Validate the original declaration against every
-stored draw before copying those arrays into a replay estimator. No targeting or
-nuisance calculation is replaced here.
+The surface changes A and Y only. Known policies and MSM integration arrays keep their
+evaluated baseline values. Continuous MSMs rebuild their observed-dose arrays from the
+declared functions. Validate the declaration against every stored draw before copying
+it into a replay estimator. No targeting or nuisance calculation is replaced here.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import as_interventions, check_regime_density
+from ..interventions.base import _as_array, as_interventions, check_regime_density
 from ..msm import MSM, MSMSet, _DataBoundArmFunction
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
@@ -56,8 +56,8 @@ def fixed_replay_refusal(estimator: Any, target: str) -> str | None:
         )
     if target == "msm":
         model = estimator.msm
-        if type(model) is not MSM or model.link != "identity" or model.doses:
-            return "simulated_confounding supports an identity-link arm-based MSM only"
+        if type(model) is not MSM or model.link not in {"identity", "log", "logit"}:
+            return "simulated_confounding supports exact MSM with identity, log, or logit link only"
     elif any(type(item) not in {Static, Rule, Stochastic} for item in estimator.interventions):
         return "simulated_confounding supports exact Static, Rule, and Stochastic regimes only"
     return None
@@ -117,6 +117,46 @@ class _FrozenArmFunction(_DataBoundArmFunction):
                 "fixed MSM replay requires the original treatment arms"
             ) from cause
         return self.values[:, index].copy()
+
+
+@dataclass(frozen=True)
+class _FrozenDoseFunction(_DataBoundArmFunction):
+    """Keep integration cells fixed and evaluate the declared observed-dose function."""
+
+    values: FloatArray
+    doses: tuple[float, ...]
+    baseline: _BaselineRows
+    function: Any
+    weights: bool = False
+
+    def check_data(self, data: CausalData) -> None:
+        self.baseline.check_data(data)
+        if not data.is_continuous_treatment:
+            raise CapabilityError("continuous MSM replay requires continuous treatment")
+
+    def __call__(self, dose: Any, frame: Any) -> Any:
+        self.baseline.check_frame(frame)
+        if np.asarray(dose).ndim == 0:
+            try:
+                index = self.doses.index(float(dose))
+            except ValueError as cause:
+                raise CapabilityError(
+                    "continuous MSM replay requires its fixed dose grid"
+                ) from cause
+            return self.values[:, index].copy()
+        values = np.asarray(
+            _as_array(self.function(dose, frame))
+            if self.function is not None
+            else np.ones(len(dose)),
+            dtype=float,
+        )
+        if not np.all(np.isfinite(values)) or (self.weights and np.any(values < 0)):
+            raise DataError(
+                "continuous MSM replay needs finite design and nonnegative finite weights"
+            )
+        # MSMSet applies the current observed-dose support mask in place. Do not let
+        # that mutate a callback-owned array or a later cell's raw weights.
+        return values.copy()
 
 
 def _same_items(left: Any, right: Any) -> bool:
@@ -192,8 +232,8 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         type(model) is not MSM
         or typed.model is not model
         or estimator.msm is not model
-        or model.link != "identity"
-        or model.doses
+        or model.link not in {"identity", "log", "logit"}
+        or bool(model.doses) != data.is_continuous_treatment
         or typed.regimens is not None
         or typed.horizons is not None
         or functional.reference is not None
@@ -201,7 +241,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         or key.reference is not None
         or key.term not in model.terms
     ):
-        raise DataError("identity-link arm-based MSM declarations disagree")
+        raise DataError("MSM declarations disagree")
     expected = MSMSet.evaluate(model, data)
     for nuisance in result.nuisances:
         state = nuisance.msm
@@ -213,31 +253,15 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             checked.terms != expected.terms
             or checked.arms != expected.arms
             or checked.link != expected.link
-            or checked.dose_values
-            or not np.array_equal(checked.design, expected.design)
-            or not np.array_equal(checked.weights, expected.weights)
-            or not (
-                checked.clever_weights is expected.clever_weights
-                or (
-                    checked.clever_weights is not None
-                    and expected.clever_weights is not None
-                    and np.array_equal(checked.clever_weights, expected.clever_weights)
-                )
-            )
-            or not (
-                checked.observed_design is expected.observed_design
-                or (
-                    checked.observed_design is not None
-                    and expected.observed_design is not None
-                    and np.array_equal(checked.observed_design, expected.observed_design)
-                )
-            )
-            or not (
-                checked.observed_weights is expected.observed_weights
-                or (
-                    checked.observed_weights is not None
-                    and expected.observed_weights is not None
-                    and np.array_equal(checked.observed_weights, expected.observed_weights)
+            or checked.dose_values != expected.dose_values
+            or any(
+                not np.array_equal(getattr(checked, field), getattr(expected, field))
+                for field in (
+                    "design",
+                    "weights",
+                    "clever_weights",
+                    "observed_design",
+                    "observed_weights",
                 )
             )
             or nuisance.regimes is not None
@@ -245,11 +269,21 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             raise DataError("declared MSM arrays disagree with a stored cross-fitting draw")
     replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
-    replay.msm = replace(
-        model,
-        design=_FrozenArmFunction(expected.design.copy(), baseline),
-        weights=_FrozenArmFunction(expected.weights.copy(), baseline),
-    )
+    if expected.continuous:
+        assert expected.clever_weights is not None
+        replay.msm = replace(
+            model,
+            design=_FrozenDoseFunction(expected.design.copy(), model.doses, baseline, model.design),
+            weights=_FrozenDoseFunction(
+                expected.clever_weights.copy(), model.doses, baseline, model.weights, weights=True
+            ),
+        )
+    else:
+        replay.msm = replace(
+            model,
+            design=_FrozenArmFunction(expected.design.copy(), baseline),
+            weights=_FrozenArmFunction(expected.weights.copy(), baseline),
+        )
     return replay, parameter_name("msm", arm=key.term)
 
 
@@ -268,7 +302,7 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
         key,
         axis,
         "simulated_confounding cannot replay this fixed-policy composition; "
-        "only a point-treatment fixed regime or arm-based MSM without longitudinal, "
+        "only a point-treatment fixed regime or MSM without longitudinal, "
         "intermediate, shift, incremental, or other counterfactual axes is supported",
     )
     study = point_study_or_refuse(result, error)

@@ -829,6 +829,12 @@ class TMLE:
         """
         self._check_shifts(data)
         self._check_incremental(data)
+        if data.has_strata and data.is_continuous_treatment and self.msm is not None:
+            raise NotImplementedError(
+                "continuous MSMs do not yet support baseline strata; conditional dose "
+                "projections need a stratum-specific density-ratio targeting construction. "
+                "Fit the marginal MSM projection."
+            )
         if data.has_strata and (self.cv_evaluation or self.targeting_scheme == "fold"):
             raise NotImplementedError(
                 "baseline strata currently use one joint pooled fluctuation. "

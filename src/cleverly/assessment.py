@@ -401,6 +401,24 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if (
+        family == "point"
+        and result.data.is_continuous_treatment
+        and result.config.parameter_axis == "msm"
+    ):
+        # The arm positivity report cannot interpret a continuous density. No
+        # dose-grid support diagnostic is implemented for this projection axis.
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason="a continuous MSM has no implemented dose-grid support diagnostic",
+            )
+            if row.operation == "support"
+            else row
+            for row in rows
+        )
     return tuple(
         replace(
             row,
@@ -2253,14 +2271,19 @@ def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -
 
     def compute() -> ValidationReport:
         facade = result.diagnostics if diagnostics is None else diagnostics
-        reports = {name: getattr(facade, name)() for name in VALIDATION_OPERATIONS}
-        items = [
-            replace(
-                INTERPRETERS[name](report, result, _NO_ARGUMENTS),
-                _report=_pack_cached(report, result.data.backend),
+        items = []
+        for name in VALIDATION_OPERATIONS:
+            capability = facade.capability(name)
+            if not capability.available:
+                items.append(_item_from_capability(capability))
+                continue
+            report = getattr(facade, name)()
+            items.append(
+                replace(
+                    INTERPRETERS[name](report, result, _NO_ARGUMENTS),
+                    _report=_pack_cached(report, result.data.backend),
+                )
             )
-            for name, report in reports.items()
-        ]
         return ValidationReport(tuple(items), result.data.backend)
 
     return _cached(result, "validate", (), {}, compute)
@@ -2419,7 +2442,7 @@ class SensitivityFacade(_CapabilityFacade):
         # This row only says whether the analysis exists for the family at all.
         benchmarkable = not longitudinal
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
-        # A binary arm, fixed-regime, or identity-MSM fit can use the facade's sole-
+        # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-
         # parameter substitution. Several eligible aliases require an explicit choice.
         continuous = not longitudinal and bool(
             getattr(self._result.data, "is_continuous_treatment", False)

@@ -8,18 +8,14 @@ from functools import cache
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
     ATE,
     AssessmentStatus,
-    CausalStudy,
     CounterfactualMean,
     IncrementalMean,
     MSMProjection,
-    PointTreatment,
     RegimeContrast,
     RegimeMean,
 )
@@ -462,8 +458,8 @@ def test_msm_provenance_layers_refuse_before_draw_or_refit(
     with pytest.raises(
         CapabilityError,
         match={
-            "typed-model": "identity-link arm-based MSM declarations disagree",
-            "estimator-model": "identity-link arm-based MSM declarations disagree",
+            "typed-model": "MSM declarations disagree",
+            "estimator-model": "MSM declarations disagree",
             "msm-design": "declared MSM arrays disagree",
         }.get(field, "fixed-policy parameter metadata"),
     ):
@@ -538,15 +534,6 @@ def test_msm_persistence_replays_a_new_surface() -> None:
     assert simulated_confounding(loaded, estimand=alias, grid=_GRID, random_state=43) == expected
 
 
-@pytest.mark.parametrize("link", ["log", "logit"])
-def test_nonlinear_msm_refuses_before_draws(link: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    result = _fit_msm(binary=True, saturated=True, link=link)
-    result = replace(result, estimator=copy(result.estimator))
-    _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
-        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
-
-
 def test_msm_callbacks_are_checked_once_per_arm_then_frozen() -> None:
     model = _model()
     design = Counter(model.design)
@@ -596,43 +583,14 @@ def test_custom_intervention_refuses_before_draws(monkeypatch: pytest.MonkeyPatc
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
 
 
-def test_incremental_policy_remains_a_distinct_refused_functional(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_incremental_policy_replays_its_distinct_functional() -> None:
     result = _estimate(
         _study(binary=True), IncrementalMean((Incremental(2.0, name="up"),)), binary=True
     )
-    _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="arm-indexed parameter"):
-        simulated_confounding(
-            result, estimand=next(iter(result.estimates)), grid=_GRID, random_state=31
-        )
-
-
-def test_continuous_dose_msm_remains_outside_binary_policy_replay(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rng = np.random.default_rng(11)
-    w = rng.normal(size=180)
-    a = 0.4 * w + rng.normal(size=180)
-    study = CausalStudy(
-        pd.DataFrame({"Y": 1.0 + 2.0 * a + 0.3 * w, "A": a, "W": w}),
-        design=PointTreatment(
-            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
-        ),
+    surface = simulated_confounding(
+        result, estimand=next(iter(result.estimates)), grid=_GRID, random_state=31
     )
-    result = study.estimate(
-        MSMProjection(MSM.linear(doses=np.linspace(-1.5, 1.5, 9))),
-        outcome_learner=LinearRegression(),
-        treatment_learner=LogisticRegression(max_iter=1000),
-        cross_fit=False,
-        density_bins=8,
-        simultaneous=False,
-        random_state=3,
-    )
-    _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
-        simulated_confounding(result, estimand="msm[a]", grid=_GRID, random_state=31)
+    assert all(cell.failure is None for cell in surface.cells)
 
 
 @pytest.mark.parametrize("regimens", [(1, 0), (Static(1), 0)])
@@ -703,7 +661,7 @@ def test_stochastic_density_refuses_nonfinite_values_on_original_fit(value: floa
 def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _estimate(_study(), MSMProjection(replace(_model(), doses=(0.0, 0.5, 1.0))))
     _forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
+    with pytest.raises(CapabilityError, match="MSM declarations disagree"):
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
 
 

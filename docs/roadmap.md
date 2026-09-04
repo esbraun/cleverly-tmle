@@ -339,11 +339,10 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | ATT and ATC under C-TMLE or DR-TMLE | an estimator-level derivation and implementation before the surface can replay it |
 | PAR and PAF under C-TMLE or DR-TMLE | a variant-specific audit of the joint observed-mean and counterfactual-mean curve, its covariance, and the PAF transformation |
 | conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
+| conditional strata for incremental targets and nonlinear or continuous MSMs | stratified mechanism or projection targeting, and continuous-dose indexing, before complete estimator replay |
 | continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
-| fixed regimes and MSM targets under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
-| incremental targets | preserve delta while rebuilding the intervention from each cell's treatment mechanism |
-| nonlinear and continuous MSM targets | a link-specific and dose-specific projection replay audit |
+| fixed regimes, incremental targets, and MSMs under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
 
 Several rows above name an upstream limit rather than a surface limit. The identified effect's
 method catalog raises `CapabilityError` for the unsupported variant targets in this table.
@@ -351,6 +350,8 @@ That refusal happens before the estimator is built. A
 DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
 `src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
 for the `mean` group.
+Ordinary TMLE also refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
+These targets need stratified alternating equations or continuous-dose targeting before replay.
 
 The catalog refuses PAR and PAF because their target-specific scores and corrections lack evidence.
 An internal engine accepting a target name does not remove that boundary. A variant extension must
@@ -360,10 +361,9 @@ No such result reaches the surface. The
 [refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 records each message.
 
-Two refusals belong to no row above. The surface refuses `NaturalCourseMean` and the policy mean
-of a zero-delta shift. Both equal the observed outcome mean. Neither contains a counterfactual
-treatment term. The `ate_shift` contrast that uses the zero-delta policy as its reference stays
-supported.
+Three refusals belong to no row above. The surface refuses `NaturalCourseMean`, a zero-delta shift mean, and a multiplier-one incremental mean.
+Each equals the observed outcome mean. None contains a counterfactual treatment term.
+Modified-policy and incremental contrasts that use their natural-course reference stay supported.
 
 Sharma and Kiciman (2020) and Sharma et al. (2021) fix the qualitative role of this diagnostic.
 They derive no bound, no calibration formula, and no inferential test. Every expansion stays

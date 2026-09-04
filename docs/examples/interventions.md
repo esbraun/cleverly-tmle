@@ -260,6 +260,27 @@ the mechanism was the one nobody could model. Read the
 [incremental section](../technical-reference/point-treatment-tmle.md#incremental-propensity-score-interventions)
 before reporting one.
 
+## Stress the incremental assignment rule
+
+The office can inspect qualitative movement under a simulated common cause.
+Each cell keeps the odds multiplier fixed and rebuilds the intervention from its refitted assignment model.
+Movement includes this change in probabilities. It supplies no sensitivity-adjusted interval or robustness verdict.
+
+```python
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+incremental_surface = incremental_result.sensitivity.simulated_confounding(
+    estimand="ate_ipsi[odds x2 vs odds x0.5]",
+    grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+)
+print(incremental_surface.to_frame())
+```
+
+Select the full reported alias for a multi-parameter result.
+The surface refuses the natural-course mean at multiplier one. A contrast against that reference remains eligible.
+The [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+names the supported populations and replay checks.
+
 ## The three numbers side by side
 
 ```python

@@ -255,7 +255,7 @@ identifies its arms, policy, and baseline stratum. The following contracts disti
 | reported field | population contract |
 | --- | --- |
 | `stratum`, `strata_names` | The selected baseline values and their column names. A marginal parameter has no selected stratum |
-| `population="baseline"` | Arm, regime, attributable, modified-policy, and MSM parameters use fixed baseline membership |
+| `population="baseline"` | Arm, regime, incremental, attributable, modified-policy, and MSM parameters use fixed baseline membership |
 | `population="perturbed_treatment_group"` | ATT and ATC use observed-treatment membership after the cell's perturbation |
 | `conditioning_arm` | The observed arm defining ATT or ATC. Other targets report `None` |
 | `target_population_fraction` in each cell | The conditioning group's weighted share within the baseline population. Other targets report one |
@@ -271,7 +271,7 @@ different stratum aliases use the same perturbed datasets.
 
 Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, regime
 parameters, and identity-link MSM coefficients. It also supports conditional modified-policy
-means and contrasts. Binary C-TMLE supports conditional arm means, ATE, and
+means and contrasts. MSM strata require binary treatment and the identity link. Binary C-TMLE supports conditional arm means, ATE, and
 ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation. A
 DR-TMLE fit refuses `strata=` when it fits, so no stratified DR-TMLE result exists for the surface
 to replay.
@@ -395,7 +395,8 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE or collaborative TMLE |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
-| binary | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; identity link with fixed design and projection weights |
+| binary or continuous | marginal `msm[...]` coefficient; baseline strata for binary identity-link MSMs only | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
+| binary | marginal `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_shift[...]` contrast | exact ordinary TMLE |
 
@@ -406,7 +407,7 @@ fixed. It refits the observed treatment mechanism and outcome regression after e
 It then targets the same functional, $E_W\sum_a q(a\mid W)Q(a,W)$, on that cell's empirical law.
 Static assignments and baseline rules are degenerate densities under this definition.
 
-An identity-link MSM surface holds its arm-specific design and projection weights fixed.
+An MSM surface holds its grid design, link, and projection measure fixed.
 The estimator recomputes the projection from the perturbed data. A coefficient uses additive
 movement on its original scale. Projection weights define the working approximation; observation
 weights define the empirical population. The surface preserves both without combining their roles.
@@ -414,7 +415,8 @@ weights define the empirical population. The surface preserves both without comb
 The operation checks typed identification, parameter keys, replay configuration, and every fitted
 repeat before it draws the latent vector. It evaluates the original policy or projection callbacks
 and compares their output with the stored arrays. A disagreement raises `CapabilityError`.
-The accepted replay uses copies of those arrays, so callbacks cannot change the target between cells.
+The replay freezes baseline policy and grid arrays after validation.
+Continuous observed-dose evaluations use the declared deterministic callbacks on each new dose vector.
 This also prevents an assessment from changing the original estimator's configuration.
 
 | input | what stays fixed |
@@ -422,7 +424,9 @@ This also prevents an assessment from changing the original estimator's configur
 | `Static` | the assigned treatment label |
 | `Rule` | the assignment at each original baseline row |
 | `Stochastic` | the complete probability vector at each original baseline row |
-| identity-link `MSM` | terms, arm-specific design, and known projection weights |
+| finite-arm `MSM` | terms, link, arm-specific design, and known projection weights |
+| continuous-dose `MSM` | terms, link, integration grid, grid design, and raw grid weights |
+| `Incremental` | odds multiplier, intervention name, and reference label |
 | baseline strata and observation weights | original row membership and normalized weight |
 
 The regime functional and influence curve follow the existing
@@ -437,6 +441,48 @@ None of these sources supplies a sensitivity-adjusted interval for this composit
 refits. It also checks static-arm identities, fixed densities, projection weights, callback drift,
 metadata mutations, assessment routing, and persistence. The registered deterministic-regime,
 stochastic-regime, and MSM studies validate the unchanged estimator paths.
+
+**Incremental interventions.** Each cell preserves the declared multiplier $\delta$ and refits the treatment mechanism $g$.
+The estimator rebuilds $q_\delta=\delta g/(\delta g+1-g)$ and retains its mechanism targeting contribution.
+The surface therefore compares the same multiplier rule under different fitted laws.
+It does not preserve the original intervention probabilities.
+Kennedy (2019), equation (1) and Corollaries 1–2, supplies the parameter and influence curve.
+The [source audit](../references.md#sensitivity-analysis) separates that result from the qualitative perturbation.
+
+A multiplier-one mean equals the natural-course mean and is refused before a random draw.
+A contrast against that reference remains supported. Means and contrasts report additive movement.
+The operation validates every stored repeat against its own initial, untruncated propensity predictions.
+It checks intervention names, multipliers, densities, clever weights, derivatives, and the reference.
+
+**Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.
+It invokes the existing complete projection and targeting solver in each cell.
+Movement remains a coefficient difference, including coefficients on log or logit scales.
+It never substitutes a ratio-scale coefficient view.
+
+For continuous treatment, the declared integration grid stays fixed after $A'=A+k_AU$.
+The replay freezes raw grid weights. The estimator applies its existing trapezoid rule once.
+The observed-dose design, raw weights, and support mask are recomputed at $A'$.
+Freezing these observed arrays would evaluate the score at the original treatment.
+
+Deterministic callbacks must accept the new dose vector. Callback and outcome-support failures remain recorded in their cells.
+Custom MSM links require their own replay audit and remain refused.
+
+A continuous MSM has no implemented dose-grid support diagnostic.
+Its combined assessment records that row as unavailable and continues to the requested surface.
+Outcome diagnostics remain available; integration-grid positions never become treatment-arm calibration rows.
+`tests/unit/test_continuous_msm_assessment.py` checks these reporting boundaries.
+
+| witness | what it checks |
+| --- | --- |
+| `tests/unit/test_simulated_confounding_incremental.py` | nonzero complete refits, mechanism rebuilding, natural-course refusals, repeated provenance, and persisted assessment |
+| `tests/unit/test_simulated_confounding_msm.py` | built-in links, fixed quadrature, observed-dose rebuilding, support masks, and corrupted cached arrays |
+| existing incremental and MSM estimator tests | unchanged targeting, influence curves, and projections |
+
+These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
+The registered incremental and point-MSM artifacts remain unchanged.
+The estimator refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
+Those targeting extensions remain tracked in S5.
+The point-MSM study covers identity-link finite-arm estimation; it supplies no nonlinear or continuous-MSM interval validation.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
 repeat draws and reports their coordinatewise median. Additive displacement compares the refitted
@@ -626,14 +672,15 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
-| an incremental parameter | not written yet | its intervention depends on the refitted treatment mechanism; fixed-policy replay does not implement this contract |
-| a nonlinear or continuous-dose MSM parameter | not written yet | the surface needs a separate link-specific or dose-specific projection audit |
-| a custom intervention type | not written yet | only exact `Static`, `Rule`, and `Stochastic` declarations have an audited baseline-input contract |
-| a regime or MSM under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog lacks the corresponding collaborative score or reduced-dimension correction |
+| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups |
+| a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
+| a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
+| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog lacks the corresponding collaborative score or reduced-dimension correction |
 | continuous-treatment C-TMLE and DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse a modified-treatment-policy functional when they estimate. The surface replays exact ordinary TMLE only |
 | PAR or PAF under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog has no evidenced collaborative score or reduced-dimension correction for these observed-law contrasts |
 | `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
+| an incremental mean at multiplier one | wrong by construction | its mean is $E[Y]$. Contrasts with this reference remain supported |
 | a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
 
 Some rows above record an upstream limit rather than a surface limit. The identified effect's

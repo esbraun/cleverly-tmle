@@ -37,6 +37,12 @@ from ._simulated_confounding_common import (
     point_study_or_refuse,
 )
 from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
+from ._simulated_confounding_incremental import (
+    INCREMENTAL_TARGETS,
+    incremental_replay_refusal,
+    natural_incremental_means,
+    validate_incremental_replay,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .simulated_confounding import ConfounderStrengthGrid
@@ -151,6 +157,20 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     fixed_refusal = fixed_replay_refusal(estimator, estimand)
     if fixed_refusal is not None:
         return fixed_refusal
+    if estimand == "msm" and stratum is not None:
+        if estimator.msm.doses:
+            return (
+                "simulated_confounding cannot replay baseline strata for continuous MSMs; "
+                "stratified continuous-dose targeting is unsupported"
+            )
+        if estimator.msm.link != "identity":
+            return (
+                "simulated_confounding cannot replay baseline strata for nonlinear MSMs; "
+                "stratified alternating targeting is unsupported"
+            )
+    incremental_refusal = incremental_replay_refusal(estimator, estimand, stratum)
+    if incremental_refusal is not None:
+        return incremental_refusal
     if estimand in _CONDITIONAL_TARGETS and type(estimator) is not TMLE:
         return "simulated_confounding supports ATT and ATC under exact ordinary TMLE only"
     if estimand in _ATTRIBUTABLE_TYPES and type(estimator) is not TMLE:
@@ -176,14 +196,17 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
         return ()
     estimates = getattr(result, "estimates", {})
     keys = getattr(result, "parameter_keys", {})
+    natural_means = natural_incremental_means(result)
     return tuple(
         alias
         for alias, key in keys.items()
         if alias in estimates
+        and alias not in natural_means
         and type(key) is ParameterKey
         and (
             (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
             or fixed_key_axis(key) is not None
+            or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
         )
         and _replay_refusal(result.estimator, key.estimand, key.stratum) is None
     )
@@ -634,7 +657,7 @@ def _validate_request(
         admissible = [
             name
             for name in result.estimates
-            if name.startswith(("ey_shift[", "ate_shift[")) and name not in vacuous
+            if name.startswith(("ey_shift[", "ate_shift[", "msm[")) and name not in vacuous
         ]
         detail = (
             f"choose one of {admissible}"
@@ -643,7 +666,7 @@ def _validate_request(
         )
         raise ValueError(
             "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
-            f"or ate_shift[...] contrast alias; {detail}"
+            f"or ate_shift[...] contrast alias, or an msm[...] coefficient alias; {detail}"
         )
     if estimand not in result.estimates:
         if treatment_family == "binary":
@@ -667,8 +690,10 @@ def _validate_request(
     refusal = _replay_refusal(estimator, key.estimand, key.stratum)
     if refusal is not None:
         raise CapabilityError(refusal)
-    if treatment_family == "binary" and fixed_axis(key.estimand) is not None:
+    if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
+    elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
+        estimator = validate_incremental_replay(result, estimand, key)
     elif treatment_family == "binary":
         check_only_declared_axis(
             result,
