@@ -266,6 +266,17 @@ One composition is refused. `msm=` cannot be combined with `interventions=` or `
 fluctuation solves one set of score equations. A fit reporting parameters from two axes would put two
 of them under one heading.
 
+## Stress a binary or continuous projection
+
+The simulated-common-cause surface supports ordinary-TMLE MSM coefficients for binary and continuous treatments.
+It accepts the built-in identity, log, and logit links. Each cell reports a difference on the stored coefficient scale.
+Continuous-dose cells keep the integration grid fixed and recompute the design and weights at the perturbed observed doses.
+
+This tutorial uses three treatment arms, so its surface remains refused pending a category-valued perturbation law.
+A binary or continuous analysis selects one full `msm[...]` alias through `estimand=`.
+See the [surface contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface) for the source audit, tests, and remaining refusals.
+The diagnostic adds no interval claim to the projection studies above.
+
 ## Where to go next
 
 The same projection works over regimens and horizons in a longitudinal fit, where the design callable

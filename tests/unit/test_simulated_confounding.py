@@ -3296,7 +3296,7 @@ def test_relabeling_an_ate_cannot_substitute_another_estimand(
         else (
             "fixed-policy parameter metadata"
             if estimand == "ate_regime"
-            else "identity-link arm-based MSM only"
+            else "exact MSM with identity, log, or logit link only"
         )
     )
     with pytest.raises(CapabilityError, match=message):

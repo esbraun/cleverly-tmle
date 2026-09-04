@@ -273,17 +273,23 @@ that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[
 Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
 while the operation perturbs the observed treatment and outcome.
 
-Binary ordinary-TMLE fits also support fixed regime means, regime contrasts, and identity-link MSM
-coefficients. Select a reported alias when the fit contains more than one eligible parameter.
+Binary ordinary-TMLE fits also support fixed regime means, regime contrasts, incremental targets, and MSM
+coefficients. Continuous ordinary-TMLE fits support MSM coefficients too. Select a reported alias when the fit contains more than one eligible parameter.
 
 | fitted target | what the surface preserves |
 | --- | --- |
 | `RegimeMean` or `RegimeContrast` | the `Static`, `Rule`, or `Stochastic` policy at each baseline row |
-| identity-link `MSMProjection` | the arm-specific design, coefficient names, and known projection weights |
+| `MSMProjection` | the built-in link, grid design, coefficient names, and known projection measure |
+| `IncrementalMean` or `IncrementalEffect` | odds multipliers, names, and the reference |
 
 The surface refits the treatment and outcome models in each non-anchor cell. It reports additive
 movement and preserves fixed observation weights and baseline strata. It checks callbacks against
-stored inputs before the first draw, then uses those inputs for every cell.
+stored inputs before the first draw. Continuous MSMs reevaluate observed-dose functions after perturbation.
+They preserve the integration grid and apply quadrature once. Log and logit MSMs report coefficient differences without exponentiation.
+
+Incremental targets and nonlinear or continuous MSMs require marginal fits because their estimator refuses baseline strata.
+Binary identity-link MSMs retain baseline-stratum support.
+Continuous MSM assessments mark the unimplemented dose-grid support diagnostic as unavailable and continue to the requested surface.
 
 This example compares a known stochastic assignment with never treating.
 
@@ -330,7 +336,8 @@ policy_surface.to_frame()
 ```
 
 The probabilities follow the fitted treatment-level order. An incremental intervention instead
-depends on the fitted treatment mechanism, so this fixed-policy surface refuses it.
+depends on the fitted treatment mechanism. Each incremental cell rebuilds its intervention from that refitted mechanism.
+Movement includes the change in intervention probabilities. The surface refuses a multiplier-one mean, but accepts contrasts against that reference.
 The [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 states the remaining policy and projection boundaries.
 

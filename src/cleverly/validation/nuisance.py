@@ -321,11 +321,13 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 nuisance.diagnostics.get("propensity"),
             )
         )
-    else:
+    elif not data.is_continuous_treatment:
         # One one-vs-rest report per arm, rather than a single multi-class summary.
         # Positivity is an arm-by-arm property -- the estimate can rest on a badly
         # calibrated denominator for one arm while the pooled log loss looks fine --
         # and a per-arm report is what says which arm to go and look at.
+        # Continuous MSM counterfactual codes name integration doses, not arms.
+        # Their fitted mechanism is a density; no propensity calibration exists.
         for arm in nuisance.arms:
             models.append(
                 _binary_report(

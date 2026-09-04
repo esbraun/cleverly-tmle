@@ -326,6 +326,20 @@ previous reader had is not a citation; a page number is.
   It selects a logistic working projection for binary outcomes and a Gaussian projection otherwise.
   Its conditional-probability weight default is outside this surface's fixed-weight contract.
   The binary-outcome identity-link surface therefore claims no coefficient parity with that default.
+- Incremental replay uses Kennedy (2019), [Section 3.1, equation (1), and Corollaries 1–2](https://arxiv.org/html/1704.00211v3).
+  The multiplier stays fixed while the intervention density depends on the treatment mechanism.
+  Multiplier one leaves that mechanism unchanged.
+  Pinned [`npcausal` `R/ipsi.R`, lines 123–192](https://github.com/ehkennedy/npcausal/blob/56a5ac117a29258b67b94874be662a171b5131f7/R/ipsi.R#L123-L192)
+  rebuilds propensity estimates, tilt weights, and the mechanism contribution for fixed `delta.seq`.
+  This is estimator provenance. Neither source supplies a simulated-confounding bound or interval.
+- The MSM replay audit uses the existing fixed-weight projection and complete estimator.
+  Van der Laan and Gruber's Section 6 starts with discrete treatment and a differentiable working model.
+  Its worked fluctuation then assumes a coefficient-independent clever covariate.
+  It does not directly validate nonlinear fixed-weight alternation or continuous numerical integration.
+
+  Pinned `tmle3` evaluates observed-treatment designs and weights separately from counterfactual projection arrays.
+  Its logistic loss and continuous integration differ from this package's fixed-grid least-squares construction.
+  No nonlinear or continuous coefficient parity, new estimator, or interval claim follows from this diagnostic audit.
 - DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
   calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
   Its continuous branch uses one column's correlation times the perturbed variable's standard

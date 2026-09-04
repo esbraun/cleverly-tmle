@@ -11,7 +11,13 @@ from ..study import PointTreatment
 from ..targets import TARGETS
 from ..targets.base import stratum_alias
 
-_AXIS_SLOTS = {"arm": (), "shift": ("shifts",), "regime": ("interventions",), "msm": ("msm",)}
+_AXIS_SLOTS = {
+    "arm": (),
+    "shift": ("shifts",),
+    "regime": ("interventions",),
+    "msm": ("msm",),
+    "ipsi": ("incremental",),
+}
 
 
 def fixed_axis(target: str) -> str | None:
@@ -101,14 +107,14 @@ def check_only_declared_axis(result: Any, key: Any, axis: str, error: str) -> No
     functional = result.identified_effect.functional
     estimator = result.estimator
     allowed = _AXIS_SLOTS[axis]
-    slots = {slot for names in _AXIS_SLOTS.values() for slot in names} | {"incremental"}
+    slots = {slot for names in _AXIS_SLOTS.values() for slot in names}
     if (
         functional.longitudinal
         or functional.axis != axis
         or functional.horizons is not None
         or functional.intermediate is not None
         or any(getattr(estimator, slot) for slot in slots if slot not in allowed)
-        or (bool(functional.interventions) != (axis in {"shift", "regime"}))
+        or (bool(functional.interventions) != (axis in {"shift", "regime", "ipsi"}))
         or (functional.msm is not None) != (axis == "msm")
         or any(getattr(key, slot) is not None for slot in ("regimen", "cause", "horizon"))
         or (axis != "msm" and key.term is not None)
