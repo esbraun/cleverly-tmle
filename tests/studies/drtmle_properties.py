@@ -12,10 +12,9 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_drtmle import STUDY, draw_from_seed, fit_cleverly
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import (
-    apply_shared_verdicts,
-    contraction_rates,
-    contraction_verdicts,
-    finish,
+    CONTRACTION_SCENARIOS,
+    control_role,
+    summarize_contraction_properties,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -51,7 +50,6 @@ CALIBRATION_N = 3000
 #: had no way to reach.
 CONTRACTION_SIZES = (1500, 3000, 6000)
 CONTRACTION_REPLICATES = 800
-CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 
 
 @dataclass(frozen=True)
@@ -74,7 +72,7 @@ def cells() -> tuple[Cell, ...]:
             1500,
             DOUBLE_ROBUST_REPLICATES,
             10_000 + index * 1000,
-            "control" if scenario == "both_wrong" else "positive",
+            control_role(scenario),
         )
         for index, scenario in enumerate(
             ("both_correct", "outcome_correct", "treatment_correct", "both_wrong")
@@ -113,7 +111,7 @@ def cells() -> tuple[Cell, ...]:
             # fitted across sizes, and reusing a stream would correlate the rungs and narrow
             # the slope interval for a reason that has nothing to do with the estimator.
             40_000 + scenario_index * 3_000 + size_index * 1_000,
-            "control" if scenario == "both_wrong" else "positive",
+            control_role(scenario),
         )
         for scenario_index, scenario in enumerate(CONTRACTION_SCENARIOS)
         for size_index, size in enumerate(CONTRACTION_SIZES)
@@ -155,7 +153,4 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = apply_shared_verdicts(rows, STUDY)
-    contraction_verdicts(summary, STUDY)
-    rates.extend(contraction_rates(rows, STUDY, summary.columns, scenarios=CONTRACTION_SCENARIOS))
-    return finish(summary, rates)
+    return summarize_contraction_properties(rows, STUDY)

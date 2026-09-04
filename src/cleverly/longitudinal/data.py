@@ -73,11 +73,12 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.validate import (
     MIN_CONTINUOUS_LEVELS,
+    MIN_OBSERVATIONS,
     arm_indicators,
     check_covariates,
     encode_clusters,
     encode_treatment,
-    infer_family,
+    resolve_family,
 )
 from ..data.weighting import (
     WeightReport,
@@ -97,8 +98,6 @@ from ..utils.frames import (
 )
 
 __all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
-
-_MIN_OBSERVATIONS = 10
 
 #: What arm a regimen assigns at each node: one arm per node for a static plan, or an
 #: ``(n, T)`` matrix when a dynamic rule assigns a different arm to different units.
@@ -391,7 +390,7 @@ class LongitudinalData:
         time_varying_names: Sequence[Sequence[str]],
         cluster: Any,
         cluster_name: str | None,
-        weights: Any = None,
+        weights: np.ndarray | None = None,
         weights_type: str = "probability",
         weights_estimated: bool = False,
         weights_name: str | None = None,
@@ -406,8 +405,8 @@ class LongitudinalData:
         else:
             y = np.asarray(outcome, dtype=float).reshape(-1)
             n = y.shape[0]
-        if n < _MIN_OBSERVATIONS:
-            raise DataError(f"need at least {_MIN_OBSERVATIONS} observations; got {n}")
+        if n < MIN_OBSERVATIONS:
+            raise DataError(f"need at least {MIN_OBSERVATIONS} observations; got {n}")
         n_times = treatment.shape[1]
 
         if baseline is None:
@@ -522,15 +521,7 @@ class LongitudinalData:
                 ),
             )
 
-            resolved = infer_family(y, observed_outcome) if family == "auto" else family
-            if resolved not in ("binomial", "gaussian"):
-                raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
-            if resolved == "binomial":
-                values = np.unique(y[observed_outcome])
-                if not np.all(np.isin(values, (0.0, 1.0))):
-                    raise DataError(
-                        f"family='binomial' requires a 0/1 outcome; observed {values[:6].tolist()}"
-                    )
+            resolved = resolve_family(y, observed_outcome, family)
 
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
 

@@ -210,8 +210,57 @@ def test_contraction_rates_keep_strict_direction_control_inversion_and_streams(
             "confidence_level": record.margins.confidence_level,
             "seed": stream_seed(record, "double_robust_contraction", scenario),
         }
+        assert row["property"] == "double_robust_contraction"
         assert row["rate_sizes"] == "20;40;80"
         assert row["n"] == 80
         assert row["replicates"] == 3
+        assert row["failed_replicates"] == 0
         assert np.isnan(row["extra_column"])
+        assert row["slope"] == -0.5
         assert row["slope_ci_upper"] == upper
+
+
+def test_control_role_inverts_on_exactly_the_declared_control_label() -> None:
+    from tests.studies.evidence import property_verdicts
+
+    assert property_verdicts.control_role(property_verdicts.CONTROL_SCENARIO) == "control"
+    for scenario in ("outcome_correct", "treatment_correct", "both_correct", "Both_Wrong", ""):
+        assert property_verdicts.control_role(scenario) == "positive"
+
+
+def test_contraction_rates_default_scenarios_are_the_shared_declared_ladder(monkeypatch) -> None:
+    from tests.studies.evidence import property_verdicts
+    from tests.studies.evidence.inference import Interval
+    from tests.studies.evidence.properties import Rate
+
+    record = canonical_cde_tmle.STUDY
+    rows = pd.DataFrame(
+        [
+            {
+                "property": property_verdicts.CONTRACTION_FAMILY,
+                "cell": f"{scenario}_n{n}",
+                "n": n,
+            }
+            for scenario in property_verdicts.CONTRACTION_SCENARIOS
+            for n in (20, 40, 80)
+        ]
+    )
+    monkeypatch.setattr(
+        property_verdicts, "rate", lambda selected, **kwargs: Rate(-0.5, Interval(-1.0, -0.1))
+    )
+
+    defaulted = property_verdicts.contraction_rates(rows, record, ["extra_column"])
+    explicit = property_verdicts.contraction_rates(
+        rows, record, ["extra_column"], scenarios=property_verdicts.CONTRACTION_SCENARIOS
+    )
+
+    assert property_verdicts.CONTRACTION_SCENARIOS == (
+        "outcome_correct",
+        "treatment_correct",
+        "both_wrong",
+    )
+    assert defaulted == explicit
+    assert [row["cell"] for row in defaulted] == [
+        f"rate_{scenario}" for scenario in property_verdicts.CONTRACTION_SCENARIOS
+    ]
+    assert [row["role"] for row in defaulted] == ["positive", "positive", "control"]

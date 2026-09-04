@@ -16,10 +16,9 @@ from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_drtmle import STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
-    apply_shared_verdicts,
-    contraction_rates,
-    contraction_verdicts,
-    finish,
+    CONTRACTION_SCENARIOS,
+    control_role,
+    summarize_contraction_properties,
 )
 
 #: Which design columns each misspecified nuisance keeps.
@@ -54,7 +53,6 @@ MISSPECIFIED_TREATMENT_COLUMNS = (1, 2)
 #: at and doubles twice, so its first rung reproduces that regime rather than a milder one.
 CONTRACTION_SIZES = (2000, 4000, 8000)
 CONTRACTION_REPLICATES = 600
-CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 
 
 class ColumnLogistic(BaseEstimator, ClassifierMixin):
@@ -116,7 +114,7 @@ def _contraction_cells() -> tuple[PropertyCell, ...]:
             # fitted across sizes, and a shared stream would correlate the rungs and narrow
             # the slope interval for a reason that has nothing to do with the estimator.
             24_000 + scenario_index * 300 + size_index * 100,
-            role="control" if scenario == "both_wrong" else "positive",
+            role=control_role(scenario),
             estimand=multi_arm_properties.ESTIMAND,
         )
         for scenario_index, scenario in enumerate(CONTRACTION_SCENARIOS)
@@ -164,7 +162,4 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = apply_shared_verdicts(rows, STUDY)
-    contraction_verdicts(summary, STUDY)
-    rates.extend(contraction_rates(rows, STUDY, summary.columns, scenarios=CONTRACTION_SCENARIOS))
-    return finish(summary, rates)
+    return summarize_contraction_properties(rows, STUDY)

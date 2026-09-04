@@ -26,7 +26,11 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_cvtmle
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.property_verdicts import (
+    apply_shared_verdicts,
+    control_role,
+    finish,
+)
 
 #: Sized by what the claim needs, not by habit.  The 99% interval's half-width is about
 #: ``2.6 / sqrt(m)`` empirical standard deviations, so ``m`` decides the largest bias the study
@@ -298,7 +302,7 @@ def cells() -> tuple[PropertyCell, ...]:
                 n=(DOUBLE_ROBUST_TREATMENT_N if name == "treatment_correct" else DOUBLE_ROBUST_N),
                 replicates=DOUBLE_ROBUST_REPLICATES,
                 seed=DOUBLE_ROBUST_SEED + index,
-                role="control" if name == "both_wrong" else "positive",
+                role=control_role(name),
             )
         )
     for index, size in enumerate(RATE_SIZES):

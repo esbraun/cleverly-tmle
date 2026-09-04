@@ -53,6 +53,7 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 from .validate import (
+    MIN_OBSERVATIONS,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -63,6 +64,7 @@ from .validate import (
     encode_continuous_treatment,
     encode_treatment,
     infer_family,
+    resolve_family,
 )
 from .weighting import (
     WeightReport,
@@ -79,8 +81,6 @@ __all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
 #: mechanisms (a distribution over arms versus a conditional density) and therefore
 #: different estimands.
 TreatmentKind = Literal["discrete", "continuous"]
-
-_MIN_OBSERVATIONS = 10
 
 
 @dataclass(frozen=True)
@@ -368,8 +368,8 @@ class CausalData:
         strata_levels: Sequence[tuple[Any, ...]] = (),
     ) -> CausalData:
         n = len(outcome)
-        if n < _MIN_OBSERVATIONS:
-            raise DataError(f"need at least {_MIN_OBSERVATIONS} observations; got {n}")
+        if n < MIN_OBSERVATIONS:
+            raise DataError(f"need at least {MIN_OBSERVATIONS} observations; got {n}")
         for label, arr in (
             (treatment_name, treatment),
             ("covariates", covariates),
@@ -390,16 +390,7 @@ class CausalData:
             np.ones(n, dtype=bool) if delta is None else check_delta(delta, delta_name or "delta")
         )
         y = check_outcome(outcome, outcome_name, None if delta is None else observed)
-        resolved_family = infer_family(y, observed) if family == "auto" else family
-        if resolved_family not in ("binomial", "gaussian"):
-            raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
-        if resolved_family == "binomial":
-            observed_values = np.unique(y[observed])
-            if not np.all(np.isin(observed_values, (0.0, 1.0))):
-                raise DataError(
-                    "family='binomial' requires a 0/1 outcome; observed values "
-                    f"{observed_values[:6].tolist()}"
-                )
+        resolved_family = resolve_family(y, observed, family)
 
         w, w_names, dropped = check_covariates(covariates, list(covariate_names))
         obs_weights, spec = _prepare_weights(
@@ -798,8 +789,8 @@ class CausalData:
         idx = np.asarray(index)
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
-        if idx.size < _MIN_OBSERVATIONS:
-            raise DataError(f"subset has {idx.size} rows; need at least {_MIN_OBSERVATIONS}")
+        if idx.size < MIN_OBSERVATIONS:
+            raise DataError(f"subset has {idx.size} rows; need at least {MIN_OBSERVATIONS}")
         cluster = (
             None if self.cluster is None else np.unique(self.cluster[idx], return_inverse=True)[1]
         )
