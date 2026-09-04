@@ -337,23 +337,31 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
 | ATT and ATC under C-TMLE or DR-TMLE | an estimator-level derivation and implementation before the surface can replay it |
+| PAR and PAF under C-TMLE or DR-TMLE | a variant-specific audit of the joint observed-mean and counterfactual-mean curve, its covariance, and the PAF transformation |
 | conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
 | continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
 
-Three rows above name an estimator limit rather than a surface limit. `CTMLE` and `DRTMLE` raise
-`CapabilityError` when they estimate ATT, ATC, or a modified-treatment policy. A DR-TMLE fit that
-declares `strata=` raises `NotImplementedError` from `src/cleverly/estimators/tmle.py`, because its
-reduced regressions add a second targeting equation for the `mean` group. Each refusal happens at
-the fit, so no such result reaches the surface. The
+Four rows above name an upstream limit rather than a surface limit. The identified effect's method
+catalog raises `CapabilityError` when it is asked to estimate ATT, ATC, a modified-treatment
+policy, PAR, or PAF under either variant. That refusal happens before the estimator is built. A
+DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
+`src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
+for the `mean` group.
+
+The catalog refuses PAR and PAF because their target-specific scores and corrections lack evidence.
+An internal engine accepting a target name does not remove that boundary. A variant extension must
+audit its joint observed-outcome contribution and add the corresponding validation evidence before
+the surface can replay it.
+No such result reaches the surface. The
 [refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 records each message.
 
-One refusal belongs to no row above. The surface refuses the policy mean of a zero-delta shift.
-That policy assigns every unit its own dose, so its mean is the mean of the observed outcome. No
-common cause moves it through the treatment, so no expansion can add it. The `ate_shift` contrast
-that uses the same policy as its reference stays supported.
+Two refusals belong to no row above. The surface refuses `NaturalCourseMean` and the policy mean
+of a zero-delta shift. Both equal the observed outcome mean. Neither contains a counterfactual
+treatment term. The `ate_shift` contrast that uses the zero-delta policy as its reference stays
+supported.
 
 Sharma and Kiciman (2020) and Sharma et al. (2021) fix the qualitative role of this diagnostic.
 They derive no bound, no calibration formula, and no inferential test. Every expansion stays
@@ -361,7 +369,8 @@ qualitative. It must not report a bound, a corrected estimate, a p-value, a conf
 robustness value, or a pass/fail verdict.
 
 The shipped result records its movement scale. Additive parameters use the refitted estimate minus
-the original estimate. Ratio parameters use the difference between their stored log estimates.
+the original estimate. Risk and odds ratios use the difference between their stored log estimates.
+PAR and PAF use additive movement. PAF remains on its fraction scale, including negative values.
 Each ratio cell still reports its point estimate on the ratio scale.
 
 Refuse each added composition before the first refit until its law exists. That is the contract

@@ -69,6 +69,22 @@ previous reader had is not a citation; a page number is.
 
 ## Point treatment and stochastic interventions
 
+- Hubbard & van der Laan (2008), [*Population intervention models in causal
+  inference*](https://doi.org/10.1093/biomet/asm097), *Biometrika* 95(1):35–47.
+  [Section 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC2464276/) defines intervention-minus-observed
+  differences and intervention-to-observed ratios. Section 3 treats one fixed intervention and
+  includes the observed-outcome contribution in Equations (5) and (6).
+  `cleverly` reports the reversed difference as PAR and the ratio's complement as PAF.
+  These are the existing population-intervention parameters, evaluated anew after each
+  simulated-confounding perturbation. The paper supplies no simulated-confounding inference.
+- R `tmle3` at commit `ed72f8a`,
+  [`R/tmle3_Spec_PAR.R`, lines 20–27](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L27),
+  combines a treatment-specific mean with a natural-course mean.
+  The file [`R/delta_functions.R`, lines 18–25 and 66–78](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/delta_functions.R#L18-L78)
+  gives PAR as observed-minus-intervention and PAF as one minus intervention/observed.
+  Its PAF interval transforms a log contrast. The `cleverly` fraction uses the identity scale,
+  including for descriptive simulated-confounding displacement. The existing canonical study
+  records that interval distinction; this surface adds no interval claim.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
