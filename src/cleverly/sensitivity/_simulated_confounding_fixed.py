@@ -21,10 +21,18 @@ from ..interventions import RegimeSet, Rule, Static, Stochastic
 from ..interventions.base import as_interventions, check_regime_density
 from ..msm import MSM, MSMSet, _DataBoundArmFunction
 from ..provenance import fingerprint_array
-from ..study import MSMProjection, PointTreatment, RegimeContrast, RegimeMean
-from ..targets import TARGETS
+from ..study import MSMProjection, RegimeContrast, RegimeMean
 from ..targets.base import parameter_name
 from ..utils.frames import as_frame, matrix_from_columns
+from ._simulated_confounding_common import (
+    check_alias,
+    check_only_declared_axis,
+    check_registered_target,
+    check_replay_declaration,
+    fixed_axis,
+    fixed_key_axis,
+    point_study_or_refuse,
+)
 
 if TYPE_CHECKING:
     from ..estimators.tmle import TMLE
@@ -34,13 +42,6 @@ _FIXED_TARGET_TYPES: dict[str, type] = {
     "ate_regime": RegimeContrast,
     "msm": MSMProjection,
 }
-
-
-def fixed_axis(target: str) -> str | None:
-    """Return the parameter axis of an audited fixed-policy target."""
-    if target not in _FIXED_TARGET_TYPES:
-        return None
-    return "msm" if target == "msm" else "regime"
 
 
 def fixed_replay_refusal(estimator: Any, target: str) -> str | None:
@@ -152,9 +153,6 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
         or any(type(item) not in {Static, Rule, Stochastic} for item in declarations)
         or typed.reference != functional.reference
         or typed.horizons is not None
-        or functional.msm is not None
-        or estimator.msm is not None
-        or key.term is not None
     ):
         raise DataError("regime declarations disagree")
     expected = _checked_regimes(
@@ -198,8 +196,6 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         or model.doses
         or typed.regimens is not None
         or typed.horizons is not None
-        or functional.interventions
-        or estimator.interventions
         or functional.reference is not None
         or key.value is not None
         or key.reference is not None
@@ -259,45 +255,30 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
 
 def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
     """Return a copied estimator with validated fixed baseline-policy arrays."""
-    from ._simulated_confounding_request import _population_alias
-
-    identified, estimator = result.identified_effect, result.estimator
+    identified = result.identified_effect
     functional, typed = identified.functional, identified.estimand
-    target = key.estimand
-    axis = fixed_axis(target)
-    registered = TARGETS.get(target)
+    axis = fixed_key_axis(key)
     error = "simulated_confounding found inconsistent fixed-policy parameter metadata"
-    study = getattr(identified, "_study", None)
+    if axis is None or type(typed) is not _FIXED_TARGET_TYPES[key.estimand]:
+        raise CapabilityError(error)
+    registered = check_registered_target(result, key, axis, error)
+    check_replay_declaration(result, key, error)
+    check_only_declared_axis(
+        result,
+        key,
+        axis,
+        "simulated_confounding cannot replay this fixed-policy composition; "
+        "only a point-treatment fixed regime or arm-based MSM without longitudinal, "
+        "intermediate, shift, incremental, or other counterfactual axes is supported",
+    )
+    study = point_study_or_refuse(result, error)
     if (
-        axis is None
-        or type(typed) is not _FIXED_TARGET_TYPES[target]
-        or functional.target != target
-        or functional.axis != axis
-        or key.axis != axis
-        or result.config.parameter_axis != axis
-        or target not in result.config.estimands
-        or target not in tuple(estimator.estimands or ())
-        or estimator.reference != functional.reference
-        or estimator.shifts
-        or estimator.incremental
-        or functional.longitudinal
-        or functional.horizons is not None
-        or functional.intermediate is not None
-        or registered is None
-        or registered.parameter_axis != axis
-        or identified.identification != registered.identification
-        or key.regimen is not None
-        or key.cause is not None
-        or key.horizon is not None
-        or study is None
-        or type(study.design) is not PointTreatment
-        or functional.outcome != study.design.outcome
+        functional.outcome != study.design.outcome
         or functional.treatment != study.design.treatment
         or functional.adjustment != tuple(study.design.adjustment)
     ):
         raise CapabilityError(error)
     try:
-        study.design._check_prepared(result.data)
         replay, alias = (
             _freeze_msm(result, key, typed, functional)
             if axis == "msm"
@@ -305,14 +286,8 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
         )
     except DataError as cause:
         raise CapabilityError(f"{error}: {cause}") from cause
+    check_alias(result, estimand, key, alias, error)
     estimate = result.estimates[estimand]
-    if (
-        key.alias != estimand
-        or _population_alias(result, key, alias) != estimand
-        or estimate.name != estimand
-        or estimate.scale != registered.scale
-        or not np.isfinite(estimate.psi)
-        or estimate.inference_value != estimate.psi
-    ):
+    if estimate.scale != registered.scale or estimate.inference_value != estimate.psi:
         raise CapabilityError(error)
     return replay

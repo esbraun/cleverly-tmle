@@ -760,3 +760,15 @@ def test_stochastic_density_refuses_nonfinite_values_on_original_fit(value: floa
 
     with pytest.raises(DataError, match="non-finite probability"):
         _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
+
+
+@pytest.mark.parametrize("slot", ["shifts", "incremental"])
+def test_arm_replay_refuses_other_declared_counterfactual_slots(
+    slot: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _estimate(_study(), ATE())
+    result = replace(result, estimator=copy(result.estimator))
+    setattr(result.estimator, slot, (object(),))
+    _forbid_draw_and_refit(monkeypatch, result.estimator)
+    with pytest.raises(CapabilityError, match="supports an arm-indexed parameter"):
+        simulated_confounding(result, grid=_GRID, random_state=31)

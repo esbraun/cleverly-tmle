@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from ..estimators.base import MEAN_GROUP_ESTIMANDS
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError
 from ..study import (
     ATC,
     ATE,
@@ -27,8 +27,16 @@ from ..study import (
     PopulationAttributableRisk,
     RiskRatio,
 )
-from ..targets.base import stratum_alias
-from ._simulated_confounding_fixed import fixed_axis, fixed_replay_refusal, validate_fixed_replay
+from ._simulated_confounding_common import (
+    check_alias,
+    check_only_declared_axis,
+    check_registered_target,
+    check_replay_declaration,
+    fixed_axis,
+    fixed_key_axis,
+    point_study_or_refuse,
+)
+from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .simulated_confounding import ConfounderStrengthGrid
@@ -175,7 +183,7 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
         and type(key) is ParameterKey
         and (
             (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
-            or (fixed_axis(key.estimand) is not None and key.axis == fixed_axis(key.estimand))
+            or fixed_key_axis(key) is not None
         )
         and _replay_refusal(result.estimator, key.estimand, key.stratum) is None
     )
@@ -183,30 +191,19 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
 
 def _baseline_population(result: Any, key: Any, identified: Any) -> np.ndarray[Any, Any]:
     """Resolve a fixed baseline population from coherent structured metadata."""
-    from ..study import PointTreatment
-
     data = result.data
     if key.stratum is None:
         return np.ones(data.n, dtype=bool)
-    study = getattr(identified, "_study", None)
     error = "simulated_confounding found inconsistent baseline-stratum metadata"
+    study = point_study_or_refuse(result, error)
     if (
         type(key.stratum) is not tuple
         or not data.has_strata
         or not data.strata_names
         or len(key.stratum) != len(data.strata_names)
         or key.stratum not in data.strata_levels
-        or study is None
-        or type(study.design) is not PointTreatment
     ):
         raise CapabilityError(error)
-    try:
-        study.design._check_prepared(data)
-    except DataError as cause:
-        # ``PointTreatment._check_prepared`` raises ``DataError``.  Catching ``ValueError``
-        # worked only through the base class ``DataError`` happens to carry, which no test
-        # pins, so the refusal here would have followed a change to that declaration.
-        raise CapabilityError(error) from cause
     if (
         data.strata_levels != study.data.strata_levels
         or not np.array_equal(data.strata, study.data.strata)
@@ -221,14 +218,6 @@ def _baseline_population(result: Any, key: Any, identified: Any) -> np.ndarray[A
     return mask
 
 
-def _population_alias(result: Any, key: Any, marginal_alias: str) -> str:
-    """Compose the selected alias forward without parsing caller-owned labels."""
-    if key.stratum is None:
-        return marginal_alias
-    code = result.data.strata_levels.index(key.stratum)
-    return stratum_alias(marginal_alias, result.data.stratum_label(code))
-
-
 def _validate_binary_parameter_state(
     result: Any,
     estimand: str,
@@ -239,7 +228,6 @@ def _validate_binary_parameter_state(
 ) -> None:
     """Require one coherent binary parameter across every stored layer."""
     from ..study import CounterfactualMean
-    from ..targets import TARGETS
     from ..targets.base import parameter_name
 
     target = key.estimand
@@ -291,25 +279,28 @@ def _validate_binary_parameter_state(
             and functional.reference == typed_attributable.reference
         )
 
-    registered = TARGETS.get(target)
-    # ``TMLE.__init__`` stores ``estimands`` unresolved, so an estimator that never fitted
-    # carries ``None`` here.  ``tuple(None)`` raises ``TypeError``, and this block exists to
-    # turn incoherent metadata into a named ``CapabilityError`` instead.
-    replay_targets = tuple(getattr(estimator, "estimands", None) or ())
-    if (
-        expected_alias is None
-        or not metadata_matches
-        or key.alias != estimand
-        or _population_alias(result, key, expected_alias) != estimand
-        or target not in replay_targets
-        or getattr(estimator, "reference", None) != functional.reference
-        or functional.target != target
-        or registered is None
-        or identified.identification != registered.identification
-    ):
-        raise CapabilityError(
-            "simulated_confounding found inconsistent registered binary parameter metadata"
-        )
+    error = "simulated_confounding found inconsistent registered binary parameter metadata"
+    if expected_alias is None or not metadata_matches:
+        raise CapabilityError(error)
+    registered = check_registered_target(result, key, "arm", error)
+    check_replay_declaration(result, key, error)
+    check_alias(
+        result,
+        estimand,
+        key,
+        expected_alias,
+        error,
+        estimate_error=(
+            "simulated_confounding found inconsistent ratio-scale estimate metadata"
+            if target in _RATIO_TARGETS
+            else None
+        ),
+        finite_error=(
+            "simulated_confounding needs a finite positive ratio and stored log-scale estimate"
+            if target in _RATIO_TARGETS
+            else None
+        ),
+    )
     if target in _ATTRIBUTABLE_TYPES:
         estimate = result.estimates[estimand]
         expected_scale = "fraction" if target == "paf" else "difference"
@@ -385,7 +376,6 @@ def _validate_continuous_policy_state(
     """Require one coherent modified-policy request across every stored layer."""
     from ..interventions.shift import Shift
     from ..study import ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
-    from ..targets import TARGETS
     from ..targets.base import parameter_name
 
     target = key.estimand
@@ -433,33 +423,35 @@ def _validate_continuous_policy_state(
         or typed_policies != declared_policies
         or typed_reference != functional.reference
         or replay_policies != declared_policies
-        or estimator.reference != functional.reference
         or fitted_names != declared_names
         or fitted_deltas != declared_deltas
         or fitted_reference != declared_reference
         or not np.array_equal(fitted_shifts.shifted, expected_shifted)
         or not np.array_equal(fitted_shifts.capped, expected_capped)
-        or key.alias != estimand
         or key.value not in fitted_names
         or key.reference != expected_reference
-        or _population_alias(result, key, expected_alias) != estimand
     ):
         raise CapabilityError(
             "continuous simulated_confounding found inconsistent structured shift metadata"
         )
 
-    registered = TARGETS.get(target)
-    declared = getattr(typed_estimand, "name", None)
-    if (
-        functional.target != target
-        or declared != target
-        or registered is None
-        or identified.identification != registered.identification
-    ):
-        raise CapabilityError(
-            "continuous simulated_confounding found inconsistent registered modified-policy "
-            "identification provenance"
-        )
+    error = (
+        "continuous simulated_confounding found inconsistent registered modified-policy "
+        "identification provenance"
+    )
+    if getattr(typed_estimand, "name", None) != target:
+        raise CapabilityError(error)
+    check_registered_target(result, key, "shift", error)
+    check_replay_declaration(
+        result, key, "continuous simulated_confounding found inconsistent structured shift metadata"
+    )
+    check_alias(
+        result,
+        estimand,
+        key,
+        expected_alias,
+        "continuous simulated_confounding found inconsistent structured shift metadata",
+    )
 
     # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its
     # counterfactual treatment has no dependence on the dose a common cause would move.
@@ -678,16 +670,13 @@ def _validate_request(
     if treatment_family == "binary" and fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
     elif treatment_family == "binary":
-        if (
-            functional.longitudinal
-            or functional.axis != "arm"
-            or functional.interventions
-            or functional.msm is not None
-        ):
-            raise CapabilityError(
-                "simulated_confounding supports an arm-indexed parameter, "
-                "not a regimen, stochastic, incremental, modified-policy, or MSM parameter"
-            )
+        check_only_declared_axis(
+            result,
+            key,
+            "arm",
+            "simulated_confounding supports an arm-indexed parameter, "
+            "not a regimen, stochastic, incremental, modified-policy, or MSM parameter",
+        )
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
             raise CapabilityError(
                 "simulated_confounding supports only an ATE, ATT, ATC, counterfactual arm "
@@ -696,16 +685,13 @@ def _validate_request(
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
-        if (
-            functional.longitudinal
-            or functional.axis != "shift"
-            or not functional.interventions
-            or functional.msm is not None
-        ):
-            raise CapabilityError(
-                "continuous simulated_confounding supports a modified-treatment-policy "
-                "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter"
-            )
+        check_only_declared_axis(
+            result,
+            key,
+            "shift",
+            "continuous simulated_confounding supports a modified-treatment-policy "
+            "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter",
+        )
         if key.estimand not in {"ey_shift", "ate_shift"} or key.axis != "shift":
             raise CapabilityError(
                 "continuous simulated_confounding supports only an ey_shift policy mean or "
