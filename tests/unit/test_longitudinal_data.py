@@ -587,10 +587,13 @@ class TestRegimens:
 class TestObservationWeights:
     """A weight is a property of the unit, read exactly as the point-treatment container reads it.
 
-    The arithmetic is shared -- ``check_weights``, ``resolve_weight_kind``,
-    ``describe_weights`` -- and deliberately so, because what a weight *means* cannot differ
-    between one time point and several.  What these pin is that the container reaches those
-    functions at all, and reaches them with the column it was handed.
+    The whole intake is shared: this container and the point-treatment one both call
+    ``_prepare_weights``, which resolves the kind, validates and normalises the column, warns
+    about the two readings that need it, and records the :class:`WeightSpec`.  That is
+    deliberate, because what a weight *means* cannot differ between one time point and
+    several.  What these pin is that the container reaches that function at all, and reaches
+    it with the column it was handed.  ``tests/unit/test_weight_intake.py`` pins the shared
+    contract itself.
     """
 
     def test_no_weights_is_a_vector_of_ones(self) -> None:

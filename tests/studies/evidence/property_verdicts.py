@@ -33,6 +33,31 @@ ROOT_N_SLOPE = -0.5
 EXCLUDED_SLOPE = -0.25
 ROOT_N_SLOPE_MARGIN = 0.125
 
+#: The property family the bias-contraction ladder publishes under, in the replication rows it
+#: reads and in the summary rows it writes.  One name rather than four literals: the family is
+#: read once to select the ladder, once to fit each slope, and twice more to name the published
+#: row, so a family spelled four times is a family that can be renamed in three of them.
+CONTRACTION_FAMILY = "double_robust_contraction"
+
+#: The scenario label whose arm is the control, everywhere a nuisance regime names an arm.
+#:
+#: The label carries an *inverted* rule.  Every other scenario has to establish that its bias
+#: contracts, and this one has to establish that it does not, because an inconsistent estimator
+#: is what the family exists to exclude.  Spelled at the point of use, the inversion is a
+#: literal comparison a future study could satisfy by accident: name a positive regime
+#: ``both_wrong`` and its verdict silently flips, publishing an estimator that stopped
+#: contracting as a pass.  :func:`control_role` is the one place the mapping is stated.
+CONTROL_SCENARIO = "both_wrong"
+
+#: The nuisance regimes the contraction ladder is fitted over.
+#:
+#: Result-determining, and shared rather than declared per study for that reason.  The tuple
+#: decides which cells the ladder draws, which of them publishes a fitted slope, and which
+#: :func:`~tests.studies.evidence.seeds.stream_seed` stream each slope is resampled from, since
+#: the stream is labelled by the scenario.  Both DR-TMLE contraction studies declared a
+#: byte-identical tuple, which is a declaration that could be changed in one of them.
+CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
+
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
 
@@ -125,6 +150,27 @@ EFFICIENCY_COLUMNS = (
     "efficiency_reported_ci_lower",
     "efficiency_reported_ci_upper",
 )
+
+
+def control_role(scenario: str) -> str:
+    """Which arm a nuisance regime is, read off the scenario label it publishes under.
+
+    Shared rather than spelled per cell builder, for the reason
+    :data:`CONTROL_SCENARIO` gives: the mapping is an inversion, and an inversion spelled at
+    every builder is one that can be left stale at all but one of them.  A study whose control
+    carries a different label states its own rule instead of calling this.
+
+    Parameters
+    ----------
+    scenario : str
+        The nuisance regime the cell was fitted under.
+
+    Returns
+    -------
+    str
+        ``"control"`` for :data:`CONTROL_SCENARIO`, and ``"positive"`` for every other label.
+    """
+    return "control" if scenario == CONTROL_SCENARIO else "positive"
 
 
 def robustness_verdicts(summary: pd.DataFrame, *, family: str) -> None:
@@ -369,6 +415,155 @@ def fitted_rate_row(
         }
     )
     return row
+
+
+def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
+    """Each ladder rung's own claim: does the interval still cover at this size?
+
+    The rung is *not* judged on its bias.  ``double_robustness`` already judges the bias
+    against the equivalence margin, and repeating that verdict at three more sizes would
+    publish the same red cell four times without adding a statement.  What a rung adds is
+    whether the interval remains usable as ``n`` grows in a one-correct regime, and the
+    control adds the case where it must not.
+
+    Shared rather than copied per study: the ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` studies both publish this family, and a verdict written
+    twice is a verdict that can be *changed* once.  Only the ladder's sizes and its
+    replication budget belong to the study.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes ``passed`` on for the ladder's rungs alone.
+    record : StudyRecord
+        Supplies the coverage floor each rung is read against.
+    """
+    margins = record.margins
+    ladder = summary["property"] == CONTRACTION_FAMILY
+    positive = ladder & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = (
+        summary.loc[positive, "coverage_ci_lower"] >= margins.coverage_floor
+    )
+    control = ladder & (summary["role"] == "control")
+    summary.loc[control, "passed"] = (
+        summary.loc[control, "coverage_ci_upper"] < margins.coverage_floor
+    )
+
+
+def _contracts(fitted: Rate) -> bool:
+    """Whether the fitted slope establishes that the bias shrinks with ``n`` at all.
+
+    A *direction*, not an exponent.  Three points give a wide interval, so requiring the
+    second-order ``-1`` would fail a correct estimator on Monte Carlo error; requiring the
+    whole interval below zero is what this ladder can actually support and is enough to
+    separate a decaying remainder from an inconsistent estimator.
+    """
+    return bool(fitted.interval.high < 0.0)
+
+
+def contraction_rates(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    columns: Any,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+) -> list[dict[str, Any]]:
+    """One fitted contraction slope per scenario, as a published row.
+
+    A positive scenario must establish that its bias contracts.  The control must fail to,
+    and that is the half that gives the family teeth -- an inconsistent estimator's bias does
+    not shrink with ``n``, so its slope interval straddles zero and a rule that only asked the
+    positives to contract could be passed by an implementation that had stopped estimating
+    anything.
+
+    Shared rather than copied per study: the ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` studies both publish this family, and the seed stream, the
+    set of scenarios and the inverted control rule are what a second copy could change in one
+    place alone.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Every replication row the study emitted.  The ladder's own rows are selected here.
+    record : StudyRecord
+        Supplies the resampling budget, the confidence level and the seed stream.
+    columns : Any
+        The summary's columns, so each row carries every one the table publishes.
+    scenarios : Sequence[str], optional
+        The nuisance regimes to fit, one published row each.  Defaults to
+        :data:`CONTRACTION_SCENARIOS`, which is what both studies declare.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        One published row per scenario.
+    """
+    ladder = rows.loc[rows["property"] == CONTRACTION_FAMILY]
+    return [
+        fitted_rate_row(
+            ladder.loc[ladder["cell"].str.startswith(f"{scenario}_n")],
+            record,
+            columns,
+            ladder_property=CONTRACTION_FAMILY,
+            property_name=CONTRACTION_FAMILY,
+            cell=f"rate_{scenario}",
+            role=control_role(scenario),
+            statistic="bias",
+            seed_labels=(CONTRACTION_FAMILY, scenario),
+            verdict=(
+                (lambda fitted: not _contracts(fitted))
+                if scenario == CONTROL_SCENARIO
+                else _contracts
+            ),
+        )
+        for scenario in scenarios
+    ]
+
+
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+) -> pd.DataFrame:
+    """The whole published summary for a study whose extra family is the contraction ladder.
+
+    The shared cells, the ladder's per-rung coverage verdicts, the shared root-n rate rows and
+    the ladder's own fitted slopes.  The order is the order they have to be computed in: a rate
+    row is built from the summary's columns, so it comes after every verdict that adds one.
+    :func:`finish` then puts the table in its published order.
+
+    Shared rather than copied per study: ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` composed these four calls identically, so the composition
+    was a fifth thing that could be changed in one study and left stale in the other.  It is
+    kept out of :func:`apply_shared_verdicts`, which already carries three optional axes and
+    is called by every study, including the many that publish no ladder at all.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Every replication row the study emitted.
+    record : StudyRecord
+        The study's own record, which supplies every margin and every seed stream.
+    scenarios : Sequence[str], optional
+        The nuisance regimes the ladder is fitted over.  Defaults to
+        :data:`CONTRACTION_SCENARIOS`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The published summary, in its published order.
+
+    See Also
+    --------
+    apply_shared_verdicts : The cells and rate rows every study family shares.
+    contraction_verdicts : The per-rung coverage rule this applies.
+    contraction_rates : The fitted slopes this appends.
+    """
+    summary, rates = apply_shared_verdicts(rows, record)
+    contraction_verdicts(summary, record)
+    rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
+    return finish(summary, rates)
 
 
 def _rate_row(

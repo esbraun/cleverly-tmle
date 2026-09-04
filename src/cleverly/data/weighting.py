@@ -281,6 +281,7 @@ import numpy as np
 
 from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
+from .validate import check_weights
 
 __all__ = [
     "CONCENTRATED_DESIGN_EFFECT",
@@ -385,7 +386,35 @@ def resolve_weight_kind(kind: str | None, n: int) -> WeightKind:
     return "probability"
 
 
-def warn_if_counts(weights: FloatArray, name: str) -> None:
+def _prepare_weights(
+    weights: np.ndarray | None,
+    n: int,
+    *,
+    weights_type: str | None,
+    weights_estimated: bool,
+    weights_name: str | None,
+) -> tuple[FloatArray, WeightSpec]:
+    """Validate a container's weights and retain their declared meaning and original scale."""
+    label = weights_name or "weights"
+    kind = resolve_weight_kind(weights_type, n)
+    obs_weights = check_weights(weights, n, label)
+    if weights is None:
+        spec = WeightSpec(kind=kind, estimated=weights_estimated)
+    else:
+        # This frame sits between the container's ``_build`` call and the emitter, so both
+        # warnings ask for one level more than a direct call does.
+        warn_if_counts(np.asarray(weights, dtype=float), label, stacklevel=4)
+        warn_if_concentrated(obs_weights, label, stacklevel=4)
+        spec = WeightSpec(
+            kind=kind,
+            estimated=weights_estimated,
+            name=label,
+            scale=float(np.mean(np.asarray(weights, dtype=float))),
+        )
+    return obs_weights, spec
+
+
+def warn_if_counts(weights: FloatArray, name: str, *, stacklevel: int = 3) -> None:
     """Warn when weights supplied as probabilities look like counts.
 
     A frequency-weight vector passed without ``weights_type`` produces a valid estimate
@@ -393,6 +422,18 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
     ``sqrt(mean(counts))``.  That is a silent inefficiency rather than a crash, so it is
     worth naming when the evidence is strong: all values whole numbers, at least one, and
     averaging clearly above one.
+
+    Parameters
+    ----------
+    weights : FloatArray
+        Weights as supplied, before normalisation. The check reads their absolute scale.
+    name : str
+        What the caller calls this column, so the warning names it.
+    stacklevel : int, optional
+        Frames to skip when the warning is located. The default blames the caller's
+        caller, which is where a diagnostic helper's user stands.
+        :func:`_prepare_weights` passes ``4`` because it sits one frame deeper, between
+        the container's ``_build`` call and this function.
     """
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or np.unique(w).size < 2:
@@ -409,7 +450,7 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
         "rows instead; if they are sampling weights, ignore this. See "
         "cleverly.data.weighting.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
 
 
@@ -440,7 +481,7 @@ def effective_sample_size(weights: FloatArray, *, on_degenerate: float | None = 
     return float(total**2 / float(np.square(w).sum()))
 
 
-def warn_if_concentrated(weights: FloatArray, name: str) -> None:
+def warn_if_concentrated(weights: FloatArray, name: str, *, stacklevel: int = 3) -> None:
     """Warn when the weights leave the fit resting on a small part of the sample.
 
     Reported unconditionally by :meth:`WeightReport.summary`; warned about here because
@@ -448,6 +489,19 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
     effective sample size is small enough that it changes what the estimator *does* --
     ``g_bounds="auto"`` truncates harder, and the central limit theorem behind the
     interval has that many terms to work with, not ``n``.
+
+    Parameters
+    ----------
+    weights : FloatArray
+        Weights to read the design effect from. Scale-free, so either the supplied or
+        the normalised vector gives the same answer.
+    name : str
+        What the caller calls this column, so the warning names it.
+    stacklevel : int, optional
+        Frames to skip when the warning is located. The default blames the caller's
+        caller, which is where a diagnostic helper's user stands.
+        :func:`_prepare_weights` passes ``4`` because it sits one frame deeper, between
+        the container's ``_build`` call and this function.
     """
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or float(w.sum()) <= 0:
@@ -463,7 +517,7 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
         "it, and the asymptotics behind the interval have that many terms. Inspect "
         "data.weight_report() before trusting the interval.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
 
 
