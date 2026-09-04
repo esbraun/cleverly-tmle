@@ -344,6 +344,36 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | fixed regimes, incremental targets, and MSMs under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
 
+#### Next PR: close S5 at named source stops
+
+Complete the S5 source audit and remove S5 from the active sequence.
+The technical contract already records every source-backed composition that shipped.
+Route each remaining gap to the contract that must change before replay can begin.
+
+| remaining gap | final tracking contract |
+| --- | --- |
+| estimated observation weights | Add F11. Require stored weight-model provenance, target-population semantics, and a source-backed regeneration rule. |
+| missing outcomes | Add F12. Require a joint observation, treatment, and outcome law with identified refit semantics. |
+| longitudinal results | Add F13. Require a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts. |
+| stratified incremental and nonlinear or continuous MSM targets | Add F14. Require the upstream stratified targeting construction and evidence before replay. |
+| controlled direct effects | Add F15. Require an ordered treatment, intermediate, observation, and outcome law with a contrast contract. |
+| unsupported C-TMLE and DR-TMLE targets | Expand F5. Require each estimator-specific score, reduced regression, correction, remainder, and rate result before replay. |
+
+Do not implement missing-outcome replay by holding the response indicator fixed.
+After treatment and outcome perturbation, that rule generally breaks missing at random conditional on the perturbed treatment.
+The pinned DoWhy refuter has treatment and outcome branches only.
+The ordinary and DR-TMLE sources define estimators under missing at random, not a replacement law for the response indicator.
+
+Share one ordered fit-wide refusal helper between execution and capability reporting.
+Keep that refusal before calibration, latent draws, and estimator refits.
+Use real ordinary and randomized DR-TMLE missing-outcome fits to pin the boundary.
+Test exact reasons and prove that each refusal performs no draw or refit.
+
+Remove this plan and the completed S5 section when the implementation lands.
+Promote S4 to the first active roadmap item.
+Update the technical refusal table, scope summary, assessment guide, and source locators.
+Do not regenerate registered studies because this change moves no fitted result.
+
 Several rows above name an upstream limit rather than a surface limit. The identified effect's
 method catalog raises `CapabilityError` for the unsupported variant targets in this table.
 That refusal happens before the estimator is built. A
