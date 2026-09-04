@@ -273,6 +273,9 @@ that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[
 Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
 while the operation perturbs the observed treatment and outcome.
 
+An `ATT()` or `ATC()` fit without baseline strata reports one eligible alias. The facade selects
+that sole alias when you pass the grid, exactly as it selects a sole counterfactual mean.
+
 A binary `RiskRatio` or `OddsRatio` fit without baseline strata needs only the grid. Each cell reports the refitted
 ratio in `estimate`. Its `displacement` is the refitted log ratio minus the original log ratio.
 The surface and its frame record `movement_scale="log_ratio"`. Exponentiate a displacement to get
@@ -287,7 +290,16 @@ original fitted population, as `surface.calibration_population` records.
 Ordinary-TMLE ATT and ATC surfaces use the treated or control group after each perturbation.
 Their movement includes population change. Read `surface.conditioning_arm` and each cell's
 `target_population_fraction` before interpreting that movement. A baseline stratum remains fixed
-even when treatment-group membership changes within it. C-TMLE and DR-TMLE still refuse ATT and ATC.
+even when treatment-group membership changes within it. `CTMLE` and `DRTMLE` refuse ATT and ATC
+when they estimate, so no such fit reaches this surface.
+
+A cell on an ATT or ATC surface moves through three channels. The flip can open a confounding path,
+it can misclassify the treatment, and it can change who the parameter conditions on. An association
+near zero rules out the confounding channel only, so it does not identify misclassification here.
+`summary()` prints that guard, and its table carries the population fraction of each cell. The
+assessment battery reports `warning` when the conditioning group keeps under half its unperturbed
+share. The [population contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+states the exact rule.
 
 This example selects one baseline stratum through its structured key.
 

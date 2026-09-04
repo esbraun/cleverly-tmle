@@ -338,8 +338,17 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | longitudinal fit | a per-node law |
 | ATT and ATC under C-TMLE or DR-TMLE | an estimator-level derivation and implementation before the surface can replay it |
 | conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
+| continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
+
+Three rows above name an estimator limit rather than a surface limit. `CTMLE` and `DRTMLE` raise
+`CapabilityError` when they estimate ATT, ATC, or a modified-treatment policy. A DR-TMLE fit that
+declares `strata=` raises `NotImplementedError` from `src/cleverly/estimators/tmle.py`, because its
+reduced regressions add a second targeting equation for the `mean` group. Each refusal happens at
+the fit, so no such result reaches the surface. The
+[refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+records each message.
 
 One refusal belongs to no row above. The surface refuses the policy mean of a zero-delta shift.
 That policy assigns every unit its own dose, so its mean is the mean of the observed outcome. No
@@ -392,9 +401,11 @@ folds or cluster-robust variance, because those contracts govern estimator depen
 
 ### F10. Logical categorical confounder calibration
 
-The pinned DoWhy implementation calibrates one encoded coordinate at a time. Its binary rule
-zeros a standardized column; its continuous rule uses a signed marginal coefficient. Neither
-defines a whole categorical covariate on the same scale.
+The pinned DoWhy implementation calibrates one encoded coordinate at a time. Its
+[calibration helpers, lines 213-340](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+hold both rules. The binary rule zeros one standardized column. The continuous rule uses one
+column's correlation times the perturbed variable's standard deviation. Neither rule defines a
+whole categorical covariate on the same scale.
 
 Wait for a source that maps a logical categorical covariate to binary flip probabilities or signed
 continuous perturbation strengths. The benchmark must state how labels, reference levels, and

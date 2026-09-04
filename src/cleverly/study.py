@@ -26,7 +26,7 @@ from .methods import (
 )
 from .msm import MSM, MSMSet
 from .targets import TARGETS
-from .targets.base import Identification, arm_alias, parameter_name
+from .targets.base import Identification, arm_alias, parameter_name, stratum_alias
 from .utils.frames import as_frame
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -2002,7 +2002,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 stratum = data.strata_levels[code]
                 label = data.stratum_label(code)
                 for alias, key in base.items():
-                    conditional = f"{alias}[{label}]"
+                    conditional = stratum_alias(alias, label)
                     keys[conditional] = replace(key, alias=conditional, stratum=stratum)
         selected = {name: keys[name] for name in result.estimates if name in keys}
         if set(selected) != set(result.estimates):

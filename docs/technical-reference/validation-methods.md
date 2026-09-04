@@ -270,20 +270,33 @@ different stratum aliases use the same perturbed datasets.
 
 Ordinary TMLE supports conditional binary arm means, ATE, ratios, ATT, ATC, and modified-policy
 means and contrasts. Binary C-TMLE supports conditional arm means, ATE, and ratios. These paths
-retain fixed observation weights and estimator-owned repeat aggregation. Stratified DR-TMLE remains
-unavailable because its estimator has no stratified reduced-regression targeting contract.
+retain fixed observation weights and estimator-owned repeat aggregation. A DR-TMLE fit refuses
+`strata=` when it fits, so no stratified DR-TMLE result exists for the surface to replay.
 
 ATT and ATC condition on the arm that the structured key names. Each cell recomputes that group's
 membership from its perturbed treatment. Displacement combines changes in the fitted outcome
 contrast and changes in population composition. It does not assess the effect among the original
 treated or control rows held fixed. `target_population_fraction` makes the changing group share
-visible. The operation refuses ATT and ATC for C-TMLE and DR-TMLE, matching their estimator limits.
+visible. `CTMLE` and `DRTMLE` refuse ATT and ATC when they estimate, so this surface receives
+ordinary-TMLE results only.
 
 The DoWhy refit at `2116d5c` preserves effect modifiers and the target-unit selector. Its
 propensity-weighting estimator recomputes ATT and ATC indicators from the perturbed data. This
-supplies a finite-sample population convention, not a new sensitivity theorem. Van der Laan
-(2010), Part I, Section 4, describes the observed-treatment conditional target. See the
-[source locators](../references.md#sensitivity-analysis).
+supplies a finite-sample population convention, not a new sensitivity theorem. See the
+[DoWhy source locators](../references.md#sensitivity-analysis). van der Laan (2010),
+[Part I, Section 4](../references.md#point-treatment-and-stochastic-interventions), describes the
+observed-treatment conditional target.
+
+The post-fit assessment battery reads `target_population_fraction`. It reports `warning` when
+`population` is `"perturbed_treatment_group"` and the smallest successful cell keeps less than half
+the anchor cell's fraction. The anchor is the cell whose treatment strength and outcome strength
+are both zero, so its fraction is the unperturbed share of the conditioning arm. The rule compares
+each surface against its own anchor, so a small treated arm alone raises no warning.
+
+A surface whose `population` is `"baseline"` never warns under this rule, because every cell
+reports a fraction of one. The detail line carries the minimum fraction and the anchor fraction on
+every surface. `tests/unit/test_post_fit_assessment_battery.py` pins both the detail line and the
+warning threshold.
 
 The diagnostic population differs from the ATT or ATC conditioning group. Treatment is constant
 inside that group, so its correlation with the latent variable is undefined there. The surface
@@ -497,7 +510,8 @@ measurement, so
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_ctmle_surface_is_invariant_to_a_common_weight_scale`
 applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 
-**Refusals.** `_validate_request` raises before any random draw or refit. The `kind` column uses the
+**Refusals.** `_validate_request`, in `src/cleverly/sensitivity/_simulated_confounding_request.py`,
+raises before any random draw or refit. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
 `waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 
@@ -510,12 +524,22 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | estimated observation weights | not written yet | the result lacks the fitted weight model needed after a perturbation |
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See the [future investigation](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
-| ATT or ATC under C-TMLE or DR-TMLE | not written yet | the underlying estimators refuse these targets |
-| conditional strata under DR-TMLE | not written yet | stratified targeting does not implement reduced-regression equations |
+| ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
+| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
 | a regime, and a stochastic, incremental, or MSM parameter | a different question | each names a different intervention with its own influence curve |
-| continuous-treatment C-TMLE and continuous-treatment DR-TMLE | not written yet | continuous perturbations require exact ordinary TMLE |
+| continuous-treatment C-TMLE and DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse a modified-treatment-policy functional when they estimate. The surface replays exact ordinary TMLE only |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
+
+Three rows above record an estimator limit rather than a surface limit. The estimator refuses
+first, so no fitted result reaches the surface guard. `_replay_refusal` keeps that guard as defence
+in depth.
+
+| composition | layer that refuses | when | message |
+| --- | --- | --- | --- |
+| ATT or ATC under C-TMLE or DR-TMLE | `CTMLE` and `DRTMLE` | `estimate()` | `method 'collaborative_tmle' cannot estimate ATT: no collaborative score is evidenced for this functional`. `DRTMLE` names its reduced-dimension correction instead |
+| a modified-treatment policy under C-TMLE or DR-TMLE | `CTMLE` and `DRTMLE` | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
+| a baseline stratum under DR-TMLE | `DRTMLE`, in the shared targeting loop of `src/cleverly/estimators/tmle.py` | the fit | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations`. `needs_reduction` holds because a DR-TMLE fit always builds reduced regressions |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
-from ..data.causal_data import CausalData
+from ..data.causal_data import CausalData, arm_share
 from ..exceptions import refuse_after_repeats
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
@@ -1306,10 +1306,10 @@ def _arm_shares(data: CausalData) -> str:
     if data.is_binary_treatment:
         return f"P(A=1) = {data.treated_fraction:.4g}"
 
-    def share(arm: float) -> float:
-        return float(np.average(data.treatment == arm, weights=data.weights))
-
-    shares = [f"{data.arm_label(arm)}={share(arm):.3g}" for arm in data.arm_codes]
+    shares = [
+        f"{data.arm_label(arm)}={arm_share(data.treatment, data.weights, arm):.3g}"
+        for arm in data.arm_codes
+    ]
     return f"arm shares: {', '.join(shares)}"
 
 

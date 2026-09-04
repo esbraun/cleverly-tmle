@@ -60,6 +60,7 @@ __all__ = [
     "TargetContext",
     "parameter_name",
     "parameter_stem",
+    "stratum_alias",
 ]
 
 
@@ -119,6 +120,32 @@ def arm_alias(stem: str, *, arm: Any, versus: Any = None, collapse: bool) -> str
     if collapse:
         return parameter_name(stem)
     return parameter_name(stem, arm=arm, versus=versus)
+
+
+def stratum_alias(alias: str, label: Any) -> str:
+    """The reported name of a parameter conditional on one baseline stratum.
+
+    The same rule as :func:`parameter_name`, one level out: a conditional report
+    suffixes the marginal alias with the stratum's own label.  Three call sites
+    composed this string themselves -- the study's parameter keys, the stratified
+    estimator's per-stratum estimates, and the simulated-confounding surface -- and a
+    report whose sensitivity analysis spells the name differently cannot be joined to
+    it.
+
+    Parameters
+    ----------
+    alias : str
+        The marginal parameter name, as :func:`parameter_name` means it.
+    label : Any
+        The stratum label, from
+        :meth:`~cleverly.data.CausalData.stratum_label`.  Never the internal code.
+
+    Returns
+    -------
+    str
+        The conditional parameter name.
+    """
+    return f"{alias}[{label}]"
 
 
 def parameter_stem(name: str) -> str:

@@ -72,7 +72,12 @@ previous reader had is not a citation; a page number is.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
-  constructions cited by the conditional-population and regimen targets.
+  constructions cited by the conditional-population and regimen targets. Part I,
+  [Section 4](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126670/), treats the effect among the
+  treated as a parameter of the outcome and treatment factors. The simulated-confounding surface
+  reuses that registered ATT functional, and its relabeled ATC counterpart, on each perturbed
+  empirical law. The surface reports the changing group's share, and it claims no effect in the
+  original treated group held fixed.
 - Robins (2004), *Optimal Structural Nested Models for Optimal Sequential Decisions*, in
   *Proceedings of the Second Seattle Symposium on Biostatistics*, pp. 189–326, DOI
   [10.1007/978-1-4419-9076-1_11](https://doi.org/10.1007/978-1-4419-9076-1_11).
@@ -279,11 +284,6 @@ previous reader had is not a citation; a page number is.
   Thus observed-treatment membership follows the perturbed data. Fixed baseline strata retain
   their original membership because the perturbation changes neither their names nor values.
   These are qualitative composition conventions; they supply no sensitivity-adjusted interval.
-- Van der Laan (2010), [Part I, Section 4](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126670/),
-  discusses the effect among treated as a parameter depending on outcome and treatment factors.
-  `cleverly` reuses its registered ATT and ATC functionals on each perturbed empirical law.
-  Treatment relabeling gives the control-population counterpart. The surface reports the changing
-  group's share and does not claim an effect in the original group held fixed.
 - DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
   calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
   Its continuous branch uses one column's correlation times the perturbed variable's standard

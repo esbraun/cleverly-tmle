@@ -2012,6 +2012,57 @@ def _benchmark_item(
     )
 
 
+def _conditioning_population(report: Any) -> tuple[float | None, float | None, bool]:
+    """The conditioning arm's smallest and unperturbed share, and whether it collapsed.
+
+    A surface whose target population is ``"perturbed_treatment_group"`` rebuilds its ATT
+    or ATC population in every cell, so a cell can move because its population changed and
+    not because a confounding path opened.  A one-line report that gives only the movement
+    hides that third channel.
+
+    **The collapse rule.**  The anchor cell perturbs nothing, so its
+    ``target_population_fraction`` is the unperturbed share of the conditioning arm.  A
+    surface has collapsed when its smallest successful cell keeps **less than half** of
+    that anchor share.  The rule is relative to the fit's own anchor rather than an
+    absolute cut, so a study whose treated arm is a tenth of the sample is not warned about
+    for that alone; the constant is the half, which names "most of the group is gone" and
+    is not tuned to any dataset.  A surface that averages over its baseline population
+    never collapses, because every cell reports a fraction of one.
+
+    Parameters
+    ----------
+    report : Any
+        A :class:`~cleverly.sensitivity.SimulatedConfoundingResult`.
+
+    Returns
+    -------
+    tuple of (float or None, float or None, bool)
+        The smallest successful-cell fraction, the anchor fraction, and whether the
+        conditioning population collapsed.
+    """
+    fractions = [
+        cell.target_population_fraction
+        for cell in report.successful_cells
+        if cell.target_population_fraction is not None
+    ]
+    anchor = next(
+        (
+            cell.target_population_fraction
+            for cell in report.cells
+            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+        ),
+        None,
+    )
+    minimum = min(fractions, default=None)
+    collapsed = (
+        report.population == "perturbed_treatment_group"
+        and minimum is not None
+        and anchor is not None
+        and minimum < 0.5 * anchor
+    )
+    return minimum, anchor, collapsed
+
+
 def _simulated_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
@@ -2021,21 +2072,35 @@ def _simulated_item(
         if cell.displacement is not None
     ]
     corner = report.cells[-1].induced_treatment_association if report.cells else None
+    minimum, anchor, collapsed = _conditioning_population(report)
     detail = (
         f"maximum successful displacement {max(movements, default=float('nan')):.4g}; "
         f"movement scale {report.movement_scale}; "
         f"failed cells {len(report.failures)}; corner association {corner}; "
-        f"target population {report.population}; "
-        f"baseline stratum {report.stratum!r}; conditioning arm {report.conditioning_arm!r}; "
-        f"association population {report.association_population}; "
-        f"calibration population {report.calibration_population}"
+        + "; ".join(report.population_lines())
+        + f"; minimum target population fraction {_format_fraction(minimum)}"
+        + f" against anchor {_format_fraction(anchor)}"
     )
+    advice = []
+    if report.failures:
+        advice.append("inspect the retained cell failures")
+    if collapsed:
+        advice.append(
+            "read target_population_fraction beside the movement; the conditioning group "
+            "keeps under half its unperturbed share, so part of the movement is a change "
+            "of population"
+        )
     return AssessmentItem(
         "simulated_confounding",
-        AssessmentStatus.WARNING if report.failures else AssessmentStatus.COMPLETED,
+        AssessmentStatus.WARNING if report.failures or collapsed else AssessmentStatus.COMPLETED,
         detail,
-        () if not report.failures else ("inspect the retained cell failures",),
+        tuple(advice),
     )
+
+
+def _format_fraction(value: float | None) -> str:
+    """Render one population fraction, or name its absence."""
+    return "n/a" if value is None else f"{value:.4g}"
 
 
 def _evalue_item(
@@ -2340,7 +2405,9 @@ class SensitivityFacade(_CapabilityFacade):
         if longitudinal or continuous:
             binary_needs_estimand = False
         else:
-            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+            from .sensitivity._simulated_confounding_request import (
+                _eligible_binary_parameter_names,
+            )
 
             binary_parameters = _eligible_binary_parameter_names(self._result)
             binary_needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
@@ -2777,7 +2844,9 @@ class SensitivityFacade(_CapabilityFacade):
         if args or "estimand" in kwargs or "ate" in self._result.estimates:
             return args
         if operation == "simulated_confounding":
-            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+            from .sensitivity._simulated_confounding_request import (
+                _eligible_binary_parameter_names,
+            )
 
             binary_candidates = _eligible_binary_parameter_names(self._result)
             if len(binary_candidates) == 1:

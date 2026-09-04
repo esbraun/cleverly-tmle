@@ -43,8 +43,11 @@ from cleverly.sensitivity import (
     simulated_confounding,
 )
 from cleverly.sensitivity import simulated_confounding as public_function
-from cleverly.sensitivity.simulated_confounding import (
+from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
+    _CONDITIONAL_TARGETS,
+)
+from cleverly.sensitivity.simulated_confounding import (
     _binary_calibration,
     _continuous_calibration,
     _flip_binary,
@@ -53,7 +56,7 @@ from cleverly.sensitivity.simulated_confounding import (
     _latent_child_seed,
     _linear_treatment,
     _perturb_treatment,
-    _treatment_association,
+    _weighted_correlation,
     _weighted_std,
 )
 from cleverly.utils import resolve_g_bounds
@@ -938,7 +941,7 @@ def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> 
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - {"att", "atc"}
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS
 
 
 def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
@@ -1161,7 +1164,7 @@ def test_fixed_weights_run_every_supported_binary_ctmle_parameter_surface() -> N
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - {"att", "atc"}
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS
 
 
 @pytest.mark.parametrize(
@@ -3002,7 +3005,7 @@ def test_failed_refits_and_arm_loss_remain_visible(
     # its association. Cell 1 carries treatment strength zero, so it reports the baseline.
     failed_latent = np.random.default_rng(failed.latent_seed).normal(size=gaussian_result.data.n)
     assert failed.cells[1].induced_treatment_association == pytest.approx(
-        _treatment_association(
+        _weighted_correlation(
             failed_latent, gaussian_result.data.treatment, gaussian_result.data.weights
         )
     )
@@ -3563,7 +3566,7 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
         ("estimator", "supports ordinary TMLE"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
-        ("functional-type", "backdoor-identified marginal parameter"),
+        ("functional-type", "backdoor-identified parameter"),
         ("provider", "explicit-adjustment backdoor provenance"),
         ("key", "structured parameter key"),
         ("provenance", "registered binary parameter metadata"),
@@ -3699,7 +3702,7 @@ def test_non_result_and_ambiguous_alias_are_refused(
     with pytest.raises(CapabilityError, match="TMLEResult"):
         simulated_confounding(SimpleNamespace(), grid=_grid())
     calls = _record_refits(gaussian_result, monkeypatch)
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    module = importlib.import_module("cleverly.sensitivity._simulated_confounding_request")
     monkeypatch.setattr(
         module,
         "_zero_delta_policy_means",
@@ -4675,7 +4678,7 @@ def test_the_anchor_cell_reports_the_unperturbed_baseline(low_treated_result: An
     assert surface.cells[0].treatment_strength == 0.0
     assert surface.cells[0].induced_treatment_association == pytest.approx(expected, rel=1e-12)
     assert (
-        _treatment_association(
+        _weighted_correlation(
             latent, low_treated_result.data.treatment, low_treated_result.data.weights
         )
         == expected

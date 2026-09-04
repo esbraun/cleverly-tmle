@@ -358,10 +358,29 @@ def test_fixed_baseline_fallback_is_explicitly_approximate() -> None:
     assert "holds that risk fixed" in report.note
 
 
-def _simulated_interpreter_report(*, failures: tuple[str, ...] = ()) -> SimpleNamespace:
+def _simulated_cell(
+    treatment_strength: float, fraction: float, *, association: float | None
+) -> SimpleNamespace:
     return SimpleNamespace(
-        successful_cells=(SimpleNamespace(displacement=0.1),),
-        cells=(SimpleNamespace(induced_treatment_association=None if failures else 0.2),),
+        treatment_strength=treatment_strength,
+        outcome_strength=0.0,
+        displacement=0.1,
+        induced_treatment_association=association,
+        target_population_fraction=fraction,
+    )
+
+
+def _simulated_interpreter_report(
+    *, failures: tuple[str, ...] = (), perturbed_fraction: float = 0.3
+) -> SimpleNamespace:
+    association = None if failures else 0.2
+    cells = (
+        _simulated_cell(0.0, 0.34, association=association),
+        _simulated_cell(0.2, perturbed_fraction, association=association),
+    )
+    return SimpleNamespace(
+        successful_cells=cells,
+        cells=cells,
         failures=failures,
         movement_scale="estimate_difference",
         population="perturbed_treatment_group",
@@ -369,6 +388,15 @@ def _simulated_interpreter_report(*, failures: tuple[str, ...] = ()) -> SimpleNa
         conditioning_arm=1,
         association_population="selected_baseline_stratum",
         calibration_population="full_fitted_population",
+        population_lines=lambda: (
+            "target population: perturbed_treatment_group",
+            "conditioning arm: 1",
+            "baseline stratum: ('low',)",
+            "strata columns: ('V',)",
+            "association population: selected_baseline_stratum",
+            "calibration population: full_fitted_population",
+            "refit population: full_fitted_population",
+        ),
     )
 
 
@@ -394,10 +422,13 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
 
     item = INTERPRETERS["simulated_confounding"](reports["simulated_confounding"], None)
     assert "movement scale estimate_difference" in item.detail
-    assert "target population perturbed_treatment_group" in item.detail
-    assert "baseline stratum ('low',); conditioning arm 1" in item.detail
-    assert "association population selected_baseline_stratum" in item.detail
-    assert "calibration population full_fitted_population" in item.detail
+    # The population fields are the surface's own ``population_lines()``, joined.
+    assert "target population: perturbed_treatment_group" in item.detail
+    assert "conditioning arm: 1; baseline stratum: ('low',)" in item.detail
+    assert "association population: selected_baseline_stratum" in item.detail
+    assert "calibration population: full_fitted_population" in item.detail
+    assert "refit population: full_fitted_population" in item.detail
+    assert "minimum target population fraction 0.3 against anchor 0.34" in item.detail
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
