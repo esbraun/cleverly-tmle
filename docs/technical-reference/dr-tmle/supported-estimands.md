@@ -88,9 +88,11 @@ because they are built from `nuisance.propensity`. `tests/unit/test_remainder_dr
 whole expansion at two tilted laws, and keeps the wrong transport as a control that fails.
 
 `tests/unit/test_simulated_confounding.py` adds the applied evidence. It refits nonuniform-weight
-complete-outcome fits for each binary parameter the surface supports. It also removes the weight
-from the reduced regressions alone, and requires the cell estimate to move. Neither file
-establishes interval validity or weighted parity with the canonical implementation.
+complete-outcome fits for each binary parameter DR-TMLE can replay: the arm means, the ATE, the
+risk ratio, and the odds ratio. The identified effect's method catalog refuses PAR and PAF under
+DR-TMLE, so that test replays neither. The test also removes the weight from the reduced
+regressions alone, and requires the cell estimate to move. Neither file establishes interval
+validity or weighted parity with the canonical implementation.
 
 ## Refused by name
 

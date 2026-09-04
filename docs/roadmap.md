@@ -343,16 +343,18 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
 
-Four rows above name an estimator limit rather than a surface limit. `CTMLE` and `DRTMLE` raise
-`CapabilityError` when they estimate ATT, ATC, or a modified-treatment policy. A DR-TMLE fit that
-declares `strata=` raises `NotImplementedError` from `src/cleverly/estimators/tmle.py`, because its
-reduced regressions add a second targeting equation for the `mean` group.
+Four rows above name an upstream limit rather than a surface limit. The identified effect's method
+catalog raises `CapabilityError` when it is asked to estimate ATT, ATC, a modified-treatment
+policy, PAR, or PAF under either variant. That refusal happens before the estimator is built. A
+DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
+`src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
+for the `mean` group.
 
-The public study API refuses PAR and PAF under both variants because their target-specific
-scores and corrections lack evidence. An internal engine accepting a target name does not remove
-that boundary. A variant extension must audit its joint observed-outcome contribution and add
-the corresponding validation evidence before the surface can replay it.
-Each refusal happens at the fit, so no such result reaches the surface. The
+The catalog refuses PAR and PAF because their target-specific scores and corrections lack evidence.
+An internal engine accepting a target name does not remove that boundary. A variant extension must
+audit its joint observed-outcome contribution and add the corresponding validation evidence before
+the surface can replay it.
+No such result reaches the surface. The
 [refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 records each message.
 

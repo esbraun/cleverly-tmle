@@ -2845,9 +2845,11 @@ class SensitivityFacade(_CapabilityFacade):
         :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
         they could have answered for.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
-        its own ``"ate"`` default instead. Its selection message omits natural-course
-        means, including zero-delta policies and conditional aliases, because the surface
-        cannot assess them.
+        its own ``"ate"`` default instead. Its binary selection message lists only the
+        aliases the stored estimator can replay, so every alias that estimator's own
+        boundary refuses is dropped, not natural-course means alone. Its continuous
+        selection message omits a zero-delta policy mean, which is the natural course and
+        which the surface cannot assess.
 
         Parameters
         ----------

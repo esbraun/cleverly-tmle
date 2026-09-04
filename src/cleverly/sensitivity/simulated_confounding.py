@@ -140,8 +140,9 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Binary-treatment ATE, ATT, ATC, counterfactual-mean, risk-ratio, or odds-ratio
-        alias, named modified-policy mean alias, or named modified-policy contrast alias.
+        Binary-treatment ATE, ATT, ATC, counterfactual-mean, risk-ratio, odds-ratio, or
+        population-attributable-contrast alias, named modified-policy mean alias, or named
+        modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
     movement_scale : {"estimate_difference", "log_ratio"}
@@ -826,8 +827,9 @@ def simulated_confounding(
     PAF cells recompute one minus the reference mean divided by the observed outcome risk.
     Both use estimate differences for movement. PAF keeps negative fractions without a
     log transform or clipping. A zero observed risk leaves a retained failed PAF cell.
-    PAR and PAF support ordinary TMLE only. C-TMLE and DR-TMLE require an evidenced
-    population-intervention composition before the public estimators can fit these targets.
+    PAR and PAF support ordinary TMLE only. The identified effect's method catalog
+    evidences no collaborative score and no reduced-dimension correction for these
+    observed-law contrasts, so it offers neither C-TMLE nor DR-TMLE for them.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is

@@ -46,7 +46,7 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _zero_delta_policy_means,
 )
 from cleverly.targets.base import parameter_name
-from tests.unit.test_simulated_confounding import _collaborative_method
+from tests.unit.test_simulated_confounding import _STRATEGY_OVERRIDES, _strategy_method
 
 
 @cache
@@ -87,14 +87,8 @@ def _fit_population(
         "ate_shift": ModifiedTreatmentPolicyEffect(shifts=policies),
     }
     configured: Any = method
-    if method in {"greedy", "ordered", "discrete", "oat"}:
-        settings: dict[str, Any] = {"strategy": method}
-        if method == "ordered":
-            settings["preorder"] = "logistic"
-        elif method == "discrete":
-            settings["candidates"] = ((), ("W",))
-        # The selector has to score the estimand this fit reports, so it follows the target.
-        configured = _collaborative_method(selection_estimand=target, overrides=settings)
+    if method in _STRATEGY_OVERRIDES:
+        configured = _strategy_method(method, selection_estimand=target)
     return (
         CausalStudy(
             frame,

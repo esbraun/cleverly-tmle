@@ -34,13 +34,18 @@ from cleverly.sensitivity._simulated_confounding_request import (
 from cleverly.sensitivity.simulated_confounding import _latent_child_seed
 from cleverly.targets import TARGETS
 from cleverly.targets.base import parameter_name, stratum_alias
-from tests.unit.test_simulated_confounding import _collaborative_method
+from tests.unit.test_simulated_confounding import _STRATEGY_OVERRIDES, _strategy_method
 from tests.unit.test_simulated_confounding_populations import (
     _alias,
     _forbid_draw_and_refit,
     _mask,
     _replacement,
 )
+
+#: Outcome-grid strength the zero-cell witness perturbs at.  ``_fit_attributable`` thresholds
+#: its latent draw at the matching quantile, so the perturbation drives every outcome to zero.
+#: One name, so the fixture and the grid cannot drift apart.
+_ZERO_CELL_STRENGTH = 0.3
 
 
 @cache
@@ -60,14 +65,18 @@ def _fit_attributable(
     w = rng.normal(size=n)
     v = np.where(np.arange(n) % 3 == 0, "small", "large")
     a = rng.binomial(1, 1 / (1 + np.exp(-0.6 * w)))
-    y = (
-        rng.binomial(1, 1 / (1 + np.exp(0.6 - 1.7 * a - 0.4 * w)))
-        if family == "binomial"
-        else 0.4 + (1.2 + 0.8 * w) * a + 0.6 * w + rng.normal(scale=0.3, size=n)
-    )
     if zero_cell:
+        # Set Y to one on exactly the units ``_flip_mask`` selects at ``_ZERO_CELL_STRENGTH``,
+        # from the latent vector the surface draws at ``random_state=31``.  The perturbed
+        # outcome is then identically zero.  Y is built here rather than after a discarded
+        # ``rng.binomial`` draw; no statement below reads ``rng``, so the other paths keep
+        # their draw sequence.
         latent = np.random.default_rng(_latent_child_seed(31)).normal(size=n)
-        y = (latent >= NormalDist().inv_cdf(0.7)).astype(int)
+        y = (latent >= NormalDist().inv_cdf(1 - _ZERO_CELL_STRENGTH)).astype(int)
+    elif family == "binomial":
+        y = rng.binomial(1, 1 / (1 + np.exp(0.6 - 1.7 * a - 0.4 * w)))
+    else:
+        y = 0.4 + (1.2 + 0.8 * w) * a + 0.6 * w + rng.normal(scale=0.3, size=n)
     if isinstance(reference, str):
         a = np.where(a == 1, "active", "control")
     frame = pd.DataFrame({"W": w, "V": v, "A": a, "Y": y})
@@ -87,13 +96,8 @@ def _fit_attributable(
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(max_iter=1000),
         )
-    if method in {"oat", "greedy", "ordered", "discrete"}:
-        settings: dict[str, Any] = {"strategy": method}
-        if method == "ordered":
-            settings["preorder"] = "logistic"
-        if method == "discrete":
-            settings["candidates"] = ((), ("W",))
-        configured = _collaborative_method(selection_estimand=target, overrides=settings)
+    if method in _STRATEGY_OVERRIDES:
+        configured = _strategy_method(method, selection_estimand=target)
     return (
         CausalStudy(
             frame,
@@ -127,14 +131,13 @@ def _fit_attributable(
 @pytest.mark.parametrize(
     "target,family", [("par", "gaussian"), ("par", "binomial"), ("paf", "binomial")]
 )
-@pytest.mark.parametrize("method,stratum", [("tmle", None), ("tmle", ("small",))])
+@pytest.mark.parametrize("stratum", [None, ("small",)])
 def test_attributable_cells_equal_complete_weighted_refits(
     target: str,
     family: str,
-    method: str,
     stratum: tuple[str, ...] | None,
 ) -> None:
-    result = _fit_attributable(target, family, method=method, strata=method != "drtmle")
+    result = _fit_attributable(target, family)
     alias = _alias(result, target, stratum)
     surface = simulated_confounding(
         result,
@@ -162,7 +165,7 @@ def test_attributable_cells_equal_complete_weighted_refits(
 @pytest.mark.parametrize(
     "target,family", [("par", "gaussian"), ("par", "binomial"), ("paf", "binomial")]
 )
-@pytest.mark.parametrize("reference", [0, 1, "control", "active"])
+@pytest.mark.parametrize("reference", [None, 0, 1, "control", "active"])
 def test_observed_and_reference_components_move_with_the_cell(
     target: str,
     family: str,
@@ -172,8 +175,19 @@ def test_observed_and_reference_components_move_with_the_cell(
 
     Independent counterfactual-mean refits supply both intervention means. Empirical
     outcome averages supply the observed-law term, without reading PAR/PAF internals.
+
+    ``reference=None`` is the default-constructed form the study API suggests, and
+    ``_validate_binary_parameter_state`` resolves it to the first treatment level. No
+    explicit case reaches that fallback, so this row is its witness: read the label back
+    from the fit rather than restate it here, and a fallback that resolved a different
+    arm refuses the surface instead of moving the wrong mean.
     """
     result = _fit_attributable(target, family, reference=reference)
+    declared = result.data.arm_label(result.config.reference_arm)
+    if reference is None:
+        assert declared == result.data.treatment_levels[0]
+    else:
+        assert declared == reference
     alias = _alias(result, target, ("small",))
     surface = simulated_confounding(
         result,
@@ -197,8 +211,8 @@ def test_observed_and_reference_components_move_with_the_cell(
         ].psi
         for arm in result.data.treatment_levels
     }
-    intervention = by_arm[reference]
-    wrong_arm = next(value for arm, value in by_arm.items() if arm != reference)
+    intervention = by_arm[declared]
+    wrong_arm = next(value for arm, value in by_arm.items() if arm != declared)
     expected = observed - intervention if target == "par" else 1 - intervention / observed
     wrong = (
         [frozen - intervention, intervention - observed, observed - wrong_arm]
@@ -213,7 +227,7 @@ def test_observed_and_reference_components_move_with_the_cell(
     assert abs(observed - frozen) > 1e-3
     assert surface.cells[-1].estimate == pytest.approx(expected, abs=1e-12)
     assert all(abs(expected - alternative) > 1e-3 for alternative in wrong)
-    assert result.parameter_keys[alias].value == reference
+    assert result.parameter_keys[alias].value == declared
     assert result.parameter_keys[alias].reference is None
 
 
@@ -248,17 +262,17 @@ def test_zero_observed_risk_retains_a_failed_fraction_cell() -> None:
     surface = simulated_confounding(
         result,
         "paf",
-        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.3)),
+        grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, _ZERO_CELL_STRENGTH)),
         random_state=31,
     )
-    changed = _replacement(result, surface, 0.0, 0.3)
+    changed = _replacement(result, surface, 0.0, _ZERO_CELL_STRENGTH)
     assert np.count_nonzero(changed.outcome) == 0
     assert surface.cells[0].failure is None
     failed = surface.cells[1]
     assert failed.failure is not None
     assert "zero" in failed.failure.message
     assert failed.estimate is None and failed.displacement is None
-    assert failed.outcome_strength == 0.3
+    assert failed.outcome_strength == _ZERO_CELL_STRENGTH
     assert failed.induced_treatment_association is not None
     assert not surface.complete
 
@@ -324,7 +338,7 @@ def test_unreplayable_attributable_estimators_are_withheld(
         forged = replace(result, estimator=estimator)
         _forbid_draw_and_refit(monkeypatch, estimator)
         assert alias not in _eligible_binary_parameter_names(forged)
-        with pytest.raises(CapabilityError, match="ordinary TMLE"):
+        with pytest.raises(CapabilityError, match="PAR and PAF"):
             simulated_confounding(
                 forged, alias, grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
             )

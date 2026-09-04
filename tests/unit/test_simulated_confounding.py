@@ -45,7 +45,7 @@ from cleverly.sensitivity import (
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
-    _CONDITIONAL_TARGETS,
+    _TMLE_ONLY_TARGETS,
 )
 from cleverly.sensitivity.simulated_confounding import (
     _binary_calibration,
@@ -73,6 +73,24 @@ def _collaborative_method(
         settings.setdefault("selection_folds", 2)
         settings.setdefault("selection_inner_folds", 2)
     return CollaborativeTMLEMethod(selection_estimand=selection_estimand, **settings)
+
+
+#: The extra ``CollaborativeTMLEMethod`` settings each selection strategy needs, beyond the
+#: folds ``_collaborative_method`` already defaults.  ``greedy`` and ``oat`` need none.
+_STRATEGY_OVERRIDES: dict[str, dict[str, Any]] = {
+    "greedy": {},
+    "oat": {},
+    "ordered": {"preorder": "logistic"},
+    "discrete": {"candidates": ((), ("W",))},
+}
+
+
+def _strategy_method(strategy: str, *, selection_estimand: str) -> CollaborativeTMLEMethod:
+    # The selector has to score the estimand this fit reports, so it follows the target.
+    return _collaborative_method(
+        selection_estimand=selection_estimand,
+        overrides={"strategy": strategy, **_STRATEGY_OVERRIDES[strategy]},
+    )
 
 
 def _fit(
@@ -941,7 +959,7 @@ def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> 
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS - {"par", "paf"}
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _TMLE_ONLY_TARGETS
 
 
 def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
@@ -1164,7 +1182,7 @@ def test_fixed_weights_run_every_supported_binary_ctmle_parameter_surface() -> N
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _CONDITIONAL_TARGETS - {"par", "paf"}
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - _TMLE_ONLY_TARGETS
 
 
 @pytest.mark.parametrize(

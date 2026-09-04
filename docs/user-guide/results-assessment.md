@@ -286,14 +286,14 @@ needs only the grid. PAR compares the natural-course mean with the reference-arm
 mean. PAF divides that difference by the natural-course risk. Each cell recomputes both means
 after perturbation and keeps the declared reference arm fixed.
 
-Both surfaces report `movement_scale="estimate_difference"`. For PAF, displacement is a fraction
-difference, and a negative estimate remains valid. A cell with zero natural-course risk retains
-a failure because PAF is undefined there. The surface refuses `NaturalCourseMean`: its observed mean
-has no counterfactual treatment term for this diagnostic.
+Both surfaces report `movement_scale="estimate_difference"`. A PAF displacement is therefore the
+difference of two fractions, and a negative estimate remains valid. A cell with zero natural-course
+risk retains a failure because PAF is undefined there. The surface refuses `NaturalCourseMean`: its
+observed mean has no counterfactual treatment term for this diagnostic.
 
-Use ordinary TMLE for PAR and PAF. It supports marginal parameters and parameters within baseline strata.
-The public method catalog refuses both targets under C-TMLE and DR-TMLE, including outcome-adaptive C-TMLE.
-The
+Use ordinary TMLE for PAR and PAF. It supports marginal parameters and parameters within baseline
+strata. The identified effect's method catalog refuses both targets under C-TMLE and DR-TMLE,
+including outcome-adaptive C-TMLE. The
 [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 states their source and refusal boundaries.
 

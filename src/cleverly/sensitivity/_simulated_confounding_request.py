@@ -49,24 +49,6 @@ class _ValidatedRequest:
     conditioning_code: float | None
 
 
-_BINARY_PARAMETER_TARGETS = frozenset(
-    {"ate", "att", "atc", "ey", "ey1", "ey0", "rr", "or", "par", "paf"}
-)
-
-_ATTRIBUTABLE_TYPES: dict[str, type] = {
-    "par": PopulationAttributableRisk,
-    "paf": PopulationAttributableFraction,
-}
-
-#: The supported binary aliases whose clever covariate conditions on the observed
-#: treatment group instead of averaging over the baseline population.  Derived by
-#: subtracting the registry's ``mean`` fluctuation from the supported set, which is the
-#: same test :class:`~cleverly.CTMLE` and :class:`~cleverly.DRTMLE` refuse on, so the
-#: surface and the estimators cannot disagree about which aliases leave that family.
-#: It is ``{"att", "atc"}`` today, and agrees with
-#: :data:`~cleverly.utils.bounds.CONDITIONAL_GROUPS` for the same reason.
-_CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ESTIMANDS
-
 #: The declared estimand type each supported contrast alias must carry.  One map, built
 #: once, so the contrast branch of :func:`_validate_binary_parameter_state` is written
 #: once rather than per scale.
@@ -77,6 +59,43 @@ _CONTRAST_TYPES: dict[str, type] = {
     "rr": RiskRatio,
     "or": OddsRatio,
 }
+
+_ATTRIBUTABLE_TYPES: dict[str, type] = {
+    "par": PopulationAttributableRisk,
+    "paf": PopulationAttributableFraction,
+}
+
+#: The supported aliases a ``CounterfactualMean`` declares, which name one arm rather than
+#: a contrast between two.
+_MEAN_TARGETS: frozenset[str] = frozenset({"ey", "ey1", "ey0"})
+
+#: The supported contrasts reported on the ratio scale, whose movement is read from the
+#: stored log-scale estimate rather than the reported value.
+_RATIO_TARGETS: frozenset[str] = frozenset({"rr", "or"})
+
+#: Derived from :data:`_CONTRAST_TYPES`, :data:`_MEAN_TARGETS` and
+#: :data:`_ATTRIBUTABLE_TYPES` rather than declared here, so a target added to one of those
+#: three cannot fall out of the supported set.  :data:`_RATIO_TARGETS` is not a fourth
+#: source.  It names the two contrasts that report on the ratio scale, and both of them
+#: already appear in :data:`_CONTRAST_TYPES`.
+_BINARY_PARAMETER_TARGETS: frozenset[str] = (
+    frozenset(_CONTRAST_TYPES) | _MEAN_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
+)
+
+#: The supported binary aliases whose clever covariate conditions on the observed
+#: treatment group instead of averaging over the baseline population.  Derived by
+#: subtracting the registry's ``mean`` fluctuation from the supported set, which is the
+#: same test :class:`~cleverly.CTMLE` and :class:`~cleverly.DRTMLE` refuse on, so the
+#: surface and the estimators cannot disagree about which aliases leave that family.
+#: It is ``{"att", "atc"}`` today, and agrees with
+#: :data:`~cleverly.utils.bounds.CONDITIONAL_GROUPS` for the same reason.
+_CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ESTIMANDS
+
+#: The supported binary aliases that only exact ordinary TMLE can replay.
+#: :func:`_replay_refusal` keeps a separate message per group, because the two boundaries
+#: have different causes.  This names their union once, so the coverage tests that assert
+#: which aliases a C-TMLE or DR-TMLE surface exercises need not respell it.
+_TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
 
 
 def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | None) -> str | None:
@@ -89,10 +108,19 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     asked for.
 
     These compositions are refused upstream already, so the branches defend stored
-    provenance. ``CTMLE`` and ``DRTMLE`` reject an estimand outside ``MEAN_GROUP_ESTIMANDS``
-    when they estimate, and stratified reduced-regression targeting is rejected when
-    ``TMLE`` fits. This function is the defence in depth of the surface, and it keys on
-    the **requested** stratum rather than on whether the data carry strata.
+    provenance. Two layers do that refusing, and which one fires first depends on how the
+    caller reached the estimator. On the study API,
+    :meth:`~cleverly.study.IdentifiedEffect.available_methods` offers
+    ``collaborative_tmle`` and ``drtmle`` for one allowlist of targets, and ``att``,
+    ``atc``, ``par`` and ``paf`` are all outside it, so the method catalog refuses each of
+    them before any estimator is built. On a direct low-level call, ``CTMLE`` and ``DRTMLE``
+    reject an estimand outside ``MEAN_GROUP_ESTIMANDS`` when they estimate, which stops
+    ``att`` and ``atc`` a second time; ``par`` and ``paf`` are *inside* that set, so this
+    filter does not stop them, and their result instead carries no identification metadata,
+    which :func:`_validate_request` refuses earlier than this function. Stratified
+    reduced-regression targeting is rejected when ``TMLE`` fits. This function is the
+    defence in depth of the surface, and it keys on the **requested** stratum rather than
+    on whether the data carry strata.
 
     Parameters
     ----------
@@ -116,8 +144,8 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     if estimand in _ATTRIBUTABLE_TYPES and type(estimator) is not TMLE:
         return (
             "simulated_confounding supports PAR and PAF under exact ordinary TMLE only; "
-            "C-TMLE and DR-TMLE require an evidenced population-intervention composition "
-            "before the public estimator can replay these targets"
+            "the identified effect's method catalog evidences no collaborative score and "
+            "no reduced-dimension correction for these observed-law contrasts"
         )
     if stratum is not None and type(estimator) is DRTMLE:
         return (
@@ -226,7 +254,7 @@ def _validate_binary_parameter_state(
             and typed_contrast.reference in (None, key.reference)
             and functional.reference == typed_contrast.reference
         )
-    elif target in {"ey", "ey1", "ey0"} and type(typed_estimand) is CounterfactualMean:
+    elif target in _MEAN_TARGETS and type(typed_estimand) is CounterfactualMean:
         expected_value = {
             "ey1": result.data.arm_label(1.0),
             "ey0": result.data.arm_label(0.0),
@@ -297,7 +325,7 @@ def _validate_binary_parameter_state(
                 "simulated_confounding found inconsistent identity-scale attributable "
                 "parameter metadata"
             )
-    if target in {"rr", "or"}:
+    if target in _RATIO_TARGETS:
         estimate = result.estimates[estimand]
         if result.data.family != "binomial":
             raise CapabilityError(
@@ -610,23 +638,28 @@ def _validate_request(
             for name in result.estimates
             if name.startswith(("ey_shift[", "ate_shift[")) and name not in vacuous
         ]
-        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
+        detail = (
+            f"choose one of {admissible}"
+            if admissible
+            else "this fit reports none that this surface can assess"
+        )
         raise ValueError(
             "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
             f"or ate_shift[...] contrast alias; {detail}"
         )
     if estimand not in result.estimates:
-        # A continuous fit can report the zero-delta natural-course mean, which the next
-        # call refuses.  Advertising it here hands the caller a refused alias.
-        vacuous = (
-            _zero_delta_policy_means(result) if treatment_family == "continuous" else frozenset()
+        if treatment_family == "binary":
+            admissible = list(_eligible_binary_parameter_names(result))
+        else:
+            # A continuous fit can report the zero-delta natural-course mean, which the
+            # next call refuses.  Advertising it here hands the caller a refused alias.
+            vacuous = _zero_delta_policy_means(result)
+            admissible = [name for name in result.estimates if name not in vacuous]
+        detail = (
+            f"choose one of {admissible}"
+            if admissible
+            else "this fit reports none that this surface can assess"
         )
-        admissible = (
-            list(_eligible_binary_parameter_names(result))
-            if treatment_family == "binary"
-            else [name for name in result.estimates if name not in vacuous]
-        )
-        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
         raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
     if type(key) is not ParameterKey:
         raise CapabilityError(
@@ -699,7 +732,7 @@ def _validate_request(
                 f"simulated_confounding cannot calibrate constant covariate {name!r}"
             )
     movement_scale: Literal["estimate_difference", "log_ratio"] = (
-        "log_ratio" if key.estimand in {"rr", "or"} else "estimate_difference"
+        "log_ratio" if key.estimand in _RATIO_TARGETS else "estimate_difference"
     )
     conditioning_arm = key.value if key.estimand == "att" else key.reference
     conditioning_code = (
