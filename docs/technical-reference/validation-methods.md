@@ -481,7 +481,7 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
 The registered incremental and point-MSM artifacts remain unchanged.
 The estimator refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
-Those targeting extensions remain tracked in S5.
+Roadmap item F14 tracks those targeting extensions before any replay audit.
 The point-MSM study covers identity-link finite-arm estimation; it supplies no nonlinear or continuous-MSM interval validation.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
@@ -656,28 +656,31 @@ measurement, so
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_ctmle_surface_is_invariant_to_a_common_weight_scale`
 applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 
-**Refusals.** `_validate_request`, in `src/cleverly/sensitivity/_simulated_confounding_request.py`,
-raises before any random draw or refit. The `kind` column uses the
+**Refusals.** `_fit_wide_refusal`, in
+`src/cleverly/sensitivity/_simulated_confounding_request.py`, checks longitudinal, missing-outcome,
+intermediate, estimated-weight, and clustered fits in that order. `_validate_request` applies its
+reason before calibration, a random draw, or a refit. The assessment capability uses the same
+reason, so `available`, `status`, and direct execution agree. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
 `waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 
 | refused | kind | why |
 | --- | --- | --- |
-| a longitudinal result | not written yet | no longitudinal perturbation law is implemented |
-| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See the [future investigation](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
-| a missing outcome | not written yet | the surface has no missingness law and no observation refit |
-| a controlled direct effect, or any fit that carries an intermediate variable | not written yet | no intermediate-variable perturbation law is written |
-| estimated observation weights | not written yet | the result lacks the fitted weight model needed after a perturbation |
-| a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See the [future investigation](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
+| a longitudinal result | waiting on published theory | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
+| estimated observation weights | waiting on published theory | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
+| a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
+| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
-| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups |
+| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [F14](../roadmap.md#f14-stratified-incremental-and-msm-replay) |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
-| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog lacks the corresponding collaborative score or reduced-dimension correction |
-| continuous-treatment C-TMLE and DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse a modified-treatment-policy functional when they estimate. The surface replays exact ordinary TMLE only |
-| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the identified effect's method catalog has no evidenced collaborative score or reduced-dimension correction for these observed-law contrasts |
+| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| continuous-treatment C-TMLE and DR-TMLE | not written yet | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the method catalog lacks a score or correction for these observed-law contrasts. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
 | an incremental mean at multiplier one | wrong by construction | its mean is $E[Y]$. Contrasts with this reference remain supported |
@@ -701,6 +704,12 @@ The surface also refuses a result with no replay state, a result with no identif
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with
 itself. The stored draw count, `config.crossfit.repeats`, and the replay estimator's `repeats`
 must state the same number. Each is a statement about the object you hold.
+
+`test_fit_wide_refusals_have_one_order_and_match_assessment` checks the shared order and exact
+capability reasons. `test_real_mar_fit_refuses_before_calibration_draw_or_refit` uses a fitted
+ordinary MAR estimator. `test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work`
+uses the separate randomized DR-TMLE construction. Both tests fail if refusal reaches calibration,
+the latent draw, or a refit.
 
 The surface also refuses three observation-weight states. It refuses a weight kind other
 than `probability`, because it supports fixed probability weights only. It refuses a result whose

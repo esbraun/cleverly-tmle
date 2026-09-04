@@ -13,8 +13,7 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Expand simulated confounding to the remaining estimands and estimators | published support; per-composition source audit | shipped point-treatment stress surface and its refusal boundary | [S5](#s5-expand-simulated-confounding-to-the-remaining-estimands-and-estimators) |
-| 1.2 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
+| 1 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
 | 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
@@ -36,11 +35,16 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips and continuous linear dose perturbations only | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
 | Clustered simulated-confounding stress surface | a source-backed choice of row-level, cluster-level, or mixed latent perturbation and its interpretation | row-level iid perturbations on unclustered fits only | [F9](#f9-clustered-simulated-confounding-stress-surface) |
 | Logical categorical confounder calibration | a category-invariant benchmark mapped to the surface's perturbation strengths | numeric covariate calibration only | [F10](#f10-logical-categorical-confounder-calibration) |
+| Estimated-weight simulated-confounding replay | stored weight-model provenance, target-population semantics, and a source-backed regeneration rule | fixed probability weights only | [F11](#f11-estimated-weight-simulated-confounding-replay) |
+| Missing-outcome simulated-confounding replay | a joint observation, treatment, and outcome law with identified refit semantics | complete outcomes only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
+| Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
+| Stratified incremental and MSM replay | stratified targeting equations, continuous-dose indexing, and validation evidence | marginal incremental targets and MSMs only | [F14](#f14-stratified-incremental-and-msm-replay) |
+| Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
 | Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
-| Other refused DR-TMLE compositions | composition-specific reduced regressions, corrected curve, remainder, and rate conditions | named pre-fit refusals remain | [F5](#f5-other-refused-dr-tmle-compositions) |
+| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | exact ordinary-TMLE replay for these targets only | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 
@@ -87,10 +91,8 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next item expands the simulated confounding surface to the
-remaining estimands and estimators. The item after it extends post-fit assessment to longitudinal
-sensitivity. Tan (2025) supplies the multi-period sensitivity models and the observed-data bound
-construction for that later item.
+records completed studies. The next item extends post-fit assessment to longitudinal sensitivity.
+Tan (2025) supplies the multi-period sensitivity models and the observed-data bound construction.
 
 ## Detailed implementation contracts
 
@@ -319,96 +321,6 @@ sampling designs, and other nested functionals each require a governing derivati
 registry entry, evidence row, refusal boundary, documentation, and applicable statistical study.
 Do not expose a generic engine capability as a certified causal estimand.
 
-### S5. Expand simulated confounding to the remaining estimands and estimators
-
-The [technical contract](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
-records the shipped rows, perturbation laws, repeat aggregation, provenance, and refusals. This
-item remains active until each source-backed composition ships or moves to a named theory stop.
-
-Expand the surface one composition at a time. Each composition needs its own perturbation law and
-contrast contract. The table below omits three theory stops. Multi-arm treatment waits on published
-theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
-published theory as [F9](#f9-clustered-simulated-confounding-stress-surface). Logical categorical
-calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
-
-| refused family | what it still needs |
-| --- | --- |
-| estimated observation weights | replayable weight-model provenance and a refit rule |
-| missing-outcome fit | a joint observation and outcome perturbation |
-| longitudinal fit | a per-node law |
-| ATT and ATC under C-TMLE or DR-TMLE | an estimator-level derivation and implementation before the surface can replay it |
-| PAR and PAF under C-TMLE or DR-TMLE | a variant-specific audit of the joint observed-mean and counterfactual-mean curve, its covariance, and the PAF transformation |
-| conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
-| conditional strata for incremental targets and nonlinear or continuous MSMs | stratified mechanism or projection targeting, and continuous-dose indexing, before complete estimator replay |
-| continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
-| controlled direct effects | a law for the intermediate node as well as the treatment node |
-| fixed regimes, incremental targets, and MSMs under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
-
-#### Next PR: close S5 at named source stops
-
-Complete the S5 source audit and remove S5 from the active sequence.
-The technical contract already records every source-backed composition that shipped.
-Route each remaining gap to the contract that must change before replay can begin.
-
-| remaining gap | final tracking contract |
-| --- | --- |
-| estimated observation weights | Add F11. Require stored weight-model provenance, target-population semantics, and a source-backed regeneration rule. |
-| missing outcomes | Add F12. Require a joint observation, treatment, and outcome law with identified refit semantics. |
-| longitudinal results | Add F13. Require a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts. |
-| stratified incremental and nonlinear or continuous MSM targets | Add F14. Require the upstream stratified targeting construction and evidence before replay. |
-| controlled direct effects | Add F15. Require an ordered treatment, intermediate, observation, and outcome law with a contrast contract. |
-| unsupported C-TMLE and DR-TMLE targets | Expand F5. Require each estimator-specific score, reduced regression, correction, remainder, and rate result before replay. |
-
-Do not implement missing-outcome replay by holding the response indicator fixed.
-After treatment and outcome perturbation, that rule generally breaks missing at random conditional on the perturbed treatment.
-The pinned DoWhy refuter has treatment and outcome branches only.
-The ordinary and DR-TMLE sources define estimators under missing at random, not a replacement law for the response indicator.
-
-Share one ordered fit-wide refusal helper between execution and capability reporting.
-Keep that refusal before calibration, latent draws, and estimator refits.
-Use real ordinary and randomized DR-TMLE missing-outcome fits to pin the boundary.
-Test exact reasons and prove that each refusal performs no draw or refit.
-
-Remove this plan and the completed S5 section when the implementation lands.
-Promote S4 to the first active roadmap item.
-Update the technical refusal table, scope summary, assessment guide, and source locators.
-Do not regenerate registered studies because this change moves no fitted result.
-
-Several rows above name an upstream limit rather than a surface limit. The identified effect's
-method catalog raises `CapabilityError` for the unsupported variant targets in this table.
-That refusal happens before the estimator is built. A
-DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
-`src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
-for the `mean` group.
-Ordinary TMLE also refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
-These targets need stratified alternating equations or continuous-dose targeting before replay.
-
-The catalog refuses PAR and PAF because their target-specific scores and corrections lack evidence.
-An internal engine accepting a target name does not remove that boundary. A variant extension must
-audit its joint observed-outcome contribution and add the corresponding validation evidence before
-the surface can replay it.
-No such result reaches the surface. The
-[refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
-records each message.
-
-Three refusals belong to no row above. The surface refuses `NaturalCourseMean`, a zero-delta shift mean, and a multiplier-one incremental mean.
-Each equals the observed outcome mean. None contains a counterfactual treatment term.
-Modified-policy and incremental contrasts that use their natural-course reference stay supported.
-
-Sharma and Kiciman (2020) and Sharma et al. (2021) fix the qualitative role of this diagnostic.
-They derive no bound, no calibration formula, and no inferential test. Every expansion stays
-qualitative. It must not report a bound, a corrected estimate, a p-value, a confidence interval, a
-robustness value, or a pass/fail verdict.
-
-The shipped result records its movement scale. Additive parameters use the refitted estimate minus
-the original estimate. Risk and odds ratios use the difference between their stored log estimates.
-PAR and PAF use additive movement. PAF remains on its fraction scale, including negative values.
-Each ratio cell still reports its point estimate on the ratio scale.
-
-Refuse each added composition before the first refit until its law exists. That is the contract
-the shipped surface already keeps. It validates the complete request before it draws the latent
-vector or refits the estimator.
-
 ### F8. Multi-arm simulated-confounding stress surface
 
 The cited DoWhy papers support a qualitative stress analysis. They do not define a multi-arm
@@ -453,6 +365,53 @@ continuous perturbation strengths. The benchmark must state how labels, referenc
 multiple encoded columns affect it. A coefficient norm, grouped deletion, or permutation score
 does not supply that mapping by itself. Keep the categorical refusal before every random draw
 and refit until this contract exists.
+
+### F11. Estimated-weight simulated-confounding replay
+
+The fitted result stores estimated weights but not the model that produced them. Replay also needs
+the target population and the variables that the model can read after perturbation.
+
+Hartman and Huang (2024) bound bias from an omitted variable in survey weights. Their method does
+not define weight regeneration inside this refit surface. Wait for a source-backed regeneration
+rule, then store enough model provenance to reproduce it. The rule must state whether the latent
+cause enters the weight model and which population each cell targets.
+
+### F12. Missing-outcome simulated-confounding replay
+
+The pinned DoWhy refuter perturbs treatment and outcome only. It defines no replacement law for the
+response indicator. Díaz and van der Laan (2017) define randomized missing-outcome DR-TMLE under
+missing at random. They do not define this diagnostic's joint perturbation law.
+
+Do not hold the response indicator fixed. A treatment perturbation can break missing at random
+conditional on the perturbed treatment. Wait for a joint observation, treatment, and outcome law
+with identified refit semantics. The law must cover ordinary TMLE and the randomized missing-outcome
+DR-TMLE construction separately.
+
+### F13. Longitudinal simulated-confounding replay
+
+The pinned DoWhy law is a single-time-point perturbation. It does not define shared latent causes
+across treatment, censoring, history, and outcome nodes. Tan (2025) supplies longitudinal
+sensitivity bounds, not a complete-refit perturbation surface.
+
+Wait for a time-indexed latent law that preserves temporal order and names the assessed contrast.
+It must define each node's perturbation, history update, censoring behavior, and induced association.
+
+### F14. Stratified incremental and MSM replay
+
+Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
+DR-TMLE also lacks stratified reduced-regression targeting. A post-fit surface cannot repair these
+upstream estimator limits.
+
+Implement the stratified targeting construction and its validation evidence first. Continuous MSMs
+also need dose-indexed strata semantics. Only then can complete replay receive a separate audit.
+
+### F15. Controlled-direct-effect simulated-confounding replay
+
+A controlled direct effect orders treatment, intermediate, observation, and outcome mechanisms.
+The pinned DoWhy law has no intermediate branch and no contrast rule for a fixed intermediate.
+
+Wait for a source-backed latent law that respects this order. The law must define each perturbed
+mechanism, the response indicator, and the controlled contrast before complete refits can begin.
 
 ## Longitudinal contracts
 
@@ -522,14 +481,16 @@ treatment, and outcome correction blocks. Begin only when a source supplies the 
 corrected influence curve, remainder, and rate conditions. Existing binary evidence is the
 regression surface the extension must preserve.
 
-### F5. Other refused DR-TMLE compositions
+### F5. Other refused C-TMLE and DR-TMLE compositions
 
-Continue pre-fit refusals for `att`/`atc`, stochastic and incremental interventions, continuous
-shifts, MSMs, mediation, C-TMLE, and missing treatment in the DR-TMLE regime. `weights_estimated=`
-is not a pre-fit refusal. The fit runs, and no interval claim covers the estimation.
-Ordinary-TMLE implementations do not establish intervals valid when one primary nuisance is
-inconsistent. Each composition waits for its reduced regressions, corrected influence curve,
-remainder, and rate conditions; estimated weights also require their estimation influence term.
+Continue pre-fit refusals for ATT, ATC, PAR, PAF, regimes, incremental interventions, shifts, MSMs,
+mediation, and missing treatment where each variant lacks evidence. Ordinary-TMLE implementations do
+not establish collaborative or doubly robust inference for these compositions.
+
+Each C-TMLE extension needs its target-specific collaborative score and selection-risk contract.
+Each DR-TMLE extension needs reduced regressions, a correction, a remainder, and rate conditions.
+PAR and PAF also need the joint observed-mean curve and covariance. Complete simulated-confounding
+replay receives its own audit only after the estimator can fit the target.
 
 ## Other extension and investigation contracts
 
