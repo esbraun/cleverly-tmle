@@ -272,6 +272,22 @@ previous reader had is not a citation; a page number is.
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- The same pinned DoWhy refit preserves `effect_modifier_names` and `target_units`.
+  Its [propensity-weighting estimator](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_estimators/propensity_score_weighting_estimator.py)
+  rebuilds ATT and ATC weights from the treatment in the supplied dataset. The
+  `estimate_effect` method selects those weights through `target_units="att"` or `"atc"`.
+  Thus observed-treatment membership follows the perturbed data. Fixed baseline strata retain
+  their original membership because the perturbation changes neither their names nor values.
+  These are qualitative composition conventions; they supply no sensitivity-adjusted interval.
+- Van der Laan (2010), [Part I, Section 4](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126670/),
+  discusses the effect among treated as a parameter depending on outcome and treatment factors.
+  `cleverly` reuses its registered ATT and ATC functionals on each perturbed empirical law.
+  Treatment relabeling gives the control-population counterpart. The surface reports the changing
+  group's share and does not claim an effect in the original group held fixed.
+- DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+  calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
+  Its continuous branch uses one column's correlation times the perturbed variable's standard
+  deviation. Neither branch defines a logical categorical benchmark on these strength scales.
 - Fixed-weight binary DR-TMLE surfaces compose that DoWhy perturbation with Benkeser, Carone, van
   der Laan & Gilbert (2017), Theorem 1. The theorem supplies the complete-outcome corrected curve
   and remainder conditions. Existing exact-law tests transport every term to the fixed tilt

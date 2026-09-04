@@ -273,10 +273,59 @@ that sole mean when you pass the grid. A `CounterfactualMean()` fit reports `ey[
 Pass one exact alias through `estimand=` for that multi-mean result. The intervention arm stays fixed
 while the operation perturbs the observed treatment and outcome.
 
-A binary `RiskRatio` or `OddsRatio` fit also needs only the grid. Each cell reports the refitted
+A binary `RiskRatio` or `OddsRatio` fit without baseline strata needs only the grid. Each cell reports the refitted
 ratio in `estimate`. Its `displacement` is the refitted log ratio minus the original log ratio.
 The surface and its frame record `movement_scale="log_ratio"`. Exponentiate a displacement to get
 the refitted ratio divided by the original ratio.
+
+For a fit with baseline `strata=`, pass the complete conditional alias from `result.estimates`.
+The operation holds the baseline stratum fixed and refits all rows at every non-anchor cell.
+`surface.stratum` records the selected values. `surface.association_population` identifies the
+population used for the treatment correlation. Numeric calibration always describes the full
+original fitted population, as `surface.calibration_population` records.
+
+Ordinary-TMLE ATT and ATC surfaces use the treated or control group after each perturbation.
+Their movement includes population change. Read `surface.conditioning_arm` and each cell's
+`target_population_fraction` before interpreting that movement. A baseline stratum remains fixed
+even when treatment-group membership changes within it. C-TMLE and DR-TMLE still refuse ATT and ATC.
+
+This example selects one baseline stratum through its structured key.
+
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATT, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+population_frame, _ = make_linear_ate(n=160, seed=21)
+population_frame["V"] = np.where(population_frame["W1"] > 0, "high", "low")
+population_result = CausalStudy(
+    population_frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3", "W4", "V"),
+        strata=("V",),
+    ),
+).estimate(
+    ATT(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    n_folds=2,
+    random_state=21,
+    simultaneous=False,
+)
+population_alias = next(
+    alias for alias, key in population_result.parameter_keys.items() if key.stratum == ("high",)
+)
+population_surface = population_result.sensitivity.simulated_confounding(
+    estimand=population_alias,
+    grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.25)),
+)
+population_cells = population_surface.to_frame()
+```
 
 A continuous-dose fit uses signed treatment strengths. Pass one exact modified-policy mean or
 contrast alias because a continuous result has no bare `ate` parameter.

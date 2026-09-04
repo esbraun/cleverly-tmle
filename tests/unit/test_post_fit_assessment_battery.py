@@ -358,6 +358,20 @@ def test_fixed_baseline_fallback_is_explicitly_approximate() -> None:
     assert "holds that risk fixed" in report.note
 
 
+def _simulated_interpreter_report(*, failures: tuple[str, ...] = ()) -> SimpleNamespace:
+    return SimpleNamespace(
+        successful_cells=(SimpleNamespace(displacement=0.1),),
+        cells=(SimpleNamespace(induced_treatment_association=None if failures else 0.2),),
+        failures=failures,
+        movement_scale="estimate_difference",
+        population="perturbed_treatment_group",
+        stratum=("low",),
+        conditioning_arm=1,
+        association_population="selected_baseline_stratum",
+        calibration_population="full_fitted_population",
+    )
+
+
 def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None:
     frame = pd.DataFrame
     reports = {
@@ -368,11 +382,7 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
         "benchmark": SimpleNamespace(
             covariates=("W1",), cf_y=0.1, cf_d=0.2, rho=0.3, delta_psi=0.4
         ),
-        "simulated_confounding": SimpleNamespace(
-            successful_cells=(SimpleNamespace(displacement=0.1),),
-            cells=(SimpleNamespace(induced_treatment_association=0.2),),
-            failures=(),
-        ),
+        "simulated_confounding": _simulated_interpreter_report(),
         "evalue": SimpleNamespace(point=2.0, limit=1.5, scale="risk ratio", approximate=False),
         "missingness": frame({"gamma": [0.5, 1.5], "psi": [0.9, 1.1]}),
         "tipping_gamma": None,
@@ -381,6 +391,13 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
 
     for operation, report in reports.items():
         assert INTERPRETERS[operation](report, None).status is AssessmentStatus.COMPLETED
+
+    item = INTERPRETERS["simulated_confounding"](reports["simulated_confounding"], None)
+    assert "movement scale estimate_difference" in item.detail
+    assert "target population perturbed_treatment_group" in item.detail
+    assert "baseline stratum ('low',); conditioning arm 1" in item.detail
+    assert "association population selected_baseline_stratum" in item.detail
+    assert "calibration population full_fitted_population" in item.detail
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
@@ -399,11 +416,7 @@ def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> 
         cf_d=0.2,
         rho=0.3,
     )
-    failed_surface = SimpleNamespace(
-        successful_cells=(SimpleNamespace(displacement=0.1),),
-        cells=(SimpleNamespace(induced_treatment_association=None),),
-        failures=("cell refused",),
-    )
+    failed_surface = _simulated_interpreter_report(failures=("cell refused",))
     nuisance_warning = SimpleNamespace(findings=("calibration slope outside its rule",))
 
     assert INTERPRETERS["score_equations"](failed_score, None).status is AssessmentStatus.FAILED

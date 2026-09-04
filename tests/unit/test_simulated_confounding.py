@@ -938,7 +938,7 @@ def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> 
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS)
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - {"att", "atc"}
 
 
 def test_fixed_weight_drtmle_additive_cell_equals_a_manual_complete_refit() -> None:
@@ -1161,7 +1161,7 @@ def test_fixed_weights_run_every_supported_binary_ctmle_parameter_surface() -> N
             assert any(abs(cell.displacement or 0.0) > 1e-6 for cell in surface.cells[1:])
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == set(_BINARY_PARAMETER_TARGETS)
+    assert exercised == set(_BINARY_PARAMETER_TARGETS) - {"att", "atc"}
 
 
 @pytest.mark.parametrize(
@@ -3160,6 +3160,8 @@ def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
         "estimate",
         "displacement",
         "induced_treatment_association",
+        "association_population",
+        "target_population_fraction",
         "error_type",
         "message",
     ]
@@ -3199,6 +3201,7 @@ def test_pandas_frames_carry_estimates_displacements_and_failure_detail(
         "family",
         "strength",
         "method",
+        "calibration_population",
     ]
     assert list(calibrations["covariate"]) == ["W1", "W1", "W2", "W2"]
     assert list(calibrations["role"]) == ["treatment", "outcome", "treatment", "outcome"]
@@ -3234,6 +3237,8 @@ def test_polars_frames_carry_estimates_displacements_and_failure_detail(
         "estimate",
         "displacement",
         "induced_treatment_association",
+        "association_population",
+        "target_population_fraction",
         "error_type",
         "message",
     ]
@@ -3244,7 +3249,14 @@ def test_polars_frames_carry_estimates_displacements_and_failure_detail(
     assert frame["estimate"][2] is None
     assert frame["error_type"][2] == "RuntimeError"
     assert "deliberate refit failure" in frame["message"][2]
-    assert calibrations.columns == ["covariate", "role", "family", "strength", "method"]
+    assert calibrations.columns == [
+        "covariate",
+        "role",
+        "family",
+        "strength",
+        "method",
+        "calibration_population",
+    ]
     assert calibrations.height == 2
 
 
@@ -3291,7 +3303,12 @@ def test_unsupported_estimands_are_refused_before_refit(
         parameter_keys={estimand: replace(key, alias=estimand)},
     )
     calls = _record_refits(altered, monkeypatch)
-    with pytest.raises(CapabilityError, match="only a marginal ATE, counterfactual arm mean"):
+    message = (
+        "registered binary parameter metadata"
+        if estimand in {"att", "atc"}
+        else "only an ATE, ATT, ATC, counterfactual arm mean"
+    )
+    with pytest.raises(CapabilityError, match=message):
         simulated_confounding(altered, estimand=estimand, grid=_grid())
     assert calls == []
 
@@ -3552,11 +3569,11 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
         ("provenance", "registered binary parameter metadata"),
         ("declared-provenance", "registered binary parameter metadata"),
         ("target-provenance", "registered binary parameter metadata"),
-        ("conditional", "counterfactual arm mean"),
-        ("stochastic", "marginal arm-indexed parameter"),
-        ("incremental", "marginal arm-indexed parameter"),
-        ("modified", "marginal arm-indexed parameter"),
-        ("msm", "marginal arm-indexed parameter"),
+        ("conditional", "inconsistent baseline-stratum metadata"),
+        ("stochastic", "arm-indexed parameter"),
+        ("incremental", "arm-indexed parameter"),
+        ("modified", "arm-indexed parameter"),
+        ("msm", "arm-indexed parameter"),
     ],
 )
 def test_unsupported_compositions_are_refused_before_refit(
@@ -4228,21 +4245,15 @@ def test_the_facade_substitutes_only_a_sole_binary_mean(
         binary_means_result.sensitivity.simulated_confounding(grid=grid)
 
 
-def test_the_facade_names_the_source_boundary_for_a_sole_att(att_result: Any) -> None:
-    """An ``att``-only fit reads the boundary refusal, not a missing-``ate`` message.
-
-    The ratio-aware default names no candidate here, so the linear parameter set supplies
-    ``"att"``. Without that fall-through the facade keeps the ``"ate"`` default, and the
-    caller is told to pass ``"att"``, which then raises a different refusal.
-    """
+def test_the_facade_selects_a_sole_att(att_result: Any) -> None:
+    """The facade resolves a sole ATT and preserves its exact zero anchor."""
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
     assert list(att_result.estimates) == ["att"]
-
-    with pytest.raises(CapabilityError) as excinfo:
-        att_result.sensitivity.simulated_confounding(grid=grid)
-
-    assert "outside its source boundary" in str(excinfo.value)
-    assert "is unavailable" not in str(excinfo.value)
+    surface = att_result.sensitivity.simulated_confounding(grid=grid)
+    assert surface.estimand == "att"
+    assert surface.cells[0].estimate == att_result["att"].psi
+    assert surface.cells[0].displacement == 0.0
+    assert surface.population == "perturbed_treatment_group"
 
 
 def test_continuous_strengths_are_signed_and_outcome_bounds_follow_the_family(
@@ -4298,9 +4309,9 @@ def test_continuous_retains_refit_failure_and_replays_seed(
     ("change", "message"),
     [
         ("collaborative", "exact ordinary TMLE"),
-        ("key-estimand", "only a marginal ey_shift policy mean or ate_shift contrast"),
-        ("key-axis", "only a marginal ey_shift policy mean or ate_shift contrast"),
-        ("conditional", "only a marginal ey_shift policy mean or ate_shift contrast"),
+        ("key-estimand", "only an ey_shift policy mean or ate_shift contrast"),
+        ("key-axis", "only an ey_shift policy mean or ate_shift contrast"),
+        ("conditional", "inconsistent baseline-stratum metadata"),
         ("key-alias", "structured shift metadata"),
         ("key-value", "structured shift metadata"),
         ("fitted-names", "structured shift metadata"),
@@ -4721,6 +4732,8 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
         "estimate",
         "displacement",
         "induced_treatment_association",
+        "association_population",
+        "target_population_fraction",
         "error_type",
         "message",
     ]

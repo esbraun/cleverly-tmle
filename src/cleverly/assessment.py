@@ -2023,7 +2023,12 @@ def _simulated_item(
     corner = report.cells[-1].induced_treatment_association if report.cells else None
     detail = (
         f"maximum successful displacement {max(movements, default=float('nan')):.4g}; "
-        f"failed cells {len(report.failures)}; corner association {corner}"
+        f"movement scale {report.movement_scale}; "
+        f"failed cells {len(report.failures)}; corner association {corner}; "
+        f"target population {report.population}; "
+        f"baseline stratum {report.stratum!r}; conditioning arm {report.conditioning_arm!r}; "
+        f"association population {report.association_population}; "
+        f"calibration population {report.calibration_population}"
     )
     return AssessmentItem(
         "simulated_confounding",
@@ -2741,10 +2746,10 @@ class SensitivityFacade(_CapabilityFacade):
 
         ``simulated_confounding`` also answers for the two ratio contrasts, which are not
         linear functionals and so are absent from the linear set every other operation
-        reads.  It consults its own eligible set first, and falls back to the linear set
-        when that set does not name exactly one parameter.  The fallback is what keeps an
-        ``att``-only fit on the path that supplies ``"att"``, so the caller reads the
-        accurate source-boundary refusal rather than one about a missing ``"ate"``.
+        reads. It consults its own eligible set first, including ordinary-TMLE ATT and
+        ATC targets. It falls back to the linear set when its eligible set does not name
+        exactly one parameter. Unsupported variants then receive the selected alias and
+        explain their source boundary.
 
         When the choice stays ambiguous this returns the arguments untouched and the
         analysis refuses for itself.
@@ -2752,8 +2757,8 @@ class SensitivityFacade(_CapabilityFacade):
         :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
         they could have answered for.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
-        its own ``"ate"`` default instead, and lists every reported estimand, so its message
-        can name a parameter that a second explicit call would then decline.
+        its own ``"ate"`` default instead. Its selection message omits zero-delta policy
+        means, including their conditional aliases, because the surface cannot assess them.
 
         Parameters
         ----------
