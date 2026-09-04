@@ -329,6 +329,34 @@ contrast contract. The table below omits two theory stops. Multi-arm treatment w
 theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
 published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
 
+#### Next implementation slice: target populations
+
+Add fixed baseline strata and observed-treatment populations in one review unit. Keep the existing
+perturbation laws and complete refit path. The source audit supports these compositions without a
+new sensitivity estimator or interval claim.
+
+| contract | planned implementation and evidence |
+| --- | --- |
+| fixed baseline strata | Support ordinary TMLE arm means, ATE, ratios, and modified-policy means and contrasts. Support binary C-TMLE targets where its estimator accepts strata. Preserve every baseline value and use one full-row latent draw across strata |
+| ATT and ATC | Support ordinary TMLE, including fixed baseline strata. Recompute observed-treatment membership after each flip. Displacement includes population change; it does not hold the original treated or control group fixed |
+| source boundary | Sharma and Kiciman (2020), pages 3–4, and Sharma et al. (2021), pages 4–6, supply qualitative interpretation. Pinned DoWhy `2116d5c` forwards effect modifiers and target units through its complete refit. Its propensity-weighting estimator recomputes ATT and ATC membership from perturbed treatment |
+| shared implementation | Resolve the baseline mask and canonical alias once from `ParameterKey`, data levels, and design provenance. Reuse the binary and policy validators, perturbation helpers, estimator replay, and repeat aggregation |
+| diagnostic populations | Evaluate induced treatment association within the selected baseline stratum. Keep numeric calibration on the full original fitted population. Report both scopes explicitly. ATT and ATC association must include both arms |
+| fixed weights and repeats | Preserve fixed row masses and all estimator-owned repeats. Exercise weighted conditional estimates and the changing ATT/ATC membership with nonzero witnesses |
+| remaining estimator limits | Refuse stratified DR-TMLE and ATT/ATC under C-TMLE or DR-TMLE before a draw or refit. Do not change underlying estimator equations in this slice |
+| behavioral evidence | Compare surfaces against independently constructed complete refits. Witness pooled-versus-stratum association, frozen-versus-moving membership, wrong stratum masks, and shared-versus-redrawn latent values. Check ratios, policy references, failures, caching, and persistence |
+| roadmap cleanup | Remove shipped compositions from this proposed-work list. Move categorical calibration to a named source gap; encoded-coordinate deletion supplies no logical-covariate calibration |
+| handoff gates | Run the full fast suite, Ruff, mypy, prose review, and warning-as-error documentation build. No registered study evaluates this qualitative wrapper; unchanged estimator paths need no regeneration |
+
+The conditional composition fixes $S=f(W)$ while the existing map changes only treatment and
+outcome. Thus the same map acts on the conditional empirical law within each baseline stratum.
+This is a composition argument, not a new published sensitivity bound. For ATT and ATC, the
+conditioning treatment changes with the map. Report that different population contract explicitly.
+
+The implementation must retain full-data nuisance fitting. Subsetting before fitting changes the
+workflow being assessed. Calibration remains global because no conditional calibration formula is
+introduced by these sources.
+
 | refused family | what it still needs |
 | --- | --- |
 | estimated observation weights | replayable weight-model provenance and a refit rule |
