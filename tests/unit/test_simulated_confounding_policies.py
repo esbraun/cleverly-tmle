@@ -715,3 +715,27 @@ def test_bare_regime_levels_replay_and_assess(regimens: tuple[Any, ...]) -> None
     assert surface == expected
     battery = result.assess(include_refits=True, arguments={"simulated_confounding": kwargs})
     assert battery.sensitivity["simulated_confounding"].status is AssessmentStatus.COMPLETED
+
+
+@pytest.mark.parametrize("component", ["density", "design", "weights"])
+def test_user_callback_failure_keeps_its_original_error(component: str) -> None:
+    broken = False
+
+    def callback(*args: Any) -> Any:
+        if broken:
+            raise KeyError("W2")
+        return (
+            _stochastic_density(*args)
+            if component == "density"
+            else getattr(_model(), component)(*args)
+        )
+
+    target = (
+        RegimeMean((Stochastic(callback, name="policy"),))
+        if component == "density"
+        else MSMProjection(replace(_model(), **{component: callback}))
+    )
+    result = _estimate(_study(), target)
+    broken = True
+    with pytest.raises(KeyError, match="W2"):
+        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)

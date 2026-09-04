@@ -284,7 +284,7 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
             if axis == "msm"
             else _freeze_regimes(result, key, typed, functional)
         )
-    except Exception as cause:
+    except DataError as cause:
         raise CapabilityError(f"{error}: {cause}") from cause
     estimate = result.estimates[estimand]
     if (
