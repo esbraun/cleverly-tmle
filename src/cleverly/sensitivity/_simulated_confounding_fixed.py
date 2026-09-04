@@ -18,7 +18,7 @@ from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
 from ..interventions.base import _SIMPLEX_TOLERANCE, as_interventions
-from ..msm import MSM, MSMSet
+from ..msm import MSM, MSMSet, _DataBoundArmFunction
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, PointTreatment, RegimeContrast, RegimeMean
 from ..targets import TARGETS
@@ -96,9 +96,12 @@ class _FrozenRegime:
 
 
 @dataclass(frozen=True)
-class _FrozenArmFunction:
+class _FrozenArmFunction(_DataBoundArmFunction):
     values: Any
     baseline: _BaselineRows
+
+    def check_data(self, data: CausalData) -> None:
+        self.baseline.check_data(data)
 
     def __call__(self, arm: Any, frame: Any) -> Any:
         self.baseline.check_frame(frame)

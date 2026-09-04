@@ -29,7 +29,7 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, Rule, Static, Stochastic
-from cleverly.msm import MSM
+from cleverly.msm import MSM, MSMSet
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import _simulated_confounding_fixed as fixed_replay
 from tests.unit.test_simulated_confounding_populations import (
@@ -739,3 +739,13 @@ def test_user_callback_failure_keeps_its_original_error(component: str) -> None:
     broken = True
     with pytest.raises(KeyError, match="W2"):
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
+
+
+def test_frozen_msm_refuses_a_missing_treatment_arm() -> None:
+    result = _fit_msm(saturated=True)
+    alias = _alias(result)
+    replay = fixed_replay.validate_fixed_replay(result, alias, result.parameter_keys[alias])
+    data = copy(result.data)
+    object.__setattr__(data, "treatment_levels", (0,))
+    with pytest.raises(CapabilityError, match="original baseline rows and arms"):
+        MSMSet.evaluate(replay.msm, data)
