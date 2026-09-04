@@ -308,18 +308,19 @@ previous reader had is not a citation; a page number is.
   The regime stress surface uses this iid formula only. It claims no network inference.
   Static assignments and baseline rules are degenerate fixed densities.
   A law-dependent intervention needs the additional derivative that the paper distinguishes.
-- Fixed-regime replay combines that functional with the pinned DoWhy perturbation and complete refit.
+- Fixed-regime replay uses the existing [known-regime contract](technical-reference/point-treatment-tmle.md#known-regimes).
+  That contract cites Díaz & van der Laan (2013) under [point treatment and stochastic interventions](#point-treatment-and-stochastic-interventions).
+  It combines that functional with the pinned DoWhy perturbation and complete refit.
+
   Pinned `lmtp` [`R/estimators.R`, lines 109–138](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/estimators.R#L109-L138)
   rebuilds the task and nuisance fits from supplied data.
   Its [`R/shift.R`, lines 1–45](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/shift.R#L1-L45)
   retains the supplied policy function. `cleverly` freezes validated baseline densities across cells.
   This is qualitative replay provenance, not a canonical sensitivity comparison.
-- van der Laan and Gruber (2010), [Section 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/),
-  defines the fixed-weight least-squares MSM projection and its normalized influence curve.
+- van der Laan & Gruber (2010) is listed under [collaborative TMLE](#collaborative-tmle).
+  [Section 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/) defines the fixed-weight least-squares MSM projection and its normalized influence curve.
   A linear working model gives the existing identity-link projection used by the binary MSM surface.
   The surface holds its design and $h(a,W)$ fixed while refitting each perturbed dataset.
-  Rosenblum and van der Laan (2010), Section 4, supplies a companion fixed-weight construction
-  for a logistic working model. It is not the identity-link formula.
 - Pinned `tmle3` [`R/Param_MSM.R`, lines 72–81 and 115–234](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_MSM.R#L72-L234)
   supplies arm-counterfactual, custom-weight, design, and projection implementation provenance.
   It selects a logistic working projection for binary outcomes and a Gaussian projection otherwise.

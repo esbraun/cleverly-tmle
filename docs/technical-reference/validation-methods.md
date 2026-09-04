@@ -425,8 +425,9 @@ This also prevents an assessment from changing the original estimator's configur
 | identity-link `MSM` | terms, arm-specific design, and known projection weights |
 | baseline strata and observation weights | original row membership and normalized weight |
 
-Sofrygin and van der Laan's fixed-intervention iid formula supplies the regime functional and
-influence curve. Van der Laan and Gruber (2010), Section 6, supplies the working projection.
+The regime functional and influence curve follow the existing
+[known-regime contract](point-treatment-tmle.md#known-regimes), which cites Díaz and van der Laan (2013).
+Van der Laan and Gruber (2010), Section 6, supplies the working projection.
 The pinned DoWhy refuter preserves the target specification when it refits perturbed data.
 Pinned `lmtp` and `tmle3` supply policy and projection implementation provenance.
 The [source locators](../references.md#sensitivity-analysis) distinguish these roles.
@@ -646,7 +647,8 @@ guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
 | a modified-treatment policy under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
 | a baseline stratum under DR-TMLE | `DRTMLE`, in the shared targeting loop of `src/cleverly/estimators/tmle.py` | the fit | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations`. `needs_reduction` holds because a DR-TMLE fit always builds reduced regressions |
 | PAR or PAF under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate PopulationAttributableRisk: no collaborative score is evidenced for this functional`. DR-TMLE names its reduced-dimension correction; PAF names its own type |
-| regime or MSM under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | no collaborative score or reduced-dimension correction is evidenced for this functional |
+| regime or MSM under C-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate RegimeMean: no collaborative score is evidenced for this functional`. Other targets name their own type |
+| regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
 
 The surface also refuses a result with no replay state, a result with no identification metadata,
 and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with
