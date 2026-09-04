@@ -546,7 +546,8 @@ source conventions for numeric covariates. It does not change the declared grid.
 
 Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
 `available`, `status`, and `reason` fields use the same fit-wide check as direct execution. The
-check orders longitudinal, missing-outcome, intermediate, estimated-weight, and clustered fits.
+check orders longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and clustered
+fits.
 Each refusal occurs before calibration, a latent draw, or a refit.
 
 Estimated-weight replay needs the fitted weight model, target-population semantics, and a

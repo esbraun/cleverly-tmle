@@ -26,7 +26,7 @@ from cleverly import (
     load,
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
-from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import _fit_wide_refusal
@@ -79,6 +79,27 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
         n_folds=3,
         learner_folds=2,
         random_state=5,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def multi_arm_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_multi_arm(n=180, seed=13)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+        ),
+    )
+    return study.identify(ATE(reference="low")).estimate(
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=13,
         simultaneous=False,
     )
 
@@ -235,6 +256,40 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     )
     with pytest.raises(CapabilityError) as direct_refusal:
         simulated_confounding(longitudinal_result, grid=grid)
+    assert str(direct_refusal.value) == reason
+
+
+def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = (
+        "simulated_confounding has no category-valued perturbation law for a multi-arm treatment"
+    )
+    capability = multi_arm_result.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(multi_arm_result) == reason
+    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
+    monkeypatch.setattr(
+        module,
+        "_calibrate",
+        lambda *args, **kwargs: pytest.fail("refused before calibration"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_latent_child_seed",
+        lambda _: pytest.fail("refused before the latent draw"),
+    )
+    monkeypatch.setattr(
+        multi_arm_result.estimator,
+        "refit",
+        lambda *args, **kwargs: pytest.fail("refused before any refit"),
+    )
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(multi_arm_result, grid=grid)
     assert str(direct_refusal.value) == reason
 
 

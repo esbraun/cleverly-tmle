@@ -139,6 +139,13 @@ def _fit_wide_refusal(result: Any) -> str | None:
     data = getattr(result, "data", None)
     if data is None:
         return None
+    if not getattr(data, "is_continuous_treatment", False) and not getattr(
+        data, "is_binary_treatment", False
+    ):
+        return (
+            "simulated_confounding has no category-valued perturbation law for a multi-arm "
+            "treatment"
+        )
     if getattr(data, "has_missing_outcome", False):
         return (
             "simulated_confounding has no joint observation, treatment, and outcome "

@@ -657,8 +657,9 @@ measurement, so
 applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 
 **Refusals.** `_fit_wide_refusal`, in
-`src/cleverly/sensitivity/_simulated_confounding_request.py`, checks longitudinal, missing-outcome,
-intermediate, estimated-weight, and clustered fits in that order. `_validate_request` applies its
+`src/cleverly/sensitivity/_simulated_confounding_request.py`, checks longitudinal, multi-arm,
+missing-outcome, intermediate, estimated-weight, and clustered fits in that order. `_validate_request`
+applies its
 reason before calibration, a random draw, or a refit. The assessment capability uses the same
 reason, so `available`, `status`, and direct execution agree. The `kind` column uses the
 vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
@@ -667,11 +668,11 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | refused | kind | why |
 | --- | --- | --- |
 | a longitudinal result | waiting on published theory | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | estimated observation weights | waiting on published theory | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
-| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
