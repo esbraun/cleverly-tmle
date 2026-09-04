@@ -153,9 +153,7 @@ def _fit_wide_refusal(result: Any) -> str | None:
             "and outcome law with a controlled-direct-effect contrast contract"
         )
     weight_spec = getattr(data, "weight_spec", None)
-    if getattr(data, "weights_name", None) is not None and getattr(
-        weight_spec, "estimated", False
-    ):
+    if getattr(data, "weights_name", None) is not None and getattr(weight_spec, "estimated", False):
         return (
             "simulated_confounding cannot replay estimated observation weights; the fitted "
             "result does not store the weight model, target-population semantics, and "
