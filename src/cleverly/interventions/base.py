@@ -308,23 +308,29 @@ class Stochastic:
             ``(n, K)`` density, columns in arm-code order.
         """
         values = np.asarray(_as_array(self.density_fn(_covariate_frame(data))), dtype=float)
-        if values.shape != (data.n, data.n_arms):
-            raise DataError(
-                f"stochastic regime {self.name!r} returned shape {values.shape}; expected "
-                f"({data.n}, {data.n_arms}) -- one column per arm, in the order "
-                f"{list(data.treatment_levels)}"
-            )
-        if np.any(values < 0.0):
-            raise DataError(f"stochastic regime {self.name!r} returned a negative probability")
-        sums = values.sum(axis=1)
-        worst = float(np.max(np.abs(sums - 1.0))) if sums.size else 0.0
-        if worst > _SIMPLEX_TOLERANCE:
-            raise DataError(
-                f"stochastic regime {self.name!r} has rows summing to as far as "
-                f"{worst:.3g} from one; a regime is a distribution over the arms, so its "
-                "rows must be normalised"
-            )
+        check_regime_density(
+            values, label=f"stochastic regime {self.name!r}", shape=(data.n, data.n_arms)
+        )
         return values
+
+
+def check_regime_density(
+    values: FloatArray, *, label: str, shape: tuple[int, ...] | None = None
+) -> None:
+    """Check finite probability simplexes with treatment arms on the second axis."""
+    if values.ndim < 2 or (shape is not None and values.shape != shape):
+        raise DataError(f"{label} returned shape {values.shape}; expected {shape}")
+    if not np.all(np.isfinite(values)):
+        raise DataError(f"{label} contains a non-finite probability")
+    if np.any(values < 0.0):
+        raise DataError(f"{label} returned a negative probability")
+    sums = values.sum(axis=1)
+    worst = float(np.max(np.abs(sums - 1.0))) if sums.size else 0.0
+    if worst > _SIMPLEX_TOLERANCE:
+        raise DataError(
+            f"{label} has rows summing to as far as {worst:.3g} from one; "
+            "a regime is a distribution over the arms, so its rows must be normalised"
+        )
 
 
 # ----------------------------------------------------------------- the refusals

@@ -21,7 +21,6 @@ from cleverly import (
     ATT,
     AssessmentStatus,
     CausalStudy,
-    CollaborativeTMLEMethod,
     CounterfactualMean,
     DRTMLEMethod,
     ModifiedTreatmentPolicy,
@@ -61,36 +60,13 @@ from cleverly.sensitivity.simulated_confounding import (
 )
 from cleverly.utils import resolve_g_bounds
 from tests.conftest import assert_scale_normalizes_away, mean_one_weights, unweight
-
-
-def _collaborative_method(
-    *,
-    selection_estimand: str = "ate",
-    overrides: dict[str, Any] | None = None,
-) -> CollaborativeTMLEMethod:
-    settings = dict(overrides or {})
-    if settings.get("strategy", "greedy") != "oat":
-        settings.setdefault("selection_folds", 2)
-        settings.setdefault("selection_inner_folds", 2)
-    return CollaborativeTMLEMethod(selection_estimand=selection_estimand, **settings)
-
-
-#: The extra ``CollaborativeTMLEMethod`` settings each selection strategy needs, beyond the
-#: folds ``_collaborative_method`` already defaults.  ``greedy`` and ``oat`` need none.
-_STRATEGY_OVERRIDES: dict[str, dict[str, Any]] = {
-    "greedy": {},
-    "oat": {},
-    "ordered": {"preorder": "logistic"},
-    "discrete": {"candidates": ((), ("W",))},
-}
-
-
-def _strategy_method(strategy: str, *, selection_estimand: str) -> CollaborativeTMLEMethod:
-    # The selector has to score the estimand this fit reports, so it follows the target.
-    return _collaborative_method(
-        selection_estimand=selection_estimand,
-        overrides={"strategy": strategy, **_STRATEGY_OVERRIDES[strategy]},
-    )
+from tests.unit._confounding_support import (
+    _collaborative_method,
+    alias_for,
+)
+from tests.unit._confounding_support import (
+    with_functional as _with_functional,
+)
 
 
 def _fit(
@@ -387,15 +363,11 @@ def continuous_binomial_means_result() -> Any:
 
 
 def _shift_alias(result: Any) -> str:
-    aliases = [name for name in result.estimates if name.startswith("ate_shift[")]
-    assert len(aliases) == 1
-    return aliases[0]
+    return alias_for(result, estimate_prefix="ate_shift[")
 
 
 def _mean_alias(result: Any, policy: str = "up half") -> str:
-    alias = f"ey_shift[{policy}]"
-    assert alias in result.estimates
-    return alias
+    return alias_for(result, "ey_shift", value=policy)
 
 
 def _arm_means(data: Any) -> tuple[float, float]:
@@ -478,12 +450,6 @@ def _grid() -> ConfounderStrengthGrid:
 #: that reads no cell and refits by hand therefore pays for the fit and for its own refits
 #: only.
 _ANCHOR_GRID = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-
-
-def _with_functional(result: Any, **changes: Any) -> Any:
-    functional = replace(result.identified_effect.functional, **changes)
-    identified = replace(result.identified_effect, functional=functional)
-    return replace(result, identified_effect=identified)
 
 
 class _UnsupportedTMLE(TMLE):
@@ -3312,7 +3278,7 @@ def test_grid_validation_and_binomial_boundary(
 
 
 @pytest.mark.parametrize("estimand", ["att", "atc", "ate_regime", "msm"])
-def test_unsupported_estimands_are_refused_before_refit(
+def test_relabeling_an_ate_cannot_substitute_another_estimand(
     gaussian_result: Any,
     monkeypatch: pytest.MonkeyPatch,
     estimand: str,
@@ -3327,7 +3293,11 @@ def test_unsupported_estimands_are_refused_before_refit(
     message = (
         "registered binary parameter metadata"
         if estimand in {"att", "atc"}
-        else "only an ATE, ATT, ATC, counterfactual arm mean"
+        else (
+            "fixed-policy parameter metadata"
+            if estimand == "ate_regime"
+            else "identity-link arm-based MSM only"
+        )
     )
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(altered, estimand=estimand, grid=_grid())

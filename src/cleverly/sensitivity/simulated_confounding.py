@@ -771,13 +771,17 @@ def simulated_confounding(
     result : TMLEResult
         Replayable backdoor-identified binary-treatment ATE, ATT, ATC, counterfactual
         mean, risk ratio, odds ratio, population attributable contrast, or continuous
-        modified-policy fit. Baseline strata require estimator support for their targeting.
+        modified-policy fit. Ordinary binary TMLE also supports fixed regime means,
+        regime contrasts, and identity-link arm-based MSM coefficients.
+        Baseline strata require estimator support for their targeting.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
         ``rr`` or ``or``. Population attributable contrasts use ``par`` or ``paf``.
         A continuous fit requires an explicit ``ey_shift[...]`` alias
         of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
+        Fixed regimes use ``ey_regime[...]`` or ``ate_regime[...]``.
+        An identity-link MSM uses ``msm[term]``.
         A conditional target requires its complete reported stratum alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
@@ -830,6 +834,14 @@ def simulated_confounding(
     PAR and PAF support ordinary TMLE only. The identified effect's method catalog
     evidences no collaborative score and no reduced-dimension correction for these
     observed-law contrasts, so it offers neither C-TMLE nor DR-TMLE for them.
+
+    Binary ordinary TMLE supports fixed Static, Rule, and Stochastic regimes, and
+    identity-link MSMs over treatment arms. The operation validates declared policy
+    arrays against every stored cross-fitting draw. Each cell keeps those arrays fixed
+    on the original baseline rows and refits the treatment and outcome nuisances.
+    User policy callbacks do not run inside a cell. Regime means, regime contrasts,
+    and MSM coefficients report additive movement. Nonidentity MSMs, continuous MSMs,
+    incremental interventions, and custom intervention implementations remain refused.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is

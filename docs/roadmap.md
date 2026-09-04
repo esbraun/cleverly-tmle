@@ -341,11 +341,13 @@ calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 | conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
 | continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
-| regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
+| fixed regimes and MSM targets under C-TMLE or DR-TMLE | an estimator-specific score and correction before complete replay |
+| incremental targets | preserve delta while rebuilding the intervention from each cell's treatment mechanism |
+| nonlinear and continuous MSM targets | a link-specific and dose-specific projection replay audit |
 
-Four rows above name an upstream limit rather than a surface limit. The identified effect's method
-catalog raises `CapabilityError` when it is asked to estimate ATT, ATC, a modified-treatment
-policy, PAR, or PAF under either variant. That refusal happens before the estimator is built. A
+Several rows above name an upstream limit rather than a surface limit. The identified effect's
+method catalog raises `CapabilityError` for the unsupported variant targets in this table.
+That refusal happens before the estimator is built. A
 DR-TMLE fit that declares `strata=` raises `NotImplementedError` from
 `src/cleverly/estimators/tmle.py`, because its reduced regressions add a second targeting equation
 for the `mean` group.
