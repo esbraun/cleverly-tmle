@@ -2012,6 +2012,68 @@ def _benchmark_item(
     )
 
 
+def _conditioning_population(report: Any) -> tuple[float | None, float | None, bool]:
+    """The conditioning arm's smallest and unperturbed share, and whether it collapsed.
+
+    A surface whose target population is ``"perturbed_treatment_group"`` rebuilds its ATT
+    or ATC population in every cell, so a cell can move because its population changed and
+    not because a confounding path opened.  A one-line report that gives only the movement
+    hides that third channel.
+
+    **The collapse rule.**  The anchor cell perturbs nothing, so its
+    ``target_population_fraction`` is the unperturbed share of the conditioning arm.  A
+    surface has collapsed when its smallest cell keeps **less than half** of that anchor
+    share.  The rule is relative to the fit's own anchor rather than an absolute cut, so a
+    study whose treated arm is a tenth of the sample is not warned about for that alone;
+    the constant is the half, which names "most of the group is gone" and is not tuned to
+    any dataset.  A surface that averages over its baseline population never collapses,
+    because every cell reports a fraction of one.
+
+    **Every cell, not every successful cell.**  The cell that collapses hardest is the one
+    whose conditioning arm emptied, and that cell fails: its refit raises
+    :exc:`~cleverly.exceptions.DataError` because the arm keeps no positive-weight row.
+    ``simulated_confounding`` records ``target_population_fraction`` from the perturbed
+    treatment *before* it refits, so a failed cell still carries the fraction that explains
+    the failure.  A minimum over ``successful_cells`` therefore drops exactly the collapse
+    this rule exists to name, and where only the anchor survives it reports the anchor
+    against itself.  The minimum below runs over every cell that recorded a fraction.  A
+    cell that failed before the surface built its treatment records ``None`` and is
+    skipped, because it measured no population.
+
+    Parameters
+    ----------
+    report : Any
+        A :class:`~cleverly.sensitivity.SimulatedConfoundingResult`.
+
+    Returns
+    -------
+    tuple of (float or None, float or None, bool)
+        The smallest recorded cell fraction, the anchor fraction, and whether the
+        conditioning population collapsed.
+    """
+    fractions = [
+        cell.target_population_fraction
+        for cell in report.cells
+        if cell.target_population_fraction is not None
+    ]
+    anchor = next(
+        (
+            cell.target_population_fraction
+            for cell in report.cells
+            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+        ),
+        None,
+    )
+    minimum = min(fractions, default=None)
+    collapsed = (
+        report.population == "perturbed_treatment_group"
+        and minimum is not None
+        and anchor is not None
+        and minimum < 0.5 * anchor
+    )
+    return minimum, anchor, collapsed
+
+
 def _simulated_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
@@ -2021,16 +2083,46 @@ def _simulated_item(
         if cell.displacement is not None
     ]
     corner = report.cells[-1].induced_treatment_association if report.cells else None
+    minimum, anchor, collapsed = _conditioning_population(report)
     detail = (
         f"maximum successful displacement {max(movements, default=float('nan')):.4g}; "
-        f"failed cells {len(report.failures)}; corner association {corner}"
+        f"movement scale {report.movement_scale}; "
+        f"failed cells {len(report.failures)}; corner association {corner}; "
+        + "; ".join(report.population_lines())
+        + f"; minimum target population fraction {_format_fraction(minimum)}"
+        + f" against anchor {_format_fraction(anchor)}"
     )
+    advice = []
+    if report.failures:
+        advice.append("inspect the retained cell failures")
+    if collapsed:
+        advice.append(
+            "read target_population_fraction beside the movement; the conditioning group "
+            "keeps under half its unperturbed share, so part of the movement is a change "
+            "of population"
+        )
     return AssessmentItem(
         "simulated_confounding",
-        AssessmentStatus.WARNING if report.failures else AssessmentStatus.COMPLETED,
+        AssessmentStatus.WARNING if report.failures or collapsed else AssessmentStatus.COMPLETED,
         detail,
-        () if not report.failures else ("inspect the retained cell failures",),
+        tuple(advice),
     )
+
+
+def _format_fraction(value: float | None) -> str:
+    """Render one population fraction, or name its absence.
+
+    Parameters
+    ----------
+    value : float or None
+        A conditioning-arm share, or ``None`` when no cell recorded one.
+
+    Returns
+    -------
+    str
+        The share to four significant figures, or ``"n/a"``.
+    """
+    return "n/a" if value is None else f"{value:.4g}"
 
 
 def _evalue_item(
@@ -2335,7 +2427,9 @@ class SensitivityFacade(_CapabilityFacade):
         if longitudinal or continuous:
             binary_needs_estimand = False
         else:
-            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+            from .sensitivity._simulated_confounding_request import (
+                _eligible_binary_parameter_names,
+            )
 
             binary_parameters = _eligible_binary_parameter_names(self._result)
             binary_needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
@@ -2741,10 +2835,10 @@ class SensitivityFacade(_CapabilityFacade):
 
         ``simulated_confounding`` also answers for the two ratio contrasts, which are not
         linear functionals and so are absent from the linear set every other operation
-        reads.  It consults its own eligible set first, and falls back to the linear set
-        when that set does not name exactly one parameter.  The fallback is what keeps an
-        ``att``-only fit on the path that supplies ``"att"``, so the caller reads the
-        accurate source-boundary refusal rather than one about a missing ``"ate"``.
+        reads. It consults its own eligible set first, including ordinary-TMLE ATT and
+        ATC targets. It falls back to the linear set when its eligible set does not name
+        exactly one parameter. Unsupported variants then receive the selected alias and
+        explain their source boundary.
 
         When the choice stays ambiguous this returns the arguments untouched and the
         analysis refuses for itself.
@@ -2752,8 +2846,8 @@ class SensitivityFacade(_CapabilityFacade):
         :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
         they could have answered for.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
-        its own ``"ate"`` default instead, and lists every reported estimand, so its message
-        can name a parameter that a second explicit call would then decline.
+        its own ``"ate"`` default instead. Its selection message omits zero-delta policy
+        means, including their conditional aliases, because the surface cannot assess them.
 
         Parameters
         ----------
@@ -2772,7 +2866,9 @@ class SensitivityFacade(_CapabilityFacade):
         if args or "estimand" in kwargs or "ate" in self._result.estimates:
             return args
         if operation == "simulated_confounding":
-            from .sensitivity.simulated_confounding import _eligible_binary_parameter_names
+            from .sensitivity._simulated_confounding_request import (
+                _eligible_binary_parameter_names,
+            )
 
             binary_candidates = _eligible_binary_parameter_names(self._result)
             if len(binary_candidates) == 1:

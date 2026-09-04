@@ -35,6 +35,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | --- | --- | --- | --- |
 | Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips and continuous linear dose perturbations only | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
 | Clustered simulated-confounding stress surface | a source-backed choice of row-level, cluster-level, or mixed latent perturbation and its interpretation | row-level iid perturbations on unclustered fits only | [F9](#f9-clustered-simulated-confounding-stress-surface) |
+| Logical categorical confounder calibration | a category-invariant benchmark mapped to the surface's perturbation strengths | numeric covariate calibration only | [F10](#f10-logical-categorical-confounder-calibration) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
@@ -325,20 +326,29 @@ records the shipped rows, perturbation laws, repeat aggregation, provenance, and
 item remains active until each source-backed composition ships or moves to a named theory stop.
 
 Expand the surface one composition at a time. Each composition needs its own perturbation law and
-contrast contract. The table below omits two theory stops. Multi-arm treatment waits on published
+contrast contract. The table below omits three theory stops. Multi-arm treatment waits on published
 theory as [F8](#f8-multi-arm-simulated-confounding-stress-surface). A clustered fit waits on
-published theory as [F9](#f9-clustered-simulated-confounding-stress-surface).
+published theory as [F9](#f9-clustered-simulated-confounding-stress-surface). Logical categorical
+calibration waits on [F10](#f10-logical-categorical-confounder-calibration).
 
 | refused family | what it still needs |
 | --- | --- |
 | estimated observation weights | replayable weight-model provenance and a refit rule |
 | missing-outcome fit | a joint observation and outcome perturbation |
 | longitudinal fit | a per-node law |
-| ATT and ATC | a law that fixes which observed-treatment population the parameter conditions on when the flip moves membership |
-| conditional strata, for an arm contrast, a modified-policy mean, or a modified-policy contrast | a per-stratum contract that shares one latent draw |
+| ATT and ATC under C-TMLE or DR-TMLE | an estimator-level derivation and implementation before the surface can replay it |
+| conditional strata under DR-TMLE | stratified reduced-regression targeting before complete estimator replay |
+| continuous-treatment C-TMLE and DR-TMLE | a collaborative score and a reduced-dimension correction for a modified-policy functional |
 | controlled direct effects | a law for the intermediate node as well as the treatment node |
 | regimes, stochastic, incremental, and MSM targets | a law defined on the intervention, not on the observed treatment |
-| categorical covariate calibration | a logical-covariate benchmark that does not zero one encoded column |
+
+Three rows above name an estimator limit rather than a surface limit. `CTMLE` and `DRTMLE` raise
+`CapabilityError` when they estimate ATT, ATC, or a modified-treatment policy. A DR-TMLE fit that
+declares `strata=` raises `NotImplementedError` from `src/cleverly/estimators/tmle.py`, because its
+reduced regressions add a second targeting equation for the `mean` group. Each refusal happens at
+the fit, so no such result reaches the surface. The
+[refusal table](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+records each message.
 
 One refusal belongs to no row above. The surface refuses the policy mean of a zero-delta shift.
 That policy assigns every unit its own dose, so its mean is the mean of the observed outcome. No
@@ -388,6 +398,20 @@ mixed latent causes for this surface.
 Wait for a published or canonical construction that defines that choice and its interpretation.
 Until then, retain the clustered pre-fit refusal. Do not infer a shared cluster draw from grouped
 folds or cluster-robust variance, because those contracts govern estimator dependence only.
+
+### F10. Logical categorical confounder calibration
+
+The pinned DoWhy implementation calibrates one encoded coordinate at a time. Its
+[calibration helpers, lines 213-340](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+hold both rules. The binary rule zeros one standardized column. The continuous rule uses one
+column's correlation times the perturbed variable's standard deviation. Neither rule defines a
+whole categorical covariate on the same scale.
+
+Wait for a source that maps a logical categorical covariate to binary flip probabilities or signed
+continuous perturbation strengths. The benchmark must state how labels, reference levels, and
+multiple encoded columns affect it. A coefficient norm, grouped deletion, or permutation score
+does not supply that mapping by itself. Keep the categorical refusal before every random draw
+and refit until this contract exists.
 
 ## Longitudinal contracts
 

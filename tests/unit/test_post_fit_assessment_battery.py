@@ -358,6 +358,71 @@ def test_fixed_baseline_fallback_is_explicitly_approximate() -> None:
     assert "holds that risk fixed" in report.note
 
 
+def _simulated_cell(
+    treatment_strength: float, fraction: float, *, association: float | None
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        treatment_strength=treatment_strength,
+        outcome_strength=0.0,
+        displacement=0.1,
+        induced_treatment_association=association,
+        target_population_fraction=fraction,
+    )
+
+
+def _simulated_interpreter_report(
+    *,
+    failures: tuple[str, ...] = (),
+    perturbed_fraction: float = 0.3,
+    population: str = "perturbed_treatment_group",
+) -> SimpleNamespace:
+    association = None if failures else 0.2
+    cells = (
+        _simulated_cell(0.0, 0.34, association=association),
+        _simulated_cell(0.2, perturbed_fraction, association=association),
+    )
+    return SimpleNamespace(
+        successful_cells=cells,
+        cells=cells,
+        failures=failures,
+        movement_scale="estimate_difference",
+        population=population,
+        stratum=("low",),
+        conditioning_arm=1,
+        association_population="selected_baseline_stratum",
+        calibration_population="full_fitted_population",
+        population_lines=lambda: (
+            f"target population: {population}",
+            "conditioning arm: 1",
+            "baseline stratum: ('low',)",
+            "strata columns: ('V',)",
+            "association population: selected_baseline_stratum",
+            "calibration population: full_fitted_population",
+            "refit population: full_fitted_population",
+        ),
+    )
+
+
+def test_a_baseline_surface_reports_no_population_collapse() -> None:
+    """The collapse rule reads ``population`` and not the fractions alone.
+
+    A real baseline surface reports a fraction of one in every cell, so ``0.05`` against
+    an anchor of ``0.34`` is unreachable there by construction. That is why the
+    ``population`` conjunct is unreachable insurance, and it is also why no fit can
+    witness it. This stand-in carries the collapsing fractions on a ``"baseline"`` report,
+    so it is the one shape that separates the conjunct from its absence.
+    """
+    report = _simulated_interpreter_report(perturbed_fraction=0.05, population="baseline")
+    item = INTERPRETERS["simulated_confounding"](report, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    assert item.next_steps == ()
+    # The fractions still reach the detail line, so the row hides nothing; only the
+    # verdict is withheld.
+    assert "minimum target population fraction 0.05 against anchor 0.34" in item.detail
+    assert "target population: baseline" in item.detail
+
+
 def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None:
     frame = pd.DataFrame
     reports = {
@@ -368,11 +433,7 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
         "benchmark": SimpleNamespace(
             covariates=("W1",), cf_y=0.1, cf_d=0.2, rho=0.3, delta_psi=0.4
         ),
-        "simulated_confounding": SimpleNamespace(
-            successful_cells=(SimpleNamespace(displacement=0.1),),
-            cells=(SimpleNamespace(induced_treatment_association=0.2),),
-            failures=(),
-        ),
+        "simulated_confounding": _simulated_interpreter_report(),
         "evalue": SimpleNamespace(point=2.0, limit=1.5, scale="risk ratio", approximate=False),
         "missingness": frame({"gamma": [0.5, 1.5], "psi": [0.9, 1.1]}),
         "tipping_gamma": None,
@@ -381,6 +442,16 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
 
     for operation, report in reports.items():
         assert INTERPRETERS[operation](report, None).status is AssessmentStatus.COMPLETED
+
+    item = INTERPRETERS["simulated_confounding"](reports["simulated_confounding"], None)
+    assert "movement scale estimate_difference" in item.detail
+    # The population fields are the surface's own ``population_lines()``, joined.
+    assert "target population: perturbed_treatment_group" in item.detail
+    assert "conditioning arm: 1; baseline stratum: ('low',)" in item.detail
+    assert "association population: selected_baseline_stratum" in item.detail
+    assert "calibration population: full_fitted_population" in item.detail
+    assert "refit population: full_fitted_population" in item.detail
+    assert "minimum target population fraction 0.3 against anchor 0.34" in item.detail
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
@@ -399,11 +470,7 @@ def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> 
         cf_d=0.2,
         rho=0.3,
     )
-    failed_surface = SimpleNamespace(
-        successful_cells=(SimpleNamespace(displacement=0.1),),
-        cells=(SimpleNamespace(induced_treatment_association=None),),
-        failures=("cell refused",),
-    )
+    failed_surface = _simulated_interpreter_report(failures=("cell refused",))
     nuisance_warning = SimpleNamespace(findings=("calibration slope outside its rule",))
 
     assert INTERPRETERS["score_equations"](failed_score, None).status is AssessmentStatus.FAILED

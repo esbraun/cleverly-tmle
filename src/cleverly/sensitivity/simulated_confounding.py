@@ -18,11 +18,12 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from ..exceptions import CapabilityError
+from ..data.causal_data import arm_share
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from ..validation.simulation import ReplicationFailure
+from ._simulated_confounding_request import _validate_request, _ValidatedRequest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data import WeightReport
@@ -110,12 +111,17 @@ class SimulatedConfoundingCell:
         the cell failed.
     induced_treatment_association : float or None
         Pearson correlation between the shared latent vector and the treatment of this
-        cell, measured on the fit's empirical target measure. The anchor cell reports the
+        cell, measured within its selected baseline population under the fixed row weights.
+        Both treatment arms contribute even for ATT or ATC. The anchor cell reports the
         original treatment, which gives the null level of the same data. Every other cell
         reports the perturbed treatment. The value is ``None`` when that treatment has
         zero standard deviation, and when a cell failed before the surface built it.
     failure : ReplicationFailure or None
         Structured refit or replacement failure retained for this cell.
+    target_population_fraction : float or None
+        Weighted fraction of the selected baseline population in the conditioning arm.
+        ATT and ATC recompute this fraction after treatment replacement. Other targets
+        report one. ``None`` means the perturbation failed before the fraction was computed.
     """
 
     treatment_strength: float
@@ -124,6 +130,7 @@ class SimulatedConfoundingCell:
     displacement: float | None
     induced_treatment_association: float | None = None
     failure: ReplicationFailure | None = None
+    target_population_fraction: float | None = None
 
 
 @dataclass(frozen=True)
@@ -133,7 +140,7 @@ class SimulatedConfoundingResult:
     Parameters
     ----------
     estimand : str
-        Marginal binary-treatment ATE, counterfactual-mean, risk-ratio, or odds-ratio
+        Binary-treatment ATE, ATT, ATC, counterfactual-mean, risk-ratio, or odds-ratio
         alias, named modified-policy mean alias, or named modified-policy contrast alias.
     original_estimate : float
         Point estimate from the unperturbed fitted result.
@@ -176,10 +183,22 @@ class SimulatedConfoundingResult:
         Provenance for the fixed empirical row-mass vector used by every cell.
     backend : str or None
         Dataframe backend used by frame methods.
+    stratum : tuple or None
+        Selected baseline stratum values. ``None`` selects the full baseline population.
+    strata_names : tuple of str
+        Names of the columns defining the selected baseline stratum.
+    population : {"baseline", "perturbed_treatment_group"}
+        Whether the target averages over its baseline population or its cell's observed
+        treatment group. ATT and ATC use the latter.
+    conditioning_arm : Any or None
+        Original treatment label defining the ATT or ATC population.
 
     Attributes
     ----------
     target_measure : {"unweighted", "fixed_empirical_tilt"}
+    association_population : {"selected_baseline_stratum", "full_fitted_population"}
+    calibration_population : {"full_fitted_population"}
+    refit_population : {"full_fitted_population"}
 
     See Also
     --------
@@ -203,11 +222,54 @@ class SimulatedConfoundingResult:
     outcome_law: str
     weight_report: WeightReport
     backend: str | None = None
+    stratum: tuple[Any, ...] | None = None
+    strata_names: tuple[str, ...] = ()
+    population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
+    conditioning_arm: Any = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
         """Name the empirical measure on which every cell is evaluated."""
         return "fixed_empirical_tilt" if self.weight_report.name is not None else "unweighted"
+
+    @property
+    def association_population(
+        self,
+    ) -> Literal["selected_baseline_stratum", "full_fitted_population"]:
+        """Name the baseline rows used for the induced treatment association."""
+        return "full_fitted_population" if self.stratum is None else "selected_baseline_stratum"
+
+    @property
+    def calibration_population(self) -> Literal["full_fitted_population"]:
+        """Name the original rows used for observed-covariate calibration."""
+        return "full_fitted_population"
+
+    @property
+    def refit_population(self) -> Literal["full_fitted_population"]:
+        """Name the rows perturbed together before every complete estimator refit."""
+        return "full_fitted_population"
+
+    def population_lines(self) -> tuple[str, ...]:
+        """Return the population provenance of this surface, one field to a line.
+
+        The single field list and label vocabulary that :meth:`summary` prints and that
+        the post-fit assessment row joins with ``"; "``. Written twice the two reports
+        drift, and a reader cannot tell which population a movement belongs to.
+
+        Returns
+        -------
+        tuple of str
+            One ``label: value`` line for each population field, in a fixed order.
+        """
+        return (
+            f"target population: {self.population}",
+            f"conditioning arm: {self.conditioning_arm!r}",
+            f"baseline stratum: {self.stratum!r}",
+            f"strata columns: {self.strata_names!r}",
+            f"association population: {self.association_population}",
+            f"calibration population: {self.calibration_population}",
+            f"refit population: {self.refit_population}",
+        )
 
     @property
     def complete(self) -> bool:
@@ -231,7 +293,13 @@ class SimulatedConfoundingResult:
         -------
         dataframe
             Estimates, the movement scale of the displacement, displacements, induced
-            treatment associations, and retained failure details.
+            treatment associations, and retained failure details. Two population columns
+            join a movement to the rows it belongs to. ``association_population`` repeats
+            :attr:`association_population` on every row, which names the baseline rows the
+            association was measured on. ``target_population_fraction`` carries
+            :attr:`SimulatedConfoundingCell.target_population_fraction`, which is the
+            conditioning-arm share that cell targets. A failed cell keeps its fraction,
+            because the surface records it before the refit.
         """
         payload = {
             "treatment_strength": [cell.treatment_strength for cell in self.cells],
@@ -242,6 +310,8 @@ class SimulatedConfoundingResult:
             "induced_treatment_association": [
                 cell.induced_treatment_association for cell in self.cells
             ],
+            "association_population": [self.association_population for _ in self.cells],
+            "target_population_fraction": [cell.target_population_fraction for cell in self.cells],
             "error_type": [
                 None if cell.failure is None else cell.failure.error_type for cell in self.cells
             ],
@@ -265,6 +335,7 @@ class SimulatedConfoundingResult:
             "family": [row.family for row in self.calibrations],
             "strength": [row.strength for row in self.calibrations],
             "method": [row.method for row in self.calibrations],
+            "calibration_population": [self.calibration_population for _ in self.calibrations],
         }
         return emit_frame(payload, backend=self.backend)
 
@@ -281,6 +352,8 @@ class SimulatedConfoundingResult:
         for cell in self.cells:
             association = cell.induced_treatment_association
             reported = "n/a" if association is None else f"{association:+.4f}"
+            fraction = cell.target_population_fraction
+            population_fraction = "n/a" if fraction is None else f"{fraction:.4f}"
             if cell.failure is None:
                 rows.append(
                     [
@@ -289,6 +362,7 @@ class SimulatedConfoundingResult:
                         f"{cell.estimate:.5g}",
                         f"{cell.displacement:+.5g}",
                         reported,
+                        population_fraction,
                     ]
                 )
             else:
@@ -299,6 +373,7 @@ class SimulatedConfoundingResult:
                         "failed",
                         cell.failure.error_type,
                         reported,
+                        population_fraction,
                     ]
                 )
         # ``inference.influence.median_estimates`` returns its input unchanged for a single
@@ -318,6 +393,7 @@ class SimulatedConfoundingResult:
                 ),
                 crossfit,
                 f"target measure: {self.target_measure}",
+                *self.population_lines(),
                 self.treatment_law,
                 self.outcome_law,
                 "",
@@ -328,12 +404,21 @@ class SimulatedConfoundingResult:
                         "estimate",
                         f"movement ({self.movement_scale.replace('_', ' ')})",
                         "induced association",
+                        "population fraction",
                     ],
                     rows,
                 ),
                 "",
                 "The induced association is the correlation between the latent vector and the "
-                "treatment of the cell under the target measure.",
+                "treatment of the cell within the selected baseline population.",
+                *(
+                    (
+                        "ATT and ATC membership follows each cell's perturbed treatment. "
+                        "Movement includes this change of population.",
+                    )
+                    if self.population == "perturbed_treatment_group"
+                    else ()
+                ),
                 *self._reading_guard(),
                 "This surface is qualitative. It is not a bound or sensitivity-adjusted inference.",
             ]
@@ -342,6 +427,14 @@ class SimulatedConfoundingResult:
     def _reading_guard(self) -> tuple[str, ...]:
         """Return the lines that say which cells carry a confounding path."""
         if self.treatment_family == "binary":
+            if self.population == "perturbed_treatment_group":
+                return (
+                    "An association near zero says the treatment axis opened no confounding path.",
+                    "The estimate can still move, because each cell rebuilds its ATT or "
+                    "ATC population from the perturbed treatment.",
+                    "Read target_population_fraction beside the movement. It reports the "
+                    "share of the selected baseline population this cell conditions on.",
+                )
             return (
                 "An association near zero says the treatment axis moved the estimate by "
                 "misclassification and not by confounding.",
@@ -383,507 +476,85 @@ def _numeric_strengths(values: Any, role: str) -> tuple[float, ...]:
     return strengths
 
 
-@dataclass(frozen=True)
-class _ValidatedRequest:
-    estimator: Any
-    calibration_names: tuple[str, ...]
-    treatment_family: Literal["binary", "continuous"]
-    movement_scale: Literal["estimate_difference", "log_ratio"]
+_LATENT_SEED_TAG = 3
 
 
-_BINARY_PARAMETER_TARGETS = frozenset({"ate", "ey", "ey1", "ey0", "rr", "or"})
+def _target_population_fraction(
+    request: _ValidatedRequest,
+    treatment: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> float:
+    """Measure a cell's treatment-group mass within its fixed baseline population."""
+    if request.conditioning_code is None:
+        return 1.0
+    return arm_share(treatment, weights, request.conditioning_code, mask=request.baseline_mask)
 
 
-def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
-    """Return supported marginal binary aliases from structured result metadata."""
-    from ..study import ParameterKey
+def _cell_diagnostics(
+    request: _ValidatedRequest,
+    latent: np.ndarray[Any, Any],
+    treatment: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> tuple[float | None, float]:
+    """Measure the two per-cell diagnostics of one treatment vector together.
 
-    data = getattr(result, "data", None)
-    if data is None or not getattr(data, "is_binary_treatment", False):
-        return ()
-    estimates = getattr(result, "estimates", {})
-    keys = getattr(result, "parameter_keys", {})
-    return tuple(
-        alias
-        for alias, key in keys.items()
-        if alias in estimates
-        and type(key) is ParameterKey
-        and key.estimand in _BINARY_PARAMETER_TARGETS
-        and key.axis == "arm"
-        and key.stratum is None
-    )
-
-
-def _validate_binary_parameter_state(
-    result: Any,
-    estimand: str,
-    key: Any,
-    identified: Any,
-    functional: Any,
-    estimator: Any,
-) -> None:
-    """Require one coherent marginal binary parameter across every stored layer."""
-    from ..study import ATE, CounterfactualMean, OddsRatio, RiskRatio
-    from ..targets import TARGETS
-    from ..targets.base import parameter_name
-
-    target = key.estimand
-    typed_estimand = identified.estimand
-    levels = tuple(result.data.treatment_levels)
-    expected_alias: str | None = None
-    metadata_matches = False
-
-    if target == "ate" and type(typed_estimand) is ATE:
-        expected_alias = parameter_name("ate")
-        fitted_reference = result.data.arm_label(result.config.reference_arm)
-        fitted_values = tuple(level for level in levels if level != fitted_reference)
-        metadata_matches = (
-            len(fitted_values) == 1
-            and key.value == fitted_values[0]
-            and key.reference == fitted_reference
-            and typed_estimand.reference in (None, key.reference)
-            and functional.reference == typed_estimand.reference
-        )
-    elif target in {"ey", "ey1", "ey0"} and type(typed_estimand) is CounterfactualMean:
-        expected_value = {
-            "ey1": result.data.arm_label(1.0),
-            "ey0": result.data.arm_label(0.0),
-        }.get(target)
-        expected_alias = parameter_name("ey", arm=key.value) if target == "ey" else target
-        metadata_matches = (
-            key.value in levels
-            and key.reference is None
-            and functional.reference is None
-            and (
-                typed_estimand.treatment is None
-                if target == "ey"
-                else typed_estimand.treatment == key.value == expected_value
-            )
-        )
-    elif (
-        target in {"rr", "or"}
-        and type(typed_estimand)
-        is {
-            "rr": RiskRatio,
-            "or": OddsRatio,
-        }[target]
-    ):
-        typed_ratio: Any = typed_estimand
-        expected_alias = parameter_name(target)
-        fitted_reference = result.data.arm_label(result.config.reference_arm)
-        fitted_values = tuple(level for level in levels if level != fitted_reference)
-        metadata_matches = (
-            len(fitted_values) == 1
-            and key.value == fitted_values[0]
-            and key.reference == fitted_reference
-            and typed_ratio.reference in (None, key.reference)
-            and functional.reference == typed_ratio.reference
-        )
-
-    registered = TARGETS.get(target)
-    replay_targets = tuple(getattr(estimator, "estimands", ()))
-    if (
-        expected_alias is None
-        or not metadata_matches
-        or key.alias != estimand
-        or expected_alias != estimand
-        or target not in replay_targets
-        or getattr(estimator, "reference", None) != functional.reference
-        or functional.target != target
-        or registered is None
-        or identified.identification != registered.identification
-    ):
-        raise CapabilityError(
-            "simulated_confounding found inconsistent registered binary parameter metadata"
-        )
-    if target in {"rr", "or"}:
-        estimate = result.estimates[estimand]
-        if result.data.family != "binomial":
-            raise CapabilityError(
-                "simulated_confounding supports a risk ratio or odds ratio for a binary "
-                "outcome only"
-            )
-        if estimate.name != estimand or estimate.scale != "ratio":
-            raise CapabilityError(
-                "simulated_confounding found inconsistent ratio-scale estimate metadata"
-            )
-        if (
-            registered.scale != "ratio"
-            or registered.requires_family != "binomial"
-            or registered.parameter_axis != "arm"
-        ):
-            raise CapabilityError(
-                "simulated_confounding found inconsistent registered ratio target metadata"
-            )
-        try:
-            inference_value = estimate.inference_value
-        except ValueError as error:
-            raise CapabilityError(
-                "simulated_confounding needs the stored log-scale estimate for a ratio contrast"
-            ) from error
-        if not np.isfinite(inference_value) or not np.isfinite(estimate.psi) or estimate.psi <= 0.0:
-            raise CapabilityError(
-                "simulated_confounding needs a finite positive ratio and stored log-scale estimate"
-            )
-        # Exact equality holds because every site that builds a ratio ``ParameterEstimate``
-        # derives ``psi = float(np.exp(log_psi))``: ``targets.builtin._ratio_contrasts``,
-        # ``inference.influence.ratio_estimates`` and ``median_estimates``,
-        # ``estimators.tmle._average_over_folds``, ``estimators.base`` and
-        # ``longitudinal.estimator`` for the exponentiated coefficient view.  This check pins
-        # that construction invariant.  An engine that ever computes the two independently
-        # must relax it to a tolerance here, rather than leave the caller a refusal they
-        # cannot act on.
-        if float(np.exp(inference_value)) != float(estimate.psi):
-            raise CapabilityError(
-                "simulated_confounding found inconsistent reported and log-scale ratio estimates"
-            )
-
-
-def _validate_continuous_policy_state(
-    result: Any,
-    estimand: str,
-    key: Any,
-    identified: Any,
-    functional: Any,
-    estimator: Any,
-) -> None:
-    """Require one coherent modified-policy request across every stored layer."""
-    from ..interventions.shift import Shift
-    from ..study import ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
-    from ..targets import TARGETS
-    from ..targets.base import parameter_name
-
-    target = key.estimand
-    typed_estimand = identified.estimand
-    typed_type = {
-        "ey_shift": ModifiedTreatmentPolicy,
-        "ate_shift": ModifiedTreatmentPolicyEffect,
-    }.get(target)
-    if typed_type is None or type(typed_estimand) is not typed_type:
-        raise CapabilityError(
-            "continuous simulated_confounding found inconsistent registered modified-policy "
-            "identification provenance"
-        )
-    typed_state: Any = typed_estimand
-    typed_policies = tuple(typed_state.shifts)
-    typed_reference = typed_state.reference
-
-    declared_policies = tuple(functional.interventions)
-    replay_policies = tuple(estimator.shifts)
-    if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
-        raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
-        )
-    declared_names = tuple(shift.name for shift in declared_policies)
-    declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
-    declared_reference = declared_names[0] if functional.reference is None else functional.reference
-    fitted_shifts = result.nuisance.shifts
-    fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
-    fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
-    fitted_reference = None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
-    expected_alias = parameter_name(
-        target,
-        arm=key.value,
-        versus=key.reference if target == "ate_shift" else None,
-    )
-    expected_shifted = np.column_stack(
-        [shift.apply(result.data.treatment)[0] for shift in declared_policies]
-    )
-    expected_capped = np.column_stack(
-        [shift.apply(result.data.treatment)[1] for shift in declared_policies]
-    )
-    expected_reference = fitted_reference if target == "ate_shift" else None
-    if (
-        fitted_shifts is None
-        or typed_policies != declared_policies
-        or typed_reference != functional.reference
-        or replay_policies != declared_policies
-        or estimator.reference != functional.reference
-        or fitted_names != declared_names
-        or fitted_deltas != declared_deltas
-        or fitted_reference != declared_reference
-        or not np.array_equal(fitted_shifts.shifted, expected_shifted)
-        or not np.array_equal(fitted_shifts.capped, expected_capped)
-        or key.alias != estimand
-        or key.value not in fitted_names
-        or key.reference != expected_reference
-        or expected_alias != estimand
-    ):
-        raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
-        )
-
-    registered = TARGETS.get(target)
-    declared = getattr(typed_estimand, "name", None)
-    if (
-        functional.target != target
-        or declared != target
-        or registered is None
-        or identified.identification != registered.identification
-    ):
-        raise CapabilityError(
-            "continuous simulated_confounding found inconsistent registered modified-policy "
-            "identification provenance"
-        )
-
-    # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its
-    # counterfactual treatment has no dependence on the dose a common cause would move.
-    # The treatment axis of such a surface is identically zero, and the outcome axis
-    # reports the level shift ``Y' = Y - k_Y U`` alone.  An ``ate_shift`` contrast that
-    # uses the same policy as its reference keeps treatment dependence, so it stays.
-    if target == "ey_shift":
-        selected = declared_policies[declared_names.index(key.value)]
-        if float(selected.delta) == 0.0:
-            raise CapabilityError(
-                f"continuous simulated_confounding refuses the policy mean {estimand!r}; a "
-                "zero-delta policy is the natural course, its mean is E[Y], and it carries no "
-                "counterfactual treatment dependence for a simulated common cause to move. "
-                "Select a nonzero-delta ey_shift[...] mean, or an ate_shift[...] contrast "
-                "that uses the natural course as its reference"
-            )
-
-
-def _zero_delta_policy_means(functional: Any) -> frozenset[str]:
-    """Name every ``ey_shift`` alias whose policy is the zero-delta natural course.
+    The anchor cell and every perturbed cell report the same pair, on the same fixed
+    baseline population, and differ only in the treatment vector they are given.
 
     Parameters
     ----------
-    functional : BackdoorMeanContrast
-        Identification functional of the fitted result.
+    request : _ValidatedRequest
+        Validated request holding the fixed baseline population and conditioning arm.
+    latent : ndarray
+        Shared latent vector drawn for the complete surface.
+    treatment : ndarray
+        Original or perturbed treatment of one cell.
+    weights : ndarray
+        Normalized fixed row masses. An unweighted fit supplies a vector of ones.
 
     Returns
     -------
-    frozenset of str
-        Aliases the selection message must not advertise, because each one names a
-        policy mean the surface refuses.
+    tuple of (float or None, float)
+        The induced treatment association and the target population fraction.
     """
-    aliases = set()
-    for policy in functional.interventions:
-        delta = getattr(policy, "delta", None)
-        name = getattr(policy, "name", None)
-        if isinstance(name, str) and isinstance(delta, Real) and float(delta) == 0.0:
-            aliases.add(f"ey_shift[{name}]")
-    return frozenset(aliases)
-
-
-def _validate_request(
-    result: Any,
-    estimand: str,
-    grid: ConfounderStrengthGrid,
-    benchmark_covariates: Any,
-) -> _ValidatedRequest:
-    """Validate the complete supported boundary before a refit or random draw."""
-    from ..estimators.base import TMLEResult
-    from ..estimators.ctmle import CTMLE
-    from ..estimators.drtmle import DRTMLE
-    from ..estimators.tmle import TMLE
-    from ..study import (
-        BackdoorMeanContrast,
-        ExplicitAdjustmentProvider,
-        ParameterKey,
+    return (
+        _baseline_treatment_association(request, latent, treatment, weights),
+        _target_population_fraction(request, treatment, weights),
     )
 
-    if type(result) is not TMLEResult:
-        raise CapabilityError(
-            "simulated_confounding supports point-treatment TMLEResult objects only; "
-            "no longitudinal perturbation law is implemented"
-        )
-    estimator = result.estimator
-    if estimator is None:
-        raise CapabilityError(
-            "simulated_confounding needs a replayable fitted estimator; this restored or "
-            "legacy result has no estimator configuration"
-        )
-    stored_repeats = result.n_repeats
-    configured_repeats = result.config.crossfit.repeats
-    replay_repeats = estimator.repeats
-    if stored_repeats != configured_repeats or stored_repeats != replay_repeats:
-        raise CapabilityError(
-            "simulated_confounding needs consistent repeated-cross-fitting provenance; "
-            f"the stored result has {stored_repeats} draw(s), its configuration declares "
-            f"{configured_repeats}, and the replay estimator declares {replay_repeats}"
-        )
-    data = result.data
-    if data.is_continuous_treatment:
-        treatment_family: Literal["binary", "continuous"] = "continuous"
-    elif data.is_binary_treatment:
-        treatment_family = "binary"
-    else:
-        raise CapabilityError(
-            "simulated_confounding has no category-valued perturbation law for a multi-arm "
-            "treatment"
-        )
-    if treatment_family == "binary" and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
-        raise CapabilityError(
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
-            f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
-        )
-    if treatment_family == "continuous" and type(estimator) is not TMLE:
-        raise CapabilityError(
-            "continuous simulated_confounding supports exact ordinary TMLE only; "
-            f"got {type(estimator).__name__}"
-        )
-    if treatment_family == "binary" and any(value < 0.0 or value > 0.5 for value in grid.treatment):
-        raise ValueError("binary treatment strengths must be between 0 and 0.5")
-    if data.family not in {"gaussian", "binomial"}:
-        raise CapabilityError(
-            f"simulated_confounding has no perturbation law for outcome family={data.family!r}"
-        )
-    if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
-        raise ValueError("binomial outcome strengths must be between 0 and 0.5")
-    if data.has_missing_outcome:
-        raise CapabilityError(
-            "simulated_confounding has no missing-outcome perturbation and observation refit"
-        )
-    if data.has_intermediate or result.intermediate_value is not None:
-        raise CapabilityError(
-            "simulated_confounding has no controlled-direct-effect or intermediate-variable law"
-        )
-    if data.weights_name is not None and data.weight_spec.estimated:
-        raise CapabilityError(
-            "simulated_confounding cannot replay estimated observation weights; the fitted "
-            "result does not store the model needed to re-estimate them after perturbation"
-        )
-    if data.weight_spec.kind != "probability":
-        raise CapabilityError(
-            "simulated_confounding supports fixed probability weights only; "
-            f"got weight kind {data.weight_spec.kind!r}"
-        )
-    if data.weights_name != data.weight_spec.name:
-        raise CapabilityError(
-            "simulated_confounding found inconsistent observation-weight provenance; "
-            "the data column and WeightSpec names disagree"
-        )
-    if data.weights_name is None and data.is_weighted:
-        raise CapabilityError(
-            "simulated_confounding found nonconstant observation weights without a declared "
-            "weight column"
-        )
-    if data.cluster is not None:
-        raise CapabilityError("simulated_confounding does not support clustered fits")
-    identified = result.identified_effect
-    if identified is None:
-        raise CapabilityError(
-            "simulated_confounding needs identification metadata for a backdoor parameter; "
-            "this legacy fit records none"
-        )
-    functional = identified.functional
-    if type(functional) is not BackdoorMeanContrast:
-        raise CapabilityError(
-            "simulated_confounding supports a backdoor-identified marginal parameter; "
-            f"got {type(functional).__name__}"
-        )
-    provider = getattr(identified, "provider", None)
-    if type(provider) is not ExplicitAdjustmentProvider:
-        raise CapabilityError(
-            "simulated_confounding needs registered explicit-adjustment backdoor provenance"
-        )
-    if treatment_family == "continuous" and estimand == "ate":
-        vacuous = _zero_delta_policy_means(functional)
-        admissible = [
-            name
-            for name in result.estimates
-            if name.startswith(("ey_shift[", "ate_shift[")) and name not in vacuous
-        ]
-        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
-        raise ValueError(
-            "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
-            f"or ate_shift[...] contrast alias; {detail}"
-        )
-    if estimand not in result.estimates:
-        # A continuous fit can report the zero-delta natural-course mean, which the next
-        # call refuses.  Advertising it here hands the caller a refused alias.
-        vacuous = (
-            _zero_delta_policy_means(functional)
-            if treatment_family == "continuous"
-            else frozenset()
-        )
-        admissible = [name for name in result.estimates if name not in vacuous]
-        detail = f"choose one of {admissible}" if admissible else "this fit reports none"
-        raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
-    key = result.parameter_keys.get(estimand)
-    if type(key) is not ParameterKey:
-        raise CapabilityError(
-            f"simulated_confounding needs a structured parameter key for {estimand!r}"
-        )
-    if treatment_family == "binary":
-        if (
-            functional.longitudinal
-            or functional.axis != "arm"
-            or functional.interventions
-            or functional.msm is not None
-        ):
-            raise CapabilityError(
-                "simulated_confounding supports a marginal arm-indexed parameter, "
-                "not a regimen, stochastic, incremental, modified-policy, or MSM parameter"
-            )
-        if (
-            key.estimand not in _BINARY_PARAMETER_TARGETS
-            or key.axis != "arm"
-            or key.stratum is not None
-        ):
-            raise CapabilityError(
-                "simulated_confounding supports only a marginal ATE, counterfactual arm mean, "
-                "risk ratio, or odds ratio; ATT, ATC, conditional strata, and other parameters "
-                "are outside its source boundary"
-            )
-        _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
-    else:
-        if (
-            functional.longitudinal
-            or functional.axis != "shift"
-            or not functional.interventions
-            or functional.msm is not None
-        ):
-            raise CapabilityError(
-                "continuous simulated_confounding supports a marginal modified-treatment-policy "
-                "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter"
-            )
-        if (
-            key.estimand not in {"ey_shift", "ate_shift"}
-            or key.axis != "shift"
-            or key.stratum is not None
-        ):
-            raise CapabilityError(
-                "continuous simulated_confounding supports only a marginal ey_shift policy mean "
-                "or ate_shift contrast; conditional strata and other parameters are outside its "
-                "source boundary"
-            )
-        _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
-    names = tuple(
-        [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
-    )
-    if len(set(names)) != len(names):
-        raise ValueError("benchmark_covariates contains duplicates")
-    categorical = {
-        name for encoding in data.encodings for name in (encoding.column, *encoding.generated)
-    }
-    for name in names:
-        if not isinstance(name, str):
-            raise TypeError("benchmark_covariates must contain only column names")
-        if name in categorical:
-            raise CapabilityError(
-                f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark"
-            )
-        if name not in data.covariate_names:
-            raise ValueError(
-                f"benchmark covariate {name!r} is unavailable; numeric adjustment columns are "
-                f"{[name for name in data.covariate_names if name not in categorical]}"
-            )
-        column = data.covariates[:, data.covariate_names.index(name)]
-        if _is_constant_under_weights(column, data.weights):
-            raise CapabilityError(
-                f"simulated_confounding cannot calibrate constant covariate {name!r}"
-            )
-    movement_scale: Literal["estimate_difference", "log_ratio"] = (
-        "log_ratio" if key.estimand in {"rr", "or"} else "estimate_difference"
-    )
-    return _ValidatedRequest(estimator, names, treatment_family, movement_scale)
+def _baseline_treatment_association(
+    request: _ValidatedRequest,
+    latent: np.ndarray[Any, Any],
+    treatment: np.ndarray[Any, Any],
+    weights: np.ndarray[Any, Any],
+) -> float | None:
+    """Report the realised correlation between the latent vector and one treatment.
 
+    The same fixed baseline population is used at the anchor and at every perturbed
+    cell. For a binary tail flip, the association depends on the treated fraction. A
+    balanced design reaches zero association, where the treatment axis moves the
+    estimate by misclassification alone. For a continuous linear perturbation, this is
+    the achieved association between ``U`` and ``A'``.
 
-_LATENT_SEED_TAG = 3
+    Parameters
+    ----------
+    request : _ValidatedRequest
+        Validated request holding the fixed baseline population.
+    latent : ndarray
+        Shared latent vector drawn for the complete surface.
+    treatment : ndarray
+        Original or perturbed treatment of one cell.
+    weights : ndarray
+        Normalized fixed row masses. An unweighted fit supplies a vector of ones.
+
+    Returns
+    -------
+    float or None
+        Pearson correlation, or ``None`` when the treatment has zero standard deviation.
+    """
+    mask = request.baseline_mask
+    return _weighted_correlation(latent[mask], treatment[mask], weights[mask])
 
 
 def _latent_child_seed(root_seed: int) -> int:
@@ -996,35 +667,6 @@ def _weighted_correlation(
     return float(np.clip(correlation, -1.0, 1.0))
 
 
-def _treatment_association(
-    latent: np.ndarray[Any, Any],
-    treatment: np.ndarray[Any, Any],
-    weights: np.ndarray[Any, Any],
-) -> float | None:
-    """Report the realised correlation between the latent vector and one treatment.
-
-    For a binary tail flip, the association depends on the treated fraction. A balanced
-    design reaches zero association, where the treatment axis moves the estimate by
-    misclassification alone. For a continuous linear perturbation, this is the achieved
-    association between ``U`` and ``A'``.
-
-    Parameters
-    ----------
-    latent : ndarray
-        Shared latent vector drawn for the complete surface.
-    treatment : ndarray
-        Original or perturbed treatment of one cell.
-    weights : ndarray
-        Normalized fixed row masses. An unweighted fit supplies a vector of ones.
-
-    Returns
-    -------
-    float or None
-        Pearson correlation, or ``None`` when the treatment has zero standard deviation.
-    """
-    return _weighted_correlation(latent, treatment, weights)
-
-
 def _gaussian_outcome(
     values: np.ndarray[Any, Any], latent: np.ndarray[Any, Any], strength: float
 ) -> np.ndarray[Any, Any]:
@@ -1121,23 +763,24 @@ def simulated_confounding(
     benchmark_covariates: tuple[str, ...] = (),
     random_state: int | None = None,
 ) -> SimulatedConfoundingResult:
-    """Refit a marginal parameter across a simulated common-cause strength grid.
+    """Refit a selected parameter across a simulated common-cause strength grid.
 
     Parameters
     ----------
     result : TMLEResult
-        Replayable backdoor-identified marginal binary-treatment ATE, counterfactual
-        mean, risk ratio, or odds ratio, continuous modified-treatment-policy mean, or
-        continuous modified-policy effect fit.
+        Replayable backdoor-identified binary-treatment ATE, ATT, ATC, counterfactual
+        mean, risk ratio, odds ratio, or continuous modified-policy fit. Baseline strata
+        are supported when the estimator implements their targeting equations.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
         ``rr`` or ``or``. A continuous fit requires an explicit ``ey_shift[...]`` alias
         of a nonzero-delta policy, or an ``ate_shift[...]`` alias.
+        A conditional target requires its complete reported stratum alias.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
-        Numeric observed covariates for optional model-dependent calibration.
+        Numeric observed covariates for optional calibration on the full original population.
     random_state : int or None
         Root seed. ``None`` uses the fitted estimator's seed or draws a recorded seed.
 
@@ -1167,9 +810,16 @@ def simulated_confounding(
 
     An ordinary-TMLE fit can declare fixed probability weights. Binary complete-outcome
     collaborative-TMLE and DR-TMLE fits can also declare them. Every replacement and refit
-    keeps the normalized weight on its original row. The induced association and numeric
-    calibration use the same weighted empirical law. Estimated weights and clustered fits
-    are refused before a draw.
+    keeps the normalized weight on its original row. The induced association conditions
+    this empirical law on the selected baseline stratum. Numeric calibration uses the full
+    original population. Estimated weights and clustered fits are refused before a draw.
+
+    All strata share the same full-row latent draw and complete estimator refit. Baseline
+    stratum membership stays fixed. ATT and ATC instead recompute their observed-treatment
+    membership from each cell's replaced treatment, within the selected baseline population.
+    Their movement therefore includes composition changes. Their induced association still
+    includes both treatment arms, because treatment is constant within one treatment group.
+    Each cell records that group's weighted fraction of its baseline population.
 
     Each cell reports ``induced_treatment_association``. It is the correlation between the
     shared latent vector and the treatment of that cell. For binary treatment, the flip is
@@ -1219,15 +869,17 @@ def simulated_confounding(
         product(grid.treatment, grid.outcome)
     ):
         if treatment_strength == 0.0 and outcome_strength == 0.0:
+            anchor_association, anchor_fraction = _cell_diagnostics(
+                request, latent, result.data.treatment, result.data.weights
+            )
             cells.append(
                 SimulatedConfoundingCell(
                     treatment_strength=treatment_strength,
                     outcome_strength=outcome_strength,
                     estimate=original,
                     displacement=0.0,
-                    induced_treatment_association=_treatment_association(
-                        latent, result.data.treatment, result.data.weights
-                    ),
+                    induced_treatment_association=anchor_association,
+                    target_population_fraction=anchor_fraction,
                 )
             )
             continue
@@ -1235,6 +887,7 @@ def simulated_confounding(
         # when the cell later fails.  An arm-loss cell reaches the zero-variance guard and
         # reports ``None``, because a constant treatment has no correlation.
         association: float | None = None
+        population_fraction: float | None = None
         try:
             treatment = _perturb_treatment(
                 result.data.treatment,
@@ -1242,7 +895,9 @@ def simulated_confounding(
                 treatment_strength,
                 request.treatment_family,
             )
-            association = _treatment_association(latent, treatment, result.data.weights)
+            association, population_fraction = _cell_diagnostics(
+                request, latent, treatment, result.data.weights
+            )
             replacement = result.data.with_treatment(treatment)
             if result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)
@@ -1271,6 +926,7 @@ def simulated_confounding(
                     estimate=estimate,
                     displacement=refitted_parameter.inference_value - original_inference,
                     induced_treatment_association=association,
+                    target_population_fraction=population_fraction,
                 )
             )
         except Exception as error:
@@ -1281,6 +937,7 @@ def simulated_confounding(
                     estimate=None,
                     displacement=None,
                     induced_treatment_association=association,
+                    target_population_fraction=population_fraction,
                     failure=ReplicationFailure(
                         replicate=cell_index,
                         seed=root_seed,
@@ -1316,4 +973,12 @@ def simulated_confounding(
         ),
         weight_report=result.data.weight_report(),
         backend=result.data.backend,
+        stratum=request.stratum,
+        strata_names=() if request.stratum is None else result.data.strata_names,
+        population="baseline" if request.conditioning_code is None else "perturbed_treatment_group",
+        conditioning_arm=(
+            None
+            if request.conditioning_code is None
+            else result.data.arm_label(request.conditioning_code)
+        ),
     )

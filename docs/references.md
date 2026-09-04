@@ -72,7 +72,12 @@ previous reader had is not a citation; a page number is.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
-  constructions cited by the conditional-population and regimen targets.
+  constructions cited by the conditional-population and regimen targets. Part I,
+  [Section 4](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126670/), treats the effect among the
+  treated as a parameter of the outcome and treatment factors. The simulated-confounding surface
+  reuses that registered ATT functional, and its relabeled ATC counterpart, on each perturbed
+  empirical law. The surface reports the changing group's share, and it claims no effect in the
+  original treated group held fixed.
 - Robins (2004), *Optimal Structural Nested Models for Optimal Sequential Decisions*, in
   *Proceedings of the Second Seattle Symposium on Biostatistics*, pp. 189–326, DOI
   [10.1007/978-1-4419-9076-1_11](https://doi.org/10.1007/978-1-4419-9076-1_11).
@@ -272,6 +277,17 @@ previous reader had is not a citation; a page number is.
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- The same pinned DoWhy refit preserves `effect_modifier_names` and `target_units`.
+  Its [propensity-weighting estimator](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_estimators/propensity_score_weighting_estimator.py)
+  rebuilds ATT and ATC weights from the treatment in the supplied dataset. The
+  `estimate_effect` method selects those weights through `target_units="att"` or `"atc"`.
+  Thus observed-treatment membership follows the perturbed data. Fixed baseline strata retain
+  their original membership because the perturbation changes neither their names nor values.
+  These are qualitative composition conventions; they supply no sensitivity-adjusted interval.
+- DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+  calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
+  Its continuous branch uses one column's correlation times the perturbed variable's standard
+  deviation. Neither branch defines a logical categorical benchmark on these strength scales.
 - Fixed-weight binary DR-TMLE surfaces compose that DoWhy perturbation with Benkeser, Carone, van
   der Laan & Gilbert (2017), Theorem 1. The theorem supplies the complete-outcome corrected curve
   and remainder conditions. Existing exact-law tests transport every term to the fixed tilt

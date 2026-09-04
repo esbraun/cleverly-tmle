@@ -74,13 +74,55 @@ from .weighting import (
     effective_sample_size,
 )
 
-__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
+__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind", "arm_share"]
 
 #: How the treatment column is to be read.  ``"discrete"`` codes it into arms; there is
 #: no third reading, and the two are not points on a scale -- they select different
 #: mechanisms (a distribution over arms versus a conditional density) and therefore
 #: different estimands.
 TreatmentKind = Literal["discrete", "continuous"]
+
+
+def arm_share(
+    treatment: FloatArray,
+    weights: FloatArray,
+    arm: float,
+    mask: Any = None,
+) -> float:
+    """Weighted ``P(A = arm)`` on the rows ``mask`` keeps.
+
+    One rule, stated once.  The same weighted share was open-coded at the summary
+    header, at the cross-fitted and the stratified clever covariates, and at the
+    simulated-confounding population fraction.  Written out four times it is four
+    chances for a fold, a stratum and a report to disagree about what an arm's share
+    of a population is.
+
+    :attr:`CausalData.arm_fractions` deliberately does **not** route its two-arm case
+    through this function.  There it takes the complement of
+    :attr:`CausalData.treated_fraction`, because ``1 - E_w[A]`` and ``E_w[1 - A]``
+    need not agree in the last bit, and a binary fit's ATC arithmetic is pinned to the
+    complement.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        Arm codes, as :attr:`CausalData.treatment` holds them.
+    weights : ndarray
+        Row masses over the same rows as ``treatment``.
+    arm : float
+        The arm code whose share is wanted.
+    mask : ndarray or None
+        Boolean mask or index array selecting the population.  ``None`` takes every row.
+
+    Returns
+    -------
+    float
+        The weighted fraction of the selected rows in ``arm``.
+    """
+    if mask is not None:
+        treatment = treatment[mask]
+        weights = weights[mask]
+    return float(np.average(treatment == arm, weights=weights))
 
 
 @dataclass(frozen=True)
@@ -569,17 +611,13 @@ class CausalData:
         recomputing the share, for the reason
         :meth:`~cleverly.estimators._nuisance.Propensity.bounded` takes the complement of
         ``g1``: it is what keeps a binary fit's ATC arithmetic bit for bit what it was,
-        since ``1 - E_w[A]`` and ``E_w[1 - A]`` need not agree in the last bit.
+        since ``1 - E_w[A]`` and ``E_w[1 - A]`` need not agree in the last bit.  Every
+        other arm count reads its share from :func:`arm_share`.
         """
         share = self.treated_fraction  # raises on a continuous treatment, as it should
         if self.n_arms == 2:
             return np.array([1.0 - share, share])
-        return np.array(
-            [
-                float(np.average(self.treatment == code, weights=self.weights))
-                for code in self.arm_codes
-            ]
-        )
+        return np.array([arm_share(self.treatment, self.weights, code) for code in self.arm_codes])
 
     # ------------------------------------------------------------------- arms
 

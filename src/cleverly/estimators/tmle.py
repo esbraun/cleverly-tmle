@@ -99,7 +99,7 @@ from .._typing import (
     TargetingMethod,
     TargetingScheme,
 )
-from ..data.causal_data import CausalData, TreatmentKind
+from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..exceptions import (
     ConvergenceWarning,
     DataError,
@@ -136,6 +136,7 @@ from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
+from ..targets.base import stratum_alias
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
@@ -1895,12 +1896,8 @@ class TMLE:
         # therefore correctly keeps the full-sample share above.
         pieces = []
         for _, test in nuisance.folds:
-            fold_weights = data.weights[test]
             fractions = np.array(
-                [
-                    np.average(data.treatment[test] == arm, weights=fold_weights)
-                    for arm in nuisance.arms
-                ],
+                [arm_share(data.treatment, data.weights, arm, mask=test) for arm in nuisance.arms],
                 dtype=float,
             )
             fold_submodel = build_submodel(
@@ -1943,10 +1940,7 @@ class TMLE:
             mask = data.strata == code
             probability = float(np.average(mask, weights=data.weights))
             fractions = np.array(
-                [
-                    np.average(data.treatment[mask] == arm, weights=data.weights[mask])
-                    for arm in nuisance.arms
-                ],
+                [arm_share(data.treatment, data.weights, arm, mask=mask) for arm in nuisance.arms],
                 dtype=float,
             )
             if fractions.size and np.any(fractions <= 0.0):
@@ -2518,7 +2512,7 @@ class TMLE:
             )
             label = data.stratum_label(code)
             for estimate in estimates.values():
-                name = f"{estimate.name}[{label}]"
+                name = stratum_alias(estimate.name, label)
                 curve = np.zeros(data.n, dtype=float)
                 curve[index] = estimate.influence_curve * (data.n / index.size)
                 out[name] = make_estimate(
