@@ -2022,12 +2022,23 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
 
     **The collapse rule.**  The anchor cell perturbs nothing, so its
     ``target_population_fraction`` is the unperturbed share of the conditioning arm.  A
-    surface has collapsed when its smallest successful cell keeps **less than half** of
-    that anchor share.  The rule is relative to the fit's own anchor rather than an
-    absolute cut, so a study whose treated arm is a tenth of the sample is not warned about
-    for that alone; the constant is the half, which names "most of the group is gone" and
-    is not tuned to any dataset.  A surface that averages over its baseline population
-    never collapses, because every cell reports a fraction of one.
+    surface has collapsed when its smallest cell keeps **less than half** of that anchor
+    share.  The rule is relative to the fit's own anchor rather than an absolute cut, so a
+    study whose treated arm is a tenth of the sample is not warned about for that alone;
+    the constant is the half, which names "most of the group is gone" and is not tuned to
+    any dataset.  A surface that averages over its baseline population never collapses,
+    because every cell reports a fraction of one.
+
+    **Every cell, not every successful cell.**  The cell that collapses hardest is the one
+    whose conditioning arm emptied, and that cell fails: its refit raises
+    :exc:`~cleverly.exceptions.DataError` because the arm keeps no positive-weight row.
+    ``simulated_confounding`` records ``target_population_fraction`` from the perturbed
+    treatment *before* it refits, so a failed cell still carries the fraction that explains
+    the failure.  A minimum over ``successful_cells`` therefore drops exactly the collapse
+    this rule exists to name, and where only the anchor survives it reports the anchor
+    against itself.  The minimum below runs over every cell that recorded a fraction.  A
+    cell that failed before the surface built its treatment records ``None`` and is
+    skipped, because it measured no population.
 
     Parameters
     ----------
@@ -2037,12 +2048,12 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
     Returns
     -------
     tuple of (float or None, float or None, bool)
-        The smallest successful-cell fraction, the anchor fraction, and whether the
+        The smallest recorded cell fraction, the anchor fraction, and whether the
         conditioning population collapsed.
     """
     fractions = [
         cell.target_population_fraction
-        for cell in report.successful_cells
+        for cell in report.cells
         if cell.target_population_fraction is not None
     ]
     anchor = next(
@@ -2099,7 +2110,18 @@ def _simulated_item(
 
 
 def _format_fraction(value: float | None) -> str:
-    """Render one population fraction, or name its absence."""
+    """Render one population fraction, or name its absence.
+
+    Parameters
+    ----------
+    value : float or None
+        A conditioning-arm share, or ``None`` when no cell recorded one.
+
+    Returns
+    -------
+    str
+        The share to four significant figures, or ``"n/a"``.
+    """
     return "n/a" if value is None else f"{value:.4g}"
 
 

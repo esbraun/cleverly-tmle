@@ -74,7 +74,7 @@ from .weighting import (
     effective_sample_size,
 )
 
-__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
+__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind", "arm_share"]
 
 #: How the treatment column is to be read.  ``"discrete"`` codes it into arms; there is
 #: no third reading, and the two are not points on a scale -- they select different

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from ..estimators.base import MEAN_GROUP_ESTIMANDS
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, DataError
 from ..study import ATC, ATE, ATT, OddsRatio, RiskRatio
 from ..targets.base import stratum_alias
 
@@ -34,6 +34,8 @@ class _ValidatedRequest:
     # Excluded from equality for the reason ``AssessmentItem.arguments`` is: the generated
     # ``__eq__`` would return an array here rather than a bool, and ``__hash__`` would
     # raise.  The remaining fields already identify the request.
+    # ``test_simulated_confounding_populations.py::
+    # test_a_validated_request_compares_and_hashes_without_its_mask`` witnesses both.
     baseline_mask: np.ndarray[Any, Any] = field(compare=False)
     stratum: tuple[Any, ...] | None
     conditioning_code: float | None
@@ -145,7 +147,10 @@ def _baseline_population(result: Any, key: Any, identified: Any) -> np.ndarray[A
         raise CapabilityError(error)
     try:
         study.design._check_prepared(data)
-    except ValueError as cause:
+    except DataError as cause:
+        # ``PointTreatment._check_prepared`` raises ``DataError``.  Catching ``ValueError``
+        # worked only through the base class ``DataError`` happens to carry, which no test
+        # pins, so the refusal here would have followed a change to that declaration.
         raise CapabilityError(error) from cause
     if (
         data.strata_levels != study.data.strata_levels
@@ -218,7 +223,10 @@ def _validate_binary_parameter_state(
         )
 
     registered = TARGETS.get(target)
-    replay_targets = tuple(getattr(estimator, "estimands", ()))
+    # ``TMLE.__init__`` stores ``estimands`` unresolved, so an estimator that never fitted
+    # carries ``None`` here.  ``tuple(None)`` raises ``TypeError``, and this block exists to
+    # turn incoherent metadata into a named ``CapabilityError`` instead.
+    replay_targets = tuple(getattr(estimator, "estimands", None) or ())
     if (
         expected_alias is None
         or not metadata_matches

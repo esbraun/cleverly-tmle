@@ -42,6 +42,7 @@ from cleverly.sensitivity import (
 )
 from cleverly.sensitivity._simulated_confounding_request import (
     _eligible_binary_parameter_names,
+    _validate_request,
     _zero_delta_policy_means,
 )
 from cleverly.targets.base import parameter_name
@@ -536,7 +537,10 @@ def _tampered(result: Any, change: str, alias: str) -> Any:
             ),
         )
     estimator = copy(result.estimator)
-    estimator.estimands = ("atc",)
+    # ``TMLE.__init__`` leaves ``estimands`` unresolved, so ``None`` is the shape an
+    # estimator that never fitted carries. The guard must name it, not raise ``TypeError``
+    # out of ``tuple(None)``.
+    estimator.estimands = None if change == "replay-unresolved" else ("atc",)
     return replace(result, estimator=estimator)
 
 
@@ -556,6 +560,7 @@ def _tampered(result: Any, change: str, alias: str) -> Any:
         ("typed", _PARAMETER_REFUSAL),
         ("functional", _PARAMETER_REFUSAL),
         ("replay", _PARAMETER_REFUSAL),
+        ("replay-unresolved", _PARAMETER_REFUSAL),
     ],
 )
 def test_population_provenance_tampering_precedes_draws_and_refits(
@@ -563,11 +568,23 @@ def test_population_provenance_tampering_precedes_draws_and_refits(
     message: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each corrupted field reaches its own guard, named by the message it must raise.
+    """Each corrupted field reaches a guard, and the surface refuses before it draws.
 
-    Every row here refuses with ``CapabilityError``, so the exception type separates
-    none of them. A guard removed from the coherence block let its case fall through to
-    the next one, which refused for a different reason and read as a pass.
+    ``match=`` separates the two blocks and not the guards inside them. Ten rows corrupt
+    the baseline-population coherence chain, which raises ``_BASELINE_REFUSAL`` from a
+    single ``or``, and four corrupt the registered-parameter chain, which raises
+    ``_PARAMETER_REFUSAL`` the same way. What separates the rows is the corruption. Each
+    row leaves every other conjunct satisfied, so only the conjunct it targets can refuse.
+    Deleting the shape check fails ``[strata-shape]`` alone. Deleting the code-range check
+    fails ``[strata-codes]`` alone.
+
+    ``[replay]`` and ``[replay-unresolved]`` are the exception. They reach the same
+    ``target not in replay_targets`` conjunct, and they separate the shape of the refusal
+    rather than its site: an unresolved ``estimands`` must reach the named
+    ``CapabilityError`` and not raise ``TypeError`` on the way.
+
+    ``_forbid_draw_and_refit`` pins that every refusal comes before the latent draw and
+    the refit, so no row reaches its message through a later failure.
     """
     result = _fit_population("att")
     alias = _alias(result, "att", ("small",))
@@ -577,6 +594,33 @@ def test_population_provenance_tampering_precedes_draws_and_refits(
         simulated_confounding(
             tampered, alias, grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
         )
+
+
+def test_a_validated_request_compares_and_hashes_without_its_mask() -> None:
+    """``_ValidatedRequest.baseline_mask`` carries ``compare=False``, and this is why.
+
+    The field holds an ``ndarray``. Inside the generated ``__eq__`` the mask compares
+    elementwise, so the chain of per-field ``==`` yields an array and ``bool()`` of it
+    raises. The generated ``__hash__`` hashes the same field and raises ``TypeError``.
+    Without the marker both statements below fail, so the marker is not a comment.
+    """
+    result = _fit_population("att")
+    alias = _alias(result, "att", ("small",))
+    request = _validate_request(
+        result, alias, ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)), ()
+    )
+    same = replace(request, baseline_mask=request.baseline_mask.copy())
+    other = replace(request, conditioning_code=1.0 - request.conditioning_code)
+
+    assert request.baseline_mask.shape == (result.data.n,)
+    assert request.baseline_mask.any()
+    assert isinstance(hash(request), int)
+    assert request == request
+    # The mask is excluded, not merely tolerated: a distinct array of the same values
+    # still compares equal, and the fields that do identify the request still decide.
+    assert same.baseline_mask is not request.baseline_mask
+    assert same == request and hash(same) == hash(request)
+    assert other != request
 
 
 def test_a_faithful_study_surrogate_still_resolves_the_baseline_stratum() -> None:
@@ -614,6 +658,14 @@ def test_a_faithful_study_surrogate_still_resolves_the_baseline_stratum() -> Non
 
 @pytest.mark.parametrize("target", ["att", "atc"])
 def test_empty_perturbed_conditioning_population_retains_a_failed_cell(target: str) -> None:
+    """The total collapse fails its own cell, and the assessment row still reports it.
+
+    The conditioning arm of the perturbed cell empties, so its refit raises ``DataError``
+    and the cell is not a successful cell. It is also the only cell that collapsed. A
+    minimum taken over ``successful_cells`` therefore reads the anchor against itself, and
+    it withholds the population advice in the one case where the collapse is total. The
+    row would then report a positive minimum on a surface whose own frame shows ``0.0``.
+    """
     module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
     n = 160
     latent = np.random.default_rng(module._latent_child_seed(31)).normal(size=n)
@@ -674,6 +726,13 @@ def test_empty_perturbed_conditioning_population_retains_a_failed_cell(target: s
     assert cell.induced_treatment_association is None
     assert cell.estimate is None and cell.displacement is None
     assert not surface.complete
+
+    item = INTERPRETERS["simulated_confounding"](surface, None)
+    anchor = surface.cells[0].target_population_fraction
+    assert surface.successful_cells == (surface.cells[0],)
+    assert item.status is AssessmentStatus.WARNING
+    assert f"minimum target population fraction 0 against anchor {anchor:.4g}" in item.detail
+    assert any("keeps under half its unperturbed share" in step for step in item.next_steps)
 
 
 @pytest.mark.parametrize("method", ["greedy", "oat", "drtmle"])
@@ -872,9 +931,14 @@ def test_the_assessment_row_warns_when_the_conditioning_group_halves(
     """The collapse rule is pinned from both sides of its one-half threshold.
 
     Both fits sit within 0.03 of the threshold, so a rule that used another constant
-    reports the wrong status for one of them. The grid also declares the anchor last, so
-    a rule that read the first cell instead of the ``(0, 0)`` cell reports the wrong
-    status for both.
+    reports the wrong status for one of them.
+
+    The grid also declares the anchor last, and the status alone cannot witness that. The
+    anchor holds the largest fraction on the surface, so reading a different cell can only
+    lower the divisor, and a rule that read ``cells[0]`` weakens the threshold and never
+    strengthens it. It flips the ``0.30`` row to ``completed`` and leaves the ``0.36`` row
+    ``completed`` for the wrong reason. Each row therefore checks the anchor the detail
+    line printed, which the mutation moves on both rows.
     """
     result = _fit_collapsing_att(extra)
     surface = simulated_confounding(
@@ -899,6 +963,13 @@ def test_the_assessment_row_warns_when_the_conditioning_group_halves(
     assert len(item.next_steps) == steps
     if steps:
         assert "keeps under half its unperturbed share" in item.next_steps[0]
+    # The divisor the rule used, read back off the row it printed. This is what both rows
+    # witness about cell selection; the status witnesses it on the collapsing row alone.
+    assert (
+        f"minimum target population fraction {perturbed.target_population_fraction:.4g} "
+        f"against anchor {anchor.target_population_fraction:.4g}"
+    ) in item.detail
+    assert f"against anchor {perturbed.target_population_fraction:.4g}" not in item.detail
 
 
 def test_the_reading_guard_names_the_population_channel_only_where_it_exists() -> None:

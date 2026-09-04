@@ -288,15 +288,28 @@ supplies a finite-sample population convention, not a new sensitivity theorem. S
 observed-treatment conditional target.
 
 The post-fit assessment battery reads `target_population_fraction`. It reports `warning` when
-`population` is `"perturbed_treatment_group"` and the smallest successful cell keeps less than half
-the anchor cell's fraction. The anchor is the cell whose treatment strength and outcome strength
-are both zero, so its fraction is the unperturbed share of the conditioning arm. The rule compares
-each surface against its own anchor, so a small treated arm alone raises no warning.
+`population` is `"perturbed_treatment_group"` and the smallest cell keeps less than half the anchor
+cell's fraction. The anchor is the cell whose treatment strength and outcome strength are both
+zero, so its fraction is the unperturbed share of the conditioning arm. The rule compares each
+surface against its own anchor, so a small treated arm alone raises no warning.
+
+The minimum covers every cell that recorded a fraction, and not the successful cells alone. A cell
+whose conditioning arm empties fails its refit with `DataError`, and that cell holds the hardest
+collapse on the surface. The surface records the fraction before it refits, so the failed cell
+still carries the fraction.
 
 A surface whose `population` is `"baseline"` never warns under this rule, because every cell
 reports a fraction of one. The detail line carries the minimum fraction and the anchor fraction on
-every surface. `tests/unit/test_post_fit_assessment_battery.py` pins both the detail line and the
-warning threshold.
+every surface. One test witnesses each part of the rule.
+
+| claim | witness |
+| --- | --- |
+| the detail line carries both fractions | `test_post_fit_assessment_battery.py::test_descriptive_interpreters_complete_without_inventing_a_verdict` |
+| the one-half threshold, from both sides | `test_simulated_confounding_populations.py::test_the_assessment_row_warns_when_the_conditioning_group_halves` |
+| a failed collapsing cell still reports the collapse | `test_simulated_confounding_populations.py::test_empty_perturbed_conditioning_population_retains_a_failed_cell` |
+| a `"baseline"` surface never warns | `test_post_fit_assessment_battery.py::test_a_baseline_surface_reports_no_population_collapse` |
+
+Every file in that table sits under `tests/unit/`.
 
 The diagnostic population differs from the ATT or ATC conditioning group. Treatment is constant
 inside that group, so its correlation with the latent variable is undefined there. The surface

@@ -371,7 +371,10 @@ def _simulated_cell(
 
 
 def _simulated_interpreter_report(
-    *, failures: tuple[str, ...] = (), perturbed_fraction: float = 0.3
+    *,
+    failures: tuple[str, ...] = (),
+    perturbed_fraction: float = 0.3,
+    population: str = "perturbed_treatment_group",
 ) -> SimpleNamespace:
     association = None if failures else 0.2
     cells = (
@@ -383,13 +386,13 @@ def _simulated_interpreter_report(
         cells=cells,
         failures=failures,
         movement_scale="estimate_difference",
-        population="perturbed_treatment_group",
+        population=population,
         stratum=("low",),
         conditioning_arm=1,
         association_population="selected_baseline_stratum",
         calibration_population="full_fitted_population",
         population_lines=lambda: (
-            "target population: perturbed_treatment_group",
+            f"target population: {population}",
             "conditioning arm: 1",
             "baseline stratum: ('low',)",
             "strata columns: ('V',)",
@@ -398,6 +401,26 @@ def _simulated_interpreter_report(
             "refit population: full_fitted_population",
         ),
     )
+
+
+def test_a_baseline_surface_reports_no_population_collapse() -> None:
+    """The collapse rule reads ``population`` and not the fractions alone.
+
+    A real baseline surface reports a fraction of one in every cell, so ``0.05`` against
+    an anchor of ``0.34`` is unreachable there by construction. That is why the
+    ``population`` conjunct is unreachable insurance, and it is also why no fit can
+    witness it. This stand-in carries the collapsing fractions on a ``"baseline"`` report,
+    so it is the one shape that separates the conjunct from its absence.
+    """
+    report = _simulated_interpreter_report(perturbed_fraction=0.05, population="baseline")
+    item = INTERPRETERS["simulated_confounding"](report, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    assert item.next_steps == ()
+    # The fractions still reach the detail line, so the row hides nothing; only the
+    # verdict is withheld.
+    assert "minimum target population fraction 0.05 against anchor 0.34" in item.detail
+    assert "target population: baseline" in item.detail
 
 
 def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None:

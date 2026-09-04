@@ -293,7 +293,13 @@ class SimulatedConfoundingResult:
         -------
         dataframe
             Estimates, the movement scale of the displacement, displacements, induced
-            treatment associations, and retained failure details.
+            treatment associations, and retained failure details. Two population columns
+            join a movement to the rows it belongs to. ``association_population`` repeats
+            :attr:`association_population` on every row, which names the baseline rows the
+            association was measured on. ``target_population_fraction`` carries
+            :attr:`SimulatedConfoundingCell.target_population_fraction`, which is the
+            conditioning-arm share that cell targets. A failed cell keeps its fraction,
+            because the surface records it before the refit.
         """
         payload = {
             "treatment_strength": [cell.treatment_strength for cell in self.cells],
