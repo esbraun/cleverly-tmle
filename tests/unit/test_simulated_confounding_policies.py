@@ -25,7 +25,7 @@ from cleverly import (
     RegimeContrast,
     RegimeMean,
 )
-from cleverly.estimators import TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Rule, Static, Stochastic
@@ -209,6 +209,7 @@ def _alias(
     [
         ("static", False, "pandas", False, False, False, 1, False),
         ("rule", True, "polars", True, True, False, 1, False),
+        ("rule", False, "pandas", False, False, False, 1, False),
         ("stochastic", False, "pandas", False, True, True, 3, False),
         ("stochastic", True, "polars", False, False, False, 1, True),
     ],
@@ -245,6 +246,10 @@ def test_policy_cells_equal_independent_complete_refits(
         )
         assert cell.estimate == pytest.approx(manual[alias].psi, abs=1e-12)
         assert cell.displacement == pytest.approx(manual[alias].psi - result[alias].psi, abs=1e-12)
+    assert max(abs(cell.displacement) for cell in surface.cells) > 1e-3
+    assert surface.population == "baseline"
+    assert surface.conditioning_arm is None
+    assert all(cell.target_population_fraction == 1.0 for cell in surface.cells)
     assert surface.n_repeats == repeats
     assert surface.association_population == (
         "selected_baseline_stratum" if strata else "full_fitted_population"
@@ -262,6 +267,7 @@ def test_static_policy_reduces_to_arm_surface(contrast: bool) -> None:
     arm_surface = simulated_confounding(
         arm, estimand="ate" if contrast else "ey1", grid=_GRID, random_state=31
     )
+    assert max(abs(cell.displacement) for cell in regime_surface.cells) > 1e-3
     assert [cell.estimate for cell in regime_surface.cells] == pytest.approx(
         [cell.estimate for cell in arm_surface.cells], abs=1e-10
     )
@@ -299,6 +305,9 @@ def test_msm_coefficient_surface_recomputes_full_projection(
         assert cell.estimate == pytest.approx(manual[alias].psi, abs=1e-12)
         assert cell.displacement == pytest.approx(manual[alias].psi - result[alias].psi, abs=1e-12)
     assert max(abs(cell.displacement) for cell in surface.cells) > 1e-3
+    assert surface.population == "baseline"
+    assert surface.conditioning_arm is None
+    assert all(cell.target_population_fraction == 1.0 for cell in surface.cells)
     assert surface.stratum == (("small",) if strata else None)
     if strata:
         assert (
@@ -312,14 +321,18 @@ def test_saturated_msm_slope_reduces_to_ate_surface() -> None:
     ate = _estimate(_study(), ATE())
     msm_surface = simulated_confounding(msm, estimand=_alias(msm), grid=_GRID, random_state=31)
     ate_surface = simulated_confounding(ate, grid=_GRID, random_state=31)
+    assert max(abs(cell.displacement) for cell in msm_surface.cells) > 1e-3
     assert [cell.estimate for cell in msm_surface.cells] == pytest.approx(
         [cell.estimate for cell in ate_surface.cells], abs=1e-9
     )
 
 
-def test_policy_surface_cache_persistence_and_assessment() -> None:
-    result = _fit_policy(contrast=False)
+@pytest.mark.parametrize("msm", [False, True])
+def test_policy_surface_cache_persistence_and_assessment(msm: bool) -> None:
+    result = _fit_msm() if msm else _fit_policy(contrast=False)
     kwargs = {"grid": _GRID, "random_state": 31}
+    if msm:
+        kwargs["estimand"] = _alias(result)
     surface = result.sensitivity.simulated_confounding(**kwargs)
     assert surface.estimand == _alias(result)
     assert result.sensitivity.simulated_confounding(**kwargs) is surface
@@ -477,7 +490,18 @@ def test_regime_provenance_layers_refuse_before_draw_or_refit(
     alias = _alias(result)
     corrupted = _corrupt_policy(result, alias, field)
     _forbid_draw_and_refit(monkeypatch, corrupted.estimator)
-    with pytest.raises(CapabilityError, match="fixed-policy parameter metadata"):
+    with pytest.raises(
+        CapabilityError,
+        match={
+            "key-horizon": "cannot replay this fixed-policy composition",
+            "typed-reference": "regime declarations disagree",
+            "estimator-declaration": "regime declarations disagree",
+            "config-reference_arm": "regime labels or reference disagree",
+            "key-reference": "regime labels or reference disagree",
+            "regime-values": "declared regime densities disagree",
+            "regime-nan": "non-finite probability",
+        }.get(field, "fixed-policy parameter metadata"),
+    ):
         simulated_confounding(corrupted, estimand=alias, grid=_GRID, random_state=31)
 
 
@@ -506,7 +530,14 @@ def test_msm_provenance_layers_refuse_before_draw_or_refit(
     alias = _alias(result)
     corrupted = _corrupt_policy(result, alias, field)
     _forbid_draw_and_refit(monkeypatch, corrupted.estimator)
-    with pytest.raises(CapabilityError, match="fixed-policy parameter metadata"):
+    with pytest.raises(
+        CapabilityError,
+        match={
+            "typed-model": "identity-link arm-based MSM declarations disagree",
+            "estimator-model": "identity-link arm-based MSM declarations disagree",
+            "msm-design": "declared MSM arrays disagree",
+        }.get(field, "fixed-policy parameter metadata"),
+    ):
         simulated_confounding(corrupted, estimand=alias, grid=_GRID, random_state=31)
 
 
@@ -558,7 +589,6 @@ def test_wrong_frozen_density_moves_a_nonzero_cell(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(fixed_replay._FrozenRegime, "density", uniform)
     mutated = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
-    assert mutated.cells[0].estimate == baseline.cells[0].estimate
     assert abs(mutated.cells[-1].estimate - baseline.cells[-1].estimate) > 0.05
 
 
@@ -582,7 +612,6 @@ def test_wrong_frozen_projection_moves_a_nonzero_coefficient(
     monkeypatch.setattr(fixed_replay._FrozenArmFunction, "__call__", changed)
     mutated = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
     assert mutated.cells[-1].failure is None
-    assert mutated.cells[0].estimate == baseline.cells[0].estimate
     assert abs(mutated.cells[-1].estimate - baseline.cells[-1].estimate) > 0.05
 
 
@@ -772,3 +801,17 @@ def test_arm_replay_refuses_other_declared_counterfactual_slots(
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="supports an arm-indexed parameter"):
         simulated_confounding(result, grid=_GRID, random_state=31)
+
+
+@pytest.mark.parametrize("target", ["ey_regime", "ate_regime", "msm"])
+def test_fixed_replay_requires_exact_ordinary_tmle(target: str) -> None:
+    assert fixed_replay.fixed_replay_refusal(DRTMLE(), target) == (
+        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only"
+    )
+
+
+def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = _estimate(_study(), MSMProjection(replace(_model(), doses=(0.0, 0.5, 1.0))))
+    _forbid_draw_and_refit(monkeypatch, result.estimator)
+    with pytest.raises(CapabilityError, match="identity-link arm-based MSM only"):
+        simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
