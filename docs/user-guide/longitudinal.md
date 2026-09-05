@@ -99,3 +99,18 @@ influence curve.
 Longitudinal results provide stagewise cumulative support, targeting-score, and node-regression
 loss reports. Point-only sensitivity formulas remain unavailable unless a longitudinal derivation
 exists.
+
+Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
+no sample estimator for them. The
+[roadmap](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) records that boundary.
+
+## Persistence
+
+`result.save()` and `cleverly.load()` carry a longitudinal result through a round trip. The
+artifact keeps the folds, the fitted mechanisms, the sequential steps, the targeting state, and
+the causal metadata. [Persistence and
+replayability](results-assessment.md#persistence-and-replayability) states the shared contract for
+every result, including the assessment cache and the capability rows a restored artifact refuses.
+`tests/unit/test_serialization.py`'s
+`test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip
+against one cross-fitted, weighted, censored fit.

@@ -851,6 +851,10 @@ operations `unavailable` with the reason its own capability row declares, rather
 derivation. Stagewise support, scores, and nuisance loss are supported longitudinally, because each
 has its own derivation.
 
+Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
+no sample estimator for them. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)
+states the contracts that source leaves open.
+
 ## Refutation and simulation you run
 
 These fit new models. They cost what a fit costs, multiplied by the number of draws.

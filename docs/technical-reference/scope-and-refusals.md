@@ -33,7 +33,7 @@ rather than implying the request was ill-posed.
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
-| the targeted bootstrap and `res.sensitivity` for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics) |
+| the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
@@ -48,11 +48,11 @@ rather than implying the request was ill-posed.
 Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
 
-Several former gaps have landed. Multi-valued longitudinal treatment nodes, multi-valued selector
-and outcome-adaptive C-TMLE, multi-valued DR-TMLE, `ATT` and `ATC` on a multi-valued treatment,
-observation weights and a working model over regimens for `LTMLE`, shift fits with `delta=`,
-`intermediate=` and weights, and multi-arm omitted-variable and MNAR sensitivity analyses are all
-supported now.
+Several former gaps have landed. `cleverly` now supports multi-valued longitudinal treatment
+nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, DR-TMLE, `ATT`,
+and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
+support `delta=`, `intermediate=`, and weights. `cleverly` also supports multi-arm
+omitted-variable and MNAR sensitivity analyses.
 
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
@@ -68,7 +68,7 @@ one into the other.
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would put two of them under one heading |
 | the per-arm propensity table on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `shifts=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
-| `res.sensitivity`, `res.diagnostics`, `res.validate()` and `res.save()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported. Sensitivity operations without a longitudinal derivation report `unavailable` |
+| `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
 | a non-empty `assess(arguments=...)` block for `score_equations` | the validation battery owns that name and runs it argument-free. The battery presents one row per name, and it presents the validation row. A caller's tolerance would be computed and then hidden, so a check that failed at that tolerance would never reach `attention`. Call `res.diagnostics.run_all(arguments=...)`, or the operation itself. The battery also owns `support` and `nuisance_models`, which accept no argument, so an argument for either is a `TypeError` from the signature |
 
 ### Wrong by construction
