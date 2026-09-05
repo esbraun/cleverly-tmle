@@ -108,6 +108,10 @@ A combined report runs summaries and cheap retargets by default. The two costlie
 classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
 nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
 ones. These moderate retargets require `include_retargets=True`. The E-value retarget is cheap and runs by default.
+
+One row moves between those classes. A guarded DR-TMLE fit refits its reduced regressions at every
+bound, so its `truncation_curve()` row is a refit and asks for `include_refits=True`. Read the class
+from the capability row rather than from the operation name.
 Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python

@@ -124,7 +124,8 @@ The assumptions gain one, and one of the old ones changes shape.
 
 Missingness at random is not testable, and it is a strong claim. The recorded variables must explain
 every reason the unobserved transition score predicts response. A patient who ignores the survey
-because navigation failed violates it directly, and no diagnostic on this page detects that.
+because navigation failed violates it directly. No diagnostic can detect that violation from the
+observed data alone. The sensitivity report below instead stresses one declared departure from MAR.
 
 ## Estimate
 
@@ -295,16 +296,48 @@ estimate. That is correct rather than a display artefact.
 ## How far to trust this
 
 ```python
-print(full.diagnostics.support().summary())
-print(full.diagnostics.nuisance_models().summary())
-print(full.diagnostics.score_equations().summary())
-print(full.validate().summary())
+assessment = full.assess(
+    include_retargets=True,
+    arguments={
+        "missingness": {
+            "gamma": (-2.0, -1.0, 0.0, 1.0, 2.0),
+            "arm_gamma": {0: 0.0, 1: -1.0},
+        },
+        "tipping_gamma": {
+            "arm_gamma": {0: 0.0, 1: -1.0},
+        },
+    },
+)
+print(assessment.summary())
+
+support = assessment.report("support")
+nuisance = assessment.report("nuisance_models")
+scores = assessment.report("score_equations")
+missingness_curve = assessment.report("missingness")
+tipping_gamma = assessment.report("tipping_gamma")
+
+print(support.summary())
+print(nuisance.summary())
+print(scores.summary())
+print(missingness_curve)
+print("tipping gamma:", tipping_gamma)
 ```
 
-The support report is doing more work here than on any other page. Positivity is now a statement
-about the product of two mechanisms. A patient with a middling chance of navigation and a
-middling chance of responding can still have a small product, and it is the product the clever
-covariate divides by.
+The assessment collects validation, diagnostics, and sensitivity in one report. It also retains
+the detailed reports, so the support table remains available without another computation.
+
+Positivity is now a statement about the product of two mechanisms. A patient with a middling
+chance of navigation and response can still have a small product. The clever covariate divides by
+that product. The current support report shows each fitted factor and the resulting maximum
+leverage. It does not tabulate the joint product's effective sample size for ordinary MAR TMLE.
+
+The missingness curve declares one direction. It leaves the control arm at MAR. Positive magnitudes
+make unobserved outcomes in the navigation arm worse than its observed outcomes. `gamma=0`
+reproduces the MAR estimate by construction. On this fixed example, the point estimate reaches zero
+near `gamma=1.30`.
+
+This curve does not detect why patients did not answer. It shows how far one stated departure must
+move before the conclusion changes.
 
 One family of estimands is refused under `missingness=`, and the refusal is worth knowing before you
 plan a report. The attributable fraction needs a binary outcome, so ask it of the top-box study.
@@ -326,18 +359,20 @@ one fit.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the support report | whether the product of the two mechanisms stays away from zero | that the response model is correctly specified |
+| the support report | overlap for each fitted mechanism and the maximum resulting leverage | the joint product's effective sample size, or that the response model is correct |
+| the nuisance report | held-out fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
 | the score-equation report | the targeting solved the composed score | that missingness at random holds |
+| the MNAR tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |
 | the mild-law comparison | that the bias needs curvature plus a sharpening mechanism, not merely missingness | which of the two cases your own data is in |
 | the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control | that missingness at random holds in this survey |
 | the [randomized missing-outcome DR-TMLE study](../technical-reference/method-evidence/randomized-missing-outcome-dr-tmle.md) | corrected inference under two drift directions and a direct five-reduction score-reduction mutation | observational-treatment DR-TMLE or internal parity with R's joint mechanism |
 | the evidence manifest | exact-law, Gateaux, remainder, and mutation checks for the randomized missing-outcome construction | empirical support for missingness at random |
 
-The strongest assumption on this page is the one with no diagnostic at all. Missingness at random
-says the recorded variables explain every reason a patient's own score would predict whether they
-answered. A survey whose non-response is driven by the experience itself breaks it, and that is the
-most plausible failure in patient experience work. Treat the estimate as conditional on an argument
-you make from what you know about the mailing, not from the fit.
+The strongest assumption on this page remains untestable. Missingness at random says the recorded
+variables explain every reason a patient's own score would predict whether they answered. A survey
+whose non-response is driven by the experience itself breaks it. The tilt shows consequences under
+one departure, but it cannot establish which departure is plausible. Treat the estimate as
+conditional on an argument about the mailing process, not on the fit alone.
 
 ## Where to go next
 

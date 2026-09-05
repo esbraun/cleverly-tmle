@@ -58,6 +58,10 @@ Every page states an applied question, builds a synthetic population, declares t
 estimand, fits the method, and demonstrates its failure mode. Each page also separates diagnostics
 from causal assumptions that data cannot verify.
 
+Each page starts its post-fit review with a combined report. It then retrieves the detailed report
+for a question that the summary cannot answer. A page keeps a method-specific diagnostic when no
+combined row represents it.
+
 ## Three outcome families
 
 | outcome | what it is | which pages use it |

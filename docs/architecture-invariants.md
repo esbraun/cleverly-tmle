@@ -162,6 +162,13 @@ The two flags stay separate because the two costs are disjoint: refutation and b
 nuisances without retargeting, and the truncation curve retargets cached nuisances without
 refitting any. One flag made whichever class it did not name run under the other's permission.
 
+A row's execution class is a fact about the fitted result, not only about the operation.
+`assessment_capabilities` resolves it per result, because a guarded DR-TMLE truncation curve refits
+the reduced regressions inside its targeting alternation and so belongs in the `refit` class. A
+family still declares each operation exactly once, and the contract test enforces that. This
+reopens if a second operation becomes method-dependent in the same way, which would argue for
+declaring the class beside the method rather than patching the row.
+
 `run_all` applies its gates in one order: availability, then required arguments, then cost. Every
 gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
 told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.

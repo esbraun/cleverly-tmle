@@ -240,11 +240,24 @@ above. The selection result does not prove that either variable has its declared
 
 ## How far to trust this
 
+Use a diagnostic-only combined report here. Sensitivity analysis does not answer whether the
+collaborative selector chose a useful assignment model.
+
 ```python
-print(collaborative.diagnostics.support().summary())
-print(collaborative.diagnostics.score_equations().summary())
-print(collaborative.validate().summary())
+diagnostics = collaborative.diagnostics.run_all()
+print(diagnostics.summary())
+print(diagnostics.report("support").summary())
+print(diagnostics.report("score_equations").summary())
+print(diagnostics.report("nuisance_models").to_frame())
 ```
+
+The overview marks the nuisance model as a warning. The selected assignment model is nearly
+constant, so its calibration slope is unstable and is not a useful selection verdict. The retained
+report also links its low AUC to limited confounding. Do not use that interpretation for C-TMLE.
+
+Here the AUC describes the selected nuisance model, not the observed assignment mechanism. Queue
+position strongly predicts assignment in this synthetic law. Read the nuisance table with the
+stored selection path and both support reports.
 
 One limitation is structural and belongs in every report of a collaborative fit.
 
@@ -254,8 +267,11 @@ entry records this among its declared limits, and no diagnostic on the fit can r
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
+| the diagnostic overview | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
 | the support report | how far the propensity reached into the tails, before and after selection | that the selected model is the right one |
+| the nuisance table | predictive metrics for the selected nuisance models | whether low AUC means limited confounding after collaborative selection |
 | the score-equation report | the pooled targeting continued from the selected candidate and converged | anything about the selection |
+| the stored selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |
 | the registered studies | the selectors recover known truths and match R `ctmle` where a comparator exists | calibrated inference while selection is load-bearing. No cell asks for it |
 
 The evidence rows are

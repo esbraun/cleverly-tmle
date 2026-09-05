@@ -43,6 +43,18 @@ It reports five separate quantities, because they fail in different places.
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
 
+**What it grades, and what it only reports.** The report grades the truncated fraction, and an
+intervention with estimated zero support. Both describe an action or a violation rather than a
+judgement: a clipped row contributes extrapolation instead of data, and a unit with zero estimated
+support breaks positivity outright. The report does not grade the effective-sample-size ratio. A
+Kish ratio is descriptive and no published result fixes a cutoff on it, so a threshold here would
+present a house convention as a finding. Every verdict states the narrowest arm's ratio and leaves
+the reading to the analyst.
+
+For that reason the combined `support` row is `completed` rather than `passed` when nothing is
+graded. Read `passed` nowhere as a positivity clearance. Read the ratio, and judge it against the
+question the estimate answers.
+
 ### Truncation stability
 
 **Why.** A truncation bound is a finite-sample choice. A conclusion that survives only at one bound
@@ -51,8 +63,14 @@ is a conclusion about the bound.
 **What it tells you.** How far the estimate moves as the bound moves.
 
 **How.** `result.diagnostics.truncation_curve()` sweeps the `g_bounds` level and **retargets** the
-cached nuisances at each level through `TMLE.retarget`. It refits no nuisance model, so it is a
-retarget operation rather than a refit operation. `LTMLE` refuses it: `g_bounds` enters the
+cached nuisances at each level through `TMLE.retarget`. On an ordinary, collaborative, or unguarded
+doubly-robust fit it refits no nuisance model, so it is a retarget operation.
+
+A guarded DR-TMLE fit is the exception. Its targeting step alternates against the reduced-dimension
+regressions, so each bound refits them, and the missing-outcome construction receives the swept
+bounds because they define two of its regression targets. The capability row for such a fit
+declares `refit` and asks for `include_refits`. The primary outcome regression and the propensity
+are still cached, so the curve can cost less than a fit. `LTMLE` refuses it: `g_bounds` enters the
 pseudo-outcome of every earlier node through the backward recursion, so changing it changes what
 the earlier regressions were fitted to, and the whole pass has to run again.
 

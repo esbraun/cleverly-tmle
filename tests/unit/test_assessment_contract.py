@@ -971,21 +971,31 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
                 simultaneous=False,
             )
 
-    def test_the_stored_report_really_does_breach_a_threshold(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+    def test_the_stored_report_really_does_leave_almost_no_effective_sample(
+        self, extrapolating_shift
+    ) -> None:  # type: ignore[no-untyped-def]
         """The witness: without this the status below would be vacuously right."""
         support = extrapolating_shift.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) < 0.2
 
-    def test_validate_reports_the_warning_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+    def test_validate_reports_the_ratio_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+        """No pass on a fit this thin, and no invented threshold either.
+
+        This shift retains under 1% of its effective sample and truncates nothing. The
+        row therefore grades nothing, and says so: ``COMPLETED`` carries the ratio and
+        leaves the judgement to the reader. ``PASSED`` would read as a positivity
+        clearance that no threshold in this package is entitled to give.
+        """
         item = extrapolating_shift.validate()["support"]
-        assert item.status is AssessmentStatus.WARNING
-        assert "+3" in item.detail
+        assert item.status is AssessmentStatus.COMPLETED
+        assert item.status is not AssessmentStatus.PASSED
+        assert "effective-sample-size ratio" in item.detail
 
     def test_the_combined_report_agrees_with_validate(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
         item = extrapolating_shift.diagnostics.run_all()["support"]
-        assert item.status is AssessmentStatus.WARNING
+        assert item.status is AssessmentStatus.COMPLETED
 
-    def test_a_well_supported_tilt_still_passes(self) -> None:
+    def test_a_well_supported_tilt_does_not_warn(self) -> None:
         """The control: the new branch must not warn about every mapping it sees."""
         from cleverly import IncrementalMean
         from cleverly.datasets import make_linear_ate
@@ -1011,7 +1021,7 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         )
         support = result.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) >= 0.2
-        assert result.validate()["support"].status is AssessmentStatus.PASSED
+        assert result.validate()["support"].status is AssessmentStatus.COMPLETED
 
 
 class TestCapabilityRowsDoNotContradictThemselves:
@@ -1069,12 +1079,22 @@ class TestCapabilityRowsDoNotContradictThemselves:
         "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
     )
     def test_only_an_unrunnable_operation_carries_a_reason(self, fixture_name, request) -> None:  # type: ignore[no-untyped-def]
+        """Both facades, because the invariant is about the field and not about one surface.
+
+        This checked ``sensitivity`` alone, and ``truncation_curve`` lives on
+        ``diagnostics``. A per-result cost override that stamped a note onto an available
+        diagnostics row therefore breached the documented meaning of ``reason`` without
+        failing anything.
+        """
         result = request.getfixturevalue(fixture_name)
-        for row in result.sensitivity.capabilities:
-            if row.available:
-                assert row.reason is None, f"{row.operation} is available but explains itself away"
-            else:
-                assert row.reason, f"{row.operation} is unavailable and does not say why"
+        for surface in (result.diagnostics, result.sensitivity):
+            for row in surface.capabilities:
+                if row.available:
+                    assert row.reason is None, (
+                        f"{row.operation} is available but explains itself away"
+                    )
+                else:
+                    assert row.reason, f"{row.operation} is unavailable and does not say why"
 
     def test_a_fitted_missingness_mechanism_makes_the_tilt_available(
         self, missing_outcome_result
