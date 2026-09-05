@@ -99,3 +99,17 @@ influence curve.
 Longitudinal results provide stagewise cumulative support, targeting-score, and node-regression
 loss reports. Point-only sensitivity formulas remain unavailable unless a longitudinal derivation
 exists.
+
+Tan (2025) supplies population sensitivity bounds for binary, static longitudinal strategies with
+a terminal outcome. It sketches conditional sample analogues, but leaves a complete general
+estimator, specialized algorithm, nuisance approximation theory, and sampling inference open. The
+[roadmap](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) records this boundary.
+
+## Persistence
+
+`result.save()` stores the complete fitted longitudinal result. `cleverly.load()` restores the
+configuration, folds, fitted mechanisms, sequential steps, targeting state, causal metadata, and
+assessment cache. A restored result replays stored reports and retains the same capability
+refusals. The
+[`test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_serialization.py)
+regression checks this contract.

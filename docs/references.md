@@ -302,10 +302,14 @@ previous reader had is not a citation; a page number is.
   part of missing-at-random identification. They do not define a response-indicator perturbation
   for a simulated common cause. Holding the indicator fixed after treatment changes is therefore
   not licensed by that estimator source.
-- Tan (2025), under [proposed methods](#proposed-methods-on-the-roadmap), defines longitudinal
-  sensitivity models and observed-data bounds. The paper does not define a time-indexed latent
-  perturbation followed by a complete LTMLE refit. It supports S4, not longitudinal replay of this
-  surface.
+- Tan (2025), under [proposed methods](#proposed-methods-on-the-roadmap), defines population
+  sensitivity models and bounds for terminal outcomes under binary, static longitudinal
+  strategies. It does not define a time-indexed latent perturbation followed by a complete LTMLE
+  refit. It sketches conditional sample analogues, but does not develop a complete general
+  estimator, specialized algorithm, nuisance approximation theory, or sampling inference. These
+  boundaries place sensitivity-bound estimation in
+  [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation) and replay in
+  [F13](roadmap.md#f13-longitudinal-simulated-confounding-replay).
 - The same pinned DoWhy refit preserves `effect_modifier_names` and `target_units`.
   Its [propensity-weighting estimator](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_estimators/propensity_score_weighting_estimator.py)
   rebuilds ATT and ATC weights from the treatment in the supplied dataset. The
@@ -483,14 +487,18 @@ mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuation
 
 ## Proposed methods on the roadmap
 
-These sources locate methods in the [main roadmap](roadmap.md#main-roadmap). A roadmap citation
-does not support a shipped claim. The readiness label on each item states the remaining source
-work.
+These sources locate unshipped methods in the [roadmap](roadmap.md). A roadmap citation does not
+support a shipped claim. Each item states the remaining source work.
 
 - Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
   longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
-  10.1093/biomet/asae044. The paper defines multi-period sensitivity models and observed-data
-  convex representations for sharp and conservative bounds. Cited by roadmap item S4.
+  10.1093/biomet/asae044. The paper treats terminal outcomes under binary, static longitudinal
+  strategies. It defines population sensitivity models and observed-data convex representations
+  for sharp or conservative bounds. Sharpness depends on the model-specific conditions. The paper
+  sketches sample analogues under linear parameterizations and consistent transformed ICE or IPW
+  estimation. It leaves a complete general estimator, specialized algorithms, nuisance
+  approximation theory, and sampling inference to future work. Cited by future investigation
+  [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation).
 - van der Laan, Carone & Luedtke (2024), [*Combining T-learning and DR-learning: a framework for
   oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
   arXiv:2402.01972. The paper derives EP learning for heterogeneous causal contrasts. Cited by

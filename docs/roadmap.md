@@ -13,14 +13,12 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
-| 2.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
-| 2.2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
-| 2.3 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 2.4 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
-| 2.5 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
-| 2.6 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
-| 2.7 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
+| 1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.1 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
+| 2.2 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
+| 2.3 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
+| 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -39,6 +37,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Missing-outcome simulated-confounding replay | a joint observation, treatment, and outcome law with identified refit semantics | complete outcomes only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
+| Longitudinal sensitivity-bound estimation | a complete sample-estimation contract, a general algorithm, and sampling inference for the population bounds | conditional sample analogues only; no supported sample sensitivity-bound operation | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
@@ -90,8 +89,9 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The next item extends post-fit assessment to longitudinal sensitivity.
-Tan (2025) supplies the multi-period sensitivity models and the observed-data bound construction.
+records completed studies. Replicate-weight designs are the next source-audit item. Implement them
+only after that audit supports the planned variance construction. Longitudinal sensitivity-bound
+estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 ## Detailed implementation contracts
 
@@ -371,6 +371,22 @@ The pinned DoWhy law has no intermediate branch and no contrast rule for a fixed
 Wait for a source-backed latent law that respects this order. The law must define each perturbed
 mechanism, the response indicator, and the controlled contrast before complete refits can begin.
 
+### F16. Longitudinal sensitivity-bound estimation
+
+Tan (2025) studies population sensitivity bounds for terminal outcomes under binary, static
+longitudinal strategies. The paper keeps its primary, joint, and product sensitivity models
+separate. The primary and joint models have the same sharp population mean bounds. The general
+product-model representations are conservative, except in the restricted cases the paper states.
+The formal simultaneous-attainment results for sharp treatment contrasts cover two periods. The
+paper excludes dynamic strategies.
+
+The paper sketches sample analogues under linear parameterizations and consistent transformed ICE
+or IPW estimation. It also gives restricted computations through weighted quantile regression.
+It leaves a complete general estimator, specialized algorithms, nuisance approximation theory,
+and sampling inference to future work. Wait for published results that supply those contracts
+before adding a sample-data operation. The shipped longitudinal surface continues to refuse
+point-treatment sensitivity formulas and reports only its derived stagewise diagnostics.
+
 ## Longitudinal contracts
 
 The four core LTMLE evidence rows are implemented and registered in the
@@ -390,51 +406,6 @@ and interval rate conditions; a point-treatment stochastic regime is not suffici
 Wait for a source specifying what is fixed, resampled, refitted, and retargeted and which sampling
 law the interval estimates. Resampling stored curves, retargeting cached arrays, and refitting the
 complete estimator are distinct procedures and must not be inferred from the name.
-
-### X1. Longitudinal persistence and serialization
-
-Preserve the fitted recursion, regimen and node metadata, targeting state, diagnostics, and enough
-learner provenance to distinguish replayable operations from those requiring a refit. Round trips
-must preserve estimates, curves, scores, and refusal behavior. Round trips must also preserve the
-cached `AssessmentReport` and the packed payload each `AssessmentItem` carries.
-
-### S4. Longitudinal sensitivity analysis
-
-Implement the multi-period sensitivity models that Tan (2025) derives for sequential unmeasured
-confounding. Compute the observed-data convex programs for sharp or conservative bounds on
-counterfactual outcome means and average treatment effects under fixed longitudinal strategies.
-Keep the primary, joint, and product models distinct because they constrain different
-counterfactual quantities.
-
-Do not substitute a generic nuisance-bound sweep or an ordinary longitudinal refit. First read the
-paper and match its sensitivity ratios, factorization, strategy scope, sharpness conditions, and
-optimization representation. Report sampling intervals only if that audit supports them or a
-separate published result supplies them.
-
-Give the new operation its own sensitivity route, capability rows, and report interpreter. Do not
-make the shipped point-treatment sensitivity rows available on a longitudinal result. Each of
-those rows still waits for its own longitudinal derivation.
-
-#### Next PR: close S4 and the persistence contract
-
-Complete the first-hand S4 source audit before adding a sample-data operation. Tan (2025) derives
-population bounds and leaves sample estimation, algorithms, and statistical inference to future
-work. Move S4 to a named future investigation unless another published result supplies those
-missing contracts.
-
-Close the adjacent X1 persistence item against the implementation that already ships. Extend the
-existing longitudinal round-trip test instead of adding another serialization representation.
-
-| unit | planned change | acceptance evidence |
-| --- | --- | --- |
-| S4 source boundary | Record binary static strategies, terminal outcomes, model-specific sharpness, and the missing sample estimator and inference theory. | Cite the final paper and preserve explicit refusals for unsupported sample operations. |
-| X1 fitted graph | Compare config, folds, mechanisms, regimen fits, sequential steps, targeting state, provenance, method, identified effect, and parameter keys after save and load. | Use one multi-fold censored fit with nonzero targeting and nontrivial masks and weights. |
-| X1 assessment state | Compare cache keys, packed report payloads, reconstructed reports, replayability, and one sensitivity refusal after save and load. | Require exact report equality and the same named refusal reason. |
-| roadmap cleanup | Remove completed X1, move blocked S4 out of the main sequence, and resequence the remaining items. | Make the next active item match the first implementation-ready contract. |
-
-Do not add production serialization code unless the expanded regression exposes a lost field. The
-persisted operation cache remains the single source for reconstructed assessment reports. No
-registered validation study applies because this PR must not change fitted values.
 
 ### F3. Additional longitudinal estimands
 

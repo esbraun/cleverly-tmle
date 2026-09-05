@@ -851,6 +851,12 @@ operations `unavailable` with the reason its own capability row declares, rather
 derivation. Stagewise support, scores, and nuisance loss are supported longitudinally, because each
 has its own derivation.
 
+Tan (2025) derives population bounds for terminal outcomes under binary, static longitudinal
+strategies. The paper sketches sample analogues under linear parameterizations and consistent
+transformed ICE or IPW estimation. It leaves a complete general estimator, specialized algorithms,
+nuisance approximation theory, and sampling inference open. Those missing contracts keep
+sensitivity-bound estimation in [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation).
+
 ## Refutation and simulation you run
 
 These fit new models. They cost what a fit costs, multiplied by the number of draws.
