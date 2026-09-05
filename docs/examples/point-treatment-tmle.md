@@ -284,15 +284,24 @@ Three cautions belong with the demonstration.
 
 ## How far to trust this
 
-Three instruments answer three different questions. Run them in this order, because each one sees
-less than the previous one claims.
+Start with one assessment battery. It presents validation, diagnostics, and sensitivity together.
+It also identifies rows that need attention and operations that did not run.
 
 ```python
-print(result.diagnostics.support().summary())
-print(result.diagnostics.nuisance_models().summary())
-print(result.diagnostics.score_equations().summary())
-print(result.validate().summary())
+assessment = result.assess()
+print(assessment.summary())
+print("needs attention:", tuple(item.name for item in assessment.attention))
+
+support = assessment.report("support")
+nuisance = assessment.report("nuisance_models")
+scores = assessment.report("score_equations")
+print(support.summary())
+print(nuisance.summary())
+print(scores.summary())
 ```
+
+The overview routes attention and follow-up work. The retained reports provide the tables needed to
+interpret each row. A `completed` sensitivity row means the calculation ran. It is not a pass.
 
 The support report is where positivity becomes visible. It gives the propensity quantiles, the
 effective sample size per arm, and the share of rows the truncation touched.
@@ -309,19 +318,21 @@ for this purpose. Prediction accuracy and estimand-relevant behaviour are differ
 [collaborative TMLE](collaborative-tmle.md) is the entry that chooses between models on the second
 one.
 
-The second is that `validate()` and `support()` do not agree here, and that is by design.
-`validate()` warns at fixed thresholds: truncation above 5%, or an effective sample size below a
-fifth. This fit sits just inside both, so `validate()` passes. The full report applies its own
-judgement and does not. A one-line pass is a screen rather than a reading.
+The second is that the assessment row and the retained support verdict do not agree here. The row
+reports 0.9% truncation and a 20.1% minimum effective sample size, then marks support as passed. The
+retained report uses a stricter interpretation tier. It marks this fit as serious because the ratio
+is below 30%. Treat the overview as a screen, not as a replacement for the retained report.
 
 The report names the follow-up itself.
 
 ```python
-print(result.diagnostics.truncation_curve())
+retargeted = result.assess(include_retargets=True)
+curve = retargeted.report("truncation_curve")
+print(curve)
 ```
 
-The curve refits the estimate at a range of truncation bounds. A point estimate that moves a lot
-across that range is being carried by the patients the bound is holding back.
+The curve retargets the estimate at a range of truncation bounds. It does not refit the nuisance
+models. A point estimate that moves across the range depends on patients constrained by the bound.
 
 Here it does not move much, and the interval narrows as the bound tightens. Read that as good news
 of a limited kind. The positivity strain is showing up in the variance rather than in the location
@@ -332,11 +343,7 @@ calibration slope well below one, while the outcome regression fits well. That c
 one this page has been describing from the other side. The estimate survives it because the outcome
 regression is good, and double robustness is what makes that survival possible.
 
-Next come the assumptions the data cannot test.
-
-```python
-print(result.sensitivity.run_all().summary())
-```
+The sensitivity section comes next. It addresses assumptions that the observed data cannot test.
 
 Unmeasured confounding is invisible to every diagnostic, because the data holds no record of it.
 Sensitivity analysis asks a different question. How strong would an unmeasured confounder have to be
@@ -346,7 +353,8 @@ against the answer.
 Then refutation, which perturbs the analysis and checks that it responds as it should.
 
 ```python
-print(result.diagnostics.refute().summary())
+refitted = result.assess(include_refits=True)
+print(refitted.report("refute").summary())
 ```
 
 A placebo exposure should give roughly zero. A random common cause should change nothing. A subset
@@ -393,7 +401,8 @@ in
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| diagnostics on this fit | the targeting converged, and how far positivity was strained | that the nuisance models are right |
+| assessment overview | which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
+| retained diagnostics | that targeting converged, and how far positivity was strained | that the nuisance models are right |
 | sensitivity analysis | how large an unmeasured confounder would need to be | that no such confounder exists |
 | refutation | the estimate responds correctly to perturbations with a known answer | that the estimate is correct |
 | the registered study | the implementation recovers known truths and behaves as its theory predicts | that your identification assumptions hold on your data |
@@ -419,12 +428,12 @@ from cleverly import load
 
 restored = load("transition-navigation-ate.joblib")
 print(restored.replayability)
-print(restored.diagnostics.run_all().summary())
+print(restored.assess().summary())
 ```
 
-`replayability` says which operations the restored artifact can still perform. Summaries come from
-stored arrays. A refit needs the data again. Load only joblib files you trust, and keep the
-dependency versions compatible.
+`replayability` says which operations the restored artifact can still perform. The saved assessment
+cache retains reports that ran before the save. A new nuisance refit still needs the analysis data.
+Load only joblib files you trust, and keep the dependency versions compatible.
 
 ## Where to go next
 

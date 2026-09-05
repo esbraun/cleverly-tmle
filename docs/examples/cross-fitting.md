@@ -279,17 +279,23 @@ reported curve has a nonzero score.
 
 ## How far to trust this
 
-Start with the fit's own diagnostics.
+Start with the fit's own diagnostic report. This page does not run the sensitivity battery because
+its question is cross-fitting behavior.
 
 ```python
-print(cross_fitted.diagnostics.nuisance_models().summary())
-print(cross_fitted.diagnostics.score_equations().summary())
-print(cross_fitted.validate().summary())
+diagnostics = cross_fitted.diagnostics.run_all()
+print(diagnostics.summary())
+print(diagnostics.report("nuisance_models").summary())
+print(diagnostics.report("support").summary())
 ```
 
 The nuisance report is the one that matters most here. It is computed out of fold, so it measures
 the models on patients they did not see. An in-sample version of the same report would flatter a
 gradient-boosted learner.
+
+The overview marks support as passed. It reports 1.0% truncation and a 25.2% minimum effective
+sample size. The retained support report uses a stricter tier and calls the same fit serious. Its
+largest clever covariate is about 83. Read the detailed report before you accept the overview row.
 
 Then the fold draw itself. One split is one draw. A nervous analyst can take the median of several.
 
@@ -322,7 +328,10 @@ Three things constrain what this page establishes.
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the two comparisons above | that in-sample nuisances and undeclared teams each gave a narrower interval on this draw | the coverage rate of any of these estimators |
+| the diagnostic overview | which cached checks need attention and which costly operations did not run | the detailed severity of every retained report |
 | the out-of-fold nuisance report | how the learners performed on unseen patients | that the learners converge fast enough for the remainder condition |
+| the retained support report | truncation, effective sample size, and clever-covariate leverage | that cross-fitting repairs poor support. It does not |
+| `repeat_spread()` | how much the estimate moved across the three declared fold draws | that three draws improve repeated-sampling performance |
 | the registered studies | stacked CV-TMLE matches R `tmle3` on identical realized folds, and both constructions recover known truths | that folds fix a product-rate failure. They do not |
 
 Leakage is checked separately, and without a tolerance. A test rigs a law where a nearest-neighbour

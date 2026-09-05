@@ -235,10 +235,27 @@ saturated model and get the arm report under a single heading.
 ## How far to trust this
 
 ```python
-print(trend_result.diagnostics.support().summary())
-print(trend_result.diagnostics.score_equations().summary())
-print(trend_result.validate().summary())
+diagnostics = trend_result.diagnostics.run_all(include_retargets=True)
+print(diagnostics.summary())
+
+support = diagnostics.report("support")
+scores = diagnostics.report("score_equations")
+nuisances = diagnostics.report("nuisance_models")
+curve = diagnostics.report("truncation_curve")
+
+print(support.summary())
+print(scores.summary())
+print(nuisances.summary())
+print(
+    curve.loc[
+        curve["estimand"] == "msm[assigned contacts]",
+        ["bound", "psi", "ci_lower", "ci_upper", "truncated_fraction"],
+    ]
+)
 ```
+
+The combined report runs the moderate truncation retarget because `include_retargets=True`. It does
+not run refutations, which would refit nuisance models.
 
 With the identity link the clever covariate has one column per term, so the score equation is one
 per coefficient rather than one per arm. The score report reflects that, and it is the right place
@@ -248,11 +265,17 @@ Positivity is a three-arm statement here. Every patient needs a positive probabi
 the working model reads. A support report showing a near-empty cell means the trend is being carried
 by extrapolation into a cadence that kind of patient never received.
 
+The aggregate support row is a configured material-warning screen, and it passes here. The
+retained report gives arm-specific weight concentration and reports some positivity strain. Read
+the slope's truncation curve separately because the two coefficients have different meanings.
+
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the saturated control | the projection reproduces the arm report when it can | that a non-saturated working model is a good summary |
 | the score-equation report | one solved score per coefficient | that the working model resembles the truth |
 | the support report | whether every cadence the design reads was actually observed | that the coefficient answers the board's question |
+| the truncation curve | whether the slope is stable across declared mechanism bounds | support for a cadence outside the observed range |
+| the nuisance report | held-out fit and calibration measures for the fitted nuisances | that the working model is a useful summary |
 | the registered projection studies | point and ordinary longitudinal coefficients recover known truths, match the same external parameters, and pass robustness, calibration, targeting, and projection-measure controls | non-identity links, continuous doses, adaptive weights, or cross-fitted longitudinal coefficient inference |
 
 The scientific evidence is the point `msm` row and the longitudinal MSM rows in the

@@ -292,16 +292,25 @@ its value. The rule is part of the estimand, and two rules are two parameters.
 
 ## How far to trust this
 
-The stage reports are tabular rather than prose, because each carries one row per regimen and per
-node.
+Start with the combined report. It records completed checks and the diagnostics that this fitted
+family cannot run.
 
 ```python
-print(result.diagnostics.run_all().summary())
+diagnostics = result.diagnostics.run_all()
+print(diagnostics.summary())
+
+stagewise = diagnostics.report("stagewise")
+scores = diagnostics.report("score_equations")
+nuisances = diagnostics.report("nuisance_models")
+
+print(stagewise.to_frame())
+print(scores.to_frame())
+print(nuisances.to_frame())
 ```
 
-```python
-print(result.diagnostics.stagewise().to_frame())
-```
+The report marks corrections as `not_applicable`. Longitudinal targeting does not use the
+point-treatment correction system. It marks the truncation curve and refutation as `unavailable`.
+No cost flag can supply the missing longitudinal implementations.
 
 The stagewise table is where cumulative positivity becomes visible. Read three of its columns
 together.
@@ -316,16 +325,19 @@ An `effective_n` far below `n_followed` says the estimate rests on few members, 
 count is. That is the longitudinal form of a positivity problem, and it grows with the number of
 nodes.
 
-```python
-print(result.diagnostics.support().to_frame())
-print(result.diagnostics.score_equations().to_frame())
-print(result.validate().summary())
-```
+The score table has two rows per fitted stage because this fit uses cross-fitting. A `solver` row
+checks the equations fitted outside each reporting fold. A `stitching` row checks the pooled
+out-of-fold residual against its sampling scale. The stitched residual need not equal zero.
+
+The nuisance table reports held-out mean squared error for each sequential outcome regression. It
+does not report treatment-model or censoring-model loss. A `completed` status means those values
+are available. It is not a verdict that any nuisance model is correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the stagewise report | how many members followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
-| the score-equation report | every node's fluctuation converged | that the node regressions are correctly specified |
+| the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
+| the nuisance report | held-out loss for each sequential outcome regression | treatment-model quality, censoring-model quality, or causal identification |
 | the registered studies | end-of-study fits recover known two-node truths and witness targeting, recursion, and held-out prediction | MSM, weights, clustering, simultaneous bands, or broad learner-library selection |
 
 Read that last cell carefully against this page. Two registered rows cover the end-of-study

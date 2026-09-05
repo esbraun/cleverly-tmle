@@ -189,18 +189,28 @@ A single fit cannot show a decaying coverage rate. Anyone who claims otherwise i
 What a single fit *can* show is the size of the corrections that were solved away.
 
 ```python
-print(doubly_robust.diagnostics.corrections().summary())
+diagnostic_report = doubly_robust.diagnostics.run_all()
+print(diagnostic_report.summary())
+
+corrections = diagnostic_report.report("corrections")
+print(corrections.summary())
 ```
 
-Each row is one correction equation, per arm, with the score it solved and the residual. The report
-also states whether the truncations were active, because the theorem's scope requires that they are
-not.
+The combined report triages the whole fit. It marks support, score equations, and corrections as
+passed. It marks the nuisance report as completed because that report has no pass criterion.
+Unrequested truncation work and refutation remain visible as omissions. On a DR-TMLE fit, a
+truncation curve refits every reduced regression. Treat that operation as fit-cost work even though
+the current shared report labels it as a retarget.
+
+The retained correction report keeps the detail that the triage row compresses. Each row is one
+correction equation, per arm, with its solved score and residual. The report also states whether
+the truncations were active, because the theorem's scope requires that they are not.
 
 ## How far to trust this
 
 ```python
-print(doubly_robust.diagnostics.score_equations().summary())
-print(doubly_robust.validate().summary())
+scores = diagnostic_report.report("score_equations")
+print(scores.summary())
 ```
 
 The score report ends with the sentence that governs how the interval should be read. Validity is
@@ -222,15 +232,21 @@ calls it the single most important thing on that page.
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | `guard=()` equality | the variant reduces exactly to the ordinary estimator when no equation is solved | anything about the guarded fit |
+| the combined diagnostic report | which fit-level checks passed, completed, or were omitted | any assumption that the fit cannot inspect |
 | the corrections report | the extra equations were solved, and whether any truncation was active | that the reduced regressions are consistent |
 | the score report | the targeting converged on the corrected curve | the rate conditions behind the interval |
 | the theorem and its checks | the implementation computes what Theorem 1 derives, against exact laws, the Gateaux derivative, and the remainder identities | that your fitted nuisances satisfy the theorem's hypotheses |
 
 DR-TMLE ships under **conditional validity**. The interval is valid conditional on the practitioner
-obtaining adequate primary and reduced-regression fits. This variant has a method entry and a
-contract, and it has no row in the
-[implementation validation grid](../technical-reference/method-evidence/validation-grid.md),
-because no registered repeated-sampling study covers it. Read that absence as part of the claim.
+obtaining adequate primary and reduced-regression fits. The registered
+[canonical complete-outcome study](../technical-reference/method-evidence/canonical-dr-tmle.md)
+reports rather than gates, so it publishes its red cells. Its three-size results show bias
+contraction. Both one-correct bias-equivalence cells are red at n = 1,500. Treatment-correct
+coverage also misses its floor there, while both bias-contraction slopes exclude zero.
+
+The [validation grid](../technical-reference/method-evidence/validation-grid.md) limits that evidence
+to a binary complete-outcome law with declared GLMs. It does not establish the flexible-learner
+conditions for this fit.
 
 ## Where to go next
 

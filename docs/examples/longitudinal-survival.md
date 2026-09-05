@@ -266,11 +266,21 @@ create.
 
 ## How far to trust this
 
-Both fits above report one row per regimen per horizon, so read their diagnostics the same way.
+Inspect the retention and competing-risk fits separately. Their risk sets have different shapes.
 
 ```python
-print(churn_result.diagnostics.run_all().summary())
-print(churn_result.diagnostics.stagewise().to_frame())
+churn_diagnostics = churn_result.diagnostics.run_all()
+exit_diagnostics = exit_result.diagnostics.run_all()
+
+print("Retention diagnostics")
+print(churn_diagnostics.summary())
+print("Competing-risk diagnostics")
+print(exit_diagnostics.summary())
+
+print(churn_diagnostics.report("stagewise").to_frame())
+print(exit_diagnostics.report("stagewise").to_frame())
+print(churn_diagnostics.report("score_equations").to_frame())
+print(churn_diagnostics.report("nuisance_models").to_frame())
 ```
 
 The stagewise table is where cumulative positivity becomes visible on an event process. A horizon
@@ -278,15 +288,23 @@ is reached through every node before it, so `effective_n` falls faster here than
 end-of-study fit. [Longitudinal TMLE](longitudinal-tmle.md#how-far-to-trust-this) reads those three
 columns in full.
 
-```python
-print(churn_result.diagnostics.score_equations().to_frame())
-print(churn_result.validate().summary())
-```
+The retention report has six stage rows. The competing-risk report has twelve because it also
+separates causes. Its `cause` and `horizon` columns show which risk set each row describes.
+
+Cross-fitting gives each fitted stage a `solver` row and a `stitching` row. The solver row checks
+the equations fitted outside each reporting fold. The stitching row checks the pooled residual
+against its sampling scale. The aggregate verifies all competing-risk rows without printing a
+second large score table.
+
+The nuisance table contains held-out loss for sequential outcome regressions. It does not assess
+the treatment or censoring learners. The combined reports also record that longitudinal
+truncation curves and refutations are unavailable.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the stagewise report | how many members were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
-| the score-equation report | every node's fluctuation converged | that the node regressions are correctly specified |
+| the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
+| the nuisance report | held-out loss for each sequential outcome regression | treatment-model quality, censoring-model quality, or causal identification |
 | the registered event-process studies | ordinary and cross-fitted fits recover known two-horizon survival and competing-risk truths | MSMs, weights, clustering, eliminated competing events, or simultaneous bands |
 
 The survival curve rests on two registered rows, the
