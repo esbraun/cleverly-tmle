@@ -112,6 +112,9 @@ ones. These moderate retargets require `include_retargets=True`. The E-value ret
 One row moves between those classes. A guarded DR-TMLE fit refits its reduced regressions at every
 bound, so its `truncation_curve()` row is a refit and asks for `include_refits=True`. Read the class
 from the capability row rather than from the operation name.
+
+The operation varies a finite-sample regularisation choice. It does not change the requested estimand.
+Movement shows sensitivity to extrapolation in regions where estimated support is limited.
 Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python

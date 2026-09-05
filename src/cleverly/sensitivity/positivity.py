@@ -18,9 +18,10 @@ estimate rests on a small effective subsample, whatever the nominal ``n`` says.
 largest few weights.  If the top 1% of units carry 30% of it, the estimate is a
 statement about those units.
 
-**Truncation load.**  How many propensity scores were clipped, and how far.  Every
-clipped unit contributes bias in exchange for variance; a large clipped fraction
-means the reported estimate is not the estimand that was asked for.
+**Truncation load.**  How many propensity scores were clipped, and how far.  Truncation
+trades variance for potential second-order bias.  It regularises the finite-sample
+procedure, but it does not change the requested estimand.  A large clipped fraction
+means that the estimate relies on extrapolation.
 
 Observation weights are folded into :math:`\omega_i` rather than reported separately,
 because the two costs multiply: a design that halves the effective sample size and a
@@ -395,7 +396,8 @@ class PositivityReport:
                 "serious",
                 f"VERDICT: truncation is carrying this estimate. {fraction:.1%} of units were "
                 "clipped, so their contributions rest on extrapolation rather than data. Treat "
-                "the point estimate as describing the region of overlap only, and check "
+                "the estimate as sensitive to this finite-sample regularisation. The bound "
+                "does not change the requested estimand. Check "
                 f"truncation_curve() before drawing conclusions. {share}",
             )
         if fraction > 0.01:
@@ -789,9 +791,9 @@ def truncation_curve(
     cost more than the fit it describes**.  Budget it as refitting work.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
-    hinge on the truncation choice.  A curve that drifts monotonically says the
-    estimand being reported changes with the bound, and the bound should be reported
-    with the estimate.
+    hinge on the truncation choice.  A curve that drifts monotonically says the estimate
+    is sensitive to this finite-sample regularisation.  It does not change the requested
+    estimand.  The bound should be reported with the estimate.
 
     Parameters
     ----------

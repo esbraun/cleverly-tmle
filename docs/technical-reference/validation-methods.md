@@ -36,7 +36,7 @@ It reports five separate quantities, because they fail in different places.
 | --- | --- | --- |
 | effective sample size | Kish's $(\sum \omega)^2 / \sum \omega^2$ over the clever-covariate weights, folded with the observation weights | the interval is that of a much smaller study |
 | weight concentration | the share of the estimating equation carried by the top 1% of rows | a handful of rows decide the answer |
-| truncation load | the count of clipped propensities, and how far each one moved | the estimate is partly the bound rather than the data |
+| truncation load | the count of clipped propensities, and how far each one moved | the estimate is sensitive to finite-sample regularisation and extrapolation |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
 
@@ -61,6 +61,10 @@ question the estimate answers.
 is a conclusion about the bound.
 
 **What it tells you.** How far the estimate moves as the bound moves.
+
+The bound regularises the fitted procedure. It does not change the requested estimand or define an
+overlap-population estimand. A moving curve shows extrapolation sensitivity through the
+second-order remainder.
 
 **How.** `result.diagnostics.truncation_curve()` sweeps the `g_bounds` level and **retargets** the
 cached nuisances at each level through `TMLE.retarget`. On an ordinary, collaborative, or unguarded
