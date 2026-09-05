@@ -25,7 +25,7 @@ from cleverly import (
     LongitudinalTreatment,
     ModifiedTreatmentPolicyEffect,
     PointTreatment,
-    RegimeMean,
+    RegimeContrast,
     RiskRatio,
     load,
 )
@@ -47,13 +47,27 @@ from cleverly.validation import (
 
 
 def _assert_same_graph(left: Any, right: Any, *, path: str = "result") -> None:
-    """Compare every stored field without relying on array-hostile dataclass equality."""
+    """Compare every stored field without relying on array-hostile dataclass equality.
+
+    Walk :func:`dataclasses.fields` rather than call ``==``, which ignores every
+    ``compare=False`` field. ``AssessmentItem._report`` is one of those, so a
+    payload-blind ``assert cached == report`` cannot see a diagnostic payload that the
+    round trip dropped.
+    """
     assert type(left) is type(right), path
     if isinstance(left, np.ndarray):
         np.testing.assert_array_equal(left, right, err_msg=path, strict=True)
         return
     if isinstance(left, pd.DataFrame):
         pd.testing.assert_frame_equal(left, right, check_exact=True, obj=path)
+        return
+    # A Series and an Index reach the final ``==`` as an elementwise comparison, whose
+    # truth value raises even when the two are equal.
+    if isinstance(left, pd.Series):
+        pd.testing.assert_series_equal(left, right, check_exact=True, obj=path)
+        return
+    if isinstance(left, pd.Index):
+        pd.testing.assert_index_equal(left, right, exact=True, obj=path)
         return
     if isinstance(left, BaseEstimator):
         _assert_same_graph(
@@ -82,7 +96,9 @@ def _assert_same_graph(left: Any, right: Any, *, path: str = "result") -> None:
     if type(left).__module__.startswith("cleverly") and hasattr(left, "__dict__"):
         _assert_same_graph(vars(left), vars(right), path=path)
         return
-    if isinstance(left, float) and math.isnan(left):
+    # ``np.float64`` subclasses ``float`` and ``np.float32`` does not, so the plain
+    # ``float`` guard would send a NaN of the narrower width to ``NaN == NaN``.
+    if isinstance(left, (float, np.floating)) and math.isnan(left):
         assert math.isnan(right), path
         return
     assert left == right, path
@@ -221,8 +237,15 @@ def test_file_round_trip_retains_the_complete_point_result(point_result, tmp_pat
     path = point_result.save(tmp_path / "analysis.joblib")
     restored = load(path)
 
-    assert restored["ate"].psi == pytest.approx(point_result["ate"].psi)
-    assert np.array_equal(restored["ate"].influence_curve, point_result["ate"].influence_curve)
+    # Every stored field, so the name holds as the result grows one. A point fit stores
+    # its learners and its solved corrections here, which psi and one influence curve
+    # leave unread.
+    for field in dataclasses.fields(point_result):
+        _assert_same_graph(
+            getattr(point_result, field.name), getattr(restored, field.name), path=field.name
+        )
+
+    # The learner classes the fixture asked for, which the field walk only checks agree.
     assert isinstance(restored.estimator.outcome_learner, LinearRegression)
     assert isinstance(restored.estimator.treatment_learner, LogisticRegression)
     assert restored.replayability.refit_nuisances
@@ -413,7 +436,11 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         ),
     )
     original = study.estimate(
-        RegimeMean({"always": 1, "never": 0}, reference="always"),
+        # A third regimen, written as one arm per treatment node, so the fit reports two
+        # contrasts. Two regimens report one, and one parameter leaves ``simultaneous``
+        # None, which is the band this test needs to round-trip. The contrast estimand
+        # also gives the only ``ParameterKey.reference`` that is not None.
+        RegimeContrast({"always": 1, "never": 0, "late": (0, 1)}, reference="always"),
         outcome_learner=LinearRegression(),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
@@ -436,7 +463,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         for key, value in original.assessment_cache.items()
         if key.startswith("diagnostics.run_all:")
     )
-    packed_payloads = [
+    packed_payloads: list[Any] = [
         item._report for item in cached_run_all.items if dataclasses.is_dataclass(item._report)
     ]
     assert {
@@ -444,7 +471,9 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "LongitudinalNuisanceDiagnostics",
         "LongitudinalScoreDiagnostics",
     } <= {type(payload).__name__ for payload in packed_payloads}
-    assert all(payload.rows for payload in packed_payloads if hasattr(payload, "rows"))
+    # No ``hasattr`` guard: a renamed ``rows`` must raise here rather than empty the
+    # selection and leave ``all([])`` reading as a pass.
+    assert all(payload.rows for payload in packed_payloads)
     assert original.folds.n_folds == 3
     assert np.unique(original.folds.assignment).size == 3
     assert original.simultaneous is not None
@@ -489,9 +518,24 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     _assert_same_graph(
         original.assessment_cache, restored.assessment_cache, path="assessment_cache"
     )
-    _assert_same_graph(validation, restored.validate(), path="validation")
-    _assert_same_graph(diagnostics, restored.diagnostics.run_all(), path="diagnostics")
-    _assert_same_graph(assessment, restored.assess(), path="assessment")
+    # A restored result answers from its own cache rather than recomputing, so the key the
+    # pickle carried still resolves against the operation that wrote it.
+    cached_validation = next(
+        value for key, value in restored.assessment_cache.items() if key.startswith("validate:")
+    )
+    assert restored.validate() is cached_validation
+
+    # ``restored.validate()``, ``restored.diagnostics.run_all()`` and ``restored.assess()``
+    # are cache hits, so they return the unpickled objects the comparison above already
+    # covered. ``dataclasses.replace`` copies the restored graph with an empty cache,
+    # because ``assessment_cache`` is ``init=False``, and that copy has to recompute each
+    # operation from the restored nuisances and targeting steps. Do not move these calls
+    # back onto ``restored``, which would delete the only recomputation this test does.
+    recomputed = dataclasses.replace(restored)
+    assert recomputed.assessment_cache == {}
+    _assert_same_graph(validation, recomputed.validate(), path="validation")
+    _assert_same_graph(diagnostics, recomputed.diagnostics.run_all(), path="diagnostics")
+    _assert_same_graph(assessment, recomputed.assess(), path="assessment")
     _assert_same_graph(original.replayability, restored.replayability, path="replayability")
     assert restored.replayability.refit_nuisances
     assert _capability_refusal(restored, "omitted_confounding") == refusal
