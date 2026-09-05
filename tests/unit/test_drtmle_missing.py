@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import replace
 
 import numpy as np
@@ -19,8 +18,12 @@ from cleverly.estimators.tmle import build_submodel, correction_parts
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.inference.influence import missing_outcome_correction_parts
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
-from cleverly.sensitivity._simulated_confounding_request import _fit_wide_refusal
+from cleverly.sensitivity._simulated_confounding_request import (
+    _MISSING_OUTCOME_REFUSAL,
+    _fit_wide_refusal,
+)
 from cleverly.validation.drtmle import MARGIN_ACTIVE
+from tests.unit._confounding_support import forbid_draw_and_refit
 
 
 def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
@@ -125,26 +128,8 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
     randomized_fit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = (
-        "simulated_confounding has no joint observation, treatment, and outcome perturbation "
-        "law with identified missing-outcome refit semantics"
-    )
-    monkeypatch.setattr(
-        randomized_fit.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_calibrate",
-        lambda *args, **kwargs: pytest.fail("refused before calibration"),
-    )
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    reason = _MISSING_OUTCOME_REFUSAL
+    forbid_draw_and_refit(monkeypatch, randomized_fit.estimator)
     capability = randomized_fit.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE

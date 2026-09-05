@@ -20,6 +20,7 @@ from cleverly import (
     ATE,
     ATT,
     AssessmentStatus,
+    CausalResult,
     CausalStudy,
     CounterfactualMean,
     DRTMLEMethod,
@@ -49,6 +50,13 @@ from cleverly.sensitivity import (
 from cleverly.sensitivity import simulated_confounding as public_function
 from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
+    _CLUSTERED_REFUSAL,
+    _ESTIMATED_WEIGHT_REFUSAL,
+    _FIT_WIDE_RULES,
+    _INTERMEDIATE_REFUSAL,
+    _LONGITUDINAL_REFUSAL,
+    _MISSING_OUTCOME_REFUSAL,
+    _MULTI_ARM_REFUSAL,
     _TMLE_ONLY_TARGETS,
     _fit_wide_refusal,
 )
@@ -69,6 +77,7 @@ from tests.conftest import assert_scale_normalizes_away, mean_one_weights, unwei
 from tests.unit._confounding_support import (
     _collaborative_method,
     alias_for,
+    forbid_draw_and_refit,
 )
 from tests.unit._confounding_support import (
     with_functional as _with_functional,
@@ -473,26 +482,6 @@ def _record_refits(
 
 def _grid() -> ConfounderStrengthGrid:
     return ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
-
-
-def _forbid_surface_work(result: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail if a fit-wide refusal reaches calibration, a latent draw, or a refit."""
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_calibrate",
-        lambda *args, **kwargs: pytest.fail("refused before calibration"),
-    )
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
 
 
 #: One cell, the anchor. ``ConfounderStrengthGrid`` asks only that ``0.0`` appears in each
@@ -2156,17 +2145,7 @@ def test_weight_refusals_and_provenance_tampering_precede_draws_and_refits(
             ),
         )
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(result, grid=_grid())
 
@@ -2175,11 +2154,8 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
     mar_result: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reason = (
-        "simulated_confounding has no joint observation, treatment, and outcome perturbation "
-        "law with identified missing-outcome refit semantics"
-    )
-    _forbid_surface_work(mar_result, monkeypatch)
+    reason = _MISSING_OUTCOME_REFUSAL
+    forbid_draw_and_refit(monkeypatch, mar_result.estimator)
     capability = mar_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
@@ -2226,35 +2202,18 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
     observed[0] = False
     missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
     cases = (
-        (
-            missing,
-            "simulated_confounding has no joint observation, treatment, and outcome "
-            "perturbation law with identified missing-outcome refit semantics",
-        ),
-        (
-            intermediate,
-            "simulated_confounding has no ordered treatment, intermediate, observation, and "
-            "outcome law with a controlled-direct-effect contrast contract",
-        ),
-        (
-            estimated,
-            "simulated_confounding cannot replay estimated observation weights; the fitted "
-            "result does not store the weight model, target-population semantics, and "
-            "regeneration rule needed after perturbation",
-        ),
-        (
-            clustered,
-            "simulated_confounding has no source-backed choice among row-level, cluster-level, "
-            "and mixed latent causes for clustered fits",
-        ),
+        ("missing_outcome", missing, _MISSING_OUTCOME_REFUSAL),
+        ("intermediate", intermediate, _INTERMEDIATE_REFUSAL),
+        ("estimated_weights", estimated, _ESTIMATED_WEIGHT_REFUSAL),
+        ("clustered", clustered, _CLUSTERED_REFUSAL),
     )
-    _forbid_surface_work(base, monkeypatch)
-    for result, reason in cases:
+    forbid_draw_and_refit(monkeypatch, base.estimator)
+    for name, result, reason in cases:
         capability = result.sensitivity.capability("simulated_confounding")
-        assert not capability.available
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert capability.reason == reason
-        assert _fit_wide_refusal(result) == reason
+        assert not capability.available, name
+        assert capability.status is AssessmentStatus.UNAVAILABLE, name
+        assert capability.reason == reason, name
+        assert _fit_wide_refusal(result) == reason, name
         with pytest.raises(CapabilityError) as refusal:
             simulated_confounding(
                 result,
@@ -2262,7 +2221,132 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
                 benchmark_covariates=("W1",),
                 random_state=29,
             )
-        assert str(refusal.value) == reason
+        assert str(refusal.value) == reason, name
+
+
+def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
+    """Pin every rule name and its position, not the four this file layers by hand.
+
+    ``test_fit_wide_refusals_have_one_order_and_match_assessment`` witnesses real behavior
+    for the four boundaries one fitted result can carry at once. It cannot reach the
+    longitudinal or multi-arm rules, whose fits are a different shape, and it cannot reach
+    the twelve rules that assume their predecessors passed. The table is the introspection
+    contract those rules share, and ``docs/technical-reference/validation-methods.md``
+    quotes the six missing-science names in this relative order, so a silent reordering
+    must fail here.
+
+    ``result_type`` is second because every later rule reads the result's fields directly.
+    Ordered any later, a :class:`cleverly.CausalResult` that declares ``assessment_family``
+    and no ``data`` raised ``AttributeError`` out of the public free function rather than
+    refusing. ``test_a_shapeless_point_object_refuses_rather_than_raises`` witnesses that.
+    """
+    assert [name for name, _ in _FIT_WIDE_RULES] == [
+        "longitudinal",
+        "result_type",
+        "multi_arm",
+        "missing_outcome",
+        "intermediate",
+        "estimated_weights",
+        "clustered",
+        "missing_estimator",
+        "repeat_provenance",
+        "binary_estimator",
+        "continuous_estimator",
+        "outcome_family",
+        "weight_kind",
+        "weight_provenance",
+        "undeclared_weights",
+        "identification",
+        "functional",
+        "provider",
+    ]
+
+
+#: One fragment of each missing-science refusal that appears in no other constant, keyed by
+#: the constant it identifies.  The neighbouring tests assert ``capability.reason == reason``
+#: against the imported constant, which keeps the capability row and the execution guard
+#: quoting one text but says nothing about *what* that text is: swapping two bodies, or
+#: emptying one, leaves every such assertion true.  These literals are the surviving witness
+#: the constants would otherwise have nowhere in the suite.
+_REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
+    (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
+    (_MULTI_ARM_REFUSAL, "no category-valued perturbation law for a multi-arm treatment"),
+    (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
+    (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
+    (_ESTIMATED_WEIGHT_REFUSAL, "cannot replay estimated observation weights"),
+    (_CLUSTERED_REFUSAL, "row-level, cluster-level, and mixed latent causes"),
+)
+
+
+def test_each_missing_science_refusal_says_its_own_thing() -> None:
+    """The deliberate-mutation control for the six refusal constants.
+
+    Swapping the bodies of two constants, or blanking one, passes every equality assertion
+    in this file, because both sides of those comparisons read the same constant. Each
+    fragment below is distinctive, so a swap fails on both constants and a blank body fails
+    on one. Verified by performing both mutations.
+    """
+    for constant, fragment in _REFUSAL_WITNESSES:
+        assert fragment in constant, fragment
+    # Distinctive, not merely present: a fragment that matched two constants would pass a
+    # swap of those two.
+    for constant, fragment in _REFUSAL_WITNESSES:
+        matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other]
+        assert matched == [constant], fragment
+
+
+#: Objects that declare a family and nothing the later rules read.  ``CausalResult`` is a
+#: public ``runtime_checkable`` protocol that declares ``assessment_family`` and no ``data``,
+#: and the public free function accepts one, so each of these is reachable without touching
+#: a private name.  Ordered after ``multi_arm``, ``result_type`` let the second of them
+#: raise ``AttributeError: 'NoneType' object has no attribute 'is_continuous_treatment'``.
+_SHAPELESS_PROBES: tuple[tuple[str, Any, str], ...] = (
+    ("nothing declared", SimpleNamespace(), "got SimpleNamespace"),
+    ("point family only", SimpleNamespace(assessment_family="point"), "got SimpleNamespace"),
+    (
+        "point family, empty data",
+        SimpleNamespace(assessment_family="point", data=None),
+        "got SimpleNamespace",
+    ),
+    (
+        "an undeclared family",
+        SimpleNamespace(assessment_family="survival"),
+        "no perturbation law for assessment family 'survival'",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("probe", "fragment"),
+    [(probe, fragment) for _, probe, fragment in _SHAPELESS_PROBES],
+    ids=[name for name, _, _ in _SHAPELESS_PROBES],
+)
+def test_a_shapeless_point_object_refuses_rather_than_raises(probe: Any, fragment: str) -> None:
+    """Every rule after ``result_type`` reads the result's fields, so it must run second.
+
+    An unknown family hears its own name rather than the longitudinal missing-law stop,
+    which is a claim about a family this object never declared.
+    """
+    reason = _fit_wide_refusal(probe)
+    assert reason is not None
+    assert fragment in reason
+    assert "longitudinal" not in reason
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(probe, grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)))
+    assert str(refusal.value) == reason
+
+
+def test_the_public_result_protocol_declares_a_family_and_no_data() -> None:
+    """Why the probes above are a public shape rather than a tampering artifact.
+
+    :class:`cleverly.CausalResult` is the ``runtime_checkable`` protocol the free function
+    documents as its input. It requires ``assessment_family`` and requires no ``data``, so a
+    conforming third-party result is exactly the shape the ``result_type`` rule must reject
+    before any later rule reads ``result.data``.
+    """
+    assert "assessment_family" in CausalResult.__annotations__
+    assert "data" not in CausalResult.__annotations__
+    assert not hasattr(CausalResult, "data")
 
 
 def _fit_with_a_support_constant_covariate(*, seed: int = 7) -> Any:
@@ -2320,17 +2404,7 @@ def test_a_covariate_constant_on_the_positive_weight_support_is_refused(
     assert np.unique(column[weights > 0.0]).size == 1
     assert np.unique(column).size > 1
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="constant covariate 'W4'"):
         simulated_confounding(result, grid=_grid(), benchmark_covariates=("W4",))
 
@@ -2415,17 +2489,7 @@ def test_repeat_provenance_checks_each_count_before_the_latent_draw(
         estimator.repeats = 1
         result = replace(result, estimator=estimator)
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
 
     with pytest.raises(CapabilityError, match="consistent repeated-cross-fitting provenance"):
         simulated_confounding(
@@ -3549,17 +3613,7 @@ def test_ratio_checks_every_structured_layer_before_the_latent_draw(
             estimate = replace(estimate, log_psi=estimate.log_psi + 0.25)
         result = replace(result, estimates={target: estimate})
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
 
     with pytest.raises(CapabilityError, match=message):
         simulated_confounding(
@@ -3613,17 +3667,7 @@ def test_binary_mean_checks_every_parameter_state_layer_before_the_latent_draw(
             identified_effect=replace(result.identified_effect, identification=identification),
         )
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
         simulated_confounding(
             result,
@@ -3650,17 +3694,7 @@ def test_binary_ate_checks_the_fitted_contrast_before_the_latent_draw(
         estimator.reference = result.data.arm_label(1.0)
         result = replace(result, estimator=estimator)
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
         simulated_confounding(
             result,
@@ -3982,17 +4016,7 @@ def test_a_zero_delta_policy_mean_is_refused_before_the_latent_draw(
     # ``np.mean``, so the two agree to rounding rather than bit for bit.  The observed
     # gap is one unit in the last place, and it varies with the platform BLAS.
     assert result[alias].psi == pytest.approx(float(np.mean(result.data.outcome)), rel=1e-12)
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
 
     with pytest.raises(CapabilityError, match="natural course") as refusal:
         simulated_confounding(
@@ -4221,17 +4245,7 @@ def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
         repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
         result = replace(result, repeats=(repeat,))
 
-    monkeypatch.setattr(
-        result.estimator,
-        "refit",
-        lambda *args, **kwargs: pytest.fail("refused before any refit"),
-    )
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(
-        module,
-        "_latent_child_seed",
-        lambda _: pytest.fail("refused before the latent draw"),
-    )
+    forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="structured shift metadata"):
         simulated_confounding(
             result,
