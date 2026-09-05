@@ -419,7 +419,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    return tuple(
+    rows = tuple(
         replace(
             row,
             available=False,
@@ -436,6 +436,30 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         else row
         for row in rows
     )
+    if _method(result) == "drtmle" and getattr(result, "solved_corrections", False):
+        # A guarded DR-TMLE truncation curve is not a retarget.  `truncation_curve` calls
+        # `estimator.retarget` once per bound, that reaches `_solve_reduction`, and
+        # `DRTMLE._reduction` hands the alternation a closure that refits the reduced
+        # regressions.  The ordinary closure refits them at the *fitted* reduced bounds;
+        # only the missing-outcome construction receives the swept ones, because they
+        # define two of its regression targets.  Either way a bound costs a refit.
+        #
+        # Declared here rather than as a second registry row because a family may declare
+        # each operation once, and the cost is a fact about the fitted result rather than
+        # about the family.  `reason` stays unset: it is documented, and contract-tested,
+        # as the explanation an *unavailable* row owes its caller, and this row runs.
+        rows = tuple(
+            replace(
+                row,
+                execution="refit",
+                cost="expensive",
+                requires_replay="refit_nuisances",
+            )
+            if row.operation == "truncation_curve" and row.available
+            else row
+            for row in rows
+        )
+    return rows
 
 
 class _AbsentReport(Enum):
@@ -1387,6 +1411,11 @@ def _cost_refusal(
     benchmarking refit nuisances without retargeting, and the truncation curve and the
     missingness tilt retarget cached nuisances without refitting any.  One flag made
     whichever class it did not name run silently under the other's permission.
+
+    The class is read off the row rather than off the operation name, because a guarded
+    DR-TMLE fit resolves ``truncation_curve`` into the ``refit`` class -- its targeting
+    alternation refits the reduced regressions at every bound.  See
+    :func:`assessment_capabilities`.
     """
     allowed = {
         "summarize": True,
@@ -1863,7 +1892,14 @@ def _support_item(
     detail = "; ".join(facts) if facts else "stored support report completed"
     return AssessmentItem(
         "support",
-        AssessmentStatus.WARNING if warning else AssessmentStatus.PASSED,
+        # `COMPLETED` rather than `PASSED`, because support has no pass criterion once the
+        # effective-sample-size ratio is reported rather than graded.  What this row can
+        # still assert is a breach: truncation above the fitted bound's tolerance, or an
+        # intervention with estimated zero support.  Absent one, the honest statement is
+        # that the check ran and produced numbers, and `PASSED` would read as a positivity
+        # clearance that no threshold here is entitled to give.  `_nuisance_item` returns
+        # `COMPLETED` for the same reason.
+        AssessmentStatus.WARNING if warning else AssessmentStatus.COMPLETED,
         detail,
         () if warning is None else ("inspect result.diagnostics.support()",),
     )
@@ -2230,33 +2266,50 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
 }
 
 
+#: What the combined row says when the point support report is not in its ``adequate``
+#: tier.  The tier itself is decided by
+#: :attr:`~cleverly.sensitivity.positivity.PositivityReport.severity`; these are only its
+#: words on this surface, and the numbers behind them are already in the detail that
+#: ``_support_facts`` builds.
+#:
+#: Both tiers describe truncation, because truncation is what that report grades.  The
+#: effective-sample-size ratio reaches this row as a *fact* through ``_support_facts`` and
+#: never as a status, which is why an unbreached row is ``COMPLETED`` rather than ``PASSED``.
+_POSITIVITY_SEVERITY_REASON: dict[Literal["serious", "strain"], str] = {
+    "serious": "the support report reports that truncation is carrying the estimate",
+    "strain": "the support report reports material truncation",
+}
+
+
 def _support_warning(report: Any) -> str | None:
-    if hasattr(report, "truncated"):
-        fraction = float(report.truncated.get("fraction", 0.0))
-        if fraction > 0.05:
-            return f"{fraction:.1%} of propensity cells were truncated"
-        ratios = [
-            float(item.get("ess_ratio", 1.0)) for item in getattr(report, "mechanisms", {}).values()
-        ]
-        if ratios and min(ratios) < 0.2:
-            return "a fitted mechanism leaves less than 20% effective sample size"
-    if isinstance(report, LongitudinalDiagnostics):
-        if any(row.share_truncated > 0.05 for row in report.rows):
-            return "cumulative mechanism truncation exceeds 5% at one or more nodes"
-        if any(row.n_followed and row.effective_n / row.n_followed < 0.2 for row in report.rows):
-            return "cumulative weights leave less than 20% effective sample size at a node"
+    from .sensitivity.positivity import PositivityReport
+
+    if isinstance(report, PositivityReport):
+        # Delegated rather than re-derived.  This branch used to threshold the truncated
+        # fraction and the *fitted mechanism* effective sample sizes, and `mechanisms` is
+        # empty unless the fit declared `delta=` or `intermediate=`.  So on an ordinary ATE
+        # fit it applied one check, and reached a status the retained report contradicted.
+        severity = report.severity
+        return None if severity == "adequate" else _POSITIVITY_SEVERITY_REASON[severity]
+    # Every branch below grades truncation and estimated zero support, and none grades an
+    # effective-sample-size ratio.  A Kish ratio has no derived cutoff, so a status keyed
+    # on one would present a house convention as a finding and let a reader take `passed`
+    # for a positivity clearance.  `_support_facts` reports the minimum ratio on every row
+    # instead, which is the number an analyst has to judge.
+    if isinstance(report, LongitudinalDiagnostics) and any(
+        row.share_truncated > 0.05 for row in report.rows
+    ):
+        return "cumulative mechanism truncation exceeds 5% at one or more nodes"
     if isinstance(report, Mapping):
         # A shift or IPSI fit reports one support record per declared intervention rather
         # than a single object, so none of the attribute probes above sees it.  These
-        # dataclasses carry the same quantities the other branches threshold on, at the
-        # same tiers; read them by field so the two classes need no separate branches --
-        # ``IncrementalSupport`` has an ``ess_ratio`` but no ``unsupported`` or
-        # ``capped_fraction``, and a missing field must not read as a breach.
+        # dataclasses carry the same quantities the other branches grade; read them by
+        # field so the two classes need no separate branches -- ``IncrementalSupport`` has
+        # an ``ess_ratio`` but no ``unsupported`` or ``capped_fraction``, and a missing
+        # field must not read as a breach.  The ``ess_ratio`` is reported, never graded.
         for name, item in report.items():
             if int(getattr(item, "unsupported", 0)) > 0:
                 return f"intervention {name!r} has units with estimated zero support"
-            if float(getattr(item, "ess_ratio", 1.0)) < 0.2:
-                return f"intervention {name!r} leaves less than 20% effective sample size"
             if float(getattr(item, "capped_fraction", 0.0)) > 0.05:
                 return f"intervention {name!r} had more than 5% of its weights capped"
         return None

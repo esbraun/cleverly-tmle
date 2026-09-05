@@ -37,7 +37,7 @@ diagnostic can be.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -300,6 +300,17 @@ class PositivityReport:
         lines.append(self.verdict())
         return "\n".join(lines)
 
+    @property
+    def severity(self) -> Literal["adequate", "strain", "serious"]:
+        """Which tier this report's own thresholds place the fit in.
+
+        Returns
+        -------
+        {"adequate", "strain", "serious"}
+            The tier behind :meth:`verdict`, for a caller that must branch on it.
+        """
+        return self._verdict_parts()[0]
+
     def verdict(self) -> str:
         """A one-line reading of the diagnostics.
 
@@ -308,15 +319,56 @@ class PositivityReport:
         str
             One line saying whether the overlap supports the reported estimate.
         """
-        worst_ratio = min(ess["ratio"] for ess in self.effective_sample_size.values())
+        return self._verdict_parts()[1]
+
+    def _verdict_parts(self) -> tuple[Literal["adequate", "strain", "serious"], str]:
+        """Decide the tier and the sentence that reports it, in one place.
+
+        A reader reads :meth:`verdict`; the combined assessment row reads
+        :attr:`severity`.  Both come from here because the alternative is what shipped:
+        the aggregate row re-derived its own thresholds and so reported ``passed`` for a
+        fit this method called a serious positivity problem.  No caller outside this
+        method may restate the numbers below.
+
+        **The effective-sample-size ratio is reported and never graded.**  A Kish ratio
+        is a descriptive quantity with no derived cutoff, so a tier keyed on it would be
+        a house convention presented as a finding, and a reader would take ``passed`` as
+        a positivity clearance this package cannot give.  Every branch states the share
+        instead, and the analyst judges it against the question.  What is graded is the
+        truncated fraction, which is not a judgement about the data: it counts the rows
+        the fit clipped at a bound the caller configured, and a clipped row contributes
+        extrapolation rather than data.
+        """
+        # Non-finite ratios are dropped rather than compared.  An arm with no rows stores
+        # NaN here by construction, and `min` over a sequence containing NaN returns
+        # whichever value it met first, so an unfiltered comparison made this report's
+        # reading depend on arm order.
+        ratios = [
+            float(ess["ratio"])
+            for ess in self.effective_sample_size.values()
+            if np.isfinite(ess["ratio"])
+        ]
         fraction = self.truncated["fraction"]
+        share = (
+            (
+                f"The weighted analysis uses an effective {min(ratios):.0%} of the rows in its "
+                "narrowest arm. No threshold is applied to that share, because none is derived; "
+                "read it against what the estimate is for."
+            )
+            if ratios
+            else "No arm reports a finite effective sample size."
+        )
         for name, stats in self.mechanisms.items():
             # Checked before the propensity verdict, because this is the failure a reader
             # is least likely to be looking for: overlap in `g` can be immaculate while
             # the estimate rests on a few rows that were very unlikely to be observed.
-            # Judged on the same scale as the propensity -- the effective sample size the
-            # 1/mechanism weights leave behind -- so the two are directly comparable.
-            if stats["clipped_fraction"] > 0.01 or stats["ess_ratio"] < 0.6:
+            # Two triggers, one of which only reports.  A clipped fraction is truncation
+            # and grades like the propensity's.  A low mechanism effective sample size
+            # earns the *sentence*, because a reader who never sees the number cannot
+            # weigh it, but it does not move the tier -- grading it would be the invented
+            # cutoff this report refuses to apply to the propensity.
+            clipped = stats["clipped_fraction"] > 0.01
+            if clipped or stats["ess_ratio"] < 0.6:
                 # The joint row *is* the whole denominator rather than a factor beside
                 # `g(W)`, so the closing sentence has to say something different about it.
                 leverage = (
@@ -327,25 +379,37 @@ class PositivityReport:
                     "rows carry outsized leverage whatever the propensity overlap looks like."
                 )
                 return (
+                    "serious"
+                    if fraction > 0.05
+                    else "strain"
+                    if fraction > 0.01 or clipped
+                    else "adequate",
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
                     f"{self._bound_label(name)}). {leverage} "
-                    "Check truncation_curve(mechanism=True)."
+                    "Check truncation_curve(mechanism=True).",
                 )
-        if fraction > 0.05 or worst_ratio < 0.3:
+        if fraction > 0.05:
             return (
-                "VERDICT: serious positivity problem. The weighted analysis uses far fewer "
-                "observations than it appears to, and/or a large share of units were "
-                "truncated. Treat the point estimate as describing the region of overlap "
-                "only, and check truncation_curve() before drawing conclusions."
+                "serious",
+                f"VERDICT: truncation is carrying this estimate. {fraction:.1%} of units were "
+                "clipped, so their contributions rest on extrapolation rather than data. Treat "
+                "the point estimate as describing the region of overlap only, and check "
+                f"truncation_curve() before drawing conclusions. {share}",
             )
-        if fraction > 0.01 or worst_ratio < 0.6:
+        if fraction > 0.01:
             return (
-                "VERDICT: some positivity strain. Report truncation_curve() alongside the "
-                "estimate so readers can see how much the answer depends on the bound."
+                "strain",
+                f"VERDICT: some truncation. {fraction:.1%} of units were clipped at the bound. "
+                "Report truncation_curve() alongside the estimate so readers can see how much "
+                f"the answer depends on it. {share}",
             )
-        return "VERDICT: overlap looks adequate; no truncation-driven fragility detected."
+        return (
+            "adequate",
+            f"VERDICT: no truncation-driven fragility detected ({fraction:.1%} of units "
+            f"clipped). {share}",
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
@@ -711,9 +775,18 @@ def truncation_curve(
     """Re-estimate across a grid of truncation bounds.
 
     Returns a tidy frame with one row per ``(bound, estimand)`` giving the point
-    estimate and confidence interval.  Only the targeting step is re-run -- the
-    nuisance fits are cached -- so a 10-point curve costs a small fraction of the
-    original fit.
+    estimate and confidence interval.  On an ordinary, collaborative, or unguarded
+    doubly-robust fit only the targeting step is re-run -- the nuisance fits are cached
+    -- so each bound costs a small fraction of the original fit.
+
+    A **guarded DR-TMLE** fit is the exception, and it is why the combined report prices
+    this operation per result rather than per operation.  Its targeting step alternates
+    against the reduced-dimension regressions, so every bound refits them.  The ordinary
+    closure refits them at the fitted reduced bounds; the missing-outcome construction is
+    handed the swept bounds instead, because they define two of its regression targets.
+    The primary outcome regression and the propensity stay cached, so one bound costs
+    less than a fit -- but the default grid has eight of them, so the **whole curve can
+    cost more than the fit it describes**.  Budget it as refitting work.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
     hinge on the truncation choice.  A curve that drifts monotonically says the

@@ -32,9 +32,10 @@ from cleverly.assessment import (
     AssessmentItem,
 )
 from cleverly.datasets import make_binary_outcome, make_multi_arm
-from cleverly.estimators import TMLE
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import _select_evalue, _standardising_sd, evalue_from_rr
+from cleverly.sensitivity.positivity import PositivityReport
 
 
 def _study(*, strata: bool = False) -> CausalStudy:
@@ -230,11 +231,34 @@ def test_explicit_collaborative_or_evalue_is_not_blocked_by_default_derivation()
     assert "understates" not in direct.note
 
 
+def _positivity(fraction: float, ratio: float, **overrides: object) -> PositivityReport:
+    """A real report carrying the two quantities the support row is judged on.
+
+    A ``SimpleNamespace`` stood here, and it is why the aggregate/detail disagreement
+    survived a green suite: the stub answered every attribute the interpreter happened to
+    reach, so a test could pass an effective-sample-size ratio the production code never
+    read and still assert a warning. The tier now comes from
+    :meth:`~cleverly.PositivityReport.severity`, so the object under test has to be the one
+    that owns it.
+    """
+    fields: dict[str, object] = {
+        "propensity_quantiles": {"overall": {0.5: 0.5}},
+        "tail_mass": {0.01: {"below": 0.0, "above": 0.0}},
+        "effective_sample_size": {
+            "treated": {"n": 100.0, "effective": 100.0 * ratio, "ratio": ratio}
+        },
+        "weight_share": {"treated": {"top_1pct": 0.0, "top_5pct": 0.0}},
+        "truncated": {"count": 0.0, "fraction": fraction, "most_extreme": 0.01},
+        "clever_covariate_max": {"mean": 1.0},
+        "bounds": (0.01, 0.99),
+        "n": 100,
+    }
+    fields.update(overrides)
+    return PositivityReport(**fields)  # type: ignore[arg-type]
+
+
 def test_warnings_preserve_score_and_support_measurements() -> None:
-    support = SimpleNamespace(
-        truncated={"fraction": 0.12},
-        effective_sample_size={"treated": {"ratio": 0.16}},
-    )
+    support = _positivity(0.12, 0.16)
     support_row = INTERPRETERS["support"](support, None)
     assert support_row.status is AssessmentStatus.WARNING
     assert "truncated fraction 12.0%" in support_row.detail
@@ -1159,14 +1183,7 @@ def test_a_stagewise_row_reports_its_two_metrics_on_the_support_scale():
     )
     # The paired witness: the sibling row formats the same two numbers the same way, so
     # the two details cannot drift apart again without one of these strings changing.
-    support = _support_item(
-        SimpleNamespace(
-            truncated={"fraction": 0.125},
-            effective_sample_size={"ate": {"ratio": 0.8}},
-            mechanisms={},
-        ),
-        None,
-    )
+    support = _support_item(_positivity(0.125, 0.8), None)
     assert support.detail.startswith(
         "maximum truncated fraction 12.5%; minimum effective-sample-size ratio 80.0%"
     )
@@ -1277,3 +1294,143 @@ def test_a_validation_owned_argument_is_refused_rather_than_dropped():
     assert result.diagnostics.run_all(arguments=strict)["score_equations"].status is (
         AssessmentStatus.FAILED
     )
+
+
+def test_the_support_row_never_claims_a_pass() -> None:
+    """Support has no pass criterion, so it must not report one.
+
+    The effective-sample-size ratio is reported and never graded: a Kish ratio has no
+    derived cutoff, so a threshold on it would present a house convention as a finding.
+    What is left to grade is truncation, and this fit truncates almost nothing. The row
+    therefore states the numbers and stops, exactly as the nuisance row does.
+    """
+    row = INTERPRETERS["support"](_positivity(0.005, 0.25), None)
+    assert row.status is AssessmentStatus.COMPLETED
+    assert row.status is not AssessmentStatus.PASSED
+    assert "minimum effective-sample-size ratio 25.0%" in row.detail
+    assert row.next_steps == ()
+
+
+def test_the_effective_sample_size_ratio_is_reported_and_never_graded() -> None:
+    """The witness for the rule itself, not for one point on it.
+
+    Two reports that differ only in effective sample size, by two orders of magnitude,
+    must reach the same status. Any threshold anyone reinstates on that ratio separates
+    this pair and fails here. Both details still carry their own number, because
+    reporting it is the whole obligation.
+    """
+    ample = INTERPRETERS["support"](_positivity(0.0, 0.99), None)
+    threadbare = INTERPRETERS["support"](_positivity(0.0, 0.007), None)
+
+    assert ample.status is threadbare.status is AssessmentStatus.COMPLETED
+    assert "99.0%" in ample.detail
+    assert "0.7%" in threadbare.detail
+
+
+@pytest.mark.parametrize(
+    ("fraction", "severity", "status"),
+    [
+        (0.0099, "adequate", AssessmentStatus.COMPLETED),
+        (0.0101, "strain", AssessmentStatus.WARNING),
+        (0.0499, "strain", AssessmentStatus.WARNING),
+        (0.0501, "serious", AssessmentStatus.WARNING),
+    ],
+)
+def test_the_support_row_grades_truncation_at_the_reports_boundaries(
+    fraction: float, severity: str, status: AssessmentStatus
+) -> None:
+    """Truncation is graded, and the pairs straddle each boundary.
+
+    Truncation is not a judgement about the data. It counts rows the fit clipped at a
+    bound the caller configured, and a clipped row contributes extrapolation rather than
+    data. The values sit either side of 1% and 5%, so a drifted threshold fails rather
+    than passing on a midpoint.
+    """
+    report = _positivity(fraction, 0.9)
+    assert report.severity == severity
+    row = INTERPRETERS["support"](report, None)
+    assert row.status is status
+    if status is AssessmentStatus.WARNING:
+        assert row.next_steps == ("inspect result.diagnostics.support()",)
+
+
+def test_the_support_row_and_the_retained_verdict_cannot_disagree() -> None:
+    """A deliberate-mutation control on the single tiering decision.
+
+    Both consumers must move together. If the combined row ever re-derives its own
+    thresholds again, it will keep answering ``completed`` while the patched report says
+    otherwise, and this fails.
+    """
+    report = _positivity(0.0, 1.0)
+    assert INTERPRETERS["support"](report, None).status is AssessmentStatus.COMPLETED
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            PositivityReport,
+            "_verdict_parts",
+            lambda _self: ("serious", "VERDICT: truncation is carrying this estimate. Mutated."),
+        )
+        mutated = INTERPRETERS["support"](report, None)
+    assert mutated.status is AssessmentStatus.WARNING
+
+
+def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
+    """The reader-facing half of the contract: ungraded is not unreported."""
+    for fraction in (0.0, 0.02, 0.06):
+        verdict = _positivity(fraction, 0.25).verdict()
+        assert "effective 25%" in verdict
+        assert "No threshold is applied to that share" in verdict
+
+
+def _drtmle(**overrides: object):
+    """A DR-TMLE fit at cheap explicit learners, guarded unless a caller says otherwise."""
+    frame, _ = make_binary_outcome(n=260, seed=17)
+    settings: dict[str, object] = {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_treatment_learner": LogisticRegression(max_iter=1000),
+        "estimands": ("ey1", "ey0", "ate"),
+        "n_folds": 2,
+        "random_state": 3,
+        "simultaneous": False,
+    }
+    settings.update(overrides)
+    return DRTMLE(**settings).fit(frame, outcome="Y", treatment="A").single()  # type: ignore[arg-type]
+
+
+def test_a_guarded_drtmle_truncation_curve_is_declared_a_refit() -> None:
+    """The cost label has to follow the work the method actually does.
+
+    ``truncation_curve`` calls ``estimator.retarget`` once per bound. On a guarded
+    DR-TMLE that reaches ``_solve_reduction``, and ``DRTMLE._reduction`` hands the
+    alternation a closure that refits the reduced regressions at the swept bounds. One
+    shared row called that a moderate retarget, so a caller who declined refits was given
+    fit-cost work under a retarget permission.
+
+    The unguarded fit is the other half of the witness. Without it, a branch applied to
+    every DR-TMLE result would pass.
+    """
+    guarded = _drtmle()
+    unguarded = _drtmle(guard=())
+    assert guarded.solved_corrections
+    assert not unguarded.solved_corrections
+
+    row = guarded.diagnostics.capability("truncation_curve")
+    assert (row.execution, row.cost) == ("refit", "expensive")
+    assert row.requires_replay == "refit_nuisances"
+
+    plain = unguarded.diagnostics.capability("truncation_curve")
+    assert (plain.execution, plain.cost) == ("retarget", "moderate")
+    assert plain.requires_replay == "retarget_cached_nuisances"
+
+
+def test_a_guarded_drtmle_truncation_curve_asks_for_the_refit_flag() -> None:
+    """The gate reads the execution class, so the corrected label must reroute the caller."""
+    guarded = _drtmle().diagnostics.run_all(include_retargets=True)["truncation_curve"]
+    assert guarded.status is AssessmentStatus.UNAVAILABLE
+    assert "refits nuisance models" in guarded.detail
+    assert "include_refits=True" in guarded.detail
+
+    unguarded = _drtmle(guard=()).diagnostics.run_all(include_retargets=True)["truncation_curve"]
+    assert unguarded.status is AssessmentStatus.COMPLETED

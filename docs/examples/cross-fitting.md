@@ -293,9 +293,16 @@ The nuisance report is the one that matters most here. It is computed out of fol
 the models on patients they did not see. An in-sample version of the same report would flatter a
 gradient-boosted learner.
 
-The overview marks support as passed. It reports 1.0% truncation and a 25.2% minimum effective
-sample size. The retained support report uses a stricter tier and calls the same fit serious. Its
-largest clever covariate is about 83. Read the detailed report before you accept the overview row.
+The support row reports 1.0% truncation and a 25.2% minimum effective sample size, and completes
+without grading that ratio. Compare it with the in-sample fit above, which reports 91.6%. Nothing
+about the true assignment mechanism changed between the two. Cross-fitting neither caused this
+strain nor repaired it. It revealed it: an in-sample propensity predicts its own training rows, so
+the weights there collapse toward one and flatter the effective sample size.
+
+Read the 25.2% as a property of the estimated mechanism rather than of the population. A
+well-specified propensity on this same law would strain less. The overview warns on the nuisance
+models, which is the row this page is about, and the retained report gives the numbers behind both.
+Its largest clever covariate is about 83.
 
 Then the fold draw itself. One split is one draw. A nervous analyst can take the median of several.
 

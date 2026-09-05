@@ -309,7 +309,8 @@ effective sample size per arm, and the share of rows the truncation touched.
 **Read its verdict on this fit.** The gradient-boosted model separates offered patients from the
 usual-support group well. The price is a set of extreme propensity scores. The effective sample
 size in the navigation arm falls to about a fifth of those patients, and the largest clever covariate
-is in the tens. The report calls that a serious positivity problem, and it is right to.
+is in the tens. The verdict reports that fifth and does not grade it. Grading it is your job, and on
+this contrast a fifth is thin.
 
 Two lessons follow, and both are general.
 
@@ -318,12 +319,18 @@ for this purpose. Prediction accuracy and estimand-relevant behaviour are differ
 [collaborative TMLE](collaborative-tmle.md) is the entry that chooses between models on the second
 one.
 
-The second is that the assessment row and the retained support verdict do not agree here. The row
-reports 0.9% truncation and a 20.1% minimum effective sample size, then marks support as passed. The
-retained report uses a stricter interpretation tier. It marks this fit as serious because the ratio
-is below 30%. Treat the overview as a screen, not as a replacement for the retained report.
+The second is what the support row does not say. It reports 0.9% truncation and a 20.1% minimum
+effective sample size, and its status is `completed` rather than `passed`. That is deliberate. The
+report grades the truncated fraction, because a clipped row contributes extrapolation instead of
+data. It does not grade the effective-sample-size ratio, because no published result fixes a cutoff
+on a Kish ratio, and a threshold invented here would read as a positivity clearance this package
+cannot give.
 
-The report names the follow-up itself.
+So the 20.1% is yours to judge. It says the estimate leans on an effective fifth of the rows in its
+narrowest arm. That is a lot of strain for a small contrast, and it is the reason the truncation
+curve below is worth reading. A `passed` on this row would have told you nothing you should act on.
+
+The overview names the follow-up itself.
 
 ```python
 retargeted = result.assess(include_retargets=True)

@@ -121,7 +121,10 @@ def weighted_missing_fit() -> object:
 class TestPositivity:
     def test_good_overlap_is_reported_as_adequate(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
-        assert "adequate" in report.verdict()
+        # Asserted on the machine-readable tier rather than on a word in the prose. The
+        # verdict sentence reports the effective-sample-size share it does not grade, so
+        # matching its wording pins the wrong half of the contract.
+        assert report.severity == "adequate"
         assert report.truncated["fraction"] == 0.0
         for arm in ("treated", "control"):
             # Almost all of the nominal sample size survives the reweighting.
@@ -129,7 +132,7 @@ class TestPositivity:
 
     def test_poor_overlap_is_flagged(self, poor_overlap) -> None:
         report = poor_overlap.diagnostics.support()
-        assert "adequate" not in report.verdict()
+        assert report.severity != "adequate"
         assert report.truncated["fraction"] > 0.0
         worst = min(ess["ratio"] for ess in report.effective_sample_size.values())
         # The weighted analysis is using far fewer observations than it appears to.
@@ -1025,7 +1028,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         # The other branch, checked on the rule rather than through a process: what a
         # data-driven version would be measuring is the tail of a normal, not the rule.
         report = strained.diagnostics.support()
-        assert "adequate" in report.verdict()
+        assert report.severity == "adequate"
         degenerate = dataclasses.replace(
             report,
             mechanisms={
@@ -1033,6 +1036,11 @@ class TestTheMechanismDenominatorsAreDiagnosed:
             },
         )
         assert "P(Delta=1|A,W) strains the estimate" in degenerate.verdict()
+        assert "leaves an effective 40%" in degenerate.verdict()
+        # Reported, not graded: this mechanism clips nothing, so the sentence appears and
+        # the tier does not move. A cutoff on a Kish ratio would be an invented rule.
+        assert degenerate.mechanisms["P(Delta=1|A,W)"]["clipped_fraction"] <= 0.01
+        assert degenerate.severity == "adequate"
 
     def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()

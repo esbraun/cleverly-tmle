@@ -265,9 +265,11 @@ Positivity is a three-arm statement here. Every patient needs a positive probabi
 the working model reads. A support report showing a near-empty cell means the trend is being carried
 by extrapolation into a cadence that kind of patient never received.
 
-The aggregate support row is a configured material-warning screen, and it passes here. The
-retained report gives arm-specific weight concentration and reports some positivity strain. Read
-the slope's truncation curve separately because the two coefficients have different meanings.
+The aggregate support row warns here, and the trigger is truncation. It reports 1.2% of units
+clipped, which is above the 1% the report treats as material. It also reports a 44.8% minimum
+effective sample size, which it states and does not grade. The retained report adds the
+arm-specific weight concentration behind both numbers. Read the slope's truncation curve separately
+because the two coefficients have different meanings.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |

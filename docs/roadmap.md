@@ -13,7 +13,7 @@ published theory do not enter this sequence.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 0 | Assessment-report fidelity and coverage | theory-neutral; example audit complete | shipped assessment and diagnostic contracts | [A1](#a1-assessment-report-fidelity-and-coverage) |
+| 0 | Assessment-report fidelity and coverage | theory-neutral | shipped assessment and diagnostic contracts | [A1](#a1-assessment-report-fidelity-and-coverage) |
 | 1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 2.1 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
 | 2.2 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -105,15 +105,27 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
+Two gaps the audit found are fixed.
+
+The combined support row no longer contradicts the report it retains. One tiering decision now
+lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
+grades an effective-sample-size ratio any more, on any estimand, because no published result fixes
+a cutoff on a Kish ratio. Every surface grades the truncated fraction and estimated zero support,
+and reports the ratio for the analyst to judge. The row is therefore `completed` rather than
+`passed` when nothing is graded, so it cannot read as a positivity clearance.
+
+A guarded DR-TMLE truncation curve now declares `refit` rather than `retarget`, because its
+targeting alternation refits the reduced regressions at every bound.
+
+The rows below remain.
+
 | gap | required change |
 | --- | --- |
-| support severity | derive the combined status from the typed report. A serious or warning verdict cannot become `passed` |
 | interpretation text | describe truncation as extrapolation or regularization sensitivity. Do not claim that it changes the requested estimand into an overlap-population estimand |
 | composed support | report the complete clever-covariate denominator for missing-outcome and controlled-direct-effect fits, including joint ESS and concentration |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | truncation curves | mark one fitted bound per estimand and summarize movement separately for each coefficient or parameter |
-| execution cost | make cost labels method-aware. A DR-TMLE truncation curve refits reduced regressions and must not appear cheaper than a fit |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 

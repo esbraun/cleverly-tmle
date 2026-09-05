@@ -196,11 +196,16 @@ corrections = diagnostic_report.report("corrections")
 print(corrections.summary())
 ```
 
-The combined report triages the whole fit. It marks support, score equations, and corrections as
-passed. It marks the nuisance report as completed because that report has no pass criterion.
-Unrequested truncation work and refutation remain visible as omissions. On a DR-TMLE fit, a
-truncation curve refits every reduced regression. Treat that operation as fit-cost work even though
-the current shared report labels it as a retarget.
+The combined report triages the whole fit. It marks score equations and corrections as passed. It
+marks the nuisance report and the support report as completed, because neither defines a pass rule.
+The support row states 0.0% truncation and a 90.6% minimum effective sample size for you to read.
+Unrequested truncation work and refutation remain visible as omissions.
+
+Both omissions ask for `include_refits` on this page. A truncation curve is a retarget on an
+ordinary fit, because it re-solves the targeting step against cached nuisances. On a guarded
+DR-TMLE fit it also refits every reduced regression at every bound, so the report declares it a
+refit and prices it accordingly. An unguarded DR-TMLE fit solves no correction and keeps the
+ordinary retarget label.
 
 The retained correction report keeps the detail that the triage row compresses. Each row is one
 correction equation, per arm, with its solved score and residual. The report also states whether
