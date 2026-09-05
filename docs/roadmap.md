@@ -14,16 +14,16 @@ published theory do not enter this sequence.
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
 | 1 | Longitudinal sensitivity analysis | published support; pending source read | implemented longitudinal strategy means | [S4](#s4-longitudinal-sensitivity-analysis) |
-| 2 | Optional DoWhy integration | source audit | standalone sensitivity and validation work | [I1](#i1-optional-dowhy-integration) |
+| 2.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
+| 2.2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.3 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
+| 2.4 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
+| 2.5 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| 2.6 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
+| 2.7 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
-| 4.1 | Longitudinal persistence and serialization | theory-neutral | implemented longitudinal result contracts | [X1](#x1-longitudinal-persistence-and-serialization) |
-| 4.2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
-| 4.3 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 4.4 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
-| 4.5 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
-| 4.6 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
-| 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
-| 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
+| 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
+| 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
 
 ## Future investigations
 
@@ -38,7 +38,6 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Estimated-weight simulated-confounding replay | stored weight-model provenance, target-population semantics, and a source-backed regeneration rule | fixed probability weights only | [F11](#f11-estimated-weight-simulated-confounding-replay) |
 | Missing-outcome simulated-confounding replay | a joint observation, treatment, and outcome law with identified refit semantics | complete outcomes only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
-| Stratified incremental and MSM replay | stratified targeting equations, continuous-dose indexing, and validation evidence | marginal incremental targets and MSMs only | [F14](#f14-stratified-incremental-and-msm-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
@@ -98,6 +97,23 @@ Tan (2025) supplies the multi-period sensitivity models and the observed-data bo
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
+
+### P1. EP learner
+
+Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
+review of their EP derivation, add `ConditionalContrast` estimands, modifier schema, sieve/basis
+strategy, efficient plug-in risk and targeting, bounded outcome predictions, a second-stage
+contrast learner, out-of-fold risk/calibration, and a conditional prediction result. Reuse
+study/identification objects, nuisance strategies, folds, data backends, provenance, persistence,
+and capability-aware assessment.
+
+The first catalog is paper-derived CATE and conditional relative risk. Other losses and contrasts
+require their own derivations. Aggregating an EP curve is a separate parameter and receives scalar
+inference only after its influence contribution is implemented and tested.
+
+Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
+modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
+contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
 
 ### R1. Nested Riesz engine and initial catalog
 
@@ -265,55 +281,6 @@ commit merges independently. Handoff requires the enabled/refused catalog, sourc
 implementation revision and discrepancies, evidence instruments, local commands/results, and
 path-based reasons for omitted validation studies.
 
-### I1. Optional DoWhy integration
-
-Add `DoWhyIdentificationProvider` behind a `dowhy` extra. It accepts supported graphs, invokes
-DoWhy identification, translates supported backdoor results into `IdentifiedEffect`, preserves
-the original identified estimand and graph/provider provenance, verifies treatment, outcome,
-adjustment set, and population, and refuses other strategies before fitting.
-
-A graph stays optional and no causal discovery is performed. Supplying a graph *and* an
-adjustment set means "validate this proposed set". It never means "pick whichever is convenient".
-A disagreement is an error. The user resolves it by naming a different valid set, and the provider
-never chooses one. Front-door, IV, transport, mediation, and unidentified results stay
-refused until a matching `cleverly` functional and estimator are evidenced.
-
-Expose graph conditional-independence checks through the same optional integration. Each check
-must name the graph implication, variables, test, significance rule, and multiplicity policy.
-Report a failed implication as evidence against the supplied graph, not as an automatic graph
-edit. Do not add graph discovery or silently remove an edge.
-
-The reverse adapter accepts a DoWhy `IdentifiedEstimand`, translates supported backdoor effects,
-runs the ordinary `cleverly` engine, returns the generic DoWhy estimate, and attaches the native
-`CausalResult`. The native result remains the complete diagnostics and provenance surface.
-
-Keep DoWhy out of the core and initially out of `all`, but include `cleverly[dowhy]` in `dev` so
-translation tests run in ordinary local and CI tiers. Pin a tested public-API version range,
-isolate imports under the integration package, document translation limits, and add a no-extra
-session or marker for missing-dependency errors.
-
-Acceptance requires equivalence between graph and explicit-adjustment workflows for the same
-identified functional, pre-fit refusals for unsupported results, round-trip provenance, a version
-matrix, and successful core import and operation without DoWhy installed. Graph checks also need
-known-independent and known-dependent controls plus a multiplicity regression.
-
-### P1. EP learner
-
-Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
-review of their EP derivation, add `ConditionalContrast` estimands, modifier schema, sieve/basis
-strategy, efficient plug-in risk and targeting, bounded outcome predictions, a second-stage
-contrast learner, out-of-fold risk/calibration, and a conditional prediction result. Reuse
-study/identification objects, nuisance strategies, folds, data backends, provenance, persistence,
-and capability-aware assessment.
-
-The first catalog is paper-derived CATE and conditional relative risk. Other losses and contrasts
-require their own derivations. Aggregating an EP curve is a separate parameter and receives scalar
-inference only after its influence contribution is implemented and tested.
-
-Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
-modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
-contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
-
 ### R2. Evidence-gated Riesz catalog expansion
 
 Expand target by target after the engine lands. Mediation, additional longitudinal targets,
@@ -395,15 +362,6 @@ sensitivity bounds, not a complete-refit perturbation surface.
 
 Wait for a time-indexed latent law that preserves temporal order and names the assessed contrast.
 It must define each node's perturbation, history update, censoring behavior, and induced association.
-
-### F14. Stratified incremental and MSM replay
-
-Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
-DR-TMLE also lacks stratified reduced-regression targeting. A post-fit surface cannot repair these
-upstream estimator limits.
-
-Implement the stratified targeting construction and its validation evidence first. Continuous MSMs
-also need dose-indexed strata semantics. Only then can complete replay receive a separate audit.
 
 ### F15. Controlled-direct-effect simulated-confounding replay
 
@@ -555,6 +513,21 @@ weighting under a known prevalence. Fixed observation weights do not replace eit
 The comparator survey rejects `txshift` as a second opinion on
 continuous shifts. That verdict does not carry here, because the two-phase correction is a
 different feature.
+
+### X8. Stratified incremental and MSM targeting
+
+Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
+DR-TMLE refuses a baseline stratum, because its reduced regressions add a second targeting equation
+for the `mean` group. Each estimator raises `NotImplementedError` during the fit. A post-fit
+surface cannot repair these upstream estimator limits.
+
+This item is unwritten work rather than a hard stop. Each parameter is well posed, and the package
+already fluctuates baseline strata for arm, regime, and shift targets. The refusal taxonomy records
+each row as [not written yet](technical-reference/scope-and-refusals.md#not-written-yet).
+
+Match the stratum-indexed targeting construction to a published derivation before implementation.
+Continuous MSMs also need dose-indexed strata semantics. Add the targeting equations and their
+validation evidence next. Complete simulated-confounding replay receives its own audit last.
 
 ## Reading a gap correctly
 
