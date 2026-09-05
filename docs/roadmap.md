@@ -37,9 +37,9 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Missing-outcome simulated-confounding replay | a joint observation, treatment, and outcome law with identified refit semantics | complete outcomes only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
-| Longitudinal sensitivity-bound estimation | a complete sample-estimation contract, a general algorithm, and sampling inference for the population bounds | conditional sample analogues only; no supported sample sensitivity-bound operation | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
+| Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
 | Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
@@ -371,22 +371,6 @@ The pinned DoWhy law has no intermediate branch and no contrast rule for a fixed
 Wait for a source-backed latent law that respects this order. The law must define each perturbed
 mechanism, the response indicator, and the controlled contrast before complete refits can begin.
 
-### F16. Longitudinal sensitivity-bound estimation
-
-Tan (2025) studies population sensitivity bounds for terminal outcomes under binary, static
-longitudinal strategies. The paper keeps its primary, joint, and product sensitivity models
-separate. The primary and joint models have the same sharp population mean bounds. The general
-product-model representations are conservative, except in the restricted cases the paper states.
-The formal simultaneous-attainment results for sharp treatment contrasts cover two periods. The
-paper excludes dynamic strategies.
-
-The paper sketches sample analogues under linear parameterizations and consistent transformed ICE
-or IPW estimation. It also gives restricted computations through weighted quantile regression.
-It leaves a complete general estimator, specialized algorithms, nuisance approximation theory,
-and sampling inference to future work. Wait for published results that supply those contracts
-before adding a sample-data operation. The shipped longitudinal surface continues to refuse
-point-treatment sensitivity formulas and reports only its derived stagewise diagnostics.
-
 ## Longitudinal contracts
 
 The four core LTMLE evidence rows are implemented and registered in the
@@ -406,6 +390,14 @@ and interval rate conditions; a point-treatment stochastic regime is not suffici
 Wait for a source specifying what is fixed, resampled, refitted, and retargeted and which sampling
 law the interval estimates. Resampling stored curves, retargeting cached arrays, and refitting the
 complete estimator are distinct procedures and must not be inferred from the name.
+
+### F16. Longitudinal sensitivity-bound estimation
+
+Tan (2025) derives population sensitivity bounds for a terminal outcome under binary, static
+longitudinal strategies. Section 3.2 leaves estimation with sample data to future work. Section
+6.3 asks for specialized algorithms, and for sample estimation of the ICE and IPW functionals. The
+paper reports no sampling inference for any bound. Wait for those three contracts before adding a
+sample-data operation.
 
 ### F3. Additional longitudinal estimands
 
