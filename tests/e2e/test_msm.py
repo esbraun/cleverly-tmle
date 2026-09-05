@@ -426,8 +426,19 @@ class TestTheSurroundingMachineryWorks:
 
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted) -> None:
         result, _ = fitted
-        curve = result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+        bounds = [0.01, 0.05]
+        curve = result.diagnostics.truncation_curve(bounds=bounds)
         assert set(curve["estimand"]) == {"msm[(intercept)]", "msm[dose]"}
+        assert set(curve["fitted_lower_bound"]) == {result.config.g_bounds[0]}
+        assert not curve["is_fitted_bound"].any()
+
+        combined = result.diagnostics.run_all(
+            include_retargets=True, arguments={"truncation_curve": {"bounds": bounds}}
+        )
+        detail = combined["truncation_curve"].detail
+        assert "msm[(intercept)]: fitted estimate" in detail
+        assert "msm[dose]: fitted estimate" in detail
+        assert detail.count("(not evaluated)") == 2
 
     def test_a_round_trip_leaves_every_retargeted_analysis_identical(
         self, fitted, tmp_path

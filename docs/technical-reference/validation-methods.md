@@ -70,6 +70,15 @@ second-order remainder.
 cached nuisances at each level through `TMLE.retarget`. On an ordinary, collaborative, or unguarded
 doubly-robust fit it refits no nuisance model, so it is a retarget operation.
 
+The returned frame records both ends of every evaluated pair. Scalar treatment-mechanism values
+remain symmetric shorthand for `[bound, 1 - bound]`; observation- and intermediate-mechanism
+values use `[bound, 1]`. It also records each parameter's own fitted pair and estimate, plus the
+signed difference from that estimate. The default grid includes every exact fitted pair, without
+rounding, so every parameter has one fitted marker. An explicit grid is not expanded: when it omits
+the fitted configuration, the fitted columns retain that configuration and every marker is false.
+The combined diagnostic row reports the signed range and maximum absolute movement separately for
+each parameter or working-model coefficient.
+
 A guarded DR-TMLE fit is the exception. Its targeting step alternates against the reduced-dimension
 regressions, so each bound refits them, and the missing-outcome construction receives the swept
 bounds because they define two of its regression targets. The capability row for such a fit

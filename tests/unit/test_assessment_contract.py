@@ -507,6 +507,14 @@ def test_cached_assessments_replay_after_persistence(
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
+    assert {
+        "upper_bound",
+        "fitted_lower_bound",
+        "fitted_upper_bound",
+        "fitted_psi",
+        "delta_from_fitted",
+    } <= set(before)
+    assert not before["is_fitted_bound"].any()
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
     after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     assert isinstance(after, pd.DataFrame)
@@ -516,13 +524,17 @@ def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -
 def test_a_combined_report_retains_and_replays_a_returned_frame(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     combined = point_result.diagnostics.run_all(include_retargets=True)
     before = combined.report("truncation_curve")
+    detail = combined["truncation_curve"].detail
     assert isinstance(before, pd.DataFrame)
+    assert before["is_fitted_bound"].sum() == 1
     pd.testing.assert_frame_equal(combined.reports()["truncation_curve"], before, check_exact=True)
 
     restored = load(point_result.save(tmp_path / "combined-frame.joblib"))
-    after = restored.diagnostics.run_all(include_retargets=True).report("truncation_curve")
+    replayed = restored.diagnostics.run_all(include_retargets=True)
+    after = replayed.report("truncation_curve")
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
+    assert replayed["truncation_curve"].detail == detail
 
 
 def test_replayability_names_the_refit_boundary(point_result, longitudinal_result) -> None:  # type: ignore[no-untyped-def]

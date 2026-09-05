@@ -115,6 +115,13 @@ from the capability row rather than from the operation name.
 
 The operation varies a finite-sample regularisation choice. It does not change the requested estimand.
 Movement shows sensitivity to extrapolation in regions where estimated support is limited.
+
+The curve records `upper_bound`, the parameter-specific fitted bound pair and estimate, and
+`delta_from_fitted`. Its default grid contains each fitted pair exactly. An explicit `bounds=` grid
+keeps the requested grid cardinality and can therefore have no fitted marker; the fitted columns still say
+which configuration was omitted. Combined reports summarize movement separately for every reported
+parameter or working-model coefficient.
+
 Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 
 ```python

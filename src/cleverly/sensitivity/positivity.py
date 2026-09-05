@@ -48,7 +48,7 @@ from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
 from ..inference.influence import median_estimates
-from ..targets import parameter_stem
+from ..targets import TARGETS, parameter_stem
 from ..utils.bounds import bound, g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
@@ -776,8 +776,11 @@ def truncation_curve(
 ) -> Any:
     """Re-estimate across a grid of truncation bounds.
 
-    Returns a tidy frame with one row per ``(bound, estimand)`` giving the point
-    estimate and confidence interval.  On an ordinary, collaborative, or unguarded
+    Returns a tidy frame with one row per evaluated bound pair and estimand, giving the
+    point estimate and confidence interval.  A scalar bound supplied by the caller remains
+    shorthand for the symmetric treatment-mechanism pair ``(bound, 1 - bound)``; an
+    observation- or intermediate-mechanism sweep uses ``(bound, 1)``.  On an ordinary,
+    collaborative, or unguarded
     doubly-robust fit only the targeting step is re-run -- the nuisance fits are cached
     -- so each bound costs a small fraction of the original fit.
 
@@ -787,7 +790,7 @@ def truncation_curve(
     closure refits them at the fitted reduced bounds; the missing-outcome construction is
     handed the swept bounds instead, because they define two of its regression targets.
     The primary outcome regression and the propensity stay cached, so one bound costs
-    less than a fit -- but the default grid has eight of them, so the **whole curve can
+    less than a fit -- but the default grid has several of them, so the **whole curve can
     cost more than the fit it describes**.  Budget it as refitting work.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
@@ -800,8 +803,9 @@ def truncation_curve(
     result : TMLEResult
         A fitted result.
     bounds : sequence of float or None
-        Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 that
-        includes the bound the fit actually used.
+        Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 and adds
+        every exact bound pair the requested parameters used.  An explicit sequence is
+        evaluated exactly as requested and is never expanded with fitted points.
     estimands : sequence of str or None
         Restrict to a subset; defaults to everything the fit reported.
     mechanism : bool
@@ -819,7 +823,8 @@ def truncation_curve(
     Returns
     -------
     dataframe
-        One row per ``(bound, estimand)``, with the point estimate and interval.
+        One row per evaluated bound pair and estimand, with the point estimate, interval,
+        fitted pair and estimate, and signed movement from that fitted estimate.
     """
     estimator = result.estimator
     if estimator is None:
@@ -829,31 +834,41 @@ def truncation_curve(
 
     # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
     # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
-    # against `ey` for a wider one. Mapping back through the stem keeps the sweep asking
-    # for the targets it already has, rather than for names the registry never had.
+    # against `ey` for a wider one. Structured keys carry that mapping on public workflow
+    # results; the canonical stem is the compatibility path for raw estimator results.
     reported = tuple(result.estimates) if estimands is None else tuple(estimands)
-    names = tuple(dict.fromkeys(parameter_stem(name) for name in reported))
-    if mechanism:
-        if result.nuisance.missingness is None and result.nuisance.intermediate is None:
-            raise CapabilityError(
-                "mechanism=True needs a fit with missing outcomes or an intermediate "
-                "variable; without one there is no mechanism in the clever covariate to "
-                "truncate. Pass delta=<column> or intermediate=<column> to fit()."
-            )
-        fitted_bound = result.config.missingness_bound
-    else:
-        fitted_bound = result.config.g_bounds[0]
-
+    names = tuple(dict.fromkeys(_target_name(result, name) for name in reported))
+    if mechanism and result.nuisance.missingness is None and result.nuisance.intermediate is None:
+        raise CapabilityError(
+            "mechanism=True needs a fit with missing outcomes or an intermediate "
+            "variable; without one there is no mechanism in the clever covariate to "
+            "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+        )
+    fitted_pairs = {
+        _fitted_bound_pair(result, name, mechanism=mechanism)
+        for name in result.estimates
+        if _target_name(result, name) in names
+    }
+    canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:
-        grid = sorted({0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, round(fitted_bound, 6)})
+        grid = sorted(
+            {
+                *((lower, 1.0 if mechanism else 1.0 - lower) for lower in canned),
+                *fitted_pairs,
+            }
+        )
     else:
-        grid = sorted(float(value) for value in bounds)
+        lowers = sorted(float(value) for value in bounds)
+        for lower in lowers:
+            if not 0.0 < lower < 0.5:
+                raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
+        grid = [(lower, 1.0 if mechanism else 1.0 - lower) for lower in lowers]
 
     rows: list[dict[str, Any]] = []
-    for lower in grid:
-        if not 0.0 < lower < 0.5:
-            raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
-        pair = (lower, 1.0 - lower)
+    for lower, upper in grid:
+        if not 0.0 < lower < upper <= 1.0:  # pragma: no cover - fitted config is validated
+            raise RuntimeError(f"invalid fitted truncation pair {(lower, upper)}")
+        pair = (lower, upper)
         # Every draw, then combined the way the fit combines them. Sweeping one draw and
         # calling the answer the fit's would compare a bound's effect on one split against
         # a reported estimate that came from R -- and the difference between the two curves
@@ -875,6 +890,8 @@ def truncation_curve(
         )
         for name, estimate in estimates.items():
             low, high = estimate.ci
+            fitted_lower, fitted_upper = _fitted_bound_pair(result, name, mechanism=mechanism)
+            fitted_psi = float(result.estimates[name].psi)
             rows.append(
                 {
                     "bound": lower,
@@ -883,8 +900,15 @@ def truncation_curve(
                     "std_err": estimate.std_error,
                     "ci_lower": low,
                     "ci_upper": high,
-                    "truncated_fraction": _clipped_fraction(result, lower, mechanism),
-                    "is_fitted_bound": bool(np.isclose(lower, fitted_bound, atol=1e-9)),
+                    "truncated_fraction": _clipped_fraction(result, pair, mechanism),
+                    "is_fitted_bound": pair == (fitted_lower, fitted_upper),
+                    # Additive metadata follows the legacy columns so positional consumers
+                    # retain the order they saw before the fitted-reference contract grew.
+                    "upper_bound": upper,
+                    "fitted_lower_bound": fitted_lower,
+                    "fitted_upper_bound": fitted_upper,
+                    "fitted_psi": fitted_psi,
+                    "delta_from_fitted": float(estimate.psi - fitted_psi),
                 }
             )
 
@@ -892,11 +916,27 @@ def truncation_curve(
     return result.data.frame_like(payload)
 
 
-def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
+def _target_name(result: TMLEResult, name: str) -> str:
+    """Registered target for one reported alias, with a legacy-result fallback."""
+    keys = getattr(result, "parameter_keys", None)
+    key = keys.get(name) if keys else None
+    return key.estimand if key is not None else parameter_stem(name)
+
+
+def _fitted_bound_pair(result: TMLEResult, name: str, *, mechanism: bool) -> tuple[float, float]:
+    """The fitted mechanism pair applicable to one reported parameter."""
+    if mechanism:
+        return float(result.config.missingness_bound), 1.0
+    target = TARGETS[_target_name(result, name)]
+    return g_bounds_for(target.group, result.config.g_bounds, result.config.g_bounds_conditional)
+
+
+def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:
     """Share of nuisance values the bound would clip, for whichever bound is swept."""
+    lower, upper = pair
     if not mechanism:
         divisor = np.asarray(result.nuisance.propensity.values, dtype=float)
-        return float(np.mean((divisor < lower) | (divisor > 1.0 - lower)))
+        return float(np.mean((divisor < lower) | (divisor > upper)))
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
     # the array directly counts the wrong tail and reports a mirror-inverted fraction.
@@ -911,4 +951,5 @@ def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> floa
     parts = [
         np.asarray(values, dtype=float).reshape(-1) for values in candidates if values is not None
     ]
-    return float(np.mean(np.concatenate(parts) < lower))
+    divisor = np.concatenate(parts)
+    return float(np.mean((divisor < lower) | (divisor > upper)))

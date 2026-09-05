@@ -1682,7 +1682,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         Parameters
         ----------
         bounds : sequence of float or None
-            Mechanism bounds to evaluate. Default bounds are used when omitted.
+            Lower mechanism bounds to evaluate. Treatment-mechanism values are symmetric
+            shorthand for ``(bound, 1 - bound)``; observation- and intermediate-mechanism
+            values use ``(bound, 1)``. Default bounds, including each requested parameter's
+            exact fitted pair, are used when omitted. An explicit sequence is not expanded.
         estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
         mechanism : bool
@@ -1691,7 +1694,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         Returns
         -------
         dataframe
-            Estimates and uncertainty at each requested bound.
+            Estimates and uncertainty at each requested bound, with the evaluated and
+            parameter-specific fitted pairs and movement from the fitted estimate.
 
         Raises
         ------
@@ -1964,10 +1968,42 @@ def _truncation_item(
     payload = _frame_payload(report)
     bounds = _range(payload.get("bound", payload.get("g_bound", ())))
     estimates = _range(payload.get("psi", payload.get("estimate", ())))
+    aliases = payload.get("estimand")
+    if not aliases:
+        detail = (
+            f"evaluated bound range {_format_range(bounds)}; "
+            f"estimate range {_format_range(estimates)}"
+        )
+    else:
+        psi = payload.get("psi", payload.get("estimate", ()))
+        deltas = payload.get("delta_from_fitted")
+        fitted_psi = payload.get("fitted_psi")
+        fitted_lower = payload.get("fitted_lower_bound")
+        fitted_upper = payload.get("fitted_upper_bound")
+        markers = payload.get("is_fitted_bound")
+        details = []
+        for alias in dict.fromkeys(str(value) for value in aliases):
+            indices = [index for index, value in enumerate(aliases) if str(value) == alias]
+            estimate_range = _range([psi[index] for index in indices])
+            if deltas is None or fitted_psi is None or fitted_lower is None or fitted_upper is None:
+                details.append(f"{alias}: estimate range {_format_range(estimate_range)}")
+                continue
+            delta_range = _range([deltas[index] for index in indices])
+            maximum = None if delta_range is None else max(abs(delta_range[0]), abs(delta_range[1]))
+            evaluated = markers is not None and any(bool(markers[index]) for index in indices)
+            first = indices[0]
+            details.append(
+                f"{alias}: fitted estimate {float(fitted_psi[first]):.4g} at bounds "
+                f"[{float(fitted_lower[first]):.4g}, {float(fitted_upper[first]):.4g}] "
+                f"({'evaluated' if evaluated else 'not evaluated'}); signed delta range "
+                f"{_format_range(delta_range)}; maximum absolute movement "
+                f"{'no finite values' if maximum is None else f'{maximum:.4g}'}"
+            )
+        detail = "; ".join(details)
     return AssessmentItem(
         "truncation_curve",
         AssessmentStatus.COMPLETED,
-        f"evaluated bound range {_format_range(bounds)}; estimate range {_format_range(estimates)}",
+        detail,
     )
 
 

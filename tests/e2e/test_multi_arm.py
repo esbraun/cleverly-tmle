@@ -142,8 +142,15 @@ class TestTheRestOfTheStackStillWorks:
         )
 
     def test_the_truncation_curve_sweeps_a_multi_arm_fit(self, fit) -> None:
-        frame = fit.diagnostics.truncation_curve(bounds=[0.01, 0.05])
-        assert len(frame) > 0
+        frame = fit.diagnostics.truncation_curve(bounds=[fit.config.g_bounds[0]])
+        assert set(frame["estimand"]) == set(fit.estimates)
+        assert frame["is_fitted_bound"].all()
+        assert set(zip(frame["fitted_lower_bound"], frame["fitted_upper_bound"], strict=True)) == {
+            fit.config.g_bounds
+        }
+        for row in frame.itertuples(index=False):
+            assert row.fitted_psi == fit.psi(row.estimand)
+            assert row.delta_from_fitted == pytest.approx(0.0, abs=1e-12)
 
     def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
         """One bound per contrast, and the same one after a reload.

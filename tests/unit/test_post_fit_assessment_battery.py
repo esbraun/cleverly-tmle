@@ -479,6 +479,31 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
     assert "minimum target population fraction 0.3 against anchor 0.34" in item.detail
 
 
+def test_the_truncation_row_summarizes_each_parameter_against_its_fitted_result() -> None:
+    frame = pd.DataFrame(
+        {
+            "bound": [0.01, 0.1, 0.01, 0.1],
+            "upper_bound": [0.99, 0.9, 0.99, 0.9],
+            "estimand": ["msm[(intercept)]", "msm[(intercept)]", "msm[dose]", "msm[dose]"],
+            "psi": [1.0, 1.0, 2.5, 1.5],
+            "fitted_lower_bound": [0.025] * 4,
+            "fitted_upper_bound": [0.975] * 4,
+            "fitted_psi": [1.0, 1.0, 2.0, 2.0],
+            "delta_from_fitted": [0.0, 0.0, 0.5, -0.5],
+            "is_fitted_bound": [False] * 4,
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    assert "msm[(intercept)]: fitted estimate 1" in item.detail
+    assert "signed delta range [0, 0]; maximum absolute movement 0" in item.detail
+    assert "msm[dose]: fitted estimate 2" in item.detail
+    assert "signed delta range [-0.5, 0.5]; maximum absolute movement 0.5" in item.detail
+    assert item.detail.count("(not evaluated)") == 2
+
+
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
     failed_score = SimpleNamespace(rows=(SimpleNamespace(ratio=2.0),), passed=False)
     failed_correction = SimpleNamespace(

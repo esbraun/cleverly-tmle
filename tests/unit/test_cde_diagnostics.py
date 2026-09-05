@@ -184,9 +184,16 @@ class TestTheTruncationCurveReadsTheTargetedLevel:
         self, request: Any, level: str, expected: float
     ) -> None:
         result = request.getfixturevalue(f"fit_at_{level}")
-        curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01])
+        curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.02])
         fraction = np.asarray(curve["truncated_fraction"], dtype=float)
         assert np.allclose(fraction, expected), f"{level}: {fraction}"
+        assert len(curve) == len(result.estimates)
+        assert set(np.asarray(curve["upper_bound"], dtype=float)) == {1.0}
+        assert set(np.asarray(curve["fitted_lower_bound"], dtype=float)) == {
+            result.config.missingness_bound
+        }
+        assert set(np.asarray(curve["fitted_upper_bound"], dtype=float)) == {1.0}
+        assert not np.asarray(curve["is_fitted_bound"], dtype=bool).any()
 
     @pytest.mark.parametrize(("level", "z"), [("zero", 0.0), ("one", 1.0)])
     def test_it_agrees_with_the_positivity_report(self, request: Any, level: str, z: float) -> None:
@@ -196,6 +203,8 @@ class TestTheTruncationCurveReadsTheTargetedLevel:
         curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01])
         reported = result.diagnostics.support().mechanisms[f"P(Z={z:.0f}|A,W)"]["clipped_fraction"]
         assert np.allclose(np.asarray(curve["truncated_fraction"], dtype=float), reported)
+        assert np.asarray(curve["is_fitted_bound"], dtype=bool).all()
+        assert np.allclose(np.asarray(curve["delta_from_fitted"], dtype=float), 0.0, atol=1e-12)
 
 
 @pytest.fixture(scope="module")

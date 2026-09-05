@@ -249,7 +249,15 @@ print(nuisances.summary())
 print(
     curve.loc[
         curve["estimand"] == "msm[assigned contacts]",
-        ["bound", "psi", "ci_lower", "ci_upper", "truncated_fraction"],
+        [
+            "bound",
+            "upper_bound",
+            "psi",
+            "delta_from_fitted",
+            "ci_lower",
+            "ci_upper",
+            "truncated_fraction",
+        ],
     ]
 )
 ```

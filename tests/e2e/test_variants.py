@@ -171,6 +171,89 @@ class TestBoundsAndScaling:
         assert result.config.g_bounds != result.config.g_bounds_conditional
         assert result.config.g_bounds_conditional[0] == pytest.approx(0.025)
 
+        curve = result.diagnostics.truncation_curve()
+        expected = {"ate": result.config.g_bounds, "att": result.config.g_bounds_conditional}
+        for name, pair in expected.items():
+            rows = curve.loc[curve["estimand"] == name]
+            assert set(
+                zip(rows["fitted_lower_bound"], rows["fitted_upper_bound"], strict=True)
+            ) == {pair}
+            fitted = rows.loc[rows["is_fitted_bound"]]
+            assert len(fitted) == 1
+            assert (fitted.iloc[0]["bound"], fitted.iloc[0]["upper_bound"]) == pair
+            assert fitted.iloc[0]["psi"] == pytest.approx(result.psi(name), rel=1e-9)
+            assert fitted.iloc[0]["fitted_psi"] == result.psi(name)
+            assert fitted.iloc[0]["delta_from_fitted"] == pytest.approx(0.0, abs=1e-12)
+
+        combined = result.diagnostics.run_all(include_retargets=True)
+        detail = combined["truncation_curve"].detail
+        assert "ate: fitted estimate" in detail
+        assert "att: fitted estimate" in detail
+        assert detail.count("(evaluated)") == 2
+
+    def test_an_explicit_grid_is_not_expanded_with_fitted_bounds(self) -> None:
+        frame, _ = make_linear_ate(n=1000, seed=36)
+        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
+
+        curve = result.diagnostics.truncation_curve(bounds=[0.05, 0.01, 0.05])
+
+        assert len(curve) == 6
+        assert curve.columns[:8].to_list() == [
+            "bound",
+            "estimand",
+            "psi",
+            "std_err",
+            "ci_lower",
+            "ci_upper",
+            "truncated_fraction",
+            "is_fitted_bound",
+        ]
+        assert curve["bound"].to_list() == [0.01, 0.01, 0.05, 0.05, 0.05, 0.05]
+        assert curve["upper_bound"].to_list() == [0.99, 0.99, 0.95, 0.95, 0.95, 0.95]
+        assert not curve["is_fitted_bound"].any()
+        assert set(curve.loc[curve["estimand"] == "ate", "fitted_lower_bound"]) == {
+            result.config.g_bounds[0]
+        }
+        assert set(curve.loc[curve["estimand"] == "att", "fitted_lower_bound"]) == {
+            result.config.g_bounds_conditional[0]
+        }
+
+    def test_an_asymmetric_fitted_pair_is_evaluated_and_counted_at_both_ends(self) -> None:
+        frame, _ = make_weak_overlap(n=1500, seed=72)
+        pair = (0.05, 0.8)
+        result = (
+            fast_tmle(
+                estimands=("ate",),
+                g_bounds=pair,
+                n_folds=2,
+                learner_folds=2,
+                random_state=3,
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+        curve = result.diagnostics.truncation_curve()
+        fitted = curve.loc[curve["is_fitted_bound"]]
+        propensity = np.asarray(result.nuisance.propensity.values, dtype=float)
+        expected_fraction = np.mean((propensity < pair[0]) | (propensity > pair[1]))
+
+        assert len(fitted) == 1
+        assert expected_fraction > np.mean(propensity < pair[0])
+        assert (fitted.iloc[0]["bound"], fitted.iloc[0]["upper_bound"]) == pair
+        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(expected_fraction)
+        assert fitted.iloc[0]["fitted_psi"] == result.psi("ate")
+        assert fitted.iloc[0]["delta_from_fitted"] == pytest.approx(0.0, abs=1e-12)
+
+        # The old marker compared only the lower endpoint and therefore called this
+        # symmetric rerun the fitted analysis even though its upper endpoint -- and its
+        # answer on this nonzero witness -- differ materially.
+        symmetric = result.diagnostics.truncation_curve(bounds=[pair[0]])
+        assert len(symmetric) == 1
+        assert symmetric.iloc[0]["upper_bound"] == 1.0 - pair[0]
+        assert not symmetric.iloc[0]["is_fitted_bound"]
+        assert abs(symmetric.iloc[0]["delta_from_fitted"]) > 1e-3
+
 
 class TestWeightsAndClusters:
     def test_observation_weights_change_the_estimate(self) -> None:
