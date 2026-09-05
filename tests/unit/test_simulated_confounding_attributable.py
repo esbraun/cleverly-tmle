@@ -391,19 +391,29 @@ def test_attributable_backend_parity_and_sole_alias_facade(target: str) -> None:
 
 
 def test_registered_point_targets_have_an_explicit_surface_disposition() -> None:
+    """Every registered point target carries a written disposition, not a bare membership.
+
+    The point of the check is the sentence beside each name. A group whose members are a
+    bare set records that somebody sorted the target, and not why the surface treats it the
+    way it does. ``policy`` and ``refused`` therefore both map a name to its reason.
+    """
     binary = {"ate", "att", "atc", "ey", "ey1", "ey0", "par", "paf", "rr", "or"}
     continuous = {"ey_shift", "ate_shift"}
+    policy = {
+        "ey_regime": "fixed-regime mean, replayed on the regime axis under ordinary TMLE",
+        "ate_regime": "fixed-regime contrast, replayed on the regime axis under ordinary TMLE",
+        "ey_ipsi": "incremental mean, replayed on the ipsi axis for a marginal request",
+        "ate_ipsi": "incremental contrast, replayed on the ipsi axis for a marginal request",
+        "msm": "working-model coefficient, replayed on the msm axis under ordinary TMLE",
+    }
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
-        "ey_regime": "stochastic intervention needs its own perturbation audit",
-        "ate_regime": "stochastic contrast needs its own perturbation audit",
-        "ey_ipsi": "incremental intervention needs its own perturbation audit",
-        "ate_ipsi": "incremental contrast needs its own perturbation audit",
-        "msm": "projection needs its own perturbation audit",
     }
     assert binary == set(_BINARY_PARAMETER_TARGETS)
-    assert not (binary & continuous or binary & refused.keys() or continuous & refused.keys())
-    assert binary | continuous | refused.keys() == TARGETS.keys()
+    dispositions = (binary, continuous, policy.keys(), refused.keys())
+    assert all(policy.values()) and all(refused.values())
+    assert sum(len(set(group)) for group in dispositions) == len(set().union(*dispositions))
+    assert set().union(*dispositions) == TARGETS.keys()
 
 
 @pytest.mark.parametrize("target", ["par", "paf"])

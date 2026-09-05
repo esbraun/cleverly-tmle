@@ -10,18 +10,21 @@ law, so it lives here.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from numbers import Real
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from ..estimators.base import MEAN_GROUP_ESTIMANDS
+from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..exceptions import CapabilityError
 from ..study import (
     ATC,
     ATE,
     ATT,
+    BackdoorMeanContrast,
+    ExplicitAdjustmentProvider,
     OddsRatio,
     PopulationAttributableFraction,
     PopulationAttributableRisk,
@@ -111,6 +114,300 @@ _CONDITIONAL_TARGETS: frozenset[str] = _BINARY_PARAMETER_TARGETS - MEAN_GROUP_ES
 #: have different causes.  This names their union once, so the coverage tests that assert
 #: which aliases a C-TMLE or DR-TMLE surface exercises need not respell it.
 _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTABLE_TYPES)
+
+
+#: The six missing-science stops, each naming the artifact the surface would need and the
+#: roadmap entry that tracks it.  Named constants rather than inline literals, because the
+#: capability row, the execution refusal, and the roadmap must quote one text.
+_LONGITUDINAL_REFUSAL = (
+    "simulated_confounding has no time-indexed latent law for longitudinal "
+    "treatments, censoring, histories, outcomes, and contrasts; "
+    "docs/roadmap.md F13 tracks this stop"
+)
+_MULTI_ARM_REFUSAL = (
+    "simulated_confounding has no category-valued perturbation law for a multi-arm "
+    "treatment; docs/roadmap.md F8 tracks this stop"
+)
+_MISSING_OUTCOME_REFUSAL = (
+    "simulated_confounding has no joint observation, treatment, and outcome "
+    "perturbation law with identified missing-outcome refit semantics; "
+    "docs/roadmap.md F12 tracks this stop"
+)
+_INTERMEDIATE_REFUSAL = (
+    "simulated_confounding has no ordered treatment, intermediate, observation, "
+    "and outcome law with a controlled-direct-effect contrast contract; "
+    "docs/roadmap.md F15 tracks this stop"
+)
+#: The one stop whose message names the fitted result rather than the surface, because the
+#: result is what stores no weight model.  Accuracy over template uniformity: writing this
+#: like its five neighbours would attribute the missing artifact to the wrong object.
+_ESTIMATED_WEIGHT_REFUSAL = (
+    "simulated_confounding cannot replay estimated observation weights; the fitted result "
+    "stores no weight model, target-population semantics, or regeneration rule; "
+    "docs/roadmap.md F11 tracks this stop"
+)
+_CLUSTERED_REFUSAL = (
+    "simulated_confounding has no source-backed choice among row-level, "
+    "cluster-level, and mixed latent causes for clustered fits; "
+    "docs/roadmap.md F9 tracks this stop"
+)
+
+
+def _refuse_longitudinal(result: Any) -> str | None:
+    """Refuse every declared assessment family except the point-treatment one.
+
+    Runs first, and it is the only rule that runs before the result shape is established,
+    so it reads its attribute defensively.  A longitudinal result is not a ``TMLEResult``
+    either, and it must hear its own missing-law stop rather than a type report.
+
+    ``_LONGITUDINAL_REFUSAL`` is a claim about *that* family, so only ``"longitudinal"``
+    hears it.  Any other declared family refuses with a message that names what the object
+    actually declared.  ``evalue._select_evalue``, ``_derived._risk_ratio_refusal`` and
+    ``_parameters.arm_parameter_keys`` all refuse the complement of ``"point"`` the same
+    way, and none of them asserts a family the object never named.
+
+    An object that declares no family at all is not a fitted result, and the ``result_type``
+    rule that runs next owns that message.  Nothing falls through: only an exact
+    ``TMLEResult`` passes that rule, and ``TMLEResult.assessment_family`` is the class
+    variable ``"point"``, so a result reaching rule three declared its family here.
+    """
+    family = getattr(result, "assessment_family", None)
+    if family == "longitudinal":
+        return _LONGITUDINAL_REFUSAL
+    if family is not None and family != "point":
+        return f"simulated_confounding has no perturbation law for assessment family {family!r}"
+    return None
+
+
+def _refuse_multi_arm(result: Any) -> str | None:
+    """Refuse a treatment that is neither binary nor a continuous dose."""
+    data = result.data
+    if not data.is_continuous_treatment and not data.is_binary_treatment:
+        return _MULTI_ARM_REFUSAL
+    return None
+
+
+def _refuse_missing_outcome(result: Any) -> str | None:
+    """Refuse a fit whose outcome is unobserved on some rows."""
+    if result.data.has_missing_outcome:
+        return _MISSING_OUTCOME_REFUSAL
+    return None
+
+
+def _refuse_intermediate(result: Any) -> str | None:
+    """Refuse a fit that declares an intermediate variable."""
+    if result.data.has_intermediate or result.intermediate_value is not None:
+        return _INTERMEDIATE_REFUSAL
+    return None
+
+
+def _refuse_estimated_weights(result: Any) -> str | None:
+    """Refuse observation weights the fit estimated rather than received."""
+    data = result.data
+    if data.weights_name is not None and data.weight_spec.estimated:
+        return _ESTIMATED_WEIGHT_REFUSAL
+    return None
+
+
+def _refuse_clustered(result: Any) -> str | None:
+    """Refuse a clustered fit, whose latent cause has no source-backed level."""
+    if result.data.cluster is not None:
+        return _CLUSTERED_REFUSAL
+    return None
+
+
+def _refuse_result_type(result: Any) -> str | None:
+    """Refuse any artifact that is not exactly a point-treatment ``TMLEResult``."""
+    if type(result) is not TMLEResult:
+        return (
+            "simulated_confounding supports point-treatment TMLEResult objects only; "
+            f"got {type(result).__name__}"
+        )
+    return None
+
+
+def _refuse_missing_estimator(result: Any) -> str | None:
+    """Refuse a restored or legacy result that stores no replay estimator."""
+    if result.estimator is None:
+        return (
+            "simulated_confounding needs a replayable fitted estimator; this restored or "
+            "legacy result has no estimator configuration"
+        )
+    return None
+
+
+def _refuse_repeat_provenance(result: Any) -> str | None:
+    """Refuse disagreeing repeated-cross-fitting draw counts across stored layers."""
+    stored_repeats = result.n_repeats
+    configured_repeats = result.config.crossfit.repeats
+    replay_repeats = result.estimator.repeats
+    if stored_repeats != configured_repeats or stored_repeats != replay_repeats:
+        return (
+            "simulated_confounding needs consistent repeated-cross-fitting provenance; "
+            f"the stored result has {stored_repeats} draw(s), its configuration declares "
+            f"{configured_repeats}, and the replay estimator declares {replay_repeats}"
+        )
+    return None
+
+
+def _refuse_binary_estimator(result: Any) -> str | None:
+    """Refuse a binary fit made by an estimator this surface cannot replay."""
+    from ..estimators.ctmle import CTMLE
+    from ..estimators.drtmle import DRTMLE
+    from ..estimators.tmle import TMLE
+
+    estimator = result.estimator
+    if not result.data.is_continuous_treatment and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+        return (
+            "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
+            f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
+        )
+    return None
+
+
+def _refuse_continuous_estimator(result: Any) -> str | None:
+    """Refuse a continuous fit made by anything but exact ordinary TMLE."""
+    from ..estimators.tmle import TMLE
+
+    estimator = result.estimator
+    if result.data.is_continuous_treatment and type(estimator) is not TMLE:
+        return (
+            "continuous simulated_confounding supports exact ordinary TMLE only; "
+            f"got {type(estimator).__name__}"
+        )
+    return None
+
+
+def _refuse_outcome_family(result: Any) -> str | None:
+    """Refuse an outcome family with no perturbation law."""
+    data = result.data
+    if data.family not in {"gaussian", "binomial"}:
+        return f"simulated_confounding has no perturbation law for outcome family={data.family!r}"
+    return None
+
+
+def _refuse_weight_kind(result: Any) -> str | None:
+    """Refuse a weight kind other than fixed probability weights."""
+    data = result.data
+    if data.weight_spec.kind != "probability":
+        return (
+            "simulated_confounding supports fixed probability weights only; "
+            f"got weight kind {data.weight_spec.kind!r}"
+        )
+    return None
+
+
+def _refuse_weight_provenance(result: Any) -> str | None:
+    """Refuse disagreeing weight-column and ``WeightSpec`` names."""
+    data = result.data
+    if data.weights_name != data.weight_spec.name:
+        return (
+            "simulated_confounding found inconsistent observation-weight provenance; "
+            "the data column and WeightSpec names disagree"
+        )
+    return None
+
+
+def _refuse_undeclared_weights(result: Any) -> str | None:
+    """Refuse nonconstant weights that no declared column accounts for."""
+    data = result.data
+    if data.weights_name is None and data.is_weighted:
+        return (
+            "simulated_confounding found nonconstant observation weights without a declared "
+            "weight column"
+        )
+    return None
+
+
+def _refuse_identification(result: Any) -> str | None:
+    """Refuse a legacy fit that records no identification metadata."""
+    if result.identified_effect is None:
+        return (
+            "simulated_confounding needs identification metadata for a backdoor parameter; "
+            "this legacy fit records none"
+        )
+    return None
+
+
+def _refuse_functional(result: Any) -> str | None:
+    """Refuse an identified functional other than a backdoor mean contrast."""
+    functional = result.identified_effect.functional
+    if type(functional) is not BackdoorMeanContrast:
+        return (
+            "simulated_confounding supports a backdoor-identified parameter; "
+            f"got {type(functional).__name__}"
+        )
+    return None
+
+
+def _refuse_provider(result: Any) -> str | None:
+    """Refuse backdoor provenance from anything but an explicit adjustment set."""
+    provider = getattr(result.identified_effect, "provider", None)
+    if type(provider) is not ExplicitAdjustmentProvider:
+        return "simulated_confounding needs registered explicit-adjustment backdoor provenance"
+    return None
+
+
+#: Every simulated-confounding refusal that depends on neither the requested estimand nor
+#: the strength grid, in the one order the surface and its capability row both use.  The
+#: table is ordered and each rule assumes its predecessors returned ``None``: rule
+#: ``result_type`` establishes the artifact shape, and ``missing_estimator`` establishes
+#: that a replay estimator exists.  The names are the introspection contract; a test reads
+#: them to pin the order without respelling a message.
+#:
+#: ``result_type`` sits second because every rule after it reads the result's fields
+#: directly, and :class:`~cleverly.CausalResult` is a public runtime-checkable protocol that
+#: declares ``assessment_family`` and no ``data``.  Ordered any later, the free function
+#: :func:`~cleverly.sensitivity.simulated_confounding` raised ``AttributeError`` on a
+#: conforming object rather than refusing it.  It costs no user-visible reordering: it
+#: returns ``None`` for every real ``TMLEResult``, and ``longitudinal`` still runs first so
+#: a longitudinal result hears its own missing-law stop rather than a type report.
+_FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+    ("longitudinal", _refuse_longitudinal),
+    ("result_type", _refuse_result_type),
+    ("multi_arm", _refuse_multi_arm),
+    ("missing_outcome", _refuse_missing_outcome),
+    ("intermediate", _refuse_intermediate),
+    ("estimated_weights", _refuse_estimated_weights),
+    ("clustered", _refuse_clustered),
+    ("missing_estimator", _refuse_missing_estimator),
+    ("repeat_provenance", _refuse_repeat_provenance),
+    ("binary_estimator", _refuse_binary_estimator),
+    ("continuous_estimator", _refuse_continuous_estimator),
+    ("outcome_family", _refuse_outcome_family),
+    ("weight_kind", _refuse_weight_kind),
+    ("weight_provenance", _refuse_weight_provenance),
+    ("undeclared_weights", _refuse_undeclared_weights),
+    ("identification", _refuse_identification),
+    ("functional", _refuse_functional),
+    ("provider", _refuse_provider),
+)
+
+
+def _fit_wide_refusal(result: Any) -> str | None:
+    """Return the first simulated-confounding refusal that applies to the whole fit.
+
+    Every boundary in :data:`_FIT_WIDE_RULES` is reachable from capability reporting and
+    from execution, and neither the requested parameter nor the strength grid can change
+    its verdict. One helper answers both callers, so a fit the surface refuses can never
+    be advertised as available. Parameter-specific and grid-specific checks stay in
+    :func:`_validate_request`.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result inspected by the surface or its assessment facade.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    """
+    for _name, rule in _FIT_WIDE_RULES:
+        reason = rule(result)
+        if reason is not None:
+            return reason
+    return None
 
 
 def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | None) -> str | None:
@@ -532,116 +829,31 @@ def _validate_request(
     benchmark_covariates: Any,
 ) -> _ValidatedRequest:
     """Validate the complete supported boundary before a refit or random draw."""
-    from ..estimators.base import TMLEResult
-    from ..estimators.ctmle import CTMLE
-    from ..estimators.drtmle import DRTMLE
-    from ..estimators.tmle import TMLE
-    from ..study import (
-        BackdoorMeanContrast,
-        ExplicitAdjustmentProvider,
-        NaturalCourseMean,
-        ParameterKey,
-    )
+    from ..study import NaturalCourseMean, ParameterKey
 
     # Deferred because ``simulated_confounding`` imports this module at its own module
     # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
     from .simulated_confounding import _is_constant_under_weights
 
-    if type(result) is not TMLEResult:
-        raise CapabilityError(
-            "simulated_confounding supports point-treatment TMLEResult objects only; "
-            "no longitudinal perturbation law is implemented"
-        )
+    # Every fit-wide boundary lives in one ordered table, which the capability row reads
+    # through the same helper.  An unsupported fit is unsupported whatever grid the caller
+    # passes, so these refusals precede the two grid-range checks below.
+    fit_wide_refusal = _fit_wide_refusal(result)
+    if fit_wide_refusal is not None:
+        raise CapabilityError(fit_wide_refusal)
     estimator = result.estimator
-    if estimator is None:
-        raise CapabilityError(
-            "simulated_confounding needs a replayable fitted estimator; this restored or "
-            "legacy result has no estimator configuration"
-        )
-    stored_repeats = result.n_repeats
-    configured_repeats = result.config.crossfit.repeats
-    replay_repeats = estimator.repeats
-    if stored_repeats != configured_repeats or stored_repeats != replay_repeats:
-        raise CapabilityError(
-            "simulated_confounding needs consistent repeated-cross-fitting provenance; "
-            f"the stored result has {stored_repeats} draw(s), its configuration declares "
-            f"{configured_repeats}, and the replay estimator declares {replay_repeats}"
-        )
     data = result.data
-    if data.is_continuous_treatment:
-        treatment_family: Literal["binary", "continuous"] = "continuous"
-    elif data.is_binary_treatment:
-        treatment_family = "binary"
-    else:
-        raise CapabilityError(
-            "simulated_confounding has no category-valued perturbation law for a multi-arm "
-            "treatment"
-        )
-    if treatment_family == "binary" and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
-        raise CapabilityError(
-            "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
-            f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
-        )
-    if treatment_family == "continuous" and type(estimator) is not TMLE:
-        raise CapabilityError(
-            "continuous simulated_confounding supports exact ordinary TMLE only; "
-            f"got {type(estimator).__name__}"
-        )
+    # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
+    # binary, so exactly one of the two families holds here.
+    treatment_family: Literal["binary", "continuous"] = (
+        "continuous" if data.is_continuous_treatment else "binary"
+    )
     if treatment_family == "binary" and any(value < 0.0 or value > 0.5 for value in grid.treatment):
         raise ValueError("binary treatment strengths must be between 0 and 0.5")
-    if data.family not in {"gaussian", "binomial"}:
-        raise CapabilityError(
-            f"simulated_confounding has no perturbation law for outcome family={data.family!r}"
-        )
     if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
-    if data.has_missing_outcome:
-        raise CapabilityError(
-            "simulated_confounding has no missing-outcome perturbation and observation refit"
-        )
-    if data.has_intermediate or result.intermediate_value is not None:
-        raise CapabilityError(
-            "simulated_confounding has no controlled-direct-effect or intermediate-variable law"
-        )
-    if data.weights_name is not None and data.weight_spec.estimated:
-        raise CapabilityError(
-            "simulated_confounding cannot replay estimated observation weights; the fitted "
-            "result does not store the model needed to re-estimate them after perturbation"
-        )
-    if data.weight_spec.kind != "probability":
-        raise CapabilityError(
-            "simulated_confounding supports fixed probability weights only; "
-            f"got weight kind {data.weight_spec.kind!r}"
-        )
-    if data.weights_name != data.weight_spec.name:
-        raise CapabilityError(
-            "simulated_confounding found inconsistent observation-weight provenance; "
-            "the data column and WeightSpec names disagree"
-        )
-    if data.weights_name is None and data.is_weighted:
-        raise CapabilityError(
-            "simulated_confounding found nonconstant observation weights without a declared "
-            "weight column"
-        )
-    if data.cluster is not None:
-        raise CapabilityError("simulated_confounding does not support clustered fits")
     identified = result.identified_effect
-    if identified is None:
-        raise CapabilityError(
-            "simulated_confounding needs identification metadata for a backdoor parameter; "
-            "this legacy fit records none"
-        )
     functional = identified.functional
-    if type(functional) is not BackdoorMeanContrast:
-        raise CapabilityError(
-            "simulated_confounding supports a backdoor-identified parameter; "
-            f"got {type(functional).__name__}"
-        )
-    provider = getattr(identified, "provider", None)
-    if type(provider) is not ExplicitAdjustmentProvider:
-        raise CapabilityError(
-            "simulated_confounding needs registered explicit-adjustment backdoor provenance"
-        )
     key = result.parameter_keys.get(estimand)
     if (estimand == "ate" and type(identified.estimand) is NaturalCourseMean) or (
         type(key) is ParameterKey and key.estimand == "ey_obs"

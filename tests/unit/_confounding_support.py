@@ -156,12 +156,33 @@ def replacement(result: Any, surface: Any, treatment: float, outcome: float) -> 
 
 
 def forbid_draw_and_refit(monkeypatch: pytest.MonkeyPatch, estimator: Any) -> None:
-    """Fail the test if the surface draws a latent vector or refits before it refuses."""
+    """Fail the test if the surface calibrates, draws, or refits before it refuses.
+
+    The three guards live in one helper because they pin one property: a refusal costs
+    nothing. ``simulated_confounding`` runs ``_validate_request`` in full before it calls
+    ``_calibrate``, ``_latent_child_seed``, or ``estimator.refit``, so every refusal test
+    can forbid all three. A test that forbids the refit alone passes while the surface
+    calibrates first, and calibration is the expensive half of the work before a refit.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture that installs the guards and removes them after the test.
+    estimator : Any
+        Replay estimator stored on the fitted result under test. Pass ``None`` only for a
+        result family that stores no replay estimator, which today is
+        :class:`~cleverly.longitudinal.estimator.LongitudinalResult`. There is no ``refit``
+        to forbid on such a result, and the caller asserts that rather than assuming it.
+    """
     module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(module, "_latent_child_seed", lambda *_: pytest.fail("drew before refusal"))
     monkeypatch.setattr(
-        estimator, "refit", lambda *_args, **_kwargs: pytest.fail("refit before refusal")
+        module, "_calibrate", lambda *_args, **_kwargs: pytest.fail("calibrated before refusal")
     )
+    monkeypatch.setattr(module, "_latent_child_seed", lambda *_: pytest.fail("drew before refusal"))
+    if estimator is not None:
+        monkeypatch.setattr(
+            estimator, "refit", lambda *_args, **_kwargs: pytest.fail("refit before refusal")
+        )
 
 
 def baseline_mask(result: Any, stratum: tuple[str, ...] | None) -> np.ndarray:

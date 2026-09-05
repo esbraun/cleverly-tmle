@@ -293,6 +293,19 @@ previous reader had is not a citation; a page number is.
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- The same DoWhy function branches on treatment and outcome variable types only. It has no branch
+  for a response indicator, intermediate, cluster identifier, longitudinal history, or estimated
+  weight model. These omissions locate the fit-wide refusal boundary. They do not prove that no
+  other method can supply a law.
+- Díaz and van der Laan (2017), under [DR-TMLE](#doubly-robust-inference-drtmle), define the observed-data
+  model and estimator for randomized trials with missing outcomes. Their response mechanism is
+  part of missing-at-random identification. They do not define a response-indicator perturbation
+  for a simulated common cause. Holding the indicator fixed after treatment changes is therefore
+  not licensed by that estimator source.
+- Tan (2025), under [proposed methods](#proposed-methods-on-the-roadmap), defines longitudinal
+  sensitivity models and observed-data bounds. The paper does not define a time-indexed latent
+  perturbation followed by a complete LTMLE refit. It supports S4, not longitudinal replay of this
+  surface.
 - The same pinned DoWhy refit preserves `effect_modifier_names` and `target_units`.
   Its [propensity-weighting estimator](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_estimators/propensity_score_weighting_estimator.py)
   rebuilds ATT and ATC weights from the treatment in the supplied dataset. The

@@ -2444,18 +2444,27 @@ class SensitivityFacade(_CapabilityFacade):
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-
         # parameter substitution. Several eligible aliases require an explicit choice.
-        continuous = not longitudinal and bool(
-            getattr(self._result.data, "is_continuous_treatment", False)
+        # ``LongitudinalData`` declares neither treatment-family flag, so the family guards
+        # both reads.  Neither one needs a ``getattr`` default: a default would answer for a
+        # point result whose data lack the flag, and no such result exists, because both are
+        # properties of ``CausalData``.
+        continuous = not longitudinal and bool(self._result.data.is_continuous_treatment)
+        from .sensitivity._simulated_confounding_request import (
+            _eligible_binary_parameter_names,
+            _fit_wide_refusal,
         )
-        if longitudinal or continuous:
-            binary_needs_estimand = False
-        else:
-            from .sensitivity._simulated_confounding_request import (
-                _eligible_binary_parameter_names,
-            )
 
+        simulated_refusal = _fit_wide_refusal(self._result)
+        if longitudinal or continuous:
+            needs_estimand = False
+        elif not self._result.data.is_binary_treatment:
+            # A multi-arm fit reports no bare ``ate`` that this surface could assess, so the
+            # truthful argument list names an estimand.  The row is unavailable, and its
+            # declared arguments still describe the call a caller would have to write.
+            needs_estimand = True
+        else:
             binary_parameters = _eligible_binary_parameter_names(self._result)
-            binary_needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
+            needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
         available = not longitudinal
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
         reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
@@ -2552,15 +2561,15 @@ class SensitivityFacade(_CapabilityFacade):
                 deterministic=False,
                 cost="expensive",
                 interpretation="estimate movement under a simulated common cause",
-                available=benchmarkable,
-                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
-                reason=(
-                    None
-                    if benchmarkable
-                    else "no longitudinal simulated-confounder perturbation law is implemented"
+                available=simulated_refusal is None,
+                status=(
+                    AssessmentStatus.PASSED
+                    if simulated_refusal is None
+                    else AssessmentStatus.UNAVAILABLE
                 ),
+                reason=simulated_refusal,
                 requires_arguments=("grid", "estimand")
-                if continuous or binary_needs_estimand
+                if continuous or needs_estimand
                 else ("grid",),
                 accepts_random_state=True,
                 requires_replay="refit_nuisances",

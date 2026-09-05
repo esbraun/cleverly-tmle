@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import inspect
 import re
+import types
 import typing
 
 import pandas as pd
@@ -19,6 +20,8 @@ from cleverly import (
     CapabilityError,
     CausalResult,
     CausalStudy,
+    ExplicitAdjustmentProvider,
+    IdentificationProvider,
     LongitudinalTreatment,
     PointTreatment,
     PositivityWarning,
@@ -26,11 +29,18 @@ from cleverly import (
     load,
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
-from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.sensitivity import ConfounderStrengthGrid
+from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity._simulated_confounding_request import (
+    _FIT_WIDE_RULES,
+    _LONGITUDINAL_REFUSAL,
+    _MULTI_ARM_REFUSAL,
+    _fit_wide_refusal,
+)
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
+from tests.unit._confounding_support import forbid_draw_and_refit
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +88,27 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
         n_folds=3,
         learner_folds=2,
         random_state=5,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def multi_arm_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_multi_arm(n=180, seed=13)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+        ),
+    )
+    return study.identify(ATE(reference="low")).estimate(
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=13,
         simultaneous=False,
     )
 
@@ -204,14 +235,204 @@ def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_resu
 
 def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law(  # type: ignore[no-untyped-def]
     longitudinal_result,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    reason = _LONGITUDINAL_REFUSAL
     capability = longitudinal_result.sensitivity.capability("simulated_confounding")
-    assert capability.reason == (
-        "no longitudinal simulated-confounder perturbation law is implemented"
-    )
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(longitudinal_result) == reason
+    # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
+    # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
+    assert not hasattr(longitudinal_result, "estimator")
+    forbid_draw_and_refit(monkeypatch, None)
     grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
-    with pytest.raises(CapabilityError, match=re.escape(capability.reason)):
+    with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + reason
+    )
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(longitudinal_result, grid=grid)
+    assert str(direct_refusal.value) == reason
+
+
+def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = _MULTI_ARM_REFUSAL
+    capability = multi_arm_result.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    # A multi-arm fit reports one estimate per arm, so the surface cannot pick a default
+    # alias. The row must ask for the estimand as well as the grid.
+    assert capability.requires_arguments == ("grid", "estimand")
+    assert _fit_wide_refusal(multi_arm_result) == reason
+    forbid_draw_and_refit(monkeypatch, multi_arm_result.estimator)
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    # Both routes, because multi-arm is the case that regressed once. The facade read the
+    # capability row and the direct call read the guard, and only the guard refused.
+    with pytest.raises(CapabilityError) as facade_refusal:
+        multi_arm_result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + reason
+    )
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(multi_arm_result, grid=grid)
+    assert str(direct_refusal.value) == reason
+
+
+@dataclasses.dataclass(frozen=True)
+class _DelegatingBackdoorProvider:
+    """A custom ``IdentificationProvider`` that reuses the built-in backdoor derivation.
+
+    The ``provider=`` argument of :meth:`cleverly.CausalStudy.identify` is documented and
+    public, so a reader can reach this state without touching a private name. The provider
+    delegates the derivation and then stamps itself, which is what any real third-party
+    provider does. ``simulated_confounding`` reads the stamp, and it requires specifically
+    an ``ExplicitAdjustmentProvider``.
+    """
+
+    name: str = "delegating-backdoor"
+
+    def identify(self, study, estimand):  # type: ignore[no-untyped-def]
+        """Delegate the derivation, then record this provider on the identified effect."""
+        effect = ExplicitAdjustmentProvider().identify(study, estimand)
+        return dataclasses.replace(effect, provider=self)
+
+
+@pytest.fixture(scope="module")
+def custom_provider_result():  # type: ignore[no-untyped-def]
+    """Fit an ordinary point ATE whose only unsupported feature is its provider."""
+    frame, _ = make_linear_ate(n=200, seed=17)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=["W1", "W2", "W3", "W4"]),
+    )
+    provider = _DelegatingBackdoorProvider()
+    assert isinstance(provider, IdentificationProvider)
+    return study.identify(ATE(), provider=provider).estimate(
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=3,
+        simultaneous=False,
+    )
+
+
+def test_a_custom_provider_fit_never_advertises_a_surface_that_refuses_it(  # type: ignore[no-untyped-def]
+    custom_provider_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The capability row and the execution guard must read the same table.
+
+    This is the regression witness. The capability row consulted only the first six
+    fit-wide rules, and the execution guard consulted all eighteen. Every boundary past
+    the sixth therefore reported ``available=True``, ``PASSED`` and ``reason=None``, and
+    then raised when the caller took the row at its word.
+
+    ``provider`` is the last rule in the table, so it is the furthest a public call can
+    reach, and ``provider=`` is a documented extension point rather than a tampered field.
+    The fit is otherwise ordinary: same design, same learners, same estimand as
+    ``point_result``. Only the identification provider differs.
+    """
+    result = custom_provider_result
+    assert type(result.identified_effect.provider) is _DelegatingBackdoorProvider
+    # The nonzero control: everything the first six rules test is fine on this fit, so a
+    # refusal here can only come from a rule beyond them.
+    assert result.assessment_family == "point"
+    assert result.data.is_binary_treatment
+    assert not result.data.has_missing_outcome
+    assert not result.data.has_intermediate
+    assert result.data.cluster is None
+
+    capability = result.sensitivity.capability("simulated_confounding")
+    forbid_draw_and_refit(monkeypatch, result.estimator)
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(result, grid=grid)
+
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == str(direct_refusal.value)
+    assert _fit_wide_refusal(result) == str(direct_refusal.value)
+    with pytest.raises(CapabilityError) as facade_refusal:
+        result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + capability.reason
+    )
+
+
+#: One ``dataclasses.replace`` per fit-wide rule that the capability row did not read
+#: before this change, named by the rule it reaches.  Each edit is minimal, so the rules
+#: before it in ``_FIT_WIDE_RULES`` still pass and the named rule is the one that fires.
+_LATE_RULE_CASES: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+    "missing_estimator": lambda result: dataclasses.replace(result, estimator=None),
+    "outcome_family": lambda result: dataclasses.replace(
+        result, data=dataclasses.replace(result.data, family="poisson")
+    ),
+    "weight_kind": lambda result: dataclasses.replace(
+        result,
+        data=dataclasses.replace(
+            result.data,
+            weight_spec=dataclasses.replace(result.data.weight_spec, kind="frequency"),
+        ),
+    ),
+    "weight_provenance": lambda result: dataclasses.replace(
+        result,
+        data=dataclasses.replace(
+            result.data,
+            weight_spec=dataclasses.replace(result.data.weight_spec, name="wrong"),
+        ),
+    ),
+    "identification": lambda result: dataclasses.replace(result, identified_effect=None),
+    "functional": lambda result: dataclasses.replace(
+        result,
+        identified_effect=dataclasses.replace(
+            result.identified_effect, functional=types.SimpleNamespace()
+        ),
+    ),
+    "provider": lambda result: dataclasses.replace(
+        result,
+        identified_effect=dataclasses.replace(
+            result.identified_effect, provider=types.SimpleNamespace()
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_LATE_RULE_CASES))
+def test_every_late_fit_wide_rule_reaches_the_capability_row(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, rule: str
+) -> None:
+    """Sample the rules the capability row skipped, not the one that a public fit reaches.
+
+    ``test_a_custom_provider_fit_never_advertises_a_surface_that_refuses_it`` reaches the
+    last rule through the public API and is the load-bearing witness. It pins one boundary.
+    These cases carry a tampered fitted result, which is how the neighbouring refusal tests
+    construct a state no supported fit produces, and they check the same agreement across a
+    sample of the rules that the row previously never read.
+    """
+    assert rule in {name for name, _ in _FIT_WIDE_RULES}
+    tampered = _LATE_RULE_CASES[rule](point_result)
+    capability = tampered.sensitivity.capability("simulated_confounding")
+    forbid_draw_and_refit(monkeypatch, point_result.estimator)
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(
+            tampered, grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+        )
+
+    assert not capability.available, rule
+    assert capability.status is AssessmentStatus.UNAVAILABLE, rule
+    assert capability.reason == str(refusal.value), rule
+    assert _fit_wide_refusal(tampered) == str(refusal.value), rule
+    # The nonzero control: the untampered fit advertises the row and does not refuse.
+    intact = point_result.sensitivity.capability("simulated_confounding")
+    assert intact.available and intact.reason is None
 
 
 def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]
@@ -580,7 +801,14 @@ def test_capabilities_never_claims_a_row_that_replayability_forbids(point_result
         assert not row.available
         assert row.status is AssessmentStatus.UNAVAILABLE
         assert "estimator configuration" in (row.reason or "")
-        with pytest.raises(CapabilityError, match="no longer carries"):
+        # Two wordings are correct here, and the contract is the same under both. A row
+        # the replay gate rewrites says the result "no longer carries" its estimator. A
+        # row that its own declaration already refused keeps that more specific reason,
+        # which for ``simulated_confounding`` says the result has "no estimator
+        # configuration". The gate short-circuits rather than overwriting the sharper
+        # text. Pinning one wording would forbid the sharper one.
+        wordings = r"no longer carries|no estimator configuration"
+        with pytest.raises(CapabilityError, match=wordings):
             surface._require(row.operation)
 
     # The nonzero control: the same rows are available while the estimator is present, so

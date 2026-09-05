@@ -425,10 +425,11 @@ class DRTMLE(TMLE):
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions
     on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
     rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  The fit still runs; what
-    ``docs/roadmap.md``, *F5. Other refused DR-TMLE compositions*, withholds is an interval claim,
-    until a paper supplies the influence contribution for estimating them.
-    ``simulated_confounding`` refuses the composition outright, because it cannot replay the
-    weight model after a perturbation.
+    the current method contract withholds is an interval claim until a paper supplies the
+    influence contribution for estimating them. Roadmap item F5 tracks that withheld interval.
+    Roadmap item F11 separately tracks the stored model, target-population semantics, and
+    regeneration rule needed by a perturbation refit.
+    ``simulated_confounding`` refuses the composition outright until that replay contract exists.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
     complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those

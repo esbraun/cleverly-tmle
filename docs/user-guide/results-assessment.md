@@ -544,8 +544,24 @@ Read the output as a qualitative stress surface. It is not a corrected estimate,
 confidence interval, robustness value, or pass/fail result. Calibration reports model-dependent
 source conventions for numeric covariates. It does not change the declared grid.
 
-The operation refuses estimated weights before it draws the latent vector. The fitted result does
-not store the weight model needed after a perturbation.
+Inspect `result.sensitivity.capability("simulated_confounding")` before a combined run. Its
+`available`, `status`, and `reason` fields read the same fit-wide check as direct execution. The
+check is one ordered list, and it stops at the first boundary your fit meets. Six stops wait on
+published theory: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
+clustered fits. Twelve provenance and shape stops read the result type, the replay estimator, the
+repeat provenance, the outcome family, the observation weights, and the identification metadata.
+The result-type stop runs second, because every later stop reads a field that only a
+point-treatment result declares.
+
+The capability row names the same stop that direct execution would raise, for all eighteen. Take a
+fit whose backdoor provenance is not a registered explicit adjustment set. Its row reports
+`available=False` and the reason
+`"simulated_confounding needs registered explicit-adjustment backdoor provenance"`. The
+[technical reference](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+lists the twelve stops in order. Each refusal occurs before calibration, a latent draw, or a refit.
+
+Estimated-weight replay needs the fitted weight model, target-population semantics, and a
+regeneration rule. The fitted result does not store that contract.
 
 A fixed-weight collaborative fit reruns its selector or outcome-adaptive treatment fit at each
 cell. It uses the normalized row weights in every nuisance fit, loss, penalty, targeting step, and
@@ -554,8 +570,10 @@ plug-in.
 The R `ctmle` and archived `ctmle3` sources provide no weighted comparator. The fixed-weight
 collaborative surface makes no numerical parity claim with those implementations.
 
-Clustered fits remain a theory stop. No cited source defines the latent cause at the row, cluster,
-or mixed level.
+Missing-outcome replay needs a joint law for the response indicator, treatment, and outcome.
+Holding the response indicator fixed can break missing at random after treatment changes.
+Intermediate and longitudinal fits need their own ordered latent laws. Clustered fits need a
+source-backed choice among row-level, cluster-level, and mixed latent causes.
 
 A combined call excludes refits and retargets by default. A row skipped for cost alone names the
 flag that would run it. A row that also needs a choice names the choice instead. Longitudinal
