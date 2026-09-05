@@ -820,9 +820,9 @@ def simulated_confounding(
     collaborative-TMLE and DR-TMLE fits can also declare them. Every replacement and refit
     keeps the normalized weight on its original row. The induced association conditions
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
-    original population. Longitudinal, missing-outcome, intermediate, estimated-weight, and
-    clustered fits are refused before calibration, a draw, or a refit. Execution and the
-    assessment capability share the same ordered reasons.
+    original population. Longitudinal, multi-arm, missing-outcome, intermediate,
+    estimated-weight, and clustered fits are refused before calibration, a draw, or a
+    refit. Execution and the assessment capability share the same ordered reasons.
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline
     stratum membership stays fixed. ATT and ATC instead recompute their observed-treatment

@@ -44,7 +44,6 @@ rather than implying the request was ill-posed.
 | a fixed-baseline E-value whose risk difference is at or below the negative of the reference-arm mean | [the E-value paths](validation-methods.md#e-value). The difference implies a nonpositive risk in the contrast arm, and no risk ratio describes one |
 | a cached-nuisance risk ratio after CV evaluation | the estimator refuses nonlinear ratio targets on this evaluation path. Post-fit retargeting keeps that boundary |
 | a controlled direct risk ratio | fixing an intermediate variable defines another target. The library registers no controlled direct risk-ratio target |
-| the simulated common-cause surface on a longitudinal, missing-outcome, estimated-weight, or intermediate-variable fit | [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface). It names every composition the surface refuses, and it gives each one a `kind`. Ordinary TMLE, binary complete-outcome collaborative TMLE, and binary complete-outcome DR-TMLE accept fixed probability weights. Multi-arm treatment and a clustered fit wait on published theory, so this heading does not cover them |
 
 Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
@@ -115,6 +114,18 @@ The column names which of the three sections above the row belongs to. The simul
 table also uses `waiting on published theory` from the
 [roadmap's eligibility rules](../roadmap.md#eligibility).
 
+The simulated common-cause surface refuses six compositions for the whole fit. They are a
+longitudinal fit, multi-arm treatment, a missing outcome, an intermediate variable, estimated
+observation weights, and a clustered fit. Each one waits on published theory, so none of the three
+sections above covers it. The
+[future investigations grid](../roadmap.md#future-investigations) tracks each stop against the
+result a paper must supply.
+
+The surface accepts fixed probability weights under ordinary TMLE, under binary complete-outcome
+collaborative TMLE, and under binary complete-outcome DR-TMLE. Read
+[the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface) for
+every composition it refuses and the `kind` of each one.
+
 ## Where a multi-valued treatment is supported
 
 A multinomial treatment mechanism is the default construction here rather than a variant of a
@@ -135,7 +146,7 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism, selected against one nonredundant vector. See the [standing decision](../architecture-invariants.md#targets-interventions-and-variants) |
 | `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](longitudinal-tmle.md#the-algorithm-as-implemented). Each node owns its level set, and the clever covariate selects the assigned label's probability |
 | positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast, and each reads its arms from the parameter's structured index rather than assuming two |
-| simulated common-cause sensitivity | supported for binary and continuous treatment; named theory stops cover the remaining fit-wide gaps | The binary surface accepts marginal and baseline-stratum arm means, ATE, and ratios under ordinary TMLE and C-TMLE. Ordinary TMLE also accepts ATT and ATC with perturbed group membership. Ordinary TMLE alone accepts marginal and baseline-stratum PAR, PAF, fixed-regime parameters, and identity-link MSM coefficients. It also accepts marginal incremental targets and nonlinear MSM coefficients. Complete-outcome DR-TMLE supports marginal arm means, ATE, and ratios only. The continuous surface accepts marginal and baseline-stratum modified-policy means and contrasts under ordinary TMLE. Continuous MSMs require marginal fits. Every listed row accepts fixed probability weights. Longitudinal, missing-outcome, intermediate, estimated-weight, and clustered fits report unavailable before work begins. Multi-arm treatment and logical categorical calibration remain theory stops. `NaturalCourseMean`, the zero-delta policy mean, and the multiplier-one incremental mean remain refused. See the [population contract and refusal table](validation-methods.md#simulated-common-cause-stress-surface) |
+| simulated common-cause sensitivity | supported for binary and continuous treatment; named theory stops cover the remaining fit-wide gaps | The binary surface accepts marginal and baseline-stratum arm means, ATE, and ratios under ordinary TMLE and C-TMLE. Ordinary TMLE also accepts ATT and ATC with perturbed group membership. Ordinary TMLE alone accepts marginal and baseline-stratum PAR, PAF, fixed-regime parameters, and identity-link MSM coefficients. It also accepts marginal incremental targets and nonlinear MSM coefficients. Complete-outcome DR-TMLE supports marginal arm means, ATE, and ratios only. The continuous surface accepts marginal and baseline-stratum modified-policy means and contrasts under ordinary TMLE. Continuous MSMs require marginal fits. Every listed row accepts fixed probability weights. Longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and clustered fits report unavailable before work begins. Each of those six waits on published theory, and so does logical categorical calibration. `NaturalCourseMean`, the zero-delta policy mean, and the multiplier-one incremental mean remain refused. See the [population contract and refusal table](validation-methods.md#simulated-common-cause-stress-surface) |
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`. The multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one |
 | stochastic categorical policies and continuous doses at a longitudinal node | a different question | both change the intervention *density* rather than which label is assigned, so neither is the parameter the sequential regression identifies |

@@ -481,7 +481,7 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
 The registered incremental and point-MSM artifacts remain unchanged.
 The estimator refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
-Roadmap item F14 tracks those targeting extensions before any replay audit.
+Roadmap item X8 tracks those targeting extensions before any replay audit.
 The point-MSM study covers identity-link finite-arm estimation; it supplies no nonlinear or continuous-MSM interval validation.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
@@ -656,13 +656,43 @@ measurement, so
 `tests/unit/test_simulated_confounding.py::test_fixed_weight_ctmle_surface_is_invariant_to_a_common_weight_scale`
 applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 
-**Refusals.** `_fit_wide_refusal`, in
-`src/cleverly/sensitivity/_simulated_confounding_request.py`, checks longitudinal, multi-arm,
-missing-outcome, intermediate, estimated-weight, and clustered fits in that order. `_validate_request`
-applies its
-reason before calibration, a random draw, or a refit. The assessment capability uses the same
-reason, so `available`, `status`, and direct execution agree. The `kind` column uses the
-vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
+**Refusals.** `_FIT_WIDE_RULES`, in
+`src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
+boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
+walks that table and returns the first reason that applies. Six missing-science stops apply in
+this order: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
+clustered fits. Each one carries a roadmap item, and the refusal table below gives it a row.
+
+Twelve provenance and shape stops read the object you hold rather than the state of the science.
+The `result_type` stop runs second, before the multi-arm stop, because every later rule reads a
+field that only a `TMLEResult` declares. The other eleven follow the clustered stop. The table
+below gives all twelve in contract order.
+
+| rule | refuses |
+| --- | --- |
+| `result_type` | an artifact that is not exactly a point-treatment `TMLEResult` |
+| `missing_estimator` | a restored or legacy result that stores no replay estimator |
+| `repeat_provenance` | a stored draw count, a `config.crossfit.repeats`, and a replay estimator `repeats` that disagree |
+| `binary_estimator` | a binary fit made by an estimator other than `TMLE`, `CTMLE`, or `DRTMLE` |
+| `continuous_estimator` | a continuous fit made by anything but exact ordinary `TMLE` |
+| `outcome_family` | an outcome family other than `gaussian` or `binomial` |
+| `weight_kind` | a weight kind other than `probability` |
+| `weight_provenance` | a `weights_name` and a `WeightSpec` name that disagree |
+| `undeclared_weights` | nonconstant observation weights with no declared weight column |
+| `identification` | a legacy fit that records no identification metadata |
+| `functional` | an identified functional other than a backdoor mean contrast |
+| `provider` | backdoor provenance from anything but a registered explicit adjustment set |
+
+`_validate_request` applies the first reason before calibration, a random draw, or a refit. The
+assessment capability walks the same table, so `available`, `status`, `reason`, and direct
+execution name the same stop for all eighteen. A fit that reaches the `provider` stop reports
+`reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
+capability row.
+
+The rows below record the six missing-science stops, plus the estimands and compositions the
+surface refuses. The
+`kind` column uses the vocabulary of
+[how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
 `waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 
 | refused | kind | why |
@@ -675,8 +705,8 @@ vocabulary of [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusa
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata` |
-| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [F14](../roadmap.md#f14-stratified-incremental-and-msm-replay) |
+| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
+| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
 | a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
@@ -701,10 +731,8 @@ guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
 | regime or MSM under C-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate RegimeMean: no collaborative score is evidenced for this functional`. Other targets name their own type |
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
 
-The surface also refuses a result with no replay state, a result with no identification metadata,
-and a constant benchmark covariate. It refuses a result whose repeat provenance disagrees with
-itself. The stored draw count, `config.crossfit.repeats`, and the replay estimator's `repeats`
-must state the same number. Each is a statement about the object you hold.
+The surface also refuses a constant benchmark covariate. That check reads the requested covariate
+rather than the fitted result, so it sits outside the fit-wide table.
 
 `test_fit_wide_refusals_have_one_order_and_match_assessment` checks the shared order and exact
 capability reasons. `test_real_mar_fit_refuses_before_calibration_draw_or_refit` uses a fitted
@@ -712,12 +740,9 @@ ordinary MAR estimator. `test_randomized_missing_outcome_fit_refuses_simulated_c
 uses the separate randomized DR-TMLE construction. Both tests fail if refusal reaches calibration,
 the latent draw, or a refit.
 
-The surface also refuses three observation-weight states. It refuses a weight kind other
-than `probability`, because it supports fixed probability weights only. It refuses a result whose
-`weights_name` and `WeightSpec` name disagree, which is inconsistent weight provenance. It refuses
-nonconstant observation weights with no declared weight column.
 `tests/unit/test_simulated_confounding.py::test_weight_refusals_and_provenance_tampering_precede_draws_and_refits`
-pins all three before the first draw and refit.
+pins the three weight stops before the first draw and refit. It also tampers with stored
+provenance, so a passing run witnesses each refusal on a real fitted result.
 
 Numeric calibration follows the maintained DoWhy source as secondary implementation provenance.
 For a binary variable, it reports the class-prediction change after one standardized column is set
