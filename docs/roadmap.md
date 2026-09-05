@@ -415,6 +415,27 @@ Give the new operation its own sensitivity route, capability rows, and report in
 make the shipped point-treatment sensitivity rows available on a longitudinal result. Each of
 those rows still waits for its own longitudinal derivation.
 
+#### Next PR: close S4 and the persistence contract
+
+Complete the first-hand S4 source audit before adding a sample-data operation. Tan (2025) derives
+population bounds and leaves sample estimation, algorithms, and statistical inference to future
+work. Move S4 to a named future investigation unless another published result supplies those
+missing contracts.
+
+Close the adjacent X1 persistence item against the implementation that already ships. Extend the
+existing longitudinal round-trip test instead of adding another serialization representation.
+
+| unit | planned change | acceptance evidence |
+| --- | --- | --- |
+| S4 source boundary | Record binary static strategies, terminal outcomes, model-specific sharpness, and the missing sample estimator and inference theory. | Cite the final paper and preserve explicit refusals for unsupported sample operations. |
+| X1 fitted graph | Compare config, folds, mechanisms, regimen fits, sequential steps, targeting state, provenance, method, identified effect, and parameter keys after save and load. | Use one multi-fold censored fit with nonzero targeting and nontrivial masks and weights. |
+| X1 assessment state | Compare cache keys, packed report payloads, reconstructed reports, replayability, and one sensitivity refusal after save and load. | Require exact report equality and the same named refusal reason. |
+| roadmap cleanup | Remove completed X1, move blocked S4 out of the main sequence, and resequence the remaining items. | Make the next active item match the first implementation-ready contract. |
+
+Do not add production serialization code unless the expanded regression exposes a lost field. The
+persisted operation cache remains the single source for reconstructed assessment reports. No
+registered validation study applies because this PR must not change fitted values.
+
 ### F3. Additional longitudinal estimands
 
 Competing-event interventions and other longitudinal estimands wait for their own identification
