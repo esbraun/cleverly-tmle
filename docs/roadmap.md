@@ -105,7 +105,7 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Two gaps the audit found are fixed.
+Three gaps the audit found are fixed.
 
 The combined support row no longer contradicts the report it retains. One tiering decision now
 lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
@@ -117,11 +117,14 @@ and reports the ratio for the analyst to judge. The row is therefore `completed`
 A guarded DR-TMLE truncation curve now declares `refit` rather than `retarget`, because its
 targeting alternation refits the reduced regressions at every bound.
 
+Truncation text now describes the bound as finite-sample regularisation. A moving curve reports
+extrapolation sensitivity through the remainder. It does not redefine the requested estimand as
+an overlap-population estimand.
+
 The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| interpretation text | describe truncation as extrapolation or regularization sensitivity. Do not claim that it changes the requested estimand into an overlap-population estimand |
 | composed support | report the complete clever-covariate denominator for missing-outcome and controlled-direct-effect fits, including joint ESS and concentration |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |

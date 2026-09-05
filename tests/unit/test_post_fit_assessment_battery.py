@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+import cleverly.sensitivity.positivity as positivity_module
 from cleverly import (
     ATE,
     AssessmentReport,
@@ -1380,6 +1381,22 @@ def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
         verdict = _positivity(fraction, 0.25).verdict()
         assert "effective 25%" in verdict
         assert "No threshold is applied to that share" in verdict
+
+
+def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
+    """A binding bound changes the procedure, not the parameter it estimates."""
+    verdict = _positivity(0.06, 0.9).verdict()
+
+    assert "sensitive to this finite-sample regularisation" in verdict
+    explanations = (
+        positivity_module.__doc__,
+        positivity_module.truncation_curve.__doc__,
+        verdict,
+    )
+    for explanation in explanations:
+        assert explanation is not None
+        assert "does not change the requested estimand" in " ".join(explanation.split())
+    assert "describing the region of overlap only" not in verdict
 
 
 def _drtmle(**overrides: object):

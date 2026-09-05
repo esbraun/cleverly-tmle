@@ -221,6 +221,7 @@ class TestTruncationCurve:
         assert float(values.max() - values.min()) < 1e-9
 
     def test_the_curve_moves_when_overlap_is_poor(self, poor_overlap) -> None:
+        headline = poor_overlap.psi("ate")
         curve = nw.from_native(
             poor_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05, 0.15], estimands=["ate"]),
             eager_only=True,
@@ -232,6 +233,13 @@ class TestTruncationCurve:
         # Tighter bounds truncate more units and buy variance with bias.
         assert np.all(np.diff(truncated) > 0)
         assert errors[0] > errors[-1]
+        # The estimate moves because the finite-sample procedure changes. The requested
+        # parameter does not: every row remains the fitted ATE, and the result still
+        # records that same estimand after the retargeting sweep.
+        assert set(curve["estimand"].to_list()) == {"ate"}
+        assert poor_overlap.config.estimands == ("ate",)
+        assert tuple(poor_overlap.estimates) == ("ate",)
+        assert poor_overlap.psi("ate") == headline
 
     def test_the_fitted_bound_is_marked(self, good_overlap) -> None:
         curve = nw.from_native(
