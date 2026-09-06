@@ -509,6 +509,11 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
 
     clipped = truncation.units
     inside = raw[~clipped]
+    # This line still reads the two columns as complements, which the rest of the function
+    # no longer does: `raw` is g1 alone, so `1 - inside.max()` is the control denominator
+    # only on the simplex. `truncate` sends a two-arm `simplex=False` mechanism down its
+    # column-by-column branch instead. Nothing in `src/` builds such a mechanism today, so
+    # this is recorded rather than restructured.
     most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
 
     return PositivityReport(
@@ -813,9 +818,13 @@ def truncation_curve(
         every exact bound pair the requested parameters used.  An explicit sequence is
         evaluated exactly as requested and is never expanded with fitted points.
     estimands : sequence of str or None
-        Restrict the emitted rows to these reported parameters.  ``None`` uses every
-        parameter the fit reported.  A name the fit did not report is refused, because
-        it has no fitted pair and no fitted estimate for a row to reference.
+        Restrict the emitted rows to these parameters.  ``None`` uses every parameter the
+        fit reported.  Two forms are accepted.  A reported parameter selects its own row,
+        so ``"ey[high]"`` gives one row per bound pair.  A registered target name selects
+        every reported alias of that target, in report order, so ``"ey"`` on a three-armed
+        fit gives three rows per bound pair and on a two-armed fit gives one.  A name that
+        is neither is refused, because it has no fitted pair and no fitted estimate for a
+        row to reference, and an empty selection is refused because it names no row.
     mechanism : bool
         Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
         instead of the one on ``g(W)``.  That probability divides the clever covariate
@@ -840,17 +849,12 @@ def truncation_curve(
             "truncation_curve needs the fitted estimator that produced the result"
         )
 
-    reported = tuple(result.estimates) if estimands is None else tuple(dict.fromkeys(estimands))
-    # Refused here, before the first retarget. A name the fit never reported has no fitted
-    # pair and no fitted estimate, so every row it would fill is undefined -- and stemming
-    # it to a target the registry does know would answer a typed arm label with the whole
-    # target rather than with the refusal the caller needs.
-    unknown = [name for name in reported if name not in result.estimates]
-    if unknown:
-        raise CapabilityError(
-            f"parameter(s) {unknown} were not reported by this fit; "
-            f"choose from {list(result.estimates)}"
-        )
+    # Every reported alias against the target that answers it, in report order. The
+    # selection below reads it, and so does the row loop, so the registry is asked once.
+    reported_targets = {name: _target_name(result, name) for name in result.estimates}
+    reported = (
+        tuple(result.estimates) if estimands is None else _select(estimands, reported_targets)
+    )
     if mechanism and result.nuisance.missingness is None and result.nuisance.intermediate is None:
         raise CapabilityError(
             "mechanism=True needs a fit with missing outcomes or an intermediate "
@@ -864,12 +868,9 @@ def truncation_curve(
 
     # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
     # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
-    # against `ey` for a wider one. Structured keys carry that mapping on public workflow
-    # results; the canonical stem is the compatibility path for raw estimator results.
-    # The widening is asked of the registry once, here, and the rows narrow back to
-    # `reported`: an arm-narrowed fit reports `ey[high]` alone while the estimator still
-    # retargets every arm of `ey`.
-    targets = {name: _target_name(result, name) for name in reported}
+    # against `ey` for a wider one. The rows narrow back to `reported`: an arm-narrowed fit
+    # reports `ey[high]` alone while the estimator still retargets every arm of `ey`.
+    targets = {name: reported_targets[name] for name in reported}
     names = tuple(dict.fromkeys(targets.values()))
     pairs = {
         name: _fitted_bound_pair(result, target, mechanism=mechanism)
@@ -952,6 +953,52 @@ def truncation_curve(
     return result.data.frame_like(payload)
 
 
+def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]:
+    """The reported parameters an ``estimands=`` request selects, in report order.
+
+    A reported parameter selects its own row.  A registered target name selects every
+    reported alias of that target, because the two spellings coincide only on a two-armed
+    fit: ``estimands=["ey"]`` has to keep working on a fit that reports ``ey[low]``,
+    ``ey[medium]`` and ``ey[high]``, where the target is the name a caller has.
+
+    Every other name is refused here, before the first retarget.  It has no fitted pair
+    and no fitted estimate, so every row it would fill is undefined.  A typed arm label
+    the fit does not carry, such as ``ey[nope]``, is one of those: it is not stemmed back
+    to ``ey`` and answered with the whole target.  An empty request is refused for the
+    same reason, and at the same point, because it names no row for the sweep to emit.
+    """
+    requested = tuple(dict.fromkeys(estimands))
+    if not requested:
+        raise CapabilityError(
+            "estimands= selected no parameter; pass at least one of "
+            f"{list(reported_targets)}, or None for every parameter this fit reported"
+        )
+    targets = [
+        name for name in dict.fromkeys(reported_targets.values()) if name not in reported_targets
+    ]
+    unknown = [
+        name
+        for name in requested
+        if name not in reported_targets and name not in reported_targets.values()
+    ]
+    if unknown:
+        also = f"; or a target name whose reported arms it selects: {targets}" if targets else ""
+        raise CapabilityError(
+            f"parameter(s) {unknown} were not reported by this fit; "
+            f"choose from {list(reported_targets)}{also}"
+        )
+    selected = [
+        alias
+        for name in requested
+        for alias in (
+            (name,)
+            if name in reported_targets
+            else tuple(a for a, target in reported_targets.items() if target == name)
+        )
+    ]
+    return tuple(dict.fromkeys(selected))
+
+
 def _target_name(result: TMLEResult, name: str) -> str:
     """Registered target for one reported alias, with a legacy-result fallback."""
     # The mapping is a dataclass field and always exists, but a raw estimator result
@@ -973,10 +1020,15 @@ def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: 
     """Share of the nuisance the bound would clip, for whichever bound is swept.
 
     The treatment branch asks :meth:`~cleverly.estimators._nuisance.Propensity.truncate`
-    and reports the share of **units** it moves.  A unit is one row of the mechanism, and
-    one binding denominator is enough to make that row's contribution extrapolation.  The
-    mechanism branch has one column per arm as well, but its bound is applied cell by cell
-    and is reported that way.
+    and reports the share of **units** it moves at ``pair``.  A unit is one row of the
+    mechanism, and one binding denominator is enough to make that row's contribution
+    extrapolation.  The share therefore belongs to the pair it was evaluated at, and it
+    equals the :func:`positivity_report` figure only at that report's own pair.  A
+    continuous treatment fits no arms at all, and the share is ``nan`` there rather than
+    a claim that the bound moved nothing.
+
+    The mechanism branch has one column per arm as well, but its bound is applied cell by
+    cell and is reported that way.
     """
     if not mechanism:
         return result.nuisance.propensity.truncate(pair).fraction

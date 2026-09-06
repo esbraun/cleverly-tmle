@@ -121,6 +121,11 @@ The curve records `upper_bound`, the parameter-specific fitted bound pair and es
 keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
 still name the configuration the grid omitted.
 
+`estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
+`ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for
+each arm of that target the fit reports. The two forms coincide on a two-armed fit. The curve
+refuses any other name, and it refuses an empty selection.
+
 A combined report gives one signed movement range for each reported parameter or working-model
 coefficient. It measures that movement from the parameter's own fitted estimate. It also counts the
 parameters whose fitted pair the grid skipped. Read the fitted estimate and the fitted pair from the

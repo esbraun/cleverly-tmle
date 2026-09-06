@@ -85,10 +85,18 @@ _SIMPLEX_TOLERANCE = 1e-9
 class Truncation:
     """One truncated mechanism, beside the cells the truncation rule moved.
 
-    :meth:`Propensity.truncate` returns this so that no caller has to restate the rule.
-    A diagnostic that rebuilds ``(values < lower) | (values > upper)`` for itself gets a
-    different answer from the estimator whenever the bound pair is asymmetric, because
-    that predicate is not the rule a two-arm mechanism is clipped by.
+    :meth:`Propensity.truncate` returns this so that a caller holding the mechanism reads
+    the rule instead of restating it.  A diagnostic that rebuilds
+    ``(values < lower) | (values > upper)`` for itself gets a different answer from the
+    estimator whenever the bound pair is asymmetric, because that predicate is not the
+    rule a two-arm mechanism is clipped by.
+
+    Two targeting modules still write the same rule out, because they are handed the raw
+    array rather than the object and so cannot call :meth:`Propensity.truncate`.
+    :func:`~cleverly.inference.influence.reduced_correction_parts` restates :attr:`clipped`
+    and :attr:`units`, and ``cleverly.fluctuation.reduced.reduced_mechanism_covariate``
+    and ``_bounded_armwise_propensity`` restate :attr:`values`.  All three agree with this
+    rule today, and no test ties them to it.
 
     Parameters
     ----------
@@ -109,7 +117,17 @@ class Truncation:
 
     @property
     def fraction(self) -> float:
-        """The share of rows the bound moved, counted per unit rather than per cell."""
+        """The share of rows the bound moved, counted per unit rather than per cell.
+
+        ``nan`` for a mechanism with no arms, which is what a continuous treatment fits:
+        its propensity is ``(n, 0)``, and a share of moved units is not a quantity that
+        mechanism has.  The guard belongs here rather than in each diagnostic, because
+        ``np.any`` over an empty axis is ``False`` by definition and the mean of that is a
+        well-formed ``0.0`` -- a positive claim that the bound moved no unit, made about a
+        mechanism with no unit to move.
+        """
+        if np.asarray(self.clipped).shape[1] == 0:
+            return float("nan")
         return float(self.units.mean())
 
 
@@ -187,9 +205,13 @@ class Propensity:
     def truncate(self, bounds: tuple[float, float]) -> Truncation:
         r"""The ``(n, K)`` mechanism truncated into ``bounds``, beside the cells that moved.
 
-        This is the one place the truncation rule is written. :meth:`bounded` returns the
+        This is where the diagnostics read the truncation rule. :meth:`bounded` returns the
         values alone, and every diagnostic that reports a truncation load reads the mask
         from here rather than rebuilding a predicate that disagrees with the estimator.
+        Two array-level targeting sites still restate the rule, because they never hold
+        this object: :func:`~cleverly.inference.influence.reduced_correction_parts` and
+        ``cleverly.fluctuation.reduced``'s ``reduced_mechanism_covariate`` and
+        ``_bounded_armwise_propensity``.  :class:`Truncation` names what each one repeats.
 
         **Two arms on the simplex keep the complement form.**  ``g1`` is clipped and arm 0
         is taken as ``1 - g1``, which is exactly what the estimator has always done -- and

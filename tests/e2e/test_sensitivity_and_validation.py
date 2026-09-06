@@ -32,10 +32,12 @@ from cleverly.datasets import (
     make_linear_ate,
     make_missing_outcome,
     make_nonlinear_ate,
+    make_shift_dose,
     make_weak_overlap,
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
+from cleverly.interventions import Shift
 from cleverly.sensitivity.omitted_variable import benchmark
 from cleverly.validation.refute import (
     BootstrapMeasurementError,
@@ -271,6 +273,56 @@ class TestTruncationCurve:
 
         assert "['att']" in str(refusal.value)
         assert "['ate']" in str(refusal.value)
+
+    def test_an_empty_selection_is_refused_before_any_retargeting(
+        self, poor_overlap, monkeypatch
+    ) -> None:
+        """An empty request used to sweep the whole grid and then die at ``rows[0]``.
+
+        It emits no row, so it has nothing to report and no reason to pay for a sweep.
+        The refusal joins the unreported name above, at the same point and in the same
+        form, rather than arriving as a bare ``IndexError`` afterwards.
+        """
+
+        def never(*args: object, **kwargs: object) -> object:
+            raise AssertionError("the sweep retargeted before it checked estimands=")
+
+        monkeypatch.setattr(type(poor_overlap.estimator), "retarget", never)
+        with pytest.raises(CapabilityError) as refusal:
+            poor_overlap.diagnostics.truncation_curve(bounds=[0.05], estimands=[])
+
+        assert "selected no parameter" in str(refusal.value)
+        assert "['ate']" in str(refusal.value)
+
+    def test_a_continuous_treatment_withholds_the_truncated_fraction(self) -> None:
+        """No arms, no share of units the bound moved. The column says so.
+
+        A shift fit's propensity is ``(n, 0)``: the mechanism it truncates is a density
+        ratio, and no column of it is a treatment probability the ``g_bounds`` pair clips.
+        ``np.any`` over that empty axis is ``False``, so counting units returned a
+        well-formed ``0.0`` beside a real resolved ``fitted_lower_bound`` -- a positive
+        claim that the bound moved no unit, about a mechanism with no unit to move. The
+        previous code averaged the empty matrix and produced ``nan`` with a
+        ``RuntimeWarning``; the answer withheld is the same, and the warning is not.
+        """
+        frame, _ = make_shift_dose(n=300, seed=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            result = (
+                fast_tmle(shifts=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+            curve = nw.from_native(
+                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]), eager_only=True
+            )
+
+        assert result.nuisance.propensity.values.shape == (300, 0)
+        assert np.all(np.isnan(np.array(curve["truncated_fraction"].to_list())))
+        # The rest of the row is answered, so the withheld column is a judgement about
+        # this mechanism and not a curve that failed to run.
+        assert np.all(np.isfinite(np.array(curve["psi"].to_list())))
+        assert set(curve["fitted_lower_bound"].to_list()) == {result.config.g_bounds[0]}
 
 
 class TestOmittedVariableBias:

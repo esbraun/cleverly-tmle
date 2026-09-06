@@ -9,6 +9,8 @@ strongest evidence available without an external reference.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import sklearn.linear_model
@@ -193,6 +195,41 @@ class TestBoundsAndScaling:
         assert "att [" in detail
         # Both fitted pairs are in the default grid, so nothing is reported as omitted.
         assert "fitted pair not evaluated" not in detail
+
+    def test_the_truncated_fraction_belongs_to_the_pair_its_row_was_evaluated_at(self) -> None:
+        """Two fitted rows, two bound pairs, two loads. The report gives one of them.
+
+        ``support()`` always reads ``config.g_bounds``, while an ATT row is fitted at
+        ``config.g_bounds_conditional``. A fit whose two pairs bind differently is the
+        witness that separates them: a multi-arm fit cannot, because every parameter it
+        reports takes the marginal pair, and the two numbers coincide there.
+        """
+        frame, _ = make_weak_overlap(n=1500, seed=72)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("ate", "att"), cross_fit=False)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+
+        curve = result.diagnostics.truncation_curve()
+        fitted = curve.loc[curve["is_fitted_bound"]]
+        loads = dict(zip(fitted["estimand"], fitted["truncated_fraction"], strict=True))
+        propensity = result.nuisance.propensity
+        from_report = result.diagnostics.support().truncated["fraction"]
+
+        # Each row counts the units its own pair moves: 0.244 at the marginal pair and
+        # 0.2913 at the tighter conditional one, a 19% difference on this fit.
+        assert loads["ate"] == pytest.approx(propensity.truncate(result.config.g_bounds).fraction)
+        assert loads["att"] == pytest.approx(
+            propensity.truncate(result.config.g_bounds_conditional).fraction
+        )
+        assert loads["att"] > loads["ate"] * 1.1
+        # The report is one of the two, and naming it the fitted load would misreport the
+        # other by that margin.
+        assert loads["ate"] == pytest.approx(from_report)
+        assert loads["att"] != pytest.approx(from_report)
 
     def test_an_explicit_grid_is_not_expanded_with_fitted_bounds(self) -> None:
         frame, _ = make_linear_ate(n=1000, seed=36)

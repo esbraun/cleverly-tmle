@@ -20,6 +20,7 @@ from cleverly import AssessmentStatus, CounterfactualMean, PointTreatment, load
 from cleverly._typing import FloatArray
 from cleverly.datasets import MultiArmDGP, make_multi_arm, multi_arm_dgp
 from cleverly.estimators import TMLE
+from cleverly.exceptions import CapabilityError
 from cleverly.study import CausalStudy
 
 #: Every parameter a default three-armed fit reports, and its population value.
@@ -154,16 +155,27 @@ class TestTheRestOfTheStackStillWorks:
             assert row.delta_from_fitted == pytest.approx(0.0, abs=1e-12)
 
     def test_the_truncation_load_counts_units_and_matches_the_support_report(self, fit) -> None:
-        """One share of units, reported by both instruments.
+        """One share of units, reported by both instruments **at one bound pair**.
 
         The curve used to divide the clipped cells by ``n * K``, so a three-armed fit
         understated the load by about a factor of three. The support report already
-        counted units, and the two now agree by construction rather than by coincidence.
+        counted units, and the two now count the same thing.
+
+        They agree here because every parameter this fit reports is evaluated at
+        ``config.g_bounds``, which is the pair the report reads. A fit that also reports a
+        conditional-group parameter evaluates that row at ``config.g_bounds_conditional``
+        instead, and the two numbers then differ. ``TestBoundsAndScaling`` in
+        ``tests/e2e/test_variants.py`` holds that witness.
         """
         curve = fit.diagnostics.truncation_curve(bounds=[fit.config.g_bounds[0]])
         loads = set(curve["truncated_fraction"])
         clipped = fit.nuisance.propensity.truncate(fit.config.g_bounds).clipped
 
+        # The condition the agreement rests on: no reported parameter here takes the
+        # conditional pair, so every row is evaluated where the report is.
+        assert set(zip(curve["fitted_lower_bound"], curve["fitted_upper_bound"], strict=True)) == {
+            fit.config.g_bounds
+        }
         assert len(loads) == 1
         assert loads.pop() == pytest.approx(fit.diagnostics.support().truncated["fraction"])
         # The per-cell share is the number the curve used to report, and it is smaller.
@@ -185,6 +197,38 @@ class TestTheRestOfTheStackStillWorks:
             "ey[medium]",
             "ate[low vs high]",
         ]
+
+    def test_a_target_name_selects_every_arm_the_fit_reports_of_it(self, fit) -> None:
+        """``estimands=["ey"]`` is the call a binary fit teaches, and it has to survive.
+
+        The refusal added with the row restriction accepted reported parameters alone, so
+        ``ey`` -- which no multi-arm fit reports under that spelling -- began raising
+        ``CapabilityError`` on the fit where the target name is the only name a caller
+        holds. The break was invisible on a two-armed fit, where the target and its one
+        reported alias are spelled alike.
+        """
+        curve = fit.diagnostics.truncation_curve(bounds=[0.05], estimands=["ey"])
+
+        # Every arm of that target and of no other, in the order the fit reports them.
+        arms = [name for name in fit.estimates if name.startswith("ey[")]
+        assert set(arms) == {"ey[low]", "ey[medium]", "ey[high]"}
+        assert curve["estimand"].to_list() == arms
+
+    def test_a_name_that_is_neither_a_parameter_nor_a_target_is_refused(self, fit) -> None:
+        """A typed arm the fit does not carry is not stemmed to the target that exists."""
+        for name in ("ey[nope]", "att"):
+            with pytest.raises(CapabilityError, match="were not reported by this fit"):
+                fit.diagnostics.truncation_curve(bounds=[0.05], estimands=[name])
+
+    def test_an_empty_selection_is_refused_before_the_sweep(self, fit, monkeypatch) -> None:
+        """The empty request used to pay for the whole grid and then die at ``rows[0]``."""
+
+        def never(*args: object, **kwargs: object) -> object:
+            raise AssertionError("the sweep retargeted before it checked estimands=")
+
+        monkeypatch.setattr(type(fit.estimator), "retarget", never)
+        with pytest.raises(CapabilityError, match="selected no parameter"):
+            fit.diagnostics.truncation_curve(bounds=[0.05], estimands=[])
 
     def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
         """One bound per contrast, and the same one after a reload.

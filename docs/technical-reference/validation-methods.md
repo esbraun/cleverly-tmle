@@ -84,13 +84,24 @@ the fitted configuration, the fitted columns retain that configuration and every
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
 
-`estimands=` restricts the emitted rows to the parameters you name. The curve refuses a name the
-fit did not report, and it names the parameters the fit carries. It refuses before it retargets
-anything.
+`estimands=` restricts the emitted rows to the parameters you name. It accepts two forms.
+
+| you name | the curve emits |
+| --- | --- |
+| a reported parameter, such as `ey[high]` | the row for that parameter |
+| a registered target, such as `ey` | one row for each reported alias of that target, in report order |
+
+The two forms coincide on a two-armed fit. There the target and its one reported alias share a
+spelling. The curve refuses any other name, and it names the parameters the fit carries. It also
+refuses an empty selection, which would emit no row. Each refusal comes before the first retarget.
 
 The `truncated_fraction` column counts the units the bound moves. It follows the same rule
-`Propensity` applies, so it equals the truncated fraction the `support()` report gives at the
-fitted pair.
+`Propensity` applies.
+
+The count belongs to the bound pair the curve evaluated that row at. The `support()` report always
+reads `config.g_bounds`, so the two agree on a row that carries that pair. An `att` or `atc` row
+carries `config.g_bounds_conditional` instead, and its count then differs. A shift fit clips no arm
+probability, so the column reports no value there.
 
 A guarded DR-TMLE fit is the exception. Its targeting step alternates against the reduced-dimension
 regressions, so each bound refits them, and the missing-outcome construction receives the swept
