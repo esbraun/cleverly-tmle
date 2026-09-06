@@ -497,11 +497,99 @@ def test_the_truncation_row_summarizes_each_parameter_against_its_fitted_result(
     item = INTERPRETERS["truncation_curve"](frame, None)
 
     assert item.status is AssessmentStatus.COMPLETED
-    assert "msm[(intercept)]: fitted estimate 1" in item.detail
-    assert "signed delta range [0, 0]; maximum absolute movement 0" in item.detail
-    assert "msm[dose]: fitted estimate 2" in item.detail
-    assert "signed delta range [-0.5, 0.5]; maximum absolute movement 0.5" in item.detail
-    assert item.detail.count("(not evaluated)") == 2
+    # The intercept did not move and the slope moved by half a unit. Pooling the two
+    # parameters would give both of them the slope's range, so the two ranges differ here.
+    assert item.detail == (
+        "2 parameter(s) over evaluated lower bounds [0.01, 0.1]; signed movement from the "
+        "fitted estimate: msm[(intercept)] [0, 0], msm[dose] [-0.5, 0.5]; "
+        "fitted pair not evaluated for 2 of 2"
+    )
+
+
+def test_the_truncation_row_counts_only_the_parameters_that_skipped_their_fitted_pair() -> None:
+    """The clause is a count, so one evaluated parameter has to change it."""
+    frame = pd.DataFrame(
+        {
+            "bound": [0.025, 0.1, 0.025, 0.1],
+            "estimand": ["ate", "ate", "ey1", "ey1"],
+            "psi": [1.0, 1.2, 2.0, 2.1],
+            "delta_from_fitted": [0.0, 0.2, 0.0, 0.1],
+            "is_fitted_bound": [True, False, False, False],
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert "fitted pair not evaluated for 1 of 2" in item.detail
+
+    evaluated = frame.assign(is_fitted_bound=[True, False, True, False])
+    assert "not evaluated" not in INTERPRETERS["truncation_curve"](evaluated, None).detail
+
+
+def test_the_truncation_row_stays_short_enough_for_an_unwrapped_summary_table() -> None:
+    """One long detail sets the width of the whole section, because nothing wraps it.
+
+    ``format_table`` sizes each column by its widest cell, so the combined report is as
+    wide as this row plus about 106 columns of name, status, and next step. The bound
+    here holds a three-parameter row inside a 300-column table. It does not promise any
+    particular wording.
+    """
+    aliases = ["ate", "ey1", "ey0"]
+    frame = pd.DataFrame(
+        {
+            "bound": [bound for bound in (0.001, 0.2) for _ in aliases],
+            "estimand": aliases * 2,
+            "psi": [1.44, 3.491, 2.051, 1.441, 3.491, 2.05],
+            "delta_from_fitted": [0.0, 0.0, 0.0, 0.0008045, 2.821e-07, -0.0008042],
+            "is_fitted_bound": [True] * 3 + [False] * 3,
+        }
+    )
+
+    assert len(INTERPRETERS["truncation_curve"](frame, None).detail) < 200
+
+
+def test_the_missingness_row_measures_each_parameter_from_its_own_mar_estimate() -> None:
+    """The tilt frame holds one row per ``(gamma, estimand)`` pair.
+
+    ``ate`` falls to 0.2 and ``ey1`` rises to 2.0, so a minimum and a maximum taken over
+    every row belong to two different parameters and describe neither.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0],
+            "estimand": ["ate", "ey1"] * 3,
+            "psi": [0.2, 2.0, 0.5, 1.5, 0.8, 1.0],
+            "is_mar": [False, False, True, True, False, False],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    assert item.detail == (
+        "gamma range [-1, 1]; 2 parameter(s); signed movement from the MAR estimate: "
+        "ate [-0.3, 0.3], ey1 [-0.5, 0.5]"
+    )
+    # The pooled estimate range, which no parameter covers and the row no longer reports.
+    assert "[0.2, 2]" not in item.detail
+
+
+def test_the_missingness_row_reports_a_level_when_no_mar_estimate_is_retained() -> None:
+    """An explicit gamma grid need not contain zero, so the baseline can be absent."""
+    frame = pd.DataFrame(
+        {
+            "gamma": [0.5, 0.5, 1.5, 1.5],
+            "estimand": ["ate", "ey1", "ate", "ey1"],
+            "psi": [0.4, 1.6, 0.3, 1.9],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [0.5, 1.5]; 2 parameter(s); no MAR estimate retained; "
+        "estimate range: ate [0.3, 0.4], ey1 [1.6, 1.9]"
+    )
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:

@@ -187,9 +187,12 @@ class TestBoundsAndScaling:
 
         combined = result.diagnostics.run_all(include_retargets=True)
         detail = combined["truncation_curve"].detail
-        assert "ate: fitted estimate" in detail
-        assert "att: fitted estimate" in detail
-        assert detail.count("(evaluated)") == 2
+        assert "2 parameter(s) over evaluated lower bounds " in detail
+        assert "signed movement from the fitted estimate:" in detail
+        assert "ate [" in detail
+        assert "att [" in detail
+        # Both fitted pairs are in the default grid, so nothing is reported as omitted.
+        assert "fitted pair not evaluated" not in detail
 
     def test_an_explicit_grid_is_not_expanded_with_fitted_bounds(self) -> None:
         frame, _ = make_linear_ate(n=1000, seed=36)
@@ -218,7 +221,14 @@ class TestBoundsAndScaling:
             result.config.g_bounds_conditional[0]
         }
 
-    def test_an_asymmetric_fitted_pair_is_evaluated_and_counted_at_both_ends(self) -> None:
+    def test_an_asymmetric_fitted_pair_is_evaluated_and_counted_through_g1(self) -> None:
+        """The reported load is the rows ``Propensity.bounded`` moves, not a cell count.
+
+        An asymmetric pair is the witness that separates the two. The mechanism is clipped
+        through ``g1`` alone and arm 0 is its complement, so a predicate applied to the
+        whole ``(n, K)`` matrix tests the control column against a bound that column is
+        never clipped by. Both witnesses below are built without the swept code path.
+        """
         frame, _ = make_weak_overlap(n=1500, seed=72)
         pair = (0.05, 0.8)
         result = (
@@ -235,13 +245,16 @@ class TestBoundsAndScaling:
 
         curve = result.diagnostics.truncation_curve()
         fitted = curve.loc[curve["is_fitted_bound"]]
-        propensity = np.asarray(result.nuisance.propensity.values, dtype=float)
-        expected_fraction = np.mean((propensity < pair[0]) | (propensity > pair[1]))
+        g1 = result.nuisance.propensity.arm(1.0)
+        by_hand = float(np.mean((g1 < pair[0]) | (g1 > pair[1])))
+        from_report = result.diagnostics.support().truncated["fraction"]
 
         assert len(fitted) == 1
-        assert expected_fraction > np.mean(propensity < pair[0])
+        # The upper endpoint binds, which is what makes the pair a witness at all.
+        assert by_hand > np.mean(g1 < pair[0])
         assert (fitted.iloc[0]["bound"], fitted.iloc[0]["upper_bound"]) == pair
-        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(expected_fraction)
+        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(by_hand)
+        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(from_report)
         assert fitted.iloc[0]["fitted_psi"] == result.psi("ate")
         assert fitted.iloc[0]["delta_from_fitted"] == pytest.approx(0.0, abs=1e-12)
 

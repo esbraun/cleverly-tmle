@@ -436,9 +436,14 @@ class TestTheSurroundingMachineryWorks:
             include_retargets=True, arguments={"truncation_curve": {"bounds": bounds}}
         )
         detail = combined["truncation_curve"].detail
-        assert "msm[(intercept)]: fitted estimate" in detail
-        assert "msm[dose]: fitted estimate" in detail
-        assert detail.count("(not evaluated)") == 2
+        assert detail.startswith("2 parameter(s) over evaluated lower bounds [0.01, 0.05]")
+        assert "signed movement from the fitted estimate: msm[(intercept)] [" in detail
+        assert "msm[dose] [" in detail
+        # This grid omits the fitted pair, which both coefficients share here.
+        assert detail.endswith("fitted pair not evaluated for 2 of 2")
+        # One unwrapped detail sets the width of the whole table, so the summary a reader
+        # sees is as wide as this row. 400 columns holds the two-coefficient report.
+        assert max(len(line) for line in combined.summary().splitlines()) < 400
 
     def test_a_round_trip_leaves_every_retargeted_analysis_identical(
         self, fitted, tmp_path

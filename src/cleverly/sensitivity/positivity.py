@@ -467,7 +467,8 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     """Overlap for a two-armed treatment, in terms of the single propensity ``g(W)``."""
     data = result.data
     bounds = result.config.g_bounds
-    raw = result.nuisance.propensity.arm(1.0)
+    propensity = result.nuisance.propensity
+    raw = propensity.arm(1.0)
     treated = data.treatment == 1.0
 
     quantiles: dict[str, dict[float, float]] = {
@@ -484,12 +485,16 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         for threshold in _THRESHOLDS
     }
 
-    bounded = np.clip(raw, bounds[0], bounds[1])
+    # Both denominators come out of the one truncation the estimator applies, rather than
+    # from a clip written here and a complement written beside it.  The two forms agree
+    # only while the bound pair is symmetric.
+    truncation = propensity.truncate(bounds)
+    bounded = truncation.values
     ess: dict[str, dict[str, float]] = {}
     share: dict[str, dict[str, float]] = {}
     for arm, mask, weights in (
-        ("treated", treated, 1.0 / bounded),
-        ("control", ~treated, 1.0 / (1.0 - bounded)),
+        ("treated", treated, 1.0 / bounded[:, propensity.column_for(1.0)]),
+        ("control", ~treated, 1.0 / bounded[:, propensity.column_for(0.0)]),
     ):
         arm_weights = weights[mask] * data.weights[mask]
         ess[arm] = {
@@ -502,7 +507,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
             "top_5pct": _top_share(arm_weights, 0.05),
         }
 
-    clipped = (raw < bounds[0]) | (raw > bounds[1])
+    clipped = truncation.units
     inside = raw[~clipped]
     most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
 
@@ -562,7 +567,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         for threshold in _THRESHOLDS
     }
 
-    bounded = propensity.bounded(bounds)
+    truncation = propensity.truncate(bounds)
+    bounded = truncation.values
     ess: dict[str, dict[str, float]] = {}
     share: dict[str, dict[str, float]] = {}
     for arm in propensity.arms:
@@ -580,8 +586,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
             "top_5pct": _top_share(arm_weights, 0.05),
         }
 
-    clipped_cells = (raw < bounds[0]) | (raw > bounds[1])
-    clipped_units = np.any(clipped_cells, axis=1)
+    clipped_cells = truncation.clipped
+    clipped_units = truncation.units
     inside = raw[~clipped_cells]
     # Only the approach to zero matters per arm, so the "most extreme" untruncated value
     # is the smallest surviving probability rather than the two-sided minimum the binary
@@ -807,7 +813,9 @@ def truncation_curve(
         every exact bound pair the requested parameters used.  An explicit sequence is
         evaluated exactly as requested and is never expanded with fitted points.
     estimands : sequence of str or None
-        Restrict to a subset; defaults to everything the fit reported.
+        Restrict the emitted rows to these reported parameters.  ``None`` uses every
+        parameter the fit reported.  A name the fit did not report is refused, because
+        it has no fitted pair and no fitted estimate for a row to reference.
     mechanism : bool
         Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
         instead of the one on ``g(W)``.  That probability divides the clever covariate
@@ -832,37 +840,52 @@ def truncation_curve(
             "truncation_curve needs the fitted estimator that produced the result"
         )
 
-    # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
-    # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
-    # against `ey` for a wider one. Structured keys carry that mapping on public workflow
-    # results; the canonical stem is the compatibility path for raw estimator results.
-    reported = tuple(result.estimates) if estimands is None else tuple(estimands)
-    names = tuple(dict.fromkeys(_target_name(result, name) for name in reported))
+    reported = tuple(result.estimates) if estimands is None else tuple(dict.fromkeys(estimands))
+    # Refused here, before the first retarget. A name the fit never reported has no fitted
+    # pair and no fitted estimate, so every row it would fill is undefined -- and stemming
+    # it to a target the registry does know would answer a typed arm label with the whole
+    # target rather than with the refusal the caller needs.
+    unknown = [name for name in reported if name not in result.estimates]
+    if unknown:
+        raise CapabilityError(
+            f"parameter(s) {unknown} were not reported by this fit; "
+            f"choose from {list(result.estimates)}"
+        )
     if mechanism and result.nuisance.missingness is None and result.nuisance.intermediate is None:
         raise CapabilityError(
             "mechanism=True needs a fit with missing outcomes or an intermediate "
             "variable; without one there is no mechanism in the clever covariate to "
             "truncate. Pass delta=<column> or intermediate=<column> to fit()."
         )
-    fitted_pairs = {
-        _fitted_bound_pair(result, name, mechanism=mechanism)
-        for name in result.estimates
-        if _target_name(result, name) in names
+
+    def pair_for(lower: float) -> tuple[float, float]:
+        """One lower bound as the pair the sweep evaluates, in the documented shorthand."""
+        return (lower, 1.0 if mechanism else 1.0 - lower)
+
+    # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
+    # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
+    # against `ey` for a wider one. Structured keys carry that mapping on public workflow
+    # results; the canonical stem is the compatibility path for raw estimator results.
+    # The widening is asked of the registry once, here, and the rows narrow back to
+    # `reported`: an arm-narrowed fit reports `ey[high]` alone while the estimator still
+    # retargets every arm of `ey`.
+    targets = {name: _target_name(result, name) for name in reported}
+    names = tuple(dict.fromkeys(targets.values()))
+    pairs = {
+        name: _fitted_bound_pair(result, target, mechanism=mechanism)
+        for name, target in targets.items()
     }
+    fitted_psi = {name: float(result.estimates[name].psi) for name in reported}
+
     canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:
-        grid = sorted(
-            {
-                *((lower, 1.0 if mechanism else 1.0 - lower) for lower in canned),
-                *fitted_pairs,
-            }
-        )
+        grid = sorted({*(pair_for(lower) for lower in canned), *pairs.values()})
     else:
         lowers = sorted(float(value) for value in bounds)
         for lower in lowers:
             if not 0.0 < lower < 0.5:
                 raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
-        grid = [(lower, 1.0 if mechanism else 1.0 - lower) for lower in lowers]
+        grid = [pair_for(lower) for lower in lowers]
 
     rows: list[dict[str, Any]] = []
     for lower, upper in grid:
@@ -888,10 +911,23 @@ def truncation_curve(
                 for repeat in result.repeats
             ],
         )
-        for name, estimate in estimates.items():
+        # A retarget of `ey` answers every arm, and a fit narrowed to one arm asked for
+        # one row. Dropping the extra names is the ordinary case; missing a requested one
+        # is an internal inconsistency, so it is raised rather than silently omitted.
+        missing = [name for name in reported if name not in estimates]
+        if missing:
+            raise RuntimeError(
+                f"retargeting at bounds {pair} reported {sorted(estimates)}, which leaves "
+                f"{missing} of the requested parameters {list(reported)} unanswered"
+            )
+        # One truncation load per bound pair: it reads the pair and the mechanism flag,
+        # and nothing that varies between the parameters sharing that pair.
+        truncated_fraction = _clipped_fraction(result, pair, mechanism)
+        for name in reported:
+            estimate = estimates[name]
             low, high = estimate.ci
-            fitted_lower, fitted_upper = _fitted_bound_pair(result, name, mechanism=mechanism)
-            fitted_psi = float(result.estimates[name].psi)
+            fitted_lower, fitted_upper = pairs[name]
+            reference = fitted_psi[name]
             rows.append(
                 {
                     "bound": lower,
@@ -900,15 +936,15 @@ def truncation_curve(
                     "std_err": estimate.std_error,
                     "ci_lower": low,
                     "ci_upper": high,
-                    "truncated_fraction": _clipped_fraction(result, pair, mechanism),
+                    "truncated_fraction": truncated_fraction,
                     "is_fitted_bound": pair == (fitted_lower, fitted_upper),
                     # Additive metadata follows the legacy columns so positional consumers
                     # retain the order they saw before the fitted-reference contract grew.
                     "upper_bound": upper,
                     "fitted_lower_bound": fitted_lower,
                     "fitted_upper_bound": fitted_upper,
-                    "fitted_psi": fitted_psi,
-                    "delta_from_fitted": float(estimate.psi - fitted_psi),
+                    "fitted_psi": reference,
+                    "delta_from_fitted": float(estimate.psi - reference),
                 }
             )
 
@@ -918,25 +954,33 @@ def truncation_curve(
 
 def _target_name(result: TMLEResult, name: str) -> str:
     """Registered target for one reported alias, with a legacy-result fallback."""
-    keys = getattr(result, "parameter_keys", None)
+    # The mapping is a dataclass field and always exists, but a raw estimator result
+    # leaves it empty. The stem is that path's answer, and it is the only one available.
+    keys = result.parameter_keys
     key = keys.get(name) if keys else None
     return key.estimand if key is not None else parameter_stem(name)
 
 
-def _fitted_bound_pair(result: TMLEResult, name: str, *, mechanism: bool) -> tuple[float, float]:
-    """The fitted mechanism pair applicable to one reported parameter."""
+def _fitted_bound_pair(result: TMLEResult, target: str, *, mechanism: bool) -> tuple[float, float]:
+    """The fitted mechanism pair applicable to one registered target."""
     if mechanism:
         return float(result.config.missingness_bound), 1.0
-    target = TARGETS[_target_name(result, name)]
-    return g_bounds_for(target.group, result.config.g_bounds, result.config.g_bounds_conditional)
+    group = TARGETS[target].group
+    return g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
 
 
 def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:
-    """Share of nuisance values the bound would clip, for whichever bound is swept."""
-    lower, upper = pair
+    """Share of the nuisance the bound would clip, for whichever bound is swept.
+
+    The treatment branch asks :meth:`~cleverly.estimators._nuisance.Propensity.truncate`
+    and reports the share of **units** it moves.  A unit is one row of the mechanism, and
+    one binding denominator is enough to make that row's contribution extrapolation.  The
+    mechanism branch has one column per arm as well, but its bound is applied cell by cell
+    and is reported that way.
+    """
     if not mechanism:
-        divisor = np.asarray(result.nuisance.propensity.values, dtype=float)
-        return float(np.mean((divisor < lower) | (divisor > upper)))
+        return result.nuisance.propensity.truncate(pair).fraction
+    lower, upper = pair
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
     # the array directly counts the wrong tail and reports a mirror-inverted fraction.

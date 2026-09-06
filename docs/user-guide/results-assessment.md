@@ -118,9 +118,13 @@ Movement shows sensitivity to extrapolation in regions where estimated support i
 
 The curve records `upper_bound`, the parameter-specific fitted bound pair and estimate, and
 `delta_from_fitted`. Its default grid contains each fitted pair exactly. An explicit `bounds=` grid
-keeps the requested grid cardinality and can therefore have no fitted marker; the fitted columns still say
-which configuration was omitted. Combined reports summarize movement separately for every reported
-parameter or working-model coefficient.
+keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
+still name the configuration the grid omitted.
+
+A combined report gives one signed movement range for each reported parameter or working-model
+coefficient. It measures that movement from the parameter's own fitted estimate. It also counts the
+parameters whose fitted pair the grid skipped. Read the fitted estimate and the fitted pair from the
+retained curve.
 
 Explicit odds-ratio and reported risk-ratio E-values summarize existing estimates:
 

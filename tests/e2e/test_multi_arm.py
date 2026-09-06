@@ -16,10 +16,11 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import load
+from cleverly import AssessmentStatus, CounterfactualMean, PointTreatment, load
 from cleverly._typing import FloatArray
 from cleverly.datasets import MultiArmDGP, make_multi_arm, multi_arm_dgp
 from cleverly.estimators import TMLE
+from cleverly.study import CausalStudy
 
 #: Every parameter a default three-armed fit reports, and its population value.
 TRUTH = multi_arm_dgp().truth()
@@ -152,6 +153,39 @@ class TestTheRestOfTheStackStillWorks:
             assert row.fitted_psi == fit.psi(row.estimand)
             assert row.delta_from_fitted == pytest.approx(0.0, abs=1e-12)
 
+    def test_the_truncation_load_counts_units_and_matches_the_support_report(self, fit) -> None:
+        """One share of units, reported by both instruments.
+
+        The curve used to divide the clipped cells by ``n * K``, so a three-armed fit
+        understated the load by about a factor of three. The support report already
+        counted units, and the two now agree by construction rather than by coincidence.
+        """
+        curve = fit.diagnostics.truncation_curve(bounds=[fit.config.g_bounds[0]])
+        loads = set(curve["truncated_fraction"])
+        clipped = fit.nuisance.propensity.truncate(fit.config.g_bounds).clipped
+
+        assert len(loads) == 1
+        assert loads.pop() == pytest.approx(fit.diagnostics.support().truncated["fraction"])
+        # The per-cell share is the number the curve used to report, and it is smaller.
+        assert float(np.mean(clipped)) < fit.diagnostics.support().truncated["fraction"]
+
+    def test_selecting_estimands_selects_the_rows(self, fit) -> None:
+        """``ey`` retargets every arm, and the caller asked for one of them.
+
+        The row loop iterated the retarget's own output, so a request for one arm was
+        answered with all three. It now iterates the request.
+        """
+        curve = fit.diagnostics.truncation_curve(
+            bounds=[0.01, 0.05], estimands=["ey[medium]", "ate[low vs high]"]
+        )
+
+        assert curve["estimand"].to_list() == [
+            "ey[medium]",
+            "ate[low vs high]",
+            "ey[medium]",
+            "ate[low vs high]",
+        ]
+
     def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
         """One bound per contrast, and the same one after a reload.
 
@@ -276,3 +310,43 @@ class TestTheReferenceIsPartOfTheEstimand:
             assert default.estimates[f"ey[{arm}]"].psi == pytest.approx(
                 chosen.estimates[f"ey[{arm}]"].psi, abs=1e-12
             )
+
+
+class TestOneArmSelectedOutOfAMultiArmTarget:
+    """``CounterfactualMean(treatment=...)`` narrows the result and not the estimator.
+
+    ``result.estimates`` then holds one alias while the estimator still retargets every
+    arm of ``ey``. The truncation sweep emitted whatever the retarget returned and looked
+    each name up in the narrowed mapping, so the first unrequested arm raised a bare
+    ``KeyError`` and took ``run_all()`` down with it.
+    """
+
+    @pytest.fixture(scope="class")
+    def narrowed(self):
+        frame, _ = make_multi_arm(n=400, seed=0)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+        )
+        return study.identify(CounterfactualMean(treatment="high")).estimate(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=0,
+            simultaneous=False,
+        )
+
+    def test_the_curve_emits_the_narrowed_alias_alone(self, narrowed) -> None:
+        assert list(narrowed.estimates) == ["ey[high]"]
+
+        curve = narrowed.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+
+        assert curve["estimand"].to_list() == ["ey[high]", "ey[high]"]
+        for row in curve.itertuples(index=False):
+            assert row.fitted_psi == narrowed.psi("ey[high]")
+
+    def test_the_combined_report_completes(self, narrowed) -> None:
+        combined = narrowed.diagnostics.run_all(include_retargets=True)
+        assert combined["truncation_curve"].status is not AssessmentStatus.UNAVAILABLE
+        assert "1 parameter(s)" in combined["truncation_curve"].detail

@@ -251,6 +251,27 @@ class TestTruncationCurve:
         with pytest.raises(ValueError, match="must lie in"):
             good_overlap.diagnostics.truncation_curve([0.7])
 
+    def test_an_unreported_estimand_is_refused_before_any_retargeting(
+        self, poor_overlap, monkeypatch
+    ) -> None:
+        """A name the fit never reported has no fitted pair for a row to reference.
+
+        The sweep used to widen the name to its registered target, retarget the whole
+        grid, and only then fail on a bare ``KeyError``. That named neither the request
+        nor the parameters the fit does carry, and it charged the caller a full sweep for
+        a typing mistake. The stub below fails the test if any retargeting happens.
+        """
+
+        def never(*args: object, **kwargs: object) -> object:
+            raise AssertionError("the sweep retargeted before it checked estimands=")
+
+        monkeypatch.setattr(type(poor_overlap.estimator), "retarget", never)
+        with pytest.raises(CapabilityError) as refusal:
+            poor_overlap.diagnostics.truncation_curve(estimands=["att"])
+
+        assert "['att']" in str(refusal.value)
+        assert "['ate']" in str(refusal.value)
+
 
 class TestOmittedVariableBias:
     def test_the_bound_grows_with_the_assumed_confounding(self, good_overlap) -> None:

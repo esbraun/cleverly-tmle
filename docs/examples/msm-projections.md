@@ -263,7 +263,8 @@ print(
 ```
 
 The combined report runs the moderate truncation retarget because `include_retargets=True`. It does
-not run refutations, which would refit nuisance models.
+not run refutations, which would refit nuisance models. Its truncation row gives one signed movement
+range for each coefficient. It measures that movement from the coefficient's own fitted estimate.
 
 With the identity link the clever covariate has one column per term, so the score equation is one
 per coefficient rather than one per arm. The score report reflects that, and it is the right place
