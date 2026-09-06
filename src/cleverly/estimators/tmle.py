@@ -1425,11 +1425,10 @@ class TMLE:
         lower, upper = config.g_bounds
         # Counted per *unit*: a row is extrapolated if any arm's probability is outside the
         # bounds, since one binding denominator is enough to give that row unbounded
-        # leverage.  With two arms and the symmetric bounds ``"auto"`` and a scalar both
-        # produce, ``g0 < lower`` exactly when ``g1 > upper``, so this is the same count the
-        # single-vector form reported.
-        mechanism = np.asarray(nuisance.propensity.values, dtype=float)
-        outside = float(np.mean(np.any((mechanism < lower) | (mechanism > upper), axis=1)))
+        # leverage.  Which cells are outside is `Propensity.truncate`'s rule rather than a
+        # predicate written here, so the warning counts the rows the targeting step really
+        # truncates even when the bound pair is asymmetric.
+        outside = nuisance.propensity.truncate(config.g_bounds).fraction
         if outside > _TRUNCATION_WARN_FRACTION:
             warnings.warn(
                 f"{outside:.1%} of units have an estimated treatment probability outside the "

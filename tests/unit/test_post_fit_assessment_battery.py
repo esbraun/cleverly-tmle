@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+import cleverly.sensitivity.positivity as positivity_module
 from cleverly import (
     ATE,
     AssessmentReport,
@@ -476,6 +477,247 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
     assert "calibration population: full_fitted_population" in item.detail
     assert "refit population: full_fitted_population" in item.detail
     assert "minimum target population fraction 0.3 against anchor 0.34" in item.detail
+
+
+def test_the_truncation_row_summarizes_each_parameter_against_its_fitted_result() -> None:
+    frame = pd.DataFrame(
+        {
+            "bound": [0.01, 0.1, 0.01, 0.1],
+            "upper_bound": [0.99, 0.9, 0.99, 0.9],
+            "estimand": ["msm[(intercept)]", "msm[(intercept)]", "msm[dose]", "msm[dose]"],
+            "psi": [1.0, 1.0, 2.5, 1.5],
+            "fitted_lower_bound": [0.025] * 4,
+            "fitted_upper_bound": [0.975] * 4,
+            "fitted_psi": [1.0, 1.0, 2.0, 2.0],
+            "delta_from_fitted": [0.0, 0.0, 0.5, -0.5],
+            "is_fitted_bound": [False] * 4,
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    # The intercept did not move and the slope moved by half a unit. Pooling the two
+    # parameters would give both of them the slope's range, so the two ranges differ here.
+    assert item.detail == (
+        "2 parameter(s) over evaluated lower bounds [0.01, 0.1]; signed movement from the "
+        "fitted estimate: msm[(intercept)] [0, 0], msm[dose] [-0.5, 0.5]; "
+        "fitted pair not evaluated for 2 of 2"
+    )
+
+
+def test_the_truncation_row_counts_only_the_parameters_that_skipped_their_fitted_pair() -> None:
+    """The clause is a count, so one evaluated parameter has to change it."""
+    frame = pd.DataFrame(
+        {
+            "bound": [0.025, 0.1, 0.025, 0.1],
+            "estimand": ["ate", "ate", "ey1", "ey1"],
+            "psi": [1.0, 1.2, 2.0, 2.1],
+            "delta_from_fitted": [0.0, 0.2, 0.0, 0.1],
+            "is_fitted_bound": [True, False, False, False],
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert "fitted pair not evaluated for 1 of 2" in item.detail
+
+    evaluated = frame.assign(is_fitted_bound=[True, False, True, False])
+    assert "not evaluated" not in INTERPRETERS["truncation_curve"](evaluated, None).detail
+
+
+def test_the_truncation_row_counts_a_skipped_fitted_pair_without_the_deltas() -> None:
+    """The markers decide the clause, and the deltas are a separate column.
+
+    ``truncation_curve`` writes both columns today, so this frame shape is latent. The
+    rule the row states is about the markers alone, so a frame that carries them and no
+    ``delta_from_fitted`` still gets the count.
+    """
+    frame = pd.DataFrame(
+        {
+            "bound": [0.025, 0.1, 0.025, 0.1],
+            "estimand": ["ate", "ate", "ey1", "ey1"],
+            "psi": [1.0, 1.2, 2.0, 2.1],
+            "is_fitted_bound": [True, False, False, False],
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert item.detail == (
+        "2 parameter(s) over evaluated lower bounds [0.025, 0.1]; estimate range: "
+        "ate [1, 1.2], ey1 [2, 2.1]; fitted pair not evaluated for 1 of 2"
+    )
+    # The control: readable markers that name no skipped parameter write no clause.
+    evaluated = frame.assign(is_fitted_bound=[True, False, True, False])
+    assert "not evaluated" not in INTERPRETERS["truncation_curve"](evaluated, None).detail
+
+
+# The characters the compressed row can spend before it names a parameter. The four
+# pieces are the count and its label (42 plus the digits), the bound range (26 at the
+# widest ``%.4g`` pair), the movement label (44), and the skipped-pair clause (42).
+TRUNCATION_FIXED_BUDGET = 160
+# What one more parameter can add: ``, alias [low, high]`` at the same widest endpoints.
+TRUNCATION_PARAMETER_BUDGET = 30
+
+
+def _truncation_budget(aliases: list[str]) -> int:
+    """Characters the truncation row may spend on a curve over these parameters."""
+    return TRUNCATION_FIXED_BUDGET + sum(
+        len(alias) + TRUNCATION_PARAMETER_BUDGET for alias in dict.fromkeys(aliases)
+    )
+
+
+@pytest.mark.parametrize(
+    ("aliases", "measured"),
+    [
+        (["ate", "ey1", "ey0"], 158),
+        (
+            [
+                f"{estimand}{suffix}"
+                for estimand in ("ate", "att", "ey_obs", "par")
+                for suffix in ("", "[V='low']", "[V='high']")
+            ],
+            427,
+        ),
+    ],
+    ids=["three-parameters", "twelve-parameters"],
+)
+def test_the_truncation_row_costs_a_bounded_number_of_characters_per_parameter(
+    aliases: list[str], measured: int
+) -> None:
+    """One long detail sets the width of the whole section, because nothing wraps it.
+
+    ``format_table`` sizes each column by its widest cell, so the combined report is as
+    wide as this row plus about 106 columns of name, status, and next step. What is
+    bounded is the per-parameter cost and not the row itself, because a stratified fit
+    reports one parameter for each estimand and stratum and the row names every one of
+    them. ``measured`` is the length each of these two frames produces: 158 characters
+    over three parameters, and 427 over twelve.
+
+    A real fit reaches the same size. A ``TMLE`` fit with
+    ``estimands=("ate", "att", "ey_obs", "par")`` over one two-level stratum reports 12
+    parameters. On data where the default bound grid moves the estimates, its detail
+    measured 438 characters and its ``run_all`` summary line measured 544 columns. The
+    per-parameter sentences this format replaced measured 1725 characters on that same
+    curve.
+
+    The compressed row drops the identity of a parameter that skipped its fitted pair. It
+    states a count alone, so a reader who needs the names reads the retained curve.
+    """
+    values = [0.0008045, 2.821e-07, -0.0008042]
+    frame = pd.DataFrame(
+        {
+            "bound": [bound for bound in (0.001, 0.2) for _ in aliases],
+            "estimand": aliases * 2,
+            "psi": [1.44 + index for index in range(2 * len(aliases))],
+            "delta_from_fitted": [0.0] * len(aliases)
+            + [values[index % 3] for index in range(len(aliases))],
+            "is_fitted_bound": [True] * len(aliases) + [False] * len(aliases),
+        }
+    )
+
+    detail = INTERPRETERS["truncation_curve"](frame, None).detail
+
+    assert len(detail) == measured
+    assert len(detail) <= _truncation_budget(aliases)
+
+
+def test_the_missingness_row_measures_each_parameter_from_its_own_mar_estimate() -> None:
+    """The tilt frame holds one row per ``(gamma, estimand)`` pair.
+
+    ``ate`` falls to 0.2 and ``ey1`` rises to 2.0, so a minimum and a maximum taken over
+    every row belong to two different parameters and describe neither.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [-1.0, -1.0, 0.0, 0.0, 1.0, 1.0],
+            "estimand": ["ate", "ey1"] * 3,
+            "psi": [0.2, 2.0, 0.5, 1.5, 0.8, 1.0],
+            "is_mar": [False, False, True, True, False, False],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.status is AssessmentStatus.COMPLETED
+    assert item.detail == (
+        "gamma range [-1, 1]; 2 parameter(s); signed movement from the MAR estimate: "
+        "ate [-0.3, 0.3], ey1 [-0.5, 0.5]"
+    )
+    # The pooled estimate range, which no parameter covers and the row no longer reports.
+    assert "[0.2, 2]" not in item.detail
+
+
+def test_the_missingness_row_reports_a_level_when_no_mar_estimate_is_retained() -> None:
+    """An explicit gamma grid need not contain zero, so the baseline can be absent.
+
+    The markers are readable here, so the row can say the baseline is not among them.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [0.5, 0.5, 1.5, 1.5],
+            "estimand": ["ate", "ey1", "ate", "ey1"],
+            "psi": [0.4, 1.6, 0.3, 1.9],
+            "is_mar": [False, False, False, False],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [0.5, 1.5]; 2 parameter(s); no MAR estimate retained; "
+        "estimate range: ate [0.3, 0.4], ey1 [1.6, 1.9]"
+    )
+
+
+def test_the_missingness_row_claims_no_baseline_when_the_markers_are_absent() -> None:
+    """A missing ``is_mar`` column is not evidence that the baseline is missing.
+
+    This frame retains its ``gamma == 0`` rows and carries no marker column. Reading the
+    absent column as an absent baseline would deny those rows, so the row states the
+    level it can read and names no baseline at all.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [0.0, 0.0, 1.0, 1.0],
+            "estimand": ["ate", "ey1", "ate", "ey1"],
+            "psi": [0.5, 1.5, 0.8, 1.0],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [0, 1]; 2 parameter(s); estimate range: ate [0.5, 0.8], ey1 [1, 1.5]"
+    )
+    assert "no MAR estimate retained" not in item.detail
+
+
+def test_the_missingness_row_keeps_the_tilted_estimates_when_the_baseline_is_not_finite() -> None:
+    """A marked row carrying no finite estimate is no more usable than an absent one.
+
+    Every delta from a non-finite baseline is non-finite, so a movement clause would read
+    ``no finite values`` while two finite tilted estimates sit in the frame. The row
+    reports those estimates and says the baseline is not retained.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [-1.0, 0.0, 1.0, -1.0, 0.0, 1.0],
+            "estimand": ["ate"] * 3 + ["ey1"] * 3,
+            "psi": [0.2, float("nan"), 0.8, 1.4, 1.5, 1.6],
+            "is_mar": [False, True, False, False, True, False],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [-1, 1]; 2 parameter(s); signed movement from the MAR estimate: "
+        "ey1 [-0.1, 0.1]; no MAR estimate retained; estimate range: ate [0.2, 0.8]"
+    )
+    # The defect this replaces: the row said the sweep produced nothing at all.
+    assert "ate no finite values" not in item.detail
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
@@ -1380,6 +1622,22 @@ def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
         verdict = _positivity(fraction, 0.25).verdict()
         assert "effective 25%" in verdict
         assert "No threshold is applied to that share" in verdict
+
+
+def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
+    """A binding bound changes the procedure, not the parameter it estimates."""
+    verdict = _positivity(0.06, 0.9).verdict()
+
+    assert "sensitive to this finite-sample regularisation" in verdict
+    explanations = (
+        positivity_module.__doc__,
+        positivity_module.truncation_curve.__doc__,
+        verdict,
+    )
+    for explanation in explanations:
+        assert explanation is not None
+        assert "does not change the requested estimand" in " ".join(explanation.split())
+    assert "describing the region of overlap only" not in verdict
 
 
 def _drtmle(**overrides: object):

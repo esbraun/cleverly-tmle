@@ -638,6 +638,9 @@ class TestTheSensitivityLayerFollowsTheDraws:
         # It does only if the sweep combines the same way the fit did.
         curve = truncation_curve(repeated, bounds=[repeated.config.g_bounds[0]], estimands=["ate"])
         assert float(curve["psi"][0]) == pytest.approx(repeated.psi("ate"), rel=1e-9)
+        assert bool(curve["is_fitted_bound"][0])
+        assert float(curve["fitted_psi"][0]) == repeated.psi("ate")
+        assert float(curve["delta_from_fitted"][0]) == pytest.approx(0.0, abs=1e-12)
 
     def test_a_swept_bound_moves_all_the_draws(self, repeated: Any) -> None:
         curve = truncation_curve(repeated, bounds=[0.001, 0.2], estimands=["ate"])
@@ -718,6 +721,8 @@ class TestSerialization:
         assert reloaded.psi("ate") == repeated.psi("ate")
         curve = truncation_curve(reloaded, bounds=[reloaded.config.g_bounds[0]], estimands=["ate"])
         assert float(curve["psi"][0]) == pytest.approx(reloaded.psi("ate"), rel=1e-9)
+        assert bool(curve["is_fitted_bound"][0])
+        assert float(curve["fitted_psi"][0]) == reloaded.psi("ate")
 
 
 class TestVariantsInheritRepeats:

@@ -36,12 +36,16 @@ It reports five separate quantities, because they fail in different places.
 | --- | --- | --- |
 | effective sample size | Kish's $(\sum \omega)^2 / \sum \omega^2$ over the clever-covariate weights, folded with the observation weights | the interval is that of a much smaller study |
 | weight concentration | the share of the estimating equation carried by the top 1% of rows | a handful of rows decide the answer |
-| truncation load | the count of clipped propensities, and how far each one moved | the estimate is partly the bound rather than the data |
+| truncation load | the count of units the bound moves, and the most extreme value it leaves | the estimate is sensitive to finite-sample regularisation and extrapolation |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
 
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
+
+The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
+its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
+`g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.
 
 **What it grades, and what it only reports.** The report grades the truncated fraction, and an
 intervention with estimated zero support. Both describe an action or a violation rather than a
@@ -62,9 +66,42 @@ is a conclusion about the bound.
 
 **What it tells you.** How far the estimate moves as the bound moves.
 
+The bound regularises the fitted procedure. It does not change the requested estimand or define an
+overlap-population estimand. A moving curve shows extrapolation sensitivity through the
+second-order remainder.
+
 **How.** `result.diagnostics.truncation_curve()` sweeps the `g_bounds` level and **retargets** the
 cached nuisances at each level through `TMLE.retarget`. On an ordinary, collaborative, or unguarded
 doubly-robust fit it refits no nuisance model, so it is a retarget operation.
+
+The returned frame records both ends of every evaluated pair. Scalar treatment-mechanism values
+remain symmetric shorthand for `[bound, 1 - bound]`; observation- and intermediate-mechanism
+values use `[bound, 1]`. It also records each parameter's own fitted pair and estimate, plus the
+signed difference from that estimate. The default grid includes every exact fitted pair, without
+rounding, so every parameter has one fitted marker. An explicit grid is not expanded: when it omits
+the fitted configuration, the fitted columns retain that configuration and every marker is false.
+
+The combined diagnostic row reports the signed movement range for each parameter or working-model
+coefficient. The retained frame keeps the fitted pair and the per-bound values.
+
+`estimands=` restricts the emitted rows to the parameters you name. It accepts two forms.
+
+| you name | the curve emits |
+| --- | --- |
+| a reported parameter, such as `ey[high]` | the row for that parameter |
+| a registered target, such as `ey` | one row for each reported alias of that target, in report order |
+
+The two forms coincide on a two-armed fit. There the target and its one reported alias share a
+spelling. The curve refuses any other name, and it names the parameters the fit carries. It also
+refuses an empty selection, which would emit no row. Each refusal comes before the first retarget.
+
+The `truncated_fraction` column counts the units the bound moves. It follows the same rule
+`Propensity` applies.
+
+The count belongs to the bound pair the curve evaluated that row at. The `support()` report always
+reads `config.g_bounds`, so the two agree on a row that carries that pair. An `att` or `atc` row
+carries `config.g_bounds_conditional` instead, and its count then differs. A shift fit clips no arm
+probability, so the column reports no value there.
 
 A guarded DR-TMLE fit is the exception. Its targeting step alternates against the reduced-dimension
 regressions, so each bound refits them, and the missing-outcome construction receives the swept

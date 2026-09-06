@@ -85,12 +85,14 @@ class TestBackendParity:
 
     def test_diagnostic_frames_follow_the_backend_too(self, paired_fits) -> None:
         from_pandas, from_polars, _ = paired_fits
-        assert isinstance(
-            from_pandas.diagnostics.truncation_curve([0.01], estimands=["ate"]), pd.DataFrame
-        )
-        assert isinstance(
-            from_polars.diagnostics.truncation_curve([0.01], estimands=["ate"]), pl.DataFrame
-        )
+        pandas_curve = from_pandas.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
+        polars_curve = from_polars.diagnostics.truncation_curve([0.02], estimands=["ate", "att"])
+
+        assert isinstance(pandas_curve, pd.DataFrame)
+        assert isinstance(polars_curve, pl.DataFrame)
+        assert pandas_curve.to_dict(orient="list") == polars_curve.to_dict(as_series=False)
+        assert not pandas_curve["is_fitted_bound"].any()
+        assert set(pandas_curve["upper_bound"]) == {0.98}
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
         """Same text, character for character -- apart from when each fit ran.

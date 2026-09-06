@@ -105,7 +105,7 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Two gaps the audit found are fixed.
+Four gaps the audit found are fixed.
 
 The combined support row no longer contradicts the report it retains. One tiering decision now
 lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
@@ -117,15 +117,22 @@ and reports the ratio for the analyst to judge. The row is therefore `completed`
 A guarded DR-TMLE truncation curve now declares `refit` rather than `retarget`, because its
 targeting alternation refits the reduced regressions at every bound.
 
+Truncation text now describes the bound as finite-sample regularisation. A moving curve reports
+extrapolation sensitivity through the remainder. It does not redefine the requested estimand as
+an overlap-population estimand.
+
+Truncation curves now retain both evaluated endpoints, each parameter's fitted pair and estimate,
+and signed movement from that estimate. Default curves mark the exact fitted configuration once per
+parameter, while explicit grids preserve the requested evaluations and record when the fitted
+configuration was not among them. Combined rows summarize each parameter or coefficient separately.
+
 The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| interpretation text | describe truncation as extrapolation or regularization sensitivity. Do not claim that it changes the requested estimand into an overlap-population estimand |
 | composed support | report the complete clever-covariate denominator for missing-outcome and controlled-direct-effect fits, including joint ESS and concentration |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
-| truncation curves | mark one fitted bound per estimand and summarize movement separately for each coefficient or parameter |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 

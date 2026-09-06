@@ -328,10 +328,10 @@ for axis, report in (
     print()
 ```
 
-The combined reports make the comparison explicit. Support passes for the known regime and the
-incremental intervention. It warns for the shift fit and names `+1.0 uncapped`. Every axis passes
-its own score equations. The reports also keep unrequested retargets and refits visible as
-omissions rather than silently skipping them.
+The combined reports make the comparison explicit. The support rows for the known regime and the
+incremental intervention complete without a warning. The shift row warns and names `+1.0
+uncapped`. Every axis passes its own score equations. The reports also keep unrequested retargets
+and refits visible as omissions rather than silently skipping them.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |

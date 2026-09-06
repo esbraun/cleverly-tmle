@@ -1682,7 +1682,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         Parameters
         ----------
         bounds : sequence of float or None
-            Mechanism bounds to evaluate. Default bounds are used when omitted.
+            Lower mechanism bounds to evaluate. Treatment-mechanism values are symmetric
+            shorthand for ``(bound, 1 - bound)``; observation- and intermediate-mechanism
+            values use ``(bound, 1)``. Default bounds, including each requested parameter's
+            exact fitted pair, are used when omitted. An explicit sequence is not expanded.
         estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
         mechanism : bool
@@ -1691,7 +1694,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         Returns
         -------
         dataframe
-            Estimates and uncertainty at each requested bound.
+            Estimates and uncertainty at each requested bound, with the evaluated and
+            parameter-specific fitted pairs and movement from the fitted estimate.
 
         Raises
         ------
@@ -1949,8 +1953,13 @@ def _correction_item(
     )
 
 
+def _finite(value: Any) -> bool:
+    """True when a cell carries a number a range or a baseline can use."""
+    return value is not None and bool(np.isfinite(value))
+
+
 def _range(values: Sequence[Any]) -> tuple[float, float] | None:
-    finite = [float(value) for value in values if value is not None and np.isfinite(value)]
+    finite = [float(value) for value in values if _finite(value)]
     return (min(finite), max(finite)) if finite else None
 
 
@@ -1958,16 +1967,69 @@ def _format_range(values: tuple[float, float] | None) -> str:
     return "no finite values" if values is None else f"[{values[0]:.4g}, {values[1]:.4g}]"
 
 
+def _alias_rows(aliases: Sequence[Any]) -> dict[str, list[int]]:
+    """Row positions of each parameter, keyed by alias in first-seen order."""
+    groups: dict[str, list[int]] = {}
+    for index, value in enumerate(aliases):
+        groups.setdefault(str(value), []).append(index)
+    return groups
+
+
+def _format_alias_ranges(ranges: Mapping[str, tuple[float, float] | None]) -> str:
+    """One comma-separated ``alias [low, high]`` list, in the order the mapping holds."""
+    return ", ".join(f"{alias} {_format_range(value)}" for alias, value in ranges.items())
+
+
 def _truncation_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     payload = _frame_payload(report)
     bounds = _range(payload.get("bound", payload.get("g_bound", ())))
-    estimates = _range(payload.get("psi", payload.get("estimate", ())))
+    psi = payload.get("psi", payload.get("estimate", ()))
+    aliases = payload.get("estimand")
+    if not aliases:
+        # ``bound`` holds lower endpoints alone, because ``upper_bound`` is its own
+        # column.  Both branches name the same column the same way.
+        detail = (
+            f"evaluated lower bounds {_format_range(bounds)}; "
+            f"estimate range {_format_range(_range(psi))}"
+        )
+    else:
+        groups = _alias_rows(aliases)
+        deltas = payload.get("delta_from_fitted")
+        markers = payload.get("is_fitted_bound")
+        # One signed range for each parameter, against that parameter's own fitted
+        # estimate.  The maximum absolute movement is the larger endpoint's magnitude, so
+        # reporting the signed range keeps the direction and loses nothing.  The fitted
+        # estimate and the fitted pair stay columns of the retained frame, and
+        # ``result.psi(name)`` returns the first: this row presents the movement on one
+        # scale rather than reprinting the curve.
+        scale = f"{len(groups)} parameter(s) over evaluated lower bounds {_format_range(bounds)}"
+        if deltas is None:
+            movement = _format_alias_ranges(
+                {alias: _range([psi[index] for index in rows]) for alias, rows in groups.items()}
+            )
+            detail = f"{scale}; estimate range: {movement}"
+        else:
+            movement = _format_alias_ranges(
+                {alias: _range([deltas[index] for index in rows]) for alias, rows in groups.items()}
+            )
+            detail = f"{scale}; signed movement from the fitted estimate: {movement}"
+        if markers is not None:
+            # An explicit ``bounds=`` grid keeps its cardinality, so it can omit a
+            # parameter's fitted pair.  A count says how many curves start away from the
+            # estimate the fit reported.  A missing column says nothing either way, so the
+            # clause is written only when the markers are there to read.  The deltas are a
+            # separate column, so the markers decide this clause on their own.
+            omitted = sum(
+                not any(bool(markers[index]) for index in rows) for rows in groups.values()
+            )
+            if omitted:
+                detail += f"; fitted pair not evaluated for {omitted} of {len(groups)}"
     return AssessmentItem(
         "truncation_curve",
         AssessmentStatus.COMPLETED,
-        f"evaluated bound range {_format_range(bounds)}; estimate range {_format_range(estimates)}",
+        detail,
     )
 
 
@@ -2200,12 +2262,56 @@ def _missingness_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     payload = _frame_payload(report)
-    return AssessmentItem(
-        "missingness",
-        AssessmentStatus.COMPLETED,
-        f"gamma range {_format_range(_range(payload['gamma']))}; "
-        f"estimate range {_format_range(_range(payload['psi']))}",
-    )
+    psi = payload["psi"]
+    facts = [f"gamma range {_format_range(_range(payload['gamma']))}"]
+    aliases = payload.get("estimand")
+    if not aliases:
+        facts.append(f"estimate range {_format_range(_range(psi))}")
+    else:
+        # The frame holds one row for each ``(gamma, estimand)`` pair, so a pooled minimum
+        # and maximum can belong to two different parameters and describe neither.  The
+        # ``gamma == 0`` row is the estimate the fit itself reported, which makes it the
+        # baseline the tilted rows move away from.
+        groups = _alias_rows(aliases)
+        markers = payload.get("is_mar")
+        # ``missingness_tilt`` drops an untiltable estimand from the default sweep, so the
+        # count is what tells a reader that the curve covers fewer parameters than the fit.
+        facts.append(f"{len(groups)} parameter(s)")
+        if markers is None:
+            # A missing column says nothing about which row the fit itself reported, so
+            # the row states the levels it can read and claims no baseline.  Inferring an
+            # absent baseline here would deny a retained ``gamma == 0`` row.
+            levels = {
+                alias: _range([psi[index] for index in rows]) for alias, rows in groups.items()
+            }
+            facts.append(f"estimate range: {_format_alias_ranges(levels)}")
+        else:
+            movement: dict[str, tuple[float, float] | None] = {}
+            unavailable: dict[str, tuple[float, float] | None] = {}
+            for alias, rows in groups.items():
+                # A marked row whose estimate is not finite is no more usable as a
+                # baseline than an absent one, and every delta taken from it is not
+                # finite.  Both cases report the level instead.
+                baseline = next(
+                    (index for index in rows if bool(markers[index]) and _finite(psi[index])),
+                    None,
+                )
+                if baseline is None:
+                    # The default grid contains zero, but an explicit ``gamma=`` grid need
+                    # not.  The row then reports the level it has and names what is
+                    # missing, rather than treating one tilted estimate as the estimate the
+                    # fit made.
+                    unavailable[alias] = _range([psi[index] for index in rows])
+                else:
+                    mar = float(psi[baseline])
+                    movement[alias] = _range([psi[index] - mar for index in rows])
+            if movement:
+                ranges = _format_alias_ranges(movement)
+                facts.append(f"signed movement from the MAR estimate: {ranges}")
+            if unavailable:
+                ranges = _format_alias_ranges(unavailable)
+                facts.append(f"no MAR estimate retained; estimate range: {ranges}")
+    return AssessmentItem("missingness", AssessmentStatus.COMPLETED, "; ".join(facts))
 
 
 def _tipping_item(
