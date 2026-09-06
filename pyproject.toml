@@ -76,6 +76,7 @@ Homepage = "https://esbraun.github.io/cleverly-tmle/"
 Documentation = "https://esbraun.github.io/cleverly-tmle/"
 Repository = "https://github.com/esbraun/cleverly-tmle"
 Issues = "https://github.com/esbraun/cleverly-tmle/issues"
+Changelog = "https://github.com/esbraun/cleverly-tmle/releases"
 
 [tool.hatch.version]
 path = "src/cleverly/_version.py"
