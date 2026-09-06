@@ -20,14 +20,20 @@ series ends.
 
 Prepare the release in a pull request from `main`.
 
-1. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.1.N` value.
-2. Run every pull request check, including the package checks.
-3. Merge the reviewed pull request into `main`.
-4. Create the matching `v0.1.N` tag on the reviewed `main` commit.
-5. Push the tag, and review both publishing environments in GitHub Actions.
+1. Draft the notes with the [release notes template](release-notes-template.md).
+2. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.1.N` value.
+3. Run every pull request check, including the package checks.
+4. Merge the reviewed pull request into `main`.
+5. Create the matching `v0.1.N` tag on the reviewed `main` commit.
+6. Push the tag, and review both publishing environments in GitHub Actions.
+7. Create the GitHub release from the tag, and paste the reviewed notes.
 
 The workflow rejects a tag with another form. It also rejects a tag that differs from the source
 version or points outside `main` history.
+
+PyPI reads the project description and project links from distribution metadata. It has no
+separate release-notes document in this process. The `Changelog` project link sends PyPI readers
+to the GitHub releases page, which holds the notes for each version.
 
 ## Package gates
 

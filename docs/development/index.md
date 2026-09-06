@@ -16,6 +16,7 @@ needs. Read [pull requests](pull-requests.md) before you open one. Read
 Contributing <contributing>
 Pull requests <pull-requests>
 Releases <releases>
+Release notes template <release-notes-template>
 Roadmap <../roadmap>
 Architecture invariants <../architecture-invariants>
 Fast tests and validation studies <testing-strategy>
