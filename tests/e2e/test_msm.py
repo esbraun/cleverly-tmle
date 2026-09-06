@@ -113,6 +113,22 @@ def fitted():
     return result, truth
 
 
+@pytest.fixture(scope="module")
+def sweep(fitted):
+    """One truncation sweep over an explicit grid, and the report that interprets it.
+
+    Two tests read the same sweep. Sharing it retargets twice rather than four times.
+    """
+    result, _ = fitted
+    bounds = [0.01, 0.05]
+    return (
+        result.diagnostics.truncation_curve(bounds=bounds),
+        result.diagnostics.run_all(
+            include_retargets=True, arguments={"truncation_curve": {"bounds": bounds}}
+        ),
+    )
+
+
 class TestItRecoversTheProjection:
     def test_the_reported_parameters_are_the_declared_terms(self, fitted) -> None:
         result, _ = fitted
@@ -424,26 +440,40 @@ class TestTheSurroundingMachineryWorks:
         report = result.diagnostics.support()
         assert set(report.propensity_quantiles) >= {f"g[{label}]" for label in DOSE}
 
-    def test_a_truncation_sweep_retargets_without_refitting(self, fitted) -> None:
+    def test_a_truncation_sweep_retargets_without_refitting(self, fitted, sweep) -> None:
         result, _ = fitted
-        bounds = [0.01, 0.05]
-        curve = result.diagnostics.truncation_curve(bounds=bounds)
+        curve, combined = sweep
         assert set(curve["estimand"]) == {"msm[(intercept)]", "msm[dose]"}
         assert set(curve["fitted_lower_bound"]) == {result.config.g_bounds[0]}
         assert not curve["is_fitted_bound"].any()
 
-        combined = result.diagnostics.run_all(
-            include_retargets=True, arguments={"truncation_curve": {"bounds": bounds}}
-        )
         detail = combined["truncation_curve"].detail
         assert detail.startswith("2 parameter(s) over evaluated lower bounds [0.01, 0.05]")
         assert "signed movement from the fitted estimate: msm[(intercept)] [" in detail
         assert "msm[dose] [" in detail
         # This grid omits the fitted pair, which both coefficients share here.
         assert detail.endswith("fitted pair not evaluated for 2 of 2")
-        # One unwrapped detail sets the width of the whole table, so the summary a reader
-        # sees is as wide as this row. 400 columns holds the two-coefficient report.
-        assert max(len(line) for line in combined.summary().splitlines()) < 400
+
+    def test_the_truncation_row_fits_an_unwrapped_line_at_two_coefficients(self, sweep) -> None:
+        """This bounds the row's cost at two parameters, and at no other count.
+
+        One unwrapped detail sets the width of the whole table, so the summary a reader
+        sees is as wide as this row. This fit reports two coefficients. Its detail
+        measured 210 characters, inside a summary line of 316 columns.
+
+        The row names every parameter, so both figures grow with the parameter count. The
+        bounded quantity is the per-parameter cost, which
+        ``test_the_truncation_row_costs_a_bounded_number_of_characters_per_parameter``
+        checks. A 12-parameter stratified fit measured 438 characters inside a 544-column
+        line, so no count-free bound holds here.
+
+        Both bounds carry slack over the measurement. An endpoint that changes exponent
+        costs a few characters under ``%.4g``, and ``format_table`` pads every line to the
+        widest cell in the report, which another row can hold.
+        """
+        _, combined = sweep
+        assert len(combined["truncation_curve"].detail) <= 240
+        assert max(len(line) for line in combined.summary().splitlines()) <= 350
 
     def test_a_round_trip_leaves_every_retargeted_analysis_identical(
         self, fitted, tmp_path

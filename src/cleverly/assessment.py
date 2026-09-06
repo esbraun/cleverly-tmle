@@ -1953,8 +1953,13 @@ def _correction_item(
     )
 
 
+def _finite(value: Any) -> bool:
+    """True when a cell carries a number a range or a baseline can use."""
+    return value is not None and bool(np.isfinite(value))
+
+
 def _range(values: Sequence[Any]) -> tuple[float, float] | None:
-    finite = [float(value) for value in values if value is not None and np.isfinite(value)]
+    finite = [float(value) for value in values if _finite(value)]
     return (min(finite), max(finite)) if finite else None
 
 
@@ -1983,8 +1988,10 @@ def _truncation_item(
     psi = payload.get("psi", payload.get("estimate", ()))
     aliases = payload.get("estimand")
     if not aliases:
+        # ``bound`` holds lower endpoints alone, because ``upper_bound`` is its own
+        # column.  Both branches name the same column the same way.
         detail = (
-            f"evaluated bound range {_format_range(bounds)}; "
+            f"evaluated lower bounds {_format_range(bounds)}; "
             f"estimate range {_format_range(_range(psi))}"
         )
     else:
@@ -2008,16 +2015,17 @@ def _truncation_item(
                 {alias: _range([deltas[index] for index in rows]) for alias, rows in groups.items()}
             )
             detail = f"{scale}; signed movement from the fitted estimate: {movement}"
-            if markers is not None:
-                # An explicit ``bounds=`` grid keeps its cardinality, so it can omit a
-                # parameter's fitted pair.  A count says how many curves start away from
-                # the estimate the fit reported.  A missing column says nothing either
-                # way, so the clause is written only when the markers are there to read.
-                omitted = sum(
-                    not any(bool(markers[index]) for index in rows) for rows in groups.values()
-                )
-                if omitted:
-                    detail += f"; fitted pair not evaluated for {omitted} of {len(groups)}"
+        if markers is not None:
+            # An explicit ``bounds=`` grid keeps its cardinality, so it can omit a
+            # parameter's fitted pair.  A count says how many curves start away from the
+            # estimate the fit reported.  A missing column says nothing either way, so the
+            # clause is written only when the markers are there to read.  The deltas are a
+            # separate column, so the markers decide this clause on their own.
+            omitted = sum(
+                not any(bool(markers[index]) for index in rows) for rows in groups.values()
+            )
+            if omitted:
+                detail += f"; fitted pair not evaluated for {omitted} of {len(groups)}"
     return AssessmentItem(
         "truncation_curve",
         AssessmentStatus.COMPLETED,
@@ -2266,30 +2274,43 @@ def _missingness_item(
         # baseline the tilted rows move away from.
         groups = _alias_rows(aliases)
         markers = payload.get("is_mar")
-        movement: dict[str, tuple[float, float] | None] = {}
-        levels: dict[str, tuple[float, float] | None] = {}
-        for alias, rows in groups.items():
-            baseline = (
-                None
-                if markers is None
-                else next((index for index in rows if bool(markers[index])), None)
-            )
-            if baseline is None:
-                # The default grid contains zero, but an explicit ``gamma=`` grid need
-                # not.  The row then reports the level it has and names what is missing,
-                # rather than treating one tilted estimate as the estimate the fit made.
-                levels[alias] = _range([psi[index] for index in rows])
-            else:
-                mar = float(psi[baseline])
-                movement[alias] = _range([psi[index] - mar for index in rows])
         # ``missingness_tilt`` drops an untiltable estimand from the default sweep, so the
         # count is what tells a reader that the curve covers fewer parameters than the fit.
         facts.append(f"{len(groups)} parameter(s)")
-        if movement:
-            facts.append(f"signed movement from the MAR estimate: {_format_alias_ranges(movement)}")
-        if levels:
-            ranges = _format_alias_ranges(levels)
-            facts.append(f"no MAR estimate retained; estimate range: {ranges}")
+        if markers is None:
+            # A missing column says nothing about which row the fit itself reported, so
+            # the row states the levels it can read and claims no baseline.  Inferring an
+            # absent baseline here would deny a retained ``gamma == 0`` row.
+            levels = {
+                alias: _range([psi[index] for index in rows]) for alias, rows in groups.items()
+            }
+            facts.append(f"estimate range: {_format_alias_ranges(levels)}")
+        else:
+            movement: dict[str, tuple[float, float] | None] = {}
+            unavailable: dict[str, tuple[float, float] | None] = {}
+            for alias, rows in groups.items():
+                # A marked row whose estimate is not finite is no more usable as a
+                # baseline than an absent one, and every delta taken from it is not
+                # finite.  Both cases report the level instead.
+                baseline = next(
+                    (index for index in rows if bool(markers[index]) and _finite(psi[index])),
+                    None,
+                )
+                if baseline is None:
+                    # The default grid contains zero, but an explicit ``gamma=`` grid need
+                    # not.  The row then reports the level it has and names what is
+                    # missing, rather than treating one tilted estimate as the estimate the
+                    # fit made.
+                    unavailable[alias] = _range([psi[index] for index in rows])
+                else:
+                    mar = float(psi[baseline])
+                    movement[alias] = _range([psi[index] - mar for index in rows])
+            if movement:
+                ranges = _format_alias_ranges(movement)
+                facts.append(f"signed movement from the MAR estimate: {ranges}")
+            if unavailable:
+                ranges = _format_alias_ranges(unavailable)
+                facts.append(f"no MAR estimate retained; estimate range: {ranges}")
     return AssessmentItem("missingness", AssessmentStatus.COMPLETED, "; ".join(facts))
 
 

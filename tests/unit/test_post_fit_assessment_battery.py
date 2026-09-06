@@ -526,26 +526,101 @@ def test_the_truncation_row_counts_only_the_parameters_that_skipped_their_fitted
     assert "not evaluated" not in INTERPRETERS["truncation_curve"](evaluated, None).detail
 
 
-def test_the_truncation_row_stays_short_enough_for_an_unwrapped_summary_table() -> None:
+def test_the_truncation_row_counts_a_skipped_fitted_pair_without_the_deltas() -> None:
+    """The markers decide the clause, and the deltas are a separate column.
+
+    ``truncation_curve`` writes both columns today, so this frame shape is latent. The
+    rule the row states is about the markers alone, so a frame that carries them and no
+    ``delta_from_fitted`` still gets the count.
+    """
+    frame = pd.DataFrame(
+        {
+            "bound": [0.025, 0.1, 0.025, 0.1],
+            "estimand": ["ate", "ate", "ey1", "ey1"],
+            "psi": [1.0, 1.2, 2.0, 2.1],
+            "is_fitted_bound": [True, False, False, False],
+        }
+    )
+
+    item = INTERPRETERS["truncation_curve"](frame, None)
+
+    assert item.detail == (
+        "2 parameter(s) over evaluated lower bounds [0.025, 0.1]; estimate range: "
+        "ate [1, 1.2], ey1 [2, 2.1]; fitted pair not evaluated for 1 of 2"
+    )
+    # The control: readable markers that name no skipped parameter write no clause.
+    evaluated = frame.assign(is_fitted_bound=[True, False, True, False])
+    assert "not evaluated" not in INTERPRETERS["truncation_curve"](evaluated, None).detail
+
+
+# The characters the compressed row can spend before it names a parameter. The four
+# pieces are the count and its label (42 plus the digits), the bound range (26 at the
+# widest ``%.4g`` pair), the movement label (44), and the skipped-pair clause (42).
+TRUNCATION_FIXED_BUDGET = 160
+# What one more parameter can add: ``, alias [low, high]`` at the same widest endpoints.
+TRUNCATION_PARAMETER_BUDGET = 30
+
+
+def _truncation_budget(aliases: list[str]) -> int:
+    """Characters the truncation row may spend on a curve over these parameters."""
+    return TRUNCATION_FIXED_BUDGET + sum(
+        len(alias) + TRUNCATION_PARAMETER_BUDGET for alias in dict.fromkeys(aliases)
+    )
+
+
+@pytest.mark.parametrize(
+    ("aliases", "measured"),
+    [
+        (["ate", "ey1", "ey0"], 158),
+        (
+            [
+                f"{estimand}{suffix}"
+                for estimand in ("ate", "att", "ey_obs", "par")
+                for suffix in ("", "[V='low']", "[V='high']")
+            ],
+            427,
+        ),
+    ],
+    ids=["three-parameters", "twelve-parameters"],
+)
+def test_the_truncation_row_costs_a_bounded_number_of_characters_per_parameter(
+    aliases: list[str], measured: int
+) -> None:
     """One long detail sets the width of the whole section, because nothing wraps it.
 
     ``format_table`` sizes each column by its widest cell, so the combined report is as
-    wide as this row plus about 106 columns of name, status, and next step. The bound
-    here holds a three-parameter row inside a 300-column table. It does not promise any
-    particular wording.
+    wide as this row plus about 106 columns of name, status, and next step. What is
+    bounded is the per-parameter cost and not the row itself, because a stratified fit
+    reports one parameter for each estimand and stratum and the row names every one of
+    them. ``measured`` is the length each of these two frames produces: 158 characters
+    over three parameters, and 427 over twelve.
+
+    A real fit reaches the same size. A ``TMLE`` fit with
+    ``estimands=("ate", "att", "ey_obs", "par")`` over one two-level stratum reports 12
+    parameters. On data where the default bound grid moves the estimates, its detail
+    measured 438 characters and its ``run_all`` summary line measured 544 columns. The
+    per-parameter sentences this format replaced measured 1725 characters on that same
+    curve.
+
+    The compressed row drops the identity of a parameter that skipped its fitted pair. It
+    states a count alone, so a reader who needs the names reads the retained curve.
     """
-    aliases = ["ate", "ey1", "ey0"]
+    values = [0.0008045, 2.821e-07, -0.0008042]
     frame = pd.DataFrame(
         {
             "bound": [bound for bound in (0.001, 0.2) for _ in aliases],
             "estimand": aliases * 2,
-            "psi": [1.44, 3.491, 2.051, 1.441, 3.491, 2.05],
-            "delta_from_fitted": [0.0, 0.0, 0.0, 0.0008045, 2.821e-07, -0.0008042],
-            "is_fitted_bound": [True] * 3 + [False] * 3,
+            "psi": [1.44 + index for index in range(2 * len(aliases))],
+            "delta_from_fitted": [0.0] * len(aliases)
+            + [values[index % 3] for index in range(len(aliases))],
+            "is_fitted_bound": [True] * len(aliases) + [False] * len(aliases),
         }
     )
 
-    assert len(INTERPRETERS["truncation_curve"](frame, None).detail) < 200
+    detail = INTERPRETERS["truncation_curve"](frame, None).detail
+
+    assert len(detail) == measured
+    assert len(detail) <= _truncation_budget(aliases)
 
 
 def test_the_missingness_row_measures_each_parameter_from_its_own_mar_estimate() -> None:
@@ -575,12 +650,16 @@ def test_the_missingness_row_measures_each_parameter_from_its_own_mar_estimate()
 
 
 def test_the_missingness_row_reports_a_level_when_no_mar_estimate_is_retained() -> None:
-    """An explicit gamma grid need not contain zero, so the baseline can be absent."""
+    """An explicit gamma grid need not contain zero, so the baseline can be absent.
+
+    The markers are readable here, so the row can say the baseline is not among them.
+    """
     frame = pd.DataFrame(
         {
             "gamma": [0.5, 0.5, 1.5, 1.5],
             "estimand": ["ate", "ey1", "ate", "ey1"],
             "psi": [0.4, 1.6, 0.3, 1.9],
+            "is_mar": [False, False, False, False],
         }
     )
 
@@ -590,6 +669,55 @@ def test_the_missingness_row_reports_a_level_when_no_mar_estimate_is_retained() 
         "gamma range [0.5, 1.5]; 2 parameter(s); no MAR estimate retained; "
         "estimate range: ate [0.3, 0.4], ey1 [1.6, 1.9]"
     )
+
+
+def test_the_missingness_row_claims_no_baseline_when_the_markers_are_absent() -> None:
+    """A missing ``is_mar`` column is not evidence that the baseline is missing.
+
+    This frame retains its ``gamma == 0`` rows and carries no marker column. Reading the
+    absent column as an absent baseline would deny those rows, so the row states the
+    level it can read and names no baseline at all.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [0.0, 0.0, 1.0, 1.0],
+            "estimand": ["ate", "ey1", "ate", "ey1"],
+            "psi": [0.5, 1.5, 0.8, 1.0],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [0, 1]; 2 parameter(s); estimate range: ate [0.5, 0.8], ey1 [1, 1.5]"
+    )
+    assert "no MAR estimate retained" not in item.detail
+
+
+def test_the_missingness_row_keeps_the_tilted_estimates_when_the_baseline_is_not_finite() -> None:
+    """A marked row carrying no finite estimate is no more usable than an absent one.
+
+    Every delta from a non-finite baseline is non-finite, so a movement clause would read
+    ``no finite values`` while two finite tilted estimates sit in the frame. The row
+    reports those estimates and says the baseline is not retained.
+    """
+    frame = pd.DataFrame(
+        {
+            "gamma": [-1.0, 0.0, 1.0, -1.0, 0.0, 1.0],
+            "estimand": ["ate"] * 3 + ["ey1"] * 3,
+            "psi": [0.2, float("nan"), 0.8, 1.4, 1.5, 1.6],
+            "is_mar": [False, True, False, False, True, False],
+        }
+    )
+
+    item = INTERPRETERS["missingness"](frame, None)
+
+    assert item.detail == (
+        "gamma range [-1, 1]; 2 parameter(s); signed movement from the MAR estimate: "
+        "ey1 [-0.1, 0.1]; no MAR estimate retained; estimate range: ate [0.2, 0.8]"
+    )
+    # The defect this replaces: the row said the sweep produced nothing at all.
+    assert "ate no finite values" not in item.detail
 
 
 def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> None:
