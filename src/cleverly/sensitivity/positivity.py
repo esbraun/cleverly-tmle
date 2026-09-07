@@ -49,12 +49,13 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
 from ..inference.influence import median_estimates
 from ..targets import TARGETS, parameter_stem
-from ..utils.bounds import g_bounds_for
+from ..utils.bounds import CONDITIONAL_GROUPS, g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
+    from ..fluctuation.submodel import Submodel
 
 __all__ = ["PositivityReport", "positivity_report", "truncation_curve"]
 
@@ -132,6 +133,37 @@ class PositivityReport:
     clever_covariate_max : dict of str to float
         Largest absolute clever-covariate value per targeted estimand family -- the
         single most direct summary of how much one observation can move the estimate.
+    group_leverage : dict of str to dict of str to float
+        How that covariate's *load* is spread, per targeted estimand family.  The load of
+        a row is the magnitude of its clever covariate, summed over that group's score
+        equations and multiplied by the row's observation weight.  It is the quantity the
+        fluctuation moves into its regression weights, so it is what one row contributes
+        to the equation this fit solved.  Every row carries seven keys: ``n``,
+        ``effective`` and ``ess_ratio`` for Kish's effective sample size; ``top_1pct``
+        and ``top_5pct`` for the share of the load the largest few rows hold;
+        ``max_load`` for the largest single load; and ``zero_load``.
+
+        The rows are the ones whose residual the covariate multiplies, which is the set
+        :attr:`mechanisms` also reports over, so the two tables share a denominator and
+        can be read side by side.  The design weights are folded in here for the reason
+        they are folded into :attr:`effective_sample_size` and :attr:`weight_share`: a
+        design that halves the effective sample size and a covariate that halves it again
+        leave a quarter, and a table showing one of them would look comfortable.
+
+        Each group is rebuilt with the bound it was targeted with -- ``att`` and ``atc``
+        read ``g_bounds_conditional`` and every other group reads ``g_bounds`` -- and with
+        the fit's own reference arm.  That is why an ``att`` row and a ``mean`` row differ
+        on one fit.  ``max_load`` is weighted and taken over the targeted rows, while
+        :attr:`clever_covariate_max` is unweighted and taken over every row, so the two
+        answer different questions and need not agree.  ``zero_load`` counts the targeted
+        rows the covariate does not load at all: a zero leaves the Kish sums untouched but
+        stays in ``n``, so ``ess_ratio`` does not flatter a group that loads only part of
+        what it targets.
+
+        This is the general measure, and the derived denominator row in :attr:`mechanisms`
+        is its marginal-mean case.  A conditional-arm, incremental or shift covariate is
+        not an inverse arm probability, so neither the arm table nor a denominator row
+        describes the weighting it performs; this table does.
     bounds : tuple of float
         Truncation bounds the fit applied to the treatment mechanism.
     n : int
@@ -225,6 +257,11 @@ class PositivityReport:
     composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
+    #: Defaulted rather than required, so a report pickled before this table existed still
+    #: unpickles and a hand-built fixture still constructs.  Keyed exactly as
+    #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
+    #: over the fit's targeted groups.
+    group_leverage: dict[str, dict[str, float]] = field(default_factory=dict)
     #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
     #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
@@ -343,8 +380,49 @@ class PositivityReport:
             f"({self.truncated['fraction']:.2%}); most extreme untruncated g(W) = "
             f"{self.truncated['most_extreme']:.5g}"
         )
-        for group, value in self.clever_covariate_max.items():
-            lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.group_leverage:
+            lines.append("")
+            lines.append(
+                format_table(
+                    [
+                        "group",
+                        "n",
+                        "effective n",
+                        "ESS / n",
+                        "top 1% weight",
+                        "top 5% weight",
+                        "max |h|",
+                        "unloaded",
+                    ],
+                    [
+                        [
+                            group,
+                            f"{load['n']:.0f}",
+                            f"{load['effective']:.1f}",
+                            f"{load['ess_ratio']:.3f}",
+                            f"{load['top_1pct']:.3f}",
+                            f"{load['top_5pct']:.3f}",
+                            f"{self.clever_covariate_max[group]:.4g}",
+                            f"{load['zero_load']:.0f}",
+                        ]
+                        for group, load in self.group_leverage.items()
+                    ],
+                )
+            )
+            # Which bound rebuilt each row, because that is what makes an `att` row a
+            # different number from a `mean` row on one fit: the conditional groups read
+            # `g_bounds_conditional`, which the summary otherwise never names.
+            rebuilds = "; ".join(
+                f"{group} at "
+                + ("g_bounds_conditional" if group in CONDITIONAL_GROUPS else "g_bounds")
+                for group in self.group_leverage
+            )
+            lines.append(f"(load over the targeted rows, design weights folded in; {rebuilds})")
+        elif self.clever_covariate_max:
+            # A report pickled before the table above existed still has the maxima, and a
+            # reader of that report should still see them rather than nothing.
+            for group, value in self.clever_covariate_max.items():
+                lines.append(f"max |clever covariate| ({group}): {value:.4g}")
         if self.mechanisms:
             lines.append("")
             lines.append(
@@ -395,6 +473,11 @@ class PositivityReport:
         product, or no fitted factor stands beside ``g`` so there is no derived row at
         all.  Otherwise it names the groups and what each divides by instead, because an
         omission that does not explain itself reads exactly like a clean bill of health.
+
+        The refusal stands, and the note now says where those groups *are* covered.  The
+        per-group leverage table reads each covariate as built rather than a denominator
+        it never forms, so an excluded group has a load measure even though it has no
+        derived row.  Naming it keeps the sentence from reading as "nothing here for you".
         """
         if not self.composed_excluded:
             return None
@@ -409,7 +492,10 @@ class PositivityReport:
             if composed
             else "no derived denominator row is reported for"
         )
-        return f"({lead} {excluded}. Read the factor rows above for those estimands.)"
+        pointer = (
+            " Their load is in the per-group leverage table above." if self.group_leverage else ""
+        )
+        return f"({lead} {excluded}. Read the factor rows above for those estimands.{pointer})"
 
     @property
     def severity(self) -> Literal["adequate", "strain", "serious"]:
@@ -449,6 +535,12 @@ class PositivityReport:
         truncated fraction, which is not a judgement about the data: it counts the rows
         the fit clipped at a bound the caller configured, and a clipped row contributes
         extrapolation rather than data.
+
+        The **group** share from :attr:`group_leverage` is reported on the same terms and
+        graded no more than the arm share is.  It is stated beside the arm share because
+        the two can disagree: a conditional-arm covariate is not an inverse arm
+        probability, so every arm can look comfortable while the group that fit actually
+        targets retains far less.  It adds no tier and no threshold.
         """
         # Non-finite ratios are dropped rather than compared.  An arm with no rows stores
         # NaN here by construction, and `min` over a sequence containing NaN returns
@@ -469,6 +561,21 @@ class PositivityReport:
             if ratios
             else "No arm reports a finite effective sample size."
         )
+        # The same drop for the same reason: a group with no targeted rows stores NaN, and
+        # `min` would otherwise report whichever value it met first.  This share is added
+        # rather than substituted, because the arm share and the group share are different
+        # weightings and the narrower of the two is not always the arm's.
+        group_ratios = [
+            float(load["ess_ratio"])
+            for load in self.group_leverage.values()
+            if np.isfinite(load["ess_ratio"])
+        ]
+        if group_ratios:
+            share += (
+                f" Its narrowest targeted group retains an effective {min(group_ratios):.0%} of "
+                "the rows its own clever covariate weights, which is reported and not graded "
+                "either."
+            )
         for name, stats in self.mechanisms.items():
             # Checked before the propensity verdict, because this is the failure a reader
             # is least likely to be looking for: overlap in `g` can be immaculate while
@@ -654,6 +761,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         clever_covariate_max={
             group: _max_abs_covariate(result, group) for group in result.fluctuations
         },
+        group_leverage={group: _covariate_leverage(result, group) for group in result.fluctuations},
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
@@ -738,6 +846,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         clever_covariate_max={
             group: _max_abs_covariate(result, group) for group in result.fluctuations
         },
+        group_leverage={group: _covariate_leverage(result, group) for group in result.fluctuations},
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
@@ -917,14 +1026,18 @@ def _kish_ess(weights: FloatArray) -> float:
     return effective_sample_size(w, on_degenerate=0.0)
 
 
-def _max_abs_covariate(result: TMLEResult, group: str) -> float:
-    """Largest absolute clever-covariate value for one targeted family.
+def _group_submodel(result: TMLEResult, group: str) -> Submodel:
+    """The clever covariate one targeted family was fluctuated along.
 
     Rebuilt from the data, the nuisance estimates and the config rather than from the
     estimator, so this stays a real number on a result whose estimator is gone.
+
+    Every reading of a group's covariate comes through here.  The largest absolute value
+    and the load measures describe the same array by construction, which they would not
+    if each caller rebuilt the submodel with bounds and a reference arm of its own.
     """
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
-    submodel = build_submodel(
+    return build_submodel(
         result.data,
         result.nuisance,
         group,
@@ -941,7 +1054,54 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
         # beta a per-fold covariate has no other summary of.
         msm_beta=_reported_beta(result, group),
     )
-    return submodel.max_abs
+
+
+def _max_abs_covariate(result: TMLEResult, group: str) -> float:
+    """Largest absolute clever-covariate value for one targeted family."""
+    return _group_submodel(result, group).max_abs
+
+
+def _covariate_leverage(result: TMLEResult, group: str) -> dict[str, float]:
+    """How the load of one group's clever covariate is spread over the rows it weights.
+
+    The arm table reads ``1 / g`` and the mechanism table reads a denominator, so neither
+    describes the weighting an ``att``, ``atc``, ``ipsi`` or ``mtp`` fit performs: those
+    covariates are not an inverse arm probability.  This reads the covariate itself, at
+    the bound and the reference arm that group was targeted with, so every targeted group
+    gets the load measures a marginal-mean fit already reports.
+
+    The rows are :func:`~cleverly.estimators.direct_effect.targeted_rows`, which is the
+    set :func:`_mechanism_overlap` also uses, so the two tables share a denominator and
+    can be read side by side.  The mask is required rather than tidy: ``mean_submodel``
+    divides by ``pi`` but carries no ``Delta`` indicator, so an unmasked ratio would
+    average in rows whose residual the equation never weights.
+
+    The load itself is the per-row magnitude
+    :func:`~cleverly.fluctuation.submodel.weighted_form` already moves into the
+    regression weights, times the design weight -- folded in here for the reason the arm
+    and mechanism tables fold it in, that the two costs multiply.  Summing across columns
+    is the total load a row carries across that group's score equations: for ``mean``,
+    ``att`` and ``atc`` exactly one column is non-zero per row except at the reference
+    arm, which loads every contrast by construction, and for ``msm`` several coefficients
+    load the same row.
+    """
+    submodel = _group_submodel(result, group)
+    contributing = targeted_rows(result.data, result.intermediate_value)
+    load = result.data.weights[contributing] * np.abs(submodel.observed[contributing]).sum(axis=1)
+    nominal = float(load.size)
+    return {
+        "n": nominal,
+        "effective": _kish_ess(load),
+        "ess_ratio": _kish_ess(load) / nominal if load.size else float("nan"),
+        "top_1pct": top_weight_share(load, 0.01),
+        "top_5pct": top_weight_share(load, 0.05),
+        "max_load": float(np.max(load)) if load.size else float("nan"),
+        # A row the covariate does not load at all leaves the Kish sums untouched but
+        # stays in `n`, so `ess_ratio` does not flatter a group that loads only part of
+        # what it targets.  The count says how many rows that is, which is the one thing
+        # the ratio on its own cannot separate from a merely uneven spread.
+        "zero_load": float(np.count_nonzero(load == 0.0)),
+    }
 
 
 def _reported_beta(result: TMLEResult, group: str) -> Any:

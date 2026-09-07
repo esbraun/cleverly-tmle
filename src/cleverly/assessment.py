@@ -1863,6 +1863,13 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         for values in getattr(report, "mechanisms", {}).values():
             if "ess_ratio" in values:
                 ess.append(float(values["ess_ratio"]))
+        # A group's own clever covariate can retain less than any arm or mechanism does,
+        # so the pooled minimum has to see it. Without this the combined row would quote a
+        # larger share than the report it retains, which is the disagreement `_verdict_parts`
+        # exists to prevent. Status is untouched: the ESS ratio is never graded.
+        for values in getattr(report, "group_leverage", {}).values():
+            if "ess_ratio" in values:
+                ess.append(float(values["ess_ratio"]))
     if isinstance(report, LongitudinalDiagnostics):
         truncated.extend(float(row.share_truncated) for row in report.rows)
         ess.extend(float(row.effective_n / row.n_followed) for row in report.rows if row.n_followed)
