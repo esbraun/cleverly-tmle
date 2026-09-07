@@ -273,11 +273,16 @@ class TestTheEffectiveSampleSizeCountsOnlyTheRowsTheMechanismWeights:
         # 12 rows were forced to Z = 0 and nothing is missing here, so the mask is tight.
         assert int(mask.sum()) == 12
 
-    @pytest.mark.parametrize(("level", "z"), [("zero", 0.0), ("one", 1.0)])
+    @pytest.mark.parametrize("z", [0.0, 1.0])
     def test_the_composed_row_uses_the_complete_bounded_denominator(
-        self, request: Any, level: str, z: float
+        self, overlapping_fit: Any, z: float
     ) -> None:
-        result = request.getfixturevalue(f"fit_at_{level}")
+        # On the extreme law above the density is one number on every row, and a Kish ESS
+        # is scale-invariant: `g * q` and `g` would report the same ratio there, so the
+        # factor-omission controls below could not fail however wrong the row was.  This
+        # fit is the one whose mechanism varies, which is what gives them something to
+        # bite on -- the same reason the two tests above use it.
+        result = overlapping_fit[z]
         data, nuisance = result.data, result.nuisance
         g = nuisance.propensity.values
         q = nuisance.intermediate_density(z, 0.0)
@@ -304,6 +309,95 @@ class TestTheEffectiveSampleSizeCountsOnlyTheRowsTheMechanismWeights:
                 wrong_weights.size * np.square(wrong_weights).sum()
             )
             assert stats["ess_ratio"] != pytest.approx(wrong_ess, abs=1e-4)
+
+
+@pytest.fixture(scope="module")
+def missing_cde_fit() -> Any:
+    """A controlled direct effect whose outcomes also go missing.
+
+    The only composition that reaches the three-factor denominator, and the one the
+    covariate divides by whole: ``g_a(W) pi_a(W) q_z(a, W)``.  Missingness depends on
+    ``W1`` alone, which keeps the observation mechanism away from the bound and leaves the
+    product as the only place the joint load appears.
+    """
+    import pandas as pd
+
+    from cleverly.datasets import make_cde
+
+    frame, _ = make_cde(n=600, seed=11)
+    frame = pd.DataFrame(frame)
+    rng = np.random.default_rng(4)
+    observed = rng.random(len(frame)) < 1.0 / (1.0 + np.exp(-(0.8 + 0.9 * frame["W1"])))
+    frame = frame.assign(Delta=observed.astype(float), Y=np.where(observed, frame["Y"], np.nan))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return TMLE(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=3,
+            random_state=0,
+            simultaneous=False,
+            estimands=("ate",),
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            intermediate="Z",
+            delta="Delta",
+        )
+
+
+class TestTheThreeFactorDenominator:
+    """``g_a(W) pi_a(W) q_z(a, W)``, which no factor row and no two-factor row shows."""
+
+    @pytest.mark.parametrize("z", [0.0, 1.0])
+    def test_it_is_the_row_the_report_names(self, missing_cde_fit: Any, z: float) -> None:
+        mechanisms = missing_cde_fit[z].diagnostics.support().mechanisms
+        assert set(mechanisms) == {
+            "P(Delta=1|A,W)",
+            f"P(Z={z:.0f}|A,W)",
+            "P(A=a,Delta=1,Z=z|W)",
+        }
+
+    @pytest.mark.parametrize("z", [0.0, 1.0])
+    def test_it_multiplies_all_three_bounded_factors(self, missing_cde_fit: Any, z: float) -> None:
+        result = missing_cde_fit[z]
+        data, nuisance = result.data, result.nuisance
+        lower = result.config.missingness_bound
+        g = nuisance.propensity.truncate(result.config.g_bounds).values
+        pi = np.clip(nuisance.missingness, lower, 1.0)
+        q = nuisance.intermediate_density(z, lower)
+        mask = targeted_rows(data, z)
+        at_arm = np.where(data.treatment == 1.0, (g * pi * q)[:, 1], (g * pi * q)[:, 0])[mask]
+        weights = data.weights[mask] / at_arm
+        stats = result.diagnostics.support().mechanisms["P(A=a,Delta=1,Z=z|W)"]
+
+        assert stats["ess_ratio"] == pytest.approx(
+            weights.sum() ** 2 / (weights.size * np.square(weights).sum())
+        )
+        count = max(1, int(np.ceil(0.05 * weights.size)))
+        assert stats["top_5pct"] == pytest.approx(np.sort(weights)[-count:].sum() / weights.sum())
+
+        # The controls.  Each pair is a denominator the estimator never forms, and each
+        # would report a comfortable number in place of the joint one.
+        for dropped in (g, pi, q):
+            partial = (g * pi * q) / dropped
+            wrong_at_arm = np.where(data.treatment == 1.0, partial[:, 1], partial[:, 0])[mask]
+            wrong = data.weights[mask] / wrong_at_arm
+            assert stats["ess_ratio"] != pytest.approx(
+                wrong.sum() ** 2 / (wrong.size * np.square(wrong).sum()), abs=1e-4
+            )
+
+    @pytest.mark.parametrize("z", [0.0, 1.0])
+    def test_its_label_names_a_bound_for_every_factor(self, missing_cde_fit: Any, z: float) -> None:
+        """Three factors, so two nuisance bounds beside ``g``'s pair, not one."""
+        report = missing_cde_fit[z].diagnostics.support()
+        assert report._bound_label("P(A=a,Delta=1,Z=z|W)") == (
+            f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x "
+            f"[{report.nuisance_bound:.4g}, 1] x [{report.nuisance_bound:.4g}, 1], "
+            "factor by factor"
+        )
 
 
 class TestTheLevelIsValidated:

@@ -746,6 +746,16 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
             expected = np.sort(weights)[-count:].sum() / weights.sum()
             assert stats[key] == pytest.approx(expected)
 
+        # The controls.  Concentration is scale-free, so a row that quietly dropped one
+        # factor would still report a plausible share; these fail unless both factors are
+        # in the denominator the shares were taken over.
+        for wrong in (g, pi):
+            wrong_at_arm = np.where(data.treatment == 1.0, wrong[:, 1], wrong[:, 0])
+            wrong_weights = data.weights[data.observed] / wrong_at_arm[data.observed]
+            count = max(1, int(np.ceil(0.05 * wrong_weights.size)))
+            share = np.sort(wrong_weights)[-count:].sum() / wrong_weights.sum()
+            assert stats["top_5pct"] != pytest.approx(share, abs=1e-4)
+
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""
         report = pinched_observation_fit.diagnostics.support()

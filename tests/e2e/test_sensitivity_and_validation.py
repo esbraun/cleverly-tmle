@@ -211,6 +211,41 @@ class TestPositivityUnderObservationWeights:
             assert abs(_kish(leverage) - _kish(clever)) > 10.0
             assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
+    def test_the_mechanism_rows_fold_them_in_too(self, weighted_missing_fit) -> None:
+        """Both the fitted factor and the derived product, not only the propensity rows.
+
+        The mechanism rows report the same leverage on the same scale, so a row that
+        divided by the mechanism and stopped there would understate exactly the design a
+        reader turned to this table to weigh.  The unweighted quantity is the control:
+        every assertion above is silent about these rows, and the weights are a term that
+        vanishes on any fixture that does not carry them.
+        """
+        result = weighted_missing_fit
+        data, nuisance = result.data, result.nuisance
+        lower = result.config.missingness_bound
+        observation = np.clip(np.asarray(nuisance.missingness, dtype=float), lower, 1.0)
+        product = nuisance.propensity.truncate(result.config.g_bounds).values * observation
+        contributing = np.asarray(data.observed, dtype=bool)
+        treated = np.asarray(data.treatment == 1.0)
+        mechanisms = result.diagnostics.support().mechanisms
+
+        for name, bounded in (
+            ("P(Delta=1|A,W)", observation),
+            ("P(A=a,Delta=1|W)", product),
+        ):
+            at_arm = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
+            clever = 1.0 / at_arm
+            leverage = data.weights[contributing] / at_arm
+            stats = mechanisms[name]
+
+            assert stats["ess_ratio"] == pytest.approx(_kish(leverage) / leverage.size, abs=0)
+            assert stats["top_1pct"] == pytest.approx(_top_share(leverage, 0.01), abs=0)
+            assert stats["top_5pct"] == pytest.approx(_top_share(leverage, 0.05), abs=0)
+
+            # The control: dropping the observation weights moves both reported numbers.
+            assert abs(_kish(leverage) / leverage.size - _kish(clever) / clever.size) > 0.01
+            assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.005
+
 
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
