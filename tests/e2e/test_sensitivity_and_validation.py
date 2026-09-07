@@ -308,6 +308,29 @@ class TestThePerGroupCovariateLeverageIsReported:
                 fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
             )
 
+    @pytest.fixture(scope="class")
+    def reversed_reference_fit(self) -> object:
+        """The same law as ``loaded_fit``, targeted against arm 1 rather than arm 0.
+
+        ``reference=1`` is the one thing that differs, and it is the only condition under
+        which the rebuild's ``reference=`` argument is observable: everywhere else in this
+        class the fit's reference is the lowest arm, which is also the fallback.
+        """
+        frame, _ = make_missing_outcome(n=400, seed=13, strength=1.5)
+        weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
+        return (
+            fast_tmle(estimands=("ate", "att"), reference=1)
+            .fit(
+                weighted,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+                weights="obs_weight",
+            )
+            .single()
+        )
+
     @staticmethod
     def _pieces(result) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """``(contributing rows, treated indicator, bounded missingness)`` for one fit.
@@ -482,6 +505,13 @@ class TestThePerGroupCovariateLeverageIsReported:
         which carries ``against``, and inverts the propensity odds.  The result is a
         different function of the row, not a multiple of the same one, so the ordering of
         the loads changes and Kish's ratio moves with it.
+
+        It is a control on the *formula* and not on the argument that carries the
+        reference.  This fixture's reference is arm 0, which is also what
+        ``_reference_index(None, ...)`` returns, so dropping ``reference=`` from the
+        rebuild leaves this row where it is.
+        ``test_a_non_default_reference_arm_is_the_one_the_row_is_rebuilt_at`` is the case
+        that separates the two.
         """
         report = loaded_fit.diagnostics.support()
         contributing, _, _ = self._pieces(loaded_fit)
@@ -494,6 +524,43 @@ class TestThePerGroupCovariateLeverageIsReported:
         # 0.215. The wrong reference reports a comfortable row for a strained fit.
         assert abs(_kish(load) - row["effective"]) > 50.0
         assert abs(_top_share(load, 0.05) - row["top_5pct"]) > 0.05
+
+    def test_a_non_default_reference_arm_is_the_one_the_row_is_rebuilt_at(
+        self, reversed_reference_fit
+    ) -> None:
+        """The deliberate-mutation control on ``reference=`` itself, not on the formula.
+
+        ``_group_submodel`` passes the fit's own ``reference_arm`` to the rebuild.  Drop
+        that argument and ``_reference_index`` falls back to the lowest arm, which is 0 on
+        every other fixture in this class and so is the same array they already assert.
+        Only a fit whose reference is **not** the lowest arm can tell the two apart, and
+        that is what this one is: ``reference=1`` makes ``att`` the effect among the units
+        in arm 0, whose covariate reweights arm 1 by the propensity odds rather than the
+        other way round.
+
+        Measured over seeds 11, 13, 17, 21 and 29 at ``n=400``. The reported row matches
+        the rebuild at arm 1 exactly, and the rebuild at arm 0 differs by 66 to 123
+        effective rows of about 300, by 0.069 to 0.105 in the top-5% share and by 5.8 to
+        31 in the largest single load.  The windows hold across that whole range.
+        """
+        result = reversed_reference_fit
+        report = result.diagnostics.support()
+        contributing, _, _ = self._pieces(result)
+        weights = result.data.weights[contributing]
+        row = report.group_leverage["att"]
+
+        assert result.config.reference_arm == 1.0
+        at_fit = weights * np.abs(self._att_covariate(result, reference=1.0))[contributing]
+        at_default = weights * np.abs(self._att_covariate(result, reference=0.0))[contributing]
+
+        assert row["effective"] == pytest.approx(_kish(at_fit), abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(at_fit, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(at_fit, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(at_fit.max()), abs=0)
+
+        assert abs(_kish(at_default) - row["effective"]) > 50.0
+        assert abs(_top_share(at_default, 0.05) - row["top_5pct"]) > 0.05
+        assert abs(float(at_default.max()) - row["max_load"]) > 5.0
 
     def test_the_rows_the_equation_never_weights_stay_out_of_the_ratio(self, loaded_fit) -> None:
         """Control: the load taken over every row rather than over the targeted ones.
@@ -580,14 +647,33 @@ class TestThePerGroupCovariateLeverageIsReported:
     def test_the_table_renders_beside_the_maxima_it_keeps(self, loaded_fit) -> None:
         """The maximum is not lost: it becomes the ``max |h|`` column of the same table.
 
+        ``max load`` stands beside it and carries a different number. The two answer
+        different questions -- one is weighted and over the targeted rows, the other
+        unweighted and over every row -- so a single column under one caption would read
+        as though the second were the first. Both columns and the caption that separates
+        them are asserted here, on a fit where the two differ for each group.
+
         The bound line is asserted too. It is what makes the ``att`` row a different
         number from the ``mean`` row on one fit, and the summary names it nowhere else.
         """
-        summary = loaded_fit.diagnostics.support().summary()
+        report = loaded_fit.diagnostics.support()
+        summary = report.summary()
+        lines = summary.splitlines()
+        header = next(line for line in lines if line.startswith("group "))
+
         assert "group  n" in summary
-        assert "max |h|" in summary
-        assert "unloaded" in summary
+        assert header.index("max load") < header.index("max |h|") < header.index("unloaded")
         assert "mean at g_bounds; att at g_bounds_conditional" in summary
+        assert (
+            "load over the targeted rows, design weights folded in; max load is that "
+            "weighted load, and max |h| is the unweighted covariate over every row" in summary
+        )
+        for group, load in report.group_leverage.items():
+            row = next(line for line in lines if line.startswith(f"{group} "))
+            assert f"{load['max_load']:.4g}" in row
+            assert f"{report.clever_covariate_max[group]:.4g}" in row
+            # The two columns are distinct numbers here, so neither is a copy of the other.
+            assert load["max_load"] != pytest.approx(report.clever_covariate_max[group])
         # The composed note now says where the estimands it refuses to cover are covered.
         # The refusal is unchanged: this fit forms the product for its `ate` and never for
         # its `att`, so the derived row is present and does not describe the `att`.

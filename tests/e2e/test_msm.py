@@ -14,6 +14,8 @@ learning, and the outcome regression is correctly specified for this process any
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import sklearn.linear_model
@@ -23,6 +25,7 @@ from cleverly import load
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.datasets.synthetic import MultiArmDGP
 from cleverly.estimators import TMLE
+from cleverly.exceptions import PositivityWarning
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS
@@ -31,12 +34,41 @@ from tests.conftest import FAST_KWARGS
 #: the labels -- which is the refusal ``MSM.linear`` makes, taken up.
 DOSE = {"low": 0.0, "medium": 1.0, "high": 2.0}
 
+#: The same three arms on a *centred* coding.  ``DOSE`` is non-negative, so every row of
+#: the clever covariate ``phi(a) / g_a(W)`` is same-signed and the two cross-column
+#: aggregations below agree on every row.  This coding puts a positive and a negative entry
+#: in one row, which is what separates them.
+CENTRED_DOSE = {"low": -1.0, "medium": 0.0, "high": 1.0}
+
 N = 2000
 SEED = 0
 
 
+def _kish(weights: np.ndarray) -> float:
+    """Kish's effective sample size, ``(sum w)^2 / sum w^2``, written out.
+
+    A sibling of the helper of the same name in
+    :mod:`tests.e2e.test_sensitivity_and_validation`, duplicated on the terms that module
+    records: the only home both could import from is ``tests/conftest.py``, and this
+    change does not own it.
+    """
+    w = np.asarray(weights, dtype=float)
+    return float(w.sum() ** 2 / np.square(w).sum())
+
+
+def _top_share(weights: np.ndarray, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of the rows."""
+    w = np.asarray(weights, dtype=float)
+    count = max(1, int(np.ceil(fraction * w.size)))
+    return float(np.sort(w)[-count:].sum() / w.sum())
+
+
 def _dose_design(arm, frame):
     return np.column_stack([np.ones(len(frame)), np.full(len(frame), DOSE[arm])])
+
+
+def _centred_dose_design(arm, frame):
+    return np.column_stack([np.ones(len(frame)), np.full(len(frame), CENTRED_DOSE[arm])])
 
 
 def _saturated_design(arm, frame):
@@ -49,6 +81,15 @@ def dose_response(link: str = "identity") -> MSM:
         design=_dose_design,
         terms=("(intercept)", "dose"),
         link=link,  # type: ignore[arg-type]
+    )
+
+
+def centred_dose_response() -> MSM:
+    """``m(a) = beta0 + beta1 * dose(a)`` on a dose that runs ``-1``, ``0``, ``1``."""
+    return MSM(
+        design=_centred_dose_design,
+        terms=("(intercept)", "dose"),
+        link="identity",
     )
 
 
@@ -445,8 +486,18 @@ class TestTheSurroundingMachineryWorks:
 
         The table is keyed by group rather than by score equation, so a row's load is the
         total a unit carries across that group's equations. Here both coefficients weight
-        the same unit, so the row is a sum over two columns rather than a copy of one, and
-        it is larger than the unweighted maximum ``clever_covariate_max`` reports.
+        the same unit, so the row is a sum over two columns rather than a copy of one.
+
+        ``max_load`` sums those columns and ``clever_covariate_max`` reports the largest
+        single one, so the first is never below the second. **It is strictly above only
+        where the heaviest row loads more than one column**, and that condition is a
+        property of the fit rather than of the code: this fit's heaviest row sits at
+        ``dose = 1``, where ``phi(a) = (1, 1)`` makes the two columns equal and the load
+        exactly twice the maximum. On a fit whose heaviest row sat at ``dose = 0`` the two
+        numbers would coincide. So the factor is asserted rather than a bare inequality
+        that reads as a general claim and is not one.
+        ``TestTheLoadSumsTheColumnMagnitudesRatherThanCancellingThem`` is where the
+        cross-column aggregation itself is pinned.
         """
         result, _ = fitted
         report = result.diagnostics.support()
@@ -456,8 +507,33 @@ class TestTheSurroundingMachineryWorks:
         assert len(result.fluctuations["msm"].names) == 2
         assert load["n"] == float(result.data.n)
         assert np.isfinite(load["effective"]) and 0.0 < load["ess_ratio"] < 1.0
-        assert load["max_load"] > report.clever_covariate_max["msm"]
+        assert load["max_load"] >= report.clever_covariate_max["msm"]
+        assert load["max_load"] == pytest.approx(2.0 * report.clever_covariate_max["msm"], abs=0)
         assert "msm at g_bounds" in report.summary()
+
+    def test_the_summary_labels_the_weighted_load_apart_from_the_covariate_maximum(
+        self, fitted
+    ) -> None:
+        """Two maxima, two columns, and a caption that says which is which.
+
+        They answer different questions on the same row: ``max load`` is weighted and
+        taken over the targeted rows, and ``max |h|`` is unweighted and taken over every
+        row. A single column under one caption read as though the second were the first,
+        which on this fit understates the heaviest load by half.
+        """
+        result, _ = fitted
+        report = result.diagnostics.support()
+        summary = report.summary()
+        header = next(line for line in summary.splitlines() if line.startswith("group "))
+        row = next(line for line in summary.splitlines() if line.startswith("msm "))
+
+        assert header.index("max load") < header.index("max |h|") < header.index("unloaded")
+        assert f"{report.group_leverage['msm']['max_load']:.4g}" in row
+        assert f"{report.clever_covariate_max['msm']:.4g}" in row
+        assert (
+            "max load is that weighted load, and max |h| is the unweighted covariate over "
+            "every row" in summary
+        )
 
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted, sweep) -> None:
         result, _ = fitted
@@ -515,6 +591,124 @@ class TestTheSurroundingMachineryWorks:
         reloaded = load(result.save(tmp_path / "msm_refit.joblib"))
         refitted = reloaded.estimator.refit(reloaded.data)
         assert refitted.diagnostics.score_equations().passed
+
+
+class TestTheLoadSumsTheColumnMagnitudesRatherThanCancellingThem:
+    """A row's load is ``sum_c |h_ic|``, and the control that tells it from ``|sum_c h_ic|``.
+
+    The two aggregations agree on every other fixture in this suite, and that is the trap
+    this class exists to mark. A row can only tell them apart when its non-zero columns
+    carry **different signs**, and no group the rest of the suite exercises produces such a
+    row. ``mean`` has one non-zero column per row. ``att`` and ``atc`` put ``+own`` on a
+    contrast row and an all-negative ``-against`` on a reference row. ``regime`` and
+    ``ipsi`` are non-negative throughout. And ``DOSE`` runs ``0``, ``1``, ``2``, so the
+    working model's ``phi(a) = (1, dose(a))`` is non-negative as well. Replacing the sum of
+    the magnitudes with the magnitude of the sum leaves every one of those rows exactly
+    where it was, so a suite built on them alone reports a cancelling aggregation as
+    correct.
+
+    ``CENTRED_DOSE`` is the witness. At ``dose = -1`` the covariate row is
+    ``(1, -1) / g_a(W)``: its magnitudes sum to ``2 / g_a(W)`` while its columns cancel to
+    zero. So the wrong aggregation unloads a quarter of the sample outright and
+    concentrates the load onto the rest, which ``effective``, ``ess_ratio``, ``top_5pct``
+    and ``zero_load`` all see. ``max_load`` does not: the heaviest row here sits at
+    ``dose = 1``, where the two columns are equal and both aggregations return the same
+    number, which is why it is not the gate below.
+    """
+
+    @pytest.fixture(scope="class")
+    def centred(self):
+        """A working-model fit whose design columns take both signs on the same row.
+
+        ``n=800`` rather than the module's 2000. Nothing here is about recovering the
+        projection, and the separation this class measures is a property of the coding
+        rather than of the sample size. The overlap warning belongs to this process at
+        three arms and is not what the class is about.
+        """
+        frame, _ = make_multi_arm(n=800, seed=SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            return (
+                TMLE(msm=centred_dose_response(), **SETTINGS)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+
+    @staticmethod
+    def _covariate(result) -> np.ndarray:
+        """``phi(A, V) / g_A(W)``: one row per unit, one column per coefficient.
+
+        Written out from the formula in
+        :func:`~cleverly.fluctuation.submodel.msm_submodel` rather than read off the
+        submodel the reported row is built from. This fit has complete outcomes, no
+        intermediate variable and a uniform working-model weight, so the denominator is
+        the propensity at the realised arm and nothing else.
+        """
+        data, propensity = result.data, result.nuisance.propensity
+        g = propensity.bounded(result.config.g_bounds)
+        at_arm = g[np.arange(data.n), [propensity.column_for(arm) for arm in data.treatment]]
+        dose = np.array([CENTRED_DOSE[data.arm_label(arm)] for arm in data.treatment])
+        return np.column_stack([1.0 / at_arm, dose / at_arm])
+
+    def test_the_row_is_the_sum_of_its_columns_magnitudes(self, centred) -> None:
+        """Every key at once, against the covariate written out from the formula.
+
+        The seven keys are one description of one array, so a row that took ``n`` from the
+        targeted set and its sums from a different aggregation would satisfy any of them
+        taken alone. The sign count is asserted with them: it is the condition that makes
+        the control in the next test able to fail, and a fixture that lost it would leave
+        that control passing on any implementation.
+        """
+        report = centred.diagnostics.support()
+        row = report.group_leverage["msm"]
+        contributing = np.asarray(centred.data.observed, dtype=bool)
+        covariate = self._covariate(centred)[contributing]
+        load = centred.data.weights[contributing] * np.abs(covariate).sum(axis=1)
+
+        assert row["n"] == pytest.approx(float(contributing.sum()), abs=0)
+        assert row["effective"] == pytest.approx(_kish(load), abs=0)
+        assert row["ess_ratio"] == pytest.approx(_kish(load) / contributing.sum(), abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
+        # The covariate is non-zero at every unit's own arm, so nothing here is unloaded.
+        assert row["zero_load"] == 0.0
+        signs = np.sign(covariate)
+        mixed = int(((signs > 0).any(axis=1) & (signs < 0).any(axis=1)).sum())
+        # Measured 210 to 251 over seeds 0-4 at this size: the units in the `low` arm.
+        assert mixed > 150, "the fixture must carry rows whose columns disagree in sign"
+
+    def test_cancelling_the_columns_before_the_magnitude_reports_a_different_row(
+        self, centred
+    ) -> None:
+        """The deliberate-mutation control: ``|sum_c h_ic|`` in place of ``sum_c |h_ic|``.
+
+        Applying that one-line change to ``_covariate_leverage`` and running this test
+        fails it; the whole of ``test_sensitivity_and_validation.py``,
+        ``test_sensitivity_multi_arm.py``, the rest of this module,
+        ``test_regimes.py`` and ``test_post_fit_assessment_battery.py`` stay green, for the
+        reason the class docstring gives.
+
+        Measured over seeds 0-4 at ``n=800``. The reported row keeps an effective 425 to
+        591 rows of 800 and unloads none; the cancelling row keeps 228 to 343 and unloads
+        210 to 251. The gaps run 198 to 248 effective rows, 0.247 to 0.309 in the ratio,
+        and 0.095 to 0.115 in the top-5% share. The windows below sit inside the whole of
+        that range rather than around the one seed the fixture uses.
+        """
+        report = centred.diagnostics.support()
+        row = report.group_leverage["msm"]
+        contributing = np.asarray(centred.data.observed, dtype=bool)
+        covariate = self._covariate(centred)[contributing]
+        cancelling = centred.data.weights[contributing] * np.abs(covariate.sum(axis=1))
+
+        assert row["zero_load"] == 0.0
+        assert np.count_nonzero(cancelling == 0.0) > 150
+        assert row["effective"] - _kish(cancelling) > 100.0
+        assert row["ess_ratio"] - _kish(cancelling) / cancelling.size > 0.15
+        assert _top_share(cancelling, 0.05) - row["top_5pct"] > 0.05
+        # And the largest single load agrees on both, which is why it cannot be the gate:
+        # the heaviest row sits at `dose = 1`, where the two columns are equal.
+        assert row["max_load"] == pytest.approx(float(cancelling.max()), abs=0)
 
 
 class TestTheAxisIsExclusive:

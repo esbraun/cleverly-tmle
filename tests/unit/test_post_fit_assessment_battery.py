@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
+import pickle
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1711,19 +1713,23 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
         0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_leverage={"mean": empty}
     )
     summary = report.summary()
+    header = next(line for line in summary.splitlines() if line.startswith("group "))
 
-    assert "max |h|" in summary
+    assert header.index("max load") < header.index("max |h|") < header.index("unloaded")
     assert "mean   nan" in summary
     assert "mean at g_bounds" in summary
     assert "narrowest targeted group" not in report.verdict()
 
 
-def test_a_report_without_the_group_table_still_lists_the_maxima() -> None:
-    """Backward compatibility: a report pickled before the table existed still reads.
+def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
+    """The field is defaulted, so a hand-built report constructs and still shows the maxima.
 
-    The field is defaulted rather than required, so the older object constructs. What it
-    must not do is present a reader with nothing where the maxima used to be, so the
-    summary falls back to the line each group had.
+    This is the *constructor* path and nothing more: ``default_factory`` fires normally
+    here, so the attribute is present before any reader looks at it. It does not exercise
+    backward compatibility, which is a different mechanism and is covered by
+    ``test_a_report_pickled_before_the_group_table_existed_still_reads``. What it does
+    check is that a report with no group table presents a reader with the maxima rather
+    than with nothing where they used to be.
     """
     report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
 
@@ -1731,7 +1737,89 @@ def test_a_report_without_the_group_table_still_lists_the_maxima() -> None:
     assert "max |clever covariate| (mean): 1" in report.summary()
     assert "max |clever covariate| (att): 4" in report.summary()
     assert "max |h|" not in report.summary()
+    assert "max load" not in report.summary()
     assert "narrowest targeted group" not in report.verdict()
+
+
+def _older_state(report: PositivityReport) -> dict[str, object]:
+    """The instance dictionary a report pickled before ``group_leverage`` existed carries.
+
+    An older pickle stores the fields the older class had, and no key of that name. This
+    is that dictionary, taken from a real report so that every other field is a real
+    value rather than a stand-in.
+    """
+    state = dict(report.__dict__)
+    del state["group_leverage"]
+    return state
+
+
+def test_a_report_pickled_before_the_group_table_existed_still_reads() -> None:
+    """Backward compatibility, through ``pickle`` rather than through the constructor.
+
+    ``dataclasses`` **deletes** the class attribute for a ``default_factory`` field, so
+    the default cannot stand behind an old pickle: the instance arrives with no
+    ``group_leverage`` key and nothing on the class to fall back to, and every reader of
+    the attribute raises ``AttributeError``. The first two assertions are that fact,
+    stated so that a future change which gives the class a real attribute fails here and
+    tells someone the mechanism moved. ``__setstate__`` is what closes the gap, and it is
+    driven by ``dataclasses.fields``, so ``n_repeats`` and ``backend`` come back filled by
+    the same pass.
+    """
+    report = _positivity(
+        0.0,
+        0.9,
+        clever_covariate_max={"mean": 1.0, "att": 4.0},
+        group_leverage={"mean": _load(0.5), "att": _load(0.3)},
+    )
+    state = _older_state(report)
+
+    assert getattr(type(report), "group_leverage", None) is None
+    raw = PositivityReport.__new__(PositivityReport)
+    raw.__dict__.update(state)
+    with pytest.raises(AttributeError, match="group_leverage"):
+        getattr(raw, "group_leverage")  # noqa: B009 -- the raise is the point
+
+    older = copy.copy(report)
+    older.__dict__.pop("group_leverage")
+    restored = pickle.loads(pickle.dumps(older))
+
+    assert "group_leverage" not in state
+    assert restored.group_leverage == {}
+    assert restored.n_repeats == 1 and restored.backend is None
+    assert restored.severity == "adequate"
+    assert "narrowest targeted group" not in restored.verdict()
+    # And the summary takes the fallback branch: the table is gone, the maxima are not.
+    summary = restored.summary()
+    assert "max |clever covariate| (mean): 1" in summary
+    assert "max |clever covariate| (att): 4" in summary
+    assert "max |h|" not in summary
+
+
+def test_a_result_saved_before_the_group_table_existed_still_assesses(tmp_path) -> None:
+    """The same restore over the real artifact, which is where an old report comes from.
+
+    ``diagnostics.support()`` files its answer in ``assessment_cache``, and ``save()``
+    joblib-pickles the whole result with that cache inside it. So a stored artifact
+    written before this table existed carries exactly the report the test above builds by
+    hand, and ``cleverly.load`` is the reader that meets it. The cached report is edited
+    to drop the key rather than the class being rolled back, because the older class is
+    not importable from here.
+    """
+    result = _fit(_study(), ATE())
+    del result.diagnostics.support().__dict__["group_leverage"]
+    key = next(name for name in result.assessment_cache if "support" in name)
+    assert "group_leverage" not in result.assessment_cache[key].__dict__
+
+    restored = load(result.save(tmp_path / "older-result.joblib"))
+    report = restored.diagnostics.support()
+
+    assert report.group_leverage == {}
+    assert report.severity in {"adequate", "strain", "serious"}
+    assert "max |clever covariate| (mean): " in report.summary()
+    assert "max |h|" not in report.summary()
+    # The combined battery reads `severity` off the same object, which is the caller the
+    # missing attribute broke.
+    assert restored.assess().report("support").group_leverage == {}
 
 
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
