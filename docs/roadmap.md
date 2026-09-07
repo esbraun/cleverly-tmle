@@ -105,7 +105,8 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Six gaps the audit found are fixed.
+Five gaps the audit found are fixed. Per-group leverage is part done. The table below carries the
+part that remains.
 
 The combined support row no longer contradicts the report it retains. One tiering decision now
 lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
@@ -153,14 +154,20 @@ A nonzero witness makes each factor look acceptable while their product concentr
 mutation control drops each factor in turn. Backend parity, persistence replay, combined-report
 retention, targeted-row selection, and complete-data non-regression complete this slice.
 
-Every targeted group now reports the load of its own clever covariate. `group_leverage` holds one
-row per group. The load of a row is the magnitude of that covariate, summed over the group's score
-equations and multiplied by the observation weight. The report reads the load over the rows that
-contribute to the targeted residual, which is the set the derived row also reads.
+A conditional-arm group now reports the load of its own clever covariate. `group_leverage` holds
+one row per group that `PositivityReport` describes. Through `diagnostics.support()` those groups
+are `mean`, `att`, `atc`, and `msm`. The load of a row is the magnitude of that covariate, summed
+over the group's score equations and multiplied by the observation weight. The report reads the
+load over the rows that contribute to the targeted residual, which is the set the derived row also
+reads.
 
 The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
 group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
 `g_bounds`. An `att` row and a `mean` row therefore differ on one fit.
+
+An `msm` row sums terms across coefficients whose covariates carry different units. Rescaling one
+design column therefore moves that row's effective sample size. Read the row against the design's
+scaling.
 
 No surface grades this ratio. The report states it for the analyst to judge, exactly as it states
 the arm ratio. The derived denominator row is the marginal-mean case of the same measure. The
@@ -171,6 +178,7 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
+| per-group leverage | report the same load measures for a regime, shift, or incremental fit. `diagnostics.support()` sends each of those fits to its own support report, and that report carries no per-group load table |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |

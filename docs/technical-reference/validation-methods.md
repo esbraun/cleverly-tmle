@@ -39,7 +39,7 @@ It reports six separate quantities, because they fail in different places.
 | truncation load | the count of units the bound moves, and the most extreme value it leaves | the estimate is sensitive to finite-sample regularisation and extrapolation |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
-| per-group leverage | the same effective sample size and concentration measures, over the load each targeted group's own clever covariate forms | the estimand the fit targets rests on fewer rows than any arm does |
+| per-group leverage | the same effective sample size and concentration measures, over the load each reported group's own clever covariate forms | the estimand the fit targets rests on fewer rows than any arm does |
 
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
@@ -66,15 +66,31 @@ divides by instead. The list is empty when every targeted group forms the produc
 when no fitted factor stands beside `g`, because then no derived row exists for a group to be
 outside of.
 
-`group_leverage` reads each targeted group's own clever covariate. The load of a row is the
+`group_leverage` reads each reported group's own clever covariate. The load of a row is the L1
 magnitude of that covariate, summed over the group's score equations, times the row's observation
 weight. The report reads the load over the rows that contribute to the targeted residual, which is
 the set the mechanism rows also read. The two tables therefore share a denominator.
+
+`weighted_form` in
+[`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py)
+forms that same magnitude when the fit sets `target_weights=True`. The default fit sets it to
+`False`. The load equals a row's contribution to the solved equation where the group's columns have
+disjoint support. `att` on more than two arms, `regime`, and `msm` do not meet that condition.
 
 The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
 group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
 `g_bounds`. An `att` row and a `mean` row therefore differ on one fit. The report folds the design
 weights into the load, exactly as it folds them into the per-arm rows.
+
+The groups that reach this table through `diagnostics.support()` are `mean`, `att`, `atc`, and
+`msm`. That method sends a regime fit, a shift fit, and an incremental fit to its own support
+report, and none of those reports carries a per-group load table. A `regime` row and an `ipsi` row
+appear only under a direct `positivity_report(result)` call. An `mtp` row never appears, because
+`shifts=` needs a continuous treatment and this report refuses one.
+
+An `msm` row sums terms across coefficients whose design columns carry different units. Rescaling
+one design column by ten therefore moves the reported effective sample size, and it leaves the
+projection where it was. Read an `msm` row against the design's scaling.
 
 Every group carries seven keys.
 
@@ -90,11 +106,16 @@ Every group carries seven keys.
 
 `max_load` and the maximum clever covariate answer different questions. `max_load` is weighted and
 runs over the targeted rows. The maximum clever covariate is unweighted and runs over every row.
-The two need not agree.
+The two need not agree. The printed summary gives them separate columns for that reason. `max load`
+holds the first, and `max |h|` holds the second.
 
 A zero load leaves the Kish sums untouched and stays in `n`. `ess_ratio` therefore does not flatter
 a group that loads only part of what it targets. The ratio alone cannot separate those rows from an
 uneven spread, so `zero_load` counts them.
+
+`zero_load` reads the covariate before the design weight multiplies it. It is the one key that
+leaves the design weight out. A zero observation weight is legal, and it says that the design
+excludes a row. That statement differs from the one this key makes.
 
 The report does not grade `ess_ratio` here, for the reason it does not grade the arm ratio. The
 combined `support` row reads the group table too, so its minimum effective-sample-size ratio

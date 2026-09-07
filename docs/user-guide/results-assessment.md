@@ -114,10 +114,18 @@ divides by instead. `composed_excluded` carries the same list for a caller that 
 Read that note before you read the absence of a row. An absent row and a healthy denominator look
 the same, and the note is what separates them.
 
-The support report also reads each targeted group's own clever covariate. The `group_leverage`
-table gives every group the effective sample size and the weight concentration of the load that
+The support report also reads each reported group's own clever covariate. The `group_leverage`
+table gives that group the effective sample size and the weight concentration of the load the
 covariate forms. An `att` or `atc` fit therefore gets a load measure, which only a marginal-mean
 fit received before.
+
+The groups the table covers are `mean`, `att`, `atc`, and `msm`. A regime fit, a shift fit, and an
+incremental fit get a different support report from `diagnostics.support()`, and that report has no
+per-group load table. Call `positivity_report(result)` directly to read a `regime` or `ipsi` row.
+
+An `msm` row sums terms across coefficients whose design columns carry different units. Rescaling
+one design column moves the reported effective sample size for that row. Read the row against the
+design's scaling.
 
 The product row is the marginal-mean case of that same measure. Read the group row for the estimand
 you targeted. Read the product row for the denominator behind it. The note on an excluded estimand

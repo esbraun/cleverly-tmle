@@ -37,7 +37,7 @@ diagnostic can be.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -135,11 +135,13 @@ class PositivityReport:
         single most direct summary of how much one observation can move the estimate.
     group_leverage : dict of str to dict of str to float
         How that covariate's *load* is spread, per targeted estimand family.  The load of
-        a row is the magnitude of its clever covariate, summed over that group's score
-        equations and multiplied by the row's observation weight.  It is the quantity the
-        fluctuation moves into its regression weights, so it is what one row contributes
-        to the equation this fit solved.  Every row carries seven keys: ``n``,
-        ``effective`` and ``ess_ratio`` for Kish's effective sample size; ``top_1pct``
+        a row is the L1 magnitude of its clever covariate, summed over that group's score
+        equations and multiplied by the row's observation weight.  That magnitude is the
+        vector :func:`~cleverly.fluctuation.submodel.weighted_form` moves into the
+        regression weights, which the fit forms when ``target_weights=True`` and not
+        otherwise, and it is what one row contributes to the equation this fit solved
+        exactly where the group's columns have disjoint support.  Every row carries seven
+        keys: ``n``, ``effective`` and ``ess_ratio`` for Kish's effective sample size; ``top_1pct``
         and ``top_5pct`` for the share of the load the largest few rows hold;
         ``max_load`` for the largest single load; and ``zero_load``.
 
@@ -156,14 +158,29 @@ class PositivityReport:
         on one fit.  ``max_load`` is weighted and taken over the targeted rows, while
         :attr:`clever_covariate_max` is unweighted and taken over every row, so the two
         answer different questions and need not agree.  ``zero_load`` counts the targeted
-        rows the covariate does not load at all: a zero leaves the Kish sums untouched but
-        stays in ``n``, so ``ess_ratio`` does not flatter a group that loads only part of
-        what it targets.
+        rows the covariate does not load at all, and is read off the covariate before the
+        design weight multiplies it, because a zero observation weight says the design
+        excludes a row rather than that the covariate misses it.  A zero leaves the Kish
+        sums untouched but stays in ``n``, so ``ess_ratio`` does not flatter a group that
+        loads only part of what it targets.
+
+        An ``msm`` row is **not invariant to rescaling a design column** of the working
+        model, because its sum runs over coefficients whose covariates carry different
+        units: multiplying one column by ten moves ``ess_ratio`` while the projection it
+        summarises stays where it was.  Read that row against the design's scaling.
 
         This is the general measure, and the derived denominator row in :attr:`mechanisms`
-        is its marginal-mean case.  A conditional-arm, incremental or shift covariate is
-        not an inverse arm probability, so neither the arm table nor a denominator row
-        describes the weighting it performs; this table does.
+        is its marginal-mean case.  A conditional-arm covariate is not an inverse arm
+        probability, so neither the arm table nor a denominator row describes the weighting
+        it performs; this table does.
+
+        The groups that reach this table through
+        :meth:`~cleverly.assessment.DiagnosticsFacade.support` are ``mean``, ``att``,
+        ``atc`` and ``msm``.  A regime, shift or incremental fit gets its own support
+        report from that method instead and so gets no row here; ``regime`` and ``ipsi``
+        appear only when :func:`positivity_report` is called directly.  ``mtp`` never
+        appears at all, because ``shifts=`` needs a continuous treatment and this report
+        refuses one.
     bounds : tuple of float
         Truncation bounds the fit applied to the treatment mechanism.
     n : int
@@ -257,8 +274,9 @@ class PositivityReport:
     composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
-    #: Defaulted rather than required, so a report pickled before this table existed still
-    #: unpickles and a hand-built fixture still constructs.  Keyed exactly as
+    #: Defaulted rather than required, so a hand-built fixture still constructs.  The
+    #: default alone does not carry an *old pickle*, which arrives with no key of this name
+    #: at all; :meth:`__setstate__` is what fills it there.  Keyed exactly as
     #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
     #: over the fit's targeted groups.
     group_leverage: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -275,6 +293,35 @@ class PositivityReport:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a pickled report, filling in every field the pickle predates.
+
+        Defaulting a field is not on its own enough to keep an old pickle readable.
+        ``dataclasses`` *deletes* the class attribute for a ``default_factory`` field, so a
+        report pickled before :attr:`group_leverage` existed unpickles with no
+        ``group_leverage`` in its instance dict and no class-level fallback behind it, and
+        every reader of that attribute raises :class:`AttributeError` instead.  Filling the
+        gap here is what makes the defaults on the fields above true for a stored result
+        rather than only for a fresh construction.
+
+        The fill is driven by :func:`dataclasses.fields` rather than by a list of names, so
+        the next defaulted field is covered the day it is added.  The class is frozen, so
+        each fill goes through :func:`object.__setattr__`.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The instance dictionary the pickle carries.
+        """
+        self.__dict__.update(state)
+        for spec in fields(self):
+            if spec.name in state:
+                continue
+            if spec.default is not MISSING:
+                object.__setattr__(self, spec.name, spec.default)
+            elif spec.default_factory is not MISSING:
+                object.__setattr__(self, spec.name, spec.default_factory())
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -391,6 +438,7 @@ class PositivityReport:
                         "ESS / n",
                         "top 1% weight",
                         "top 5% weight",
+                        "max load",
                         "max |h|",
                         "unloaded",
                     ],
@@ -402,6 +450,7 @@ class PositivityReport:
                             f"{load['ess_ratio']:.3f}",
                             f"{load['top_1pct']:.3f}",
                             f"{load['top_5pct']:.3f}",
+                            f"{load['max_load']:.4g}",
                             f"{self.clever_covariate_max[group]:.4g}",
                             f"{load['zero_load']:.0f}",
                         ]
@@ -417,10 +466,20 @@ class PositivityReport:
                 + ("g_bounds_conditional" if group in CONDITIONAL_GROUPS else "g_bounds")
                 for group in self.group_leverage
             )
-            lines.append(f"(load over the targeted rows, design weights folded in; {rebuilds})")
+            # The two maxima answer different questions and are labelled apart for that
+            # reason: one row's largest weighted load is not the largest covariate value
+            # in the sample, and a single `max |h|` column under this caption read as
+            # though it were.
+            lines.append(
+                "(load over the targeted rows, design weights folded in; max load is that "
+                "weighted load, and max |h| is the unweighted covariate over every row; "
+                f"{rebuilds})"
+            )
         elif self.clever_covariate_max:
             # A report pickled before the table above existed still has the maxima, and a
             # reader of that report should still see them rather than nothing.
+            # `__setstate__` fills `group_leverage` with `{}` there, which is what makes
+            # this branch reachable rather than a raise on the attribute above.
             for group, value in self.clever_covariate_max.items():
                 lines.append(f"max |clever covariate| ({group}): {value:.4g}")
         if self.mechanisms:
@@ -621,7 +680,10 @@ class PositivityReport:
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    f"{self._bound_label(name)}). {leverage} {advice}",
+                    # `share` is carried onto this branch too, so that "every verdict
+                    # states the arm share and the group share" holds on the tier that
+                    # is already flagging strain rather than only on the three below.
+                    f"{self._bound_label(name)}). {leverage} {advice} {share}",
                 )
         if fraction > 0.05:
             return (
@@ -1065,10 +1127,19 @@ def _covariate_leverage(result: TMLEResult, group: str) -> dict[str, float]:
     """How the load of one group's clever covariate is spread over the rows it weights.
 
     The arm table reads ``1 / g`` and the mechanism table reads a denominator, so neither
-    describes the weighting an ``att``, ``atc``, ``ipsi`` or ``mtp`` fit performs: those
-    covariates are not an inverse arm probability.  This reads the covariate itself, at
-    the bound and the reference arm that group was targeted with, so every targeted group
-    gets the load measures a marginal-mean fit already reports.
+    describes the weighting a conditional-arm covariate performs: an ``att`` or ``atc``
+    covariate is not an inverse arm probability.  This reads the covariate itself, at the
+    bound and the reference arm that group was targeted with, so those groups get the load
+    measures a marginal-mean fit already reports.
+
+    Which groups arrive here is decided by ``DiagnosticsFacade.support()``, which sends a
+    regime fit to ``check_support``, a shift fit to ``check_shift_support`` and an
+    incremental fit to ``check_incremental_support``, and reaches
+    :func:`positivity_report` only otherwise.  So the groups this table describes on the
+    public surface are ``mean``, ``att``, ``atc`` and ``msm``.  ``regime`` and ``ipsi``
+    reach it through a direct :func:`positivity_report` call and nowhere else, and ``mtp``
+    cannot reach it at all, because ``shifts=`` needs a continuous treatment and this
+    report refuses one.
 
     The rows are :func:`~cleverly.estimators.direct_effect.targeted_rows`, which is the
     set :func:`_mechanism_overlap` also uses, so the two tables share a denominator and
@@ -1076,23 +1147,33 @@ def _covariate_leverage(result: TMLEResult, group: str) -> dict[str, float]:
     divides by ``pi`` but carries no ``Delta`` indicator, so an unmasked ratio would
     average in rows whose residual the equation never weights.
 
-    The load itself is the per-row magnitude
-    :func:`~cleverly.fluctuation.submodel.weighted_form` already moves into the
-    regression weights, times the design weight -- folded in here for the reason the arm
-    and mechanism tables fold it in, that the two costs multiply.  Summing across columns
-    is the total load a row carries across that group's score equations: for ``mean``,
-    ``att`` and ``atc`` exactly one column is non-zero per row except at the reference
-    arm, which loads every contrast by construction, and for ``msm`` several coefficients
-    load the same row.
+    The load itself is the L1 magnitude of the covariate, times the design weight --
+    folded in here for the reason the arm and mechanism tables fold it in, that the two
+    costs multiply.  That magnitude is the vector
+    :func:`~cleverly.fluctuation.submodel.weighted_form` moves into the regression
+    weights, which the fit forms when ``target_weights=True`` and not otherwise, and it is
+    what one row contributes to the equation exactly where that group's columns have
+    disjoint support.  Summing across columns is the total load a row carries across that
+    group's score equations: for ``mean``, ``att`` and ``atc`` exactly one column is
+    non-zero per row except at the reference arm, which loads every contrast by
+    construction, and for ``msm`` several coefficients load the same row.
+
+    An ``msm`` row is therefore **not invariant to rescaling a design column** of the
+    working model: the sum runs over coefficients whose covariates carry different units,
+    so multiplying one column by ten moves the reported effective sample size while the
+    projection it summarises stays where it was.  Read that row against the design's
+    scaling.
     """
     submodel = _group_submodel(result, group)
     contributing = targeted_rows(result.data, result.intermediate_value)
-    load = result.data.weights[contributing] * np.abs(submodel.observed[contributing]).sum(axis=1)
+    magnitude = np.abs(submodel.observed[contributing]).sum(axis=1)
+    load = result.data.weights[contributing] * magnitude
     nominal = float(load.size)
+    effective = _kish_ess(load)
     return {
         "n": nominal,
-        "effective": _kish_ess(load),
-        "ess_ratio": _kish_ess(load) / nominal if load.size else float("nan"),
+        "effective": effective,
+        "ess_ratio": effective / nominal if load.size else float("nan"),
         "top_1pct": top_weight_share(load, 0.01),
         "top_5pct": top_weight_share(load, 0.05),
         "max_load": float(np.max(load)) if load.size else float("nan"),
@@ -1100,7 +1181,15 @@ def _covariate_leverage(result: TMLEResult, group: str) -> dict[str, float]:
         # stays in `n`, so `ess_ratio` does not flatter a group that loads only part of
         # what it targets.  The count says how many rows that is, which is the one thing
         # the ratio on its own cannot separate from a merely uneven spread.
-        "zero_load": float(np.count_nonzero(load == 0.0)),
+        #
+        # Counted on the covariate alone, before the design weight multiplies it -- the
+        # one key here that leaves the weight out.  A zero observation weight is legal and
+        # means the design excludes that row, which is a different statement from "the
+        # covariate does not load this row"; counting `load == 0` conflated the two and
+        # reported a strictly positive ATT covariate as unloaded wherever the design
+        # weight was zero.  Every other key answers "how is the analysis weighted", where
+        # the design belongs.
+        "zero_load": float(np.count_nonzero(magnitude == 0.0)),
     }
 
 
