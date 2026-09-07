@@ -94,10 +94,21 @@ _COMPOSED_MECHANISMS = frozenset(_COMPOSED_ROWS.values())
 #: derived row would name a denominator they never form: ``att`` and ``atc`` divide by
 #: ``P(A = a)`` in place of ``g_a`` and reweight the reference arm by the propensity odds,
 #: ``ipsi`` discards the propensity outright, and ``mtp`` divides by a density ratio.
-#: Those three also read ``g_bounds_conditional`` where it applies, which is a second bound
-#: this row does not quote.  A fit that targets none of the groups below therefore reports
-#: its factor rows and no product.
+#: ``att`` and ``atc`` also read ``g_bounds_conditional`` where it applies, which is a
+#: second bound this row does not quote.  A fit that targets none of the groups below
+#: therefore reports its factor rows and no product.
 _COMPOSED_GROUPS = frozenset({"mean", "regime", "msm"})
+
+#: What each excluded group divides by instead, so that the omission explains itself.  A
+#: silently absent row reads exactly like a fit with nothing to report, which is the one
+#: thing it must not be confused with: the reader cannot tell "your denominator is fine"
+#: from "this diagnostic does not cover your estimand" unless the report says which.
+_COMPOSED_EXCLUSIONS: dict[str, str] = {
+    "att": "P(A=a) rather than g(W), and reweights the reference arm by the propensity odds",
+    "atc": "P(A=a) rather than g(W), and reweights the other arm by the propensity odds",
+    "ipsi": "a tilted mechanism that discards the propensity",
+    "mtp": "a density ratio rather than an arm probability",
+}
 
 
 @dataclass(frozen=True)
@@ -167,6 +178,17 @@ class PositivityReport:
         those gets its factor rows and no product row, because an ATT or ATC covariate
         divides by ``P(A = a)`` rather than ``g_a(W)`` and an incremental one drops the
         propensity entirely.
+    composed_excluded : tuple of str
+        Targeted groups the derived row does not describe, on a fit that has the factors
+        to build one.  Empty when every targeted group forms the product, and empty when
+        no factor stands beside ``g`` at all, because then there is no derived row for any
+        group to be outside of.
+
+        This is here so the omission explains itself.  A silently absent row reads exactly
+        like a fit with nothing to report, and those are the two readings that must never
+        be confused: one says the denominator is healthy, the other says this diagnostic
+        does not cover the estimand asked for.  :meth:`summary` names these groups and
+        what each divides by instead.
     nuisance_bound : float
         The lower bound applied to the *fitted* mechanisms above.  A derived row has no
         single such bound -- see :meth:`_bound_label`.
@@ -200,6 +222,7 @@ class PositivityReport:
     bounds: tuple[float, float]
     n: int
     mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
+    composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
     #: How many cross-fitting draws the fit combined. Everything above describes the
@@ -357,9 +380,36 @@ class PositivityReport:
                 f"{name} truncated to {self._bound_label(name)}" for name in self.mechanisms
             )
             lines.append(f"({truncations}; each row counts both arms)")
+        note = self._composed_note()
+        if note is not None:
+            lines.append("")
+            lines.append(note)
         lines.append("")
         lines.append(self.verdict())
         return "\n".join(lines)
+
+    def _composed_note(self) -> str | None:
+        """The sentence a fit gets when a derived row does not cover what it targeted.
+
+        Returns ``None`` when there is nothing to say: every targeted group forms the
+        product, or no fitted factor stands beside ``g`` so there is no derived row at
+        all.  Otherwise it names the groups and what each divides by instead, because an
+        omission that does not explain itself reads exactly like a clean bill of health.
+        """
+        if not self.composed_excluded:
+            return None
+        excluded = "; ".join(
+            f"{group}, which divides by "
+            + _COMPOSED_EXCLUSIONS.get(group, "a denominator this row does not form")
+            for group in self.composed_excluded
+        )
+        composed = sorted(_COMPOSED_MECHANISMS & self.mechanisms.keys())
+        lead = (
+            f"{composed[0]} does not describe"
+            if composed
+            else "no derived denominator row is reported for"
+        )
+        return f"({lead} {excluded}. Read the factor rows above for those estimands.)"
 
     @property
     def severity(self) -> Literal["adequate", "strain", "serious"]:
@@ -607,6 +657,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
+        composed_excluded=_composed_excluded(result),
         nuisance_bound=result.config.missingness_bound,
         n_repeats=result.n_repeats,
         backend=data.backend,
@@ -690,11 +741,29 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
+        composed_excluded=_composed_excluded(result),
         nuisance_bound=result.config.missingness_bound,
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
         n_repeats=result.n_repeats,
         backend=data.backend,
     )
+
+
+def _composed_excluded(result: TMLEResult) -> tuple[str, ...]:
+    """Targeted groups a derived row would not describe, on a fit that could build one.
+
+    The mirror of the gate in :func:`_mechanism_overlap`, and it reads the same two
+    conditions: a fit with no fitted factor beside ``g`` has no derived row to be outside
+    of, and a group in :data:`_COMPOSED_GROUPS` is described by the row rather than
+    excluded from it.  Everything left over is what the report has to account for.
+    """
+    nuisance = result.nuisance
+    has_factor = nuisance.missingness is not None or (
+        nuisance.intermediate is not None and result.intermediate_value is not None
+    )
+    if not has_factor:
+        return ()
+    return tuple(group for group in result.fluctuations if group not in _COMPOSED_GROUPS)
 
 
 def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:

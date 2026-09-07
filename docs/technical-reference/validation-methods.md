@@ -59,6 +59,12 @@ The derived row covers the marginal-mean groups. These are `mean`, `regime`, and
 covariate divides by the product. A fit that targets only `att`, `atc`, or an incremental
 intervention gets no derived row. Those covariates divide by another quantity.
 
+The report states that exclusion rather than leaving the row out in silence. `composed_excluded`
+lists every targeted group the derived row does not describe, and the summary names what each group
+divides by instead. The list is empty when every targeted group forms the product. It is also empty
+when no fitted factor stands beside `g`, because then no derived row exists for a group to be
+outside of.
+
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.

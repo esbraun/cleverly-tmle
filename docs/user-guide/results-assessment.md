@@ -109,6 +109,11 @@ The product row describes the marginal-mean estimands. These are `ey` and its co
 and a marginal structural model. A fit that targets only `att` or `atc` reports its factor rows and
 no product row. That covariate divides by `P(A=a)` rather than by the treatment mechanism.
 
+The report names each estimand the product row does not describe. It also names what that estimand
+divides by instead. `composed_excluded` carries the same list for a caller that must branch on it.
+Read that note before you read the absence of a row. An absent row and a healthy denominator look
+the same, and the note is what separates them.
+
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
 uses an existing diagnostic rule. An expected refusal becomes `unavailable`.

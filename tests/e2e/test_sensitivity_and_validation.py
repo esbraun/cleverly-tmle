@@ -1241,6 +1241,60 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert set(report.mechanisms) == {"P(Delta=1|A,W)"}
         assert "P(A=a,Delta=1|W)" not in report.summary()
 
+        # The omission says so. A silently absent row reads exactly like a fit with
+        # nothing to report, and those are the two readings that must not be confused.
+        assert report.composed_excluded == ("att",)
+        summary = report.summary()
+        assert "no derived denominator row is reported for att" in summary
+        assert "divides by P(A=a) rather than g(W)" in summary
+
+    def test_a_mixed_fit_says_which_estimands_the_product_row_omits(self) -> None:
+        """The row is reported for the `ate` and does not describe the `att` beside it.
+
+        The harder half of the same contract: the row is present, so its absence cannot
+        carry the warning, and a reader who takes it for the whole fit reads a
+        denominator two of these estimands never form.
+        """
+        frame, _ = make_missing_outcome(n=800, seed=91, strength=1.5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("ate", "att", "atc"))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
+            )
+        report = result.diagnostics.support()
+        assert "P(A=a,Delta=1|W)" in report.mechanisms
+        assert set(report.composed_excluded) == {"att", "atc"}
+        summary = report.summary()
+        assert "P(A=a,Delta=1|W) does not describe" in summary
+        for group in ("att", "atc"):
+            assert f"{group}, which divides by" in summary
+
+    def test_a_covered_fit_and_a_complete_fit_say_nothing(self, strained, good_overlap) -> None:
+        """The note is silent where there is nothing to explain.
+
+        Two different silences, and both must hold. Every group the `strained` fit
+        targets forms the product, so the row covers it. `good_overlap` has no fitted
+        factor beside `g` at all, so there is no derived row for any group to be outside
+        of, even though it targets an `att`.
+        """
+        covered = strained.diagnostics.support()
+        assert covered.composed_excluded == ()
+        assert "does not describe" not in covered.summary()
+
+        complete = good_overlap.diagnostics.support()
+        assert "att" in good_overlap.fluctuations
+        assert complete.mechanisms == {}
+        assert complete.composed_excluded == ()
+        assert "no derived denominator row" not in complete.summary()
+
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped
         # it, not just the one with a familiar name.
