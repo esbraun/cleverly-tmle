@@ -211,6 +211,41 @@ class TestPositivityUnderObservationWeights:
             assert abs(_kish(leverage) - _kish(clever)) > 10.0
             assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
+    def test_the_mechanism_rows_fold_them_in_too(self, weighted_missing_fit) -> None:
+        """Both the fitted factor and the derived product, not only the propensity rows.
+
+        The mechanism rows report the same leverage on the same scale, so a row that
+        divided by the mechanism and stopped there would understate exactly the design a
+        reader turned to this table to weigh.  The unweighted quantity is the control:
+        every assertion above is silent about these rows, and the weights are a term that
+        vanishes on any fixture that does not carry them.
+        """
+        result = weighted_missing_fit
+        data, nuisance = result.data, result.nuisance
+        lower = result.config.missingness_bound
+        observation = np.clip(np.asarray(nuisance.missingness, dtype=float), lower, 1.0)
+        product = nuisance.propensity.truncate(result.config.g_bounds).values * observation
+        contributing = np.asarray(data.observed, dtype=bool)
+        treated = np.asarray(data.treatment == 1.0)
+        mechanisms = result.diagnostics.support().mechanisms
+
+        for name, bounded in (
+            ("P(Delta=1|A,W)", observation),
+            ("P(A=a,Delta=1|W)", product),
+        ):
+            at_arm = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
+            clever = 1.0 / at_arm
+            leverage = data.weights[contributing] / at_arm
+            stats = mechanisms[name]
+
+            assert stats["ess_ratio"] == pytest.approx(_kish(leverage) / leverage.size, abs=0)
+            assert stats["top_1pct"] == pytest.approx(_top_share(leverage, 0.01), abs=0)
+            assert stats["top_5pct"] == pytest.approx(_top_share(leverage, 0.05), abs=0)
+
+            # The control: dropping the observation weights moves both reported numbers.
+            assert abs(_kish(leverage) / leverage.size - _kish(clever) / clever.size) > 0.01
+            assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.005
+
 
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
@@ -1049,9 +1084,19 @@ class TestTheMechanismDenominatorsAreDiagnosed:
     def test_the_report_carries_the_mechanism(self, strained) -> None:
         report = strained.diagnostics.support()
         assert "P(Delta=1|A,W)" in report.mechanisms
+        assert "P(A=a,Delta=1|W)" in report.mechanisms
         stats = report.mechanisms["P(Delta=1|A,W)"]
         assert 0.0 < stats["min"] < stats["q01"] < stats["q05"] < stats["median"] < 1.0
         assert "P(Delta=1|A,W)" in report.summary()
+
+    def test_the_composed_row_reports_ess_and_concentration(self, strained) -> None:
+        report = strained.diagnostics.support()
+        stats = report.mechanisms["P(A=a,Delta=1|W)"]
+        assert {"ess_ratio", "top_1pct", "top_5pct"} <= stats.keys()
+        assert 0.0 < stats["ess_ratio"] <= 1.0
+        assert 0.0 < stats["top_1pct"] <= stats["top_5pct"] <= 1.0
+        retained = strained.assess().report("support")
+        assert retained.mechanisms == report.mechanisms
 
     def test_the_mechanism_explains_leverage_the_propensity_does_not(self, strained) -> None:
         """The case the diagnostic exists for, asserted as a whole.
@@ -1123,10 +1168,132 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert degenerate.mechanisms["P(Delta=1|A,W)"]["clipped_fraction"] <= 0.01
         assert degenerate.severity == "adequate"
 
+    def test_propensity_clipping_keeps_the_propensity_verdict(self, strained) -> None:
+        """A derived row's clipping is the union over its factors, so it can be all ``g``.
+
+        Triggering the mechanism branch on that union put a mechanism's name on a verdict
+        whose every number came from the propensity, and closed it with
+        ``mechanism=True``, which sweeps ``nuisance_bound`` alone. The propensity branch
+        below reports the same cells accurately and names the curve that moves them.
+        """
+        report = strained.diagnostics.support()
+        composed = "P(A=a,Delta=1|W)"
+
+        def with_clipping(name: str) -> object:
+            return dataclasses.replace(
+                report,
+                truncated={**report.truncated, "fraction": 0.09},
+                mechanisms={
+                    **report.mechanisms,
+                    name: {**report.mechanisms[name], "clipped_fraction": 0.2},
+                },
+            )
+
+        verdict = with_clipping(composed).verdict()
+        assert f"{composed} strains the estimate" not in verdict
+        assert "truncation is carrying this estimate" in verdict
+
+        # The control: a *factor* row's clipping is its own, and still earns the sentence
+        # ahead of the propensity's, which is the ordering this loop exists for.
+        assert "P(Delta=1|A,W) strains the estimate" in with_clipping("P(Delta=1|A,W)").verdict()
+
+        # And joint leverage still reaches the verdict through the derived row.
+        leveraged = dataclasses.replace(
+            report,
+            mechanisms={
+                **report.mechanisms,
+                composed: {**report.mechanisms[composed], "ess_ratio": 0.4},
+            },
+        )
+        assert f"{composed} strains the estimate" in leveraged.verdict()
+
     def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
         assert report.mechanisms == {}
         assert "P(Delta=1|A,W)" not in report.summary()
+
+    def test_a_conditional_arm_fit_reports_its_factors_and_no_product(self) -> None:
+        """``att`` divides by ``P(A = a)``, never by ``g_a(W) pi_a(W)``.
+
+        ``att_submodel`` builds ``1 / (P(A=a) pi_a pz_a)`` for the conditioning arm and
+        reweights the reference arm by the propensity odds, so the product is a
+        denominator that fit never forms. Reporting it would be the convenient
+        approximation to a different estimand -- and it would quote ``g_bounds`` where
+        the covariate was held to ``g_bounds_conditional``. The observation mechanism is
+        a denominator in both, so its factor row stays.
+        """
+        frame, _ = make_missing_outcome(n=800, seed=91, strength=1.5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("att",))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
+            )
+        report = result.diagnostics.support()
+        assert set(result.fluctuations) == {"att"}
+        assert set(report.mechanisms) == {"P(Delta=1|A,W)"}
+        assert "P(A=a,Delta=1|W)" not in report.summary()
+
+        # The omission says so. A silently absent row reads exactly like a fit with
+        # nothing to report, and those are the two readings that must not be confused.
+        assert report.composed_excluded == ("att",)
+        summary = report.summary()
+        assert "no derived denominator row is reported for att" in summary
+        assert "divides by P(A=a) rather than g(W)" in summary
+
+    def test_a_mixed_fit_says_which_estimands_the_product_row_omits(self) -> None:
+        """The row is reported for the `ate` and does not describe the `att` beside it.
+
+        The harder half of the same contract: the row is present, so its absence cannot
+        carry the warning, and a reader who takes it for the whole fit reads a
+        denominator two of these estimands never form.
+        """
+        frame, _ = make_missing_outcome(n=800, seed=91, strength=1.5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("ate", "att", "atc"))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
+            )
+        report = result.diagnostics.support()
+        assert "P(A=a,Delta=1|W)" in report.mechanisms
+        assert set(report.composed_excluded) == {"att", "atc"}
+        summary = report.summary()
+        assert "P(A=a,Delta=1|W) does not describe" in summary
+        for group in ("att", "atc"):
+            assert f"{group}, which divides by" in summary
+
+    def test_a_covered_fit_and_a_complete_fit_say_nothing(self, strained, good_overlap) -> None:
+        """The note is silent where there is nothing to explain.
+
+        Two different silences, and both must hold. Every group the `strained` fit
+        targets forms the product, so the row covers it. `good_overlap` has no fitted
+        factor beside `g` at all, so there is no derived row for any group to be outside
+        of, even though it targets an `att`.
+        """
+        covered = strained.diagnostics.support()
+        assert covered.composed_excluded == ()
+        assert "does not describe" not in covered.summary()
+
+        complete = good_overlap.diagnostics.support()
+        assert "att" in good_overlap.fluctuations
+        assert complete.mechanisms == {}
+        assert complete.composed_excluded == ()
+        assert "no derived denominator row" not in complete.summary()
 
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped

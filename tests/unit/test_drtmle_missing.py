@@ -727,6 +727,35 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         old = (old_weights.sum() ** 2 / np.square(old_weights).sum()) / float(floored.size)
         assert stats["ess_ratio"] != pytest.approx(old)
 
+    def test_its_concentration_uses_the_same_composed_weights(
+        self, pinched_observation_fit
+    ) -> None:
+        result = pinched_observation_fit
+        data = result.data
+        g = result.nuisance.propensity.values
+        pi = result.nuisance.missingness
+        g_lower, g_upper = result.config.g_bounds
+        bounded = result.nuisance.propensity.truncate((g_lower, g_upper)).values * np.clip(
+            pi, result.config.missingness_bound, 1.0
+        )
+        selected = np.where(data.treatment == 1.0, bounded[:, 1], bounded[:, 0])[data.observed]
+        weights = data.weights[data.observed] / selected
+        stats = result.diagnostics.support().mechanisms["P(A=a,Delta=1|W)"]
+        for fraction, key in ((0.01, "top_1pct"), (0.05, "top_5pct")):
+            count = max(1, int(np.ceil(fraction * weights.size)))
+            expected = np.sort(weights)[-count:].sum() / weights.sum()
+            assert stats[key] == pytest.approx(expected)
+
+        # The controls.  Concentration is scale-free, so a row that quietly dropped one
+        # factor would still report a plausible share; these fail unless both factors are
+        # in the denominator the shares were taken over.
+        for wrong in (g, pi):
+            wrong_at_arm = np.where(data.treatment == 1.0, wrong[:, 1], wrong[:, 0])
+            wrong_weights = data.weights[data.observed] / wrong_at_arm[data.observed]
+            count = max(1, int(np.ceil(0.05 * wrong_weights.size)))
+            share = np.sort(wrong_weights)[-count:].sum() / wrong_weights.sum()
+            assert stats["top_5pct"] != pytest.approx(share, abs=1e-4)
+
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""
         report = pinched_observation_fit.diagnostics.support()

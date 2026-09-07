@@ -328,8 +328,8 @@ the detailed reports, so the support table remains available without another com
 
 Positivity is now a statement about the product of two mechanisms. A patient with a middling
 chance of navigation and response can still have a small product. The clever covariate divides by
-that product. The current support report shows each fitted factor and the resulting maximum
-leverage. It does not tabulate the joint product's effective sample size for ordinary MAR TMLE.
+that product. The support report shows each fitted factor and the complete product. The product row
+reports its effective sample size and top-weight concentration.
 
 The missingness curve declares one direction. It leaves the control arm at MAR. Positive magnitudes
 make unobserved outcomes in the navigation arm worse than its observed outcomes. `gamma=0`
@@ -359,7 +359,7 @@ one fit.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the support report | overlap for each fitted mechanism and the maximum resulting leverage | the joint product's effective sample size, or that the response model is correct |
+| the support report | overlap for each fitted mechanism, plus joint ESS, concentration, and maximum leverage | that the response model is correct or missingness at random holds |
 | the nuisance report | held-out fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
 | the score-equation report | the targeting solved the composed score | that missingness at random holds |
 | the MNAR tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |

@@ -599,6 +599,72 @@ def missing_fit() -> Any:
     )
 
 
+class TestTheComposedDenominatorAtThreeArms:
+    """The derived ``g_a(W) pi_a(W)`` row, on a fit with more arms than the two it assumed.
+
+    Two claims, and the second is the reason the row exists at all.  The weights it
+    reports are the ones the estimating equation forms, which means each unit's *own*
+    arm -- read through :meth:`Propensity.column_for` rather than off column 1 against
+    column 0, an expression that hands every unit outside arms 0 and 1 the denominator of
+    a treatment it did not receive.  And the product is not a restatement of its factors:
+    here the observation mechanism alone is comfortable while the product is not.
+    """
+
+    def _composed(self, result: Any) -> tuple[Any, Any, Any]:
+        """``(bounded product, realised-arm weights, contributing mask)`` by hand."""
+        data, nuisance = result.data, result.nuisance
+        propensity = nuisance.propensity
+        bounded = propensity.truncate(result.config.g_bounds).values * np.clip(
+            nuisance.missingness, result.config.missingness_bound, 1.0
+        )
+        columns = np.array([propensity.column_for(arm) for arm in data.treatment])
+        at_arm = bounded[np.arange(data.n), columns]
+        mask = np.asarray(data.observed, dtype=bool)
+        return bounded, data.weights[mask] / at_arm[mask], mask
+
+    def test_it_reads_each_units_realised_arm(self, missing_fit: Any) -> None:
+        bounded, weights, mask = self._composed(missing_fit)
+        stats = missing_fit.diagnostics.support().mechanisms["P(A=a,Delta=1|W)"]
+
+        assert stats["ess_ratio"] == pytest.approx(_kish(weights) / weights.size, abs=0)
+        assert stats["top_5pct"] == pytest.approx(_top_share(weights, 0.05), abs=0)
+
+        # The control.  Reading the mechanism as two columns weights every unit in the
+        # third arm by arm 0's denominator, which is a different and wrong answer rather
+        # than a rounding difference: a third of the sample changes denominator.
+        data = missing_fit.data
+        two_column = np.where(data.treatment == 1.0, bounded[:, 1], bounded[:, 0])
+        wrong = data.weights[mask] / two_column[mask]
+        assert abs(_kish(wrong) / wrong.size - stats["ess_ratio"]) > 0.01
+
+    def test_each_factor_is_comfortable_while_the_product_is_not(self, missing_fit: Any) -> None:
+        """The nonzero witness: the row reports leverage no factor row shows.
+
+        ``ArmMissingness`` sets the observation probability by the arm alone, so
+        ``P(Delta=1|A,W)`` never falls below 0.6 and its own effective sample size is
+        healthy.  The propensity at three arms is not, and the product is what the clever
+        covariate divides by.  A row that silently dropped either factor would report one
+        of the comfortable numbers here.
+        """
+        mechanisms = missing_fit.diagnostics.support().mechanisms
+        factor = mechanisms["P(Delta=1|A,W)"]
+        composed = mechanisms["P(A=a,Delta=1|W)"]
+
+        assert factor["ess_ratio"] > 0.9
+        assert composed["ess_ratio"] < 0.7
+        assert composed["top_5pct"] > 2.0 * factor["top_5pct"]
+        # And the product falls an order of magnitude below the factor that bounds it.
+        assert composed["min"] < 0.1 * factor["min"]
+
+    def test_its_label_names_the_bound_each_factor_met(self, missing_fit: Any) -> None:
+        report = missing_fit.diagnostics.support()
+        label = report._bound_label("P(A=a,Delta=1|W)")
+        assert label == (
+            f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x "
+            f"[{report.nuisance_bound:.4g}, 1], factor by factor"
+        )
+
+
 def _curve(result: Any, gamma: list[float], **kwargs: Any) -> dict[tuple[float, str], float]:
     """``{(gamma, estimand): psi}`` from the tidy frame the tilt returns."""
     frame = missingness_tilt(result, gamma, **kwargs)

@@ -665,14 +665,33 @@ def describe_weights(
         scale=float(spec.scale),
         coefficient_of_variation=float(np.std(w) / mean) if mean > 0 else float("nan"),
         ratio=(float(w.min() / mean), float(w.max() / mean)) if mean > 0 else (float("nan"),) * 2,
-        top_1pct=_top_share(w, 0.01),
-        top_5pct=_top_share(w, 0.05),
+        top_1pct=top_weight_share(w, 0.01),
+        top_5pct=top_weight_share(w, 0.05),
         n_zero=int(np.count_nonzero(w == 0.0)),
     )
 
 
-def _top_share(weights: FloatArray, fraction: float) -> float:
-    """Share of the total weight held by the largest ``fraction`` of rows."""
+def top_weight_share(weights: FloatArray, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of rows.
+
+    Flattens first, for the same reason :func:`effective_sample_size` does: the answer is
+    a share of one total, so a two-dimensional argument has to be pooled rather than
+    sorted along its last axis while the count is taken from its full size.  A total that
+    is zero or negative has no share to report and answers ``nan``.
+
+    Parameters
+    ----------
+    weights : ndarray
+        Weights, of any shape.
+    fraction : float
+        The upper tail to measure, as a fraction of the rows.
+
+    Returns
+    -------
+    float
+        The share of ``weights.sum()`` held by its largest ``ceil(fraction * size)``
+        entries, and ``nan`` when the total is not positive.
+    """
     w = np.asarray(weights, dtype=float).reshape(-1)
     total = float(w.sum())
     if total <= 0:

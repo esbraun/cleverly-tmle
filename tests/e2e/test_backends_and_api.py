@@ -150,7 +150,7 @@ class TestBackendParity:
         assert result.data.backend == "pyarrow"
         assert isinstance(result.to_frame(), pa.Table)
 
-    def test_a_polars_fit_with_every_role(self) -> None:
+    def test_a_polars_fit_with_every_role(self, tmp_path: Path) -> None:
         frame, _ = make_missing_outcome(n=900, seed=93, backend="polars")
         frame = frame.with_columns(
             pl.Series("w", np.linspace(0.5, 1.5, len(frame))),
@@ -172,6 +172,15 @@ class TestBackendParity:
         assert isinstance(result.to_frame(), pl.DataFrame)
         assert result.data.n_clusters == 90
         assert result.diagnostics.score_equations().passed
+        support = result.diagnostics.support()
+        assert "P(A=a,Delta=1|W)" in support.mechanisms
+
+        import cleverly
+
+        path = tmp_path / "weighted-missing-polars.joblib"
+        result.save(path)
+        restored = cleverly.load(path)
+        assert restored.diagnostics.support().mechanisms == support.mechanisms
 
 
 class TestEveryReportFollowsTheBackend:

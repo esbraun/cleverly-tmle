@@ -92,6 +92,28 @@ all_cached = result.diagnostics.run_all()
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
+Missing-outcome and controlled-direct-effect support reports add a derived product row. This row
+is the complete denominator used by the clever covariate. Its quantiles describe the raw product.
+Its ESS and concentration use the bounded product on residual-contributing rows. The calculation
+also folds in observation weights.
+
+The estimator bounds each fitted factor before it multiplies them. The product row follows that
+order and counts a cell when any factor changes. It does not apply a separate product bound. The
+factor rows remain available, so an analyst can locate which mechanism creates the joint load.
+
+Read the product row rather than the factor rows alone. Each factor can look acceptable while the
+product concentrates the weight, because the two costs multiply. The clever covariate divides by
+the product.
+
+The product row describes the marginal-mean estimands. These are `ey` and its contrasts, a regime,
+and a marginal structural model. A fit that targets only `att` or `atc` reports its factor rows and
+no product row. That covariate divides by `P(A=a)` rather than by the treatment mechanism.
+
+The report names each estimand the product row does not describe. It also names what that estimand
+divides by instead. `composed_excluded` carries the same list for a caller that must branch on it.
+Read that note before you read the absence of a row. An absent row and a healthy denominator look
+the same, and the note is what separates them.
+
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
 uses an existing diagnostic rule. An expected refusal becomes `unavailable`.

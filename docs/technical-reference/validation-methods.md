@@ -43,6 +43,28 @@ It reports five separate quantities, because they fail in different places.
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
 
+Missing-outcome and controlled-direct-effect reports add a derived denominator row. Its raw
+quantiles describe the complete factor product. Its ESS and concentration use the factorwise
+bounded product, observation weights, and only residual-contributing rows. This order matches the
+targeting construction. The diagnostic never applies a separate bound to the product.
+
+Every mechanism row reads each unit at the arm the unit received. `Propensity` names that column.
+A fit with more than two arms therefore weights each unit by its own denominator.
+
+A derived row counts a clipped cell when any factor moves. Either bound can therefore produce that
+count. Its verdict names both truncation curves for that reason. The verdict reads truncation from
+the factor rows and from the propensity, and reads joint leverage from the derived row.
+
+The derived row covers the marginal-mean groups. These are `mean`, `regime`, and `msm`, whose
+covariate divides by the product. A fit that targets only `att`, `atc`, or an incremental
+intervention gets no derived row. Those covariates divide by another quantity.
+
+The report states that exclusion rather than leaving the row out in silence. `composed_excluded`
+lists every targeted group the derived row does not describe, and the summary names what each group
+divides by instead. The list is empty when every targeted group forms the product. It is also empty
+when no fitted factor stands beside `g`, because then no derived row exists for a group to be
+outside of.
+
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.
