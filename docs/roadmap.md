@@ -105,7 +105,7 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Five gaps the audit found are fixed.
+Six gaps the audit found are fixed.
 
 The combined support row no longer contradicts the report it retains. One tiering decision now
 lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
@@ -153,22 +153,28 @@ A nonzero witness makes each factor look acceptable while their product concentr
 mutation control drops each factor in turn. Backend parity, persistence replay, combined-report
 retention, targeted-row selection, and complete-data non-regression complete this slice.
 
+Every targeted group now reports the load of its own clever covariate. `group_leverage` holds one
+row per group. The load of a row is the magnitude of that covariate, summed over the group's score
+equations and multiplied by the observation weight. The report reads the load over the rows that
+contribute to the targeted residual, which is the set the derived row also reads.
+
+The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
+group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
+`g_bounds`. An `att` row and a `mean` row therefore differ on one fit.
+
+No surface grades this ratio. The report states it for the analyst to judge, exactly as it states
+the arm ratio. The derived denominator row is the marginal-mean case of the same measure. The
+combined support row now reads the group table beside the arm and mechanism tables. Its minimum
+effective-sample-size ratio therefore cannot quote a larger share than the report it retains.
+
 The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| per-group leverage | report effective sample size and weight concentration from each targeted group's own clever covariate, so that a conditional-arm, incremental, or shift fit gets the load measures only a marginal-mean fit reports now |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
-
-The per-group leverage row reads the covariate rather than a product of mechanisms. `Submodel`
-already carries the value at each unit's observed treatment, and `_max_abs_covariate` already
-rebuilds a group's submodel with the bounds and the reference arm that group was targeted with.
-That rebuild is the object to summarize. This measure belongs beside `clever_covariate_max`, which
-is keyed by group. It does not belong in the mechanism table, which is keyed by mechanism name and
-reports denominators. The derived row then becomes one case of the general measure.
 
 Use the documented example seeds as regression fixtures. Add a nonzero joint-denominator witness
 whose separate mechanisms pass while their product fails. Add method-specific mutations for every

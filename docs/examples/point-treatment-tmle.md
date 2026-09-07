@@ -232,6 +232,42 @@ successful pilot reports. Patients who received usual support would get the ATC,
 fraction of it. A program that budgets the network rollout against the pilot's number will
 overpromise.
 
+Read the support diagnostic per targeted group, because the three estimands do not weight the same
+rows. The `TMLE` estimator targets two of them in one fit, so the two rows come from one mechanism.
+
+```python
+from cleverly.estimators import TMLE
+
+both = (
+    TMLE(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+        learner_folds=3,
+        estimands=("att", "ate"),
+        reference=0,
+        random_state=23,
+    )
+    .fit(
+        spread_frame,
+        outcome="transition_score",
+        treatment="transition_navigation",
+        covariates=["discharge_risk", "medication_burden"],
+    )
+    .single()
+)
+leverage = both.diagnostics.support().group_leverage
+for group, load in leverage.items():
+    print(f"{group:5s} ESS/n={load['ess_ratio']:.2f}  top 5% weight={load['top_5pct']:.2f}")
+print("att retains less than mean:", leverage["att"]["ess_ratio"] < leverage["mean"]["ess_ratio"])
+```
+
+The fit targets the ATE through the `mean` group, and the ATT through a group of its own. The two
+rows differ for two reasons. The covariates differ, and the `att` group reads `g_bounds_conditional`
+while the `mean` group reads `g_bounds`. The `att` row retains the smaller share here, which the
+last line prints. The arm table does not show that, because it reads the inverse arm probability
+and not the ATT covariate.
+
 ## The failure mode: one wrong model is survivable
 
 Double robustness is a claim about *or*, not about *and*. The clearest way to see it is to break one

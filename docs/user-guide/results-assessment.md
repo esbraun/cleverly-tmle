@@ -114,6 +114,15 @@ divides by instead. `composed_excluded` carries the same list for a caller that 
 Read that note before you read the absence of a row. An absent row and a healthy denominator look
 the same, and the note is what separates them.
 
+The support report also reads each targeted group's own clever covariate. The `group_leverage`
+table gives every group the effective sample size and the weight concentration of the load that
+covariate forms. An `att` or `atc` fit therefore gets a load measure, which only a marginal-mean
+fit received before.
+
+The product row is the marginal-mean case of that same measure. Read the group row for the estimand
+you targeted. Read the product row for the denominator behind it. The note on an excluded estimand
+now names this table, so an absent product row leaves you with a number rather than nothing.
+
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
 uses an existing diagnostic rule. An expected refusal becomes `unavailable`.

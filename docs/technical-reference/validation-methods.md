@@ -30,7 +30,7 @@ mechanism the truncation bound replaced.
 
 **How.** `result.diagnostics.support()` returns a `PositivityReport` from
 [`sensitivity/positivity.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/positivity.py).
-It reports five separate quantities, because they fail in different places.
+It reports six separate quantities, because they fail in different places.
 
 | quantity | how it is computed | what a bad value means |
 | --- | --- | --- |
@@ -39,6 +39,7 @@ It reports five separate quantities, because they fail in different places.
 | truncation load | the count of units the bound moves, and the most extreme value it leaves | the estimate is sensitive to finite-sample regularisation and extrapolation |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
+| per-group leverage | the same effective sample size and concentration measures, over the load each targeted group's own clever covariate forms | the estimand the fit targets rests on fewer rows than any arm does |
 
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
@@ -65,6 +66,40 @@ divides by instead. The list is empty when every targeted group forms the produc
 when no fitted factor stands beside `g`, because then no derived row exists for a group to be
 outside of.
 
+`group_leverage` reads each targeted group's own clever covariate. The load of a row is the
+magnitude of that covariate, summed over the group's score equations, times the row's observation
+weight. The report reads the load over the rows that contribute to the targeted residual, which is
+the set the mechanism rows also read. The two tables therefore share a denominator.
+
+The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
+group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
+`g_bounds`. An `att` row and a `mean` row therefore differ on one fit. The report folds the design
+weights into the load, exactly as it folds them into the per-arm rows.
+
+Every group carries seven keys.
+
+| key | what it holds |
+| --- | --- |
+| `n` | the targeted rows |
+| `effective` | Kish's effective sample size of the load |
+| `ess_ratio` | `effective` divided by `n` |
+| `top_1pct` | the share of the load the largest 1% of rows hold |
+| `top_5pct` | the share of the load the largest 5% of rows hold |
+| `max_load` | the largest weighted load among the targeted rows |
+| `zero_load` | the count of targeted rows the covariate does not load at all |
+
+`max_load` and the maximum clever covariate answer different questions. `max_load` is weighted and
+runs over the targeted rows. The maximum clever covariate is unweighted and runs over every row.
+The two need not agree.
+
+A zero load leaves the Kish sums untouched and stays in `n`. `ess_ratio` therefore does not flatter
+a group that loads only part of what it targets. The ratio alone cannot separate those rows from an
+uneven spread, so `zero_load` counts them.
+
+The report does not grade `ess_ratio` here, for the reason it does not grade the arm ratio. The
+combined `support` row reads the group table too, so its minimum effective-sample-size ratio
+matches the report it retains.
+
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.
@@ -74,8 +109,8 @@ intervention with estimated zero support. Both describe an action or a violation
 judgement: a clipped row contributes extrapolation instead of data, and a unit with zero estimated
 support breaks positivity outright. The report does not grade the effective-sample-size ratio. A
 Kish ratio is descriptive and no published result fixes a cutoff on it, so a threshold here would
-present a house convention as a finding. Every verdict states the narrowest arm's ratio and leaves
-the reading to the analyst.
+present a house convention as a finding. Every verdict states the narrowest arm's ratio and the
+narrowest group's ratio, and leaves the reading to the analyst.
 
 For that reason the combined `support` row is `completed` rather than `passed` when nothing is
 graded. Read `passed` nowhere as a positivity clearance. Read the ratio, and judge it against the
