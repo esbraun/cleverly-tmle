@@ -191,6 +191,32 @@ class TestTheRegimesTravelWithTheFit:
         assert report.regimes["rule"].min_support_propensity > 0.0
         assert "rule" in report.summary()
 
+    def test_the_rows_no_regime_loads_are_counted(self, result, frame) -> None:
+        """``zero_load``, on the one point-treatment covariate that has exact zeros.
+
+        The regime covariate is ``g*(A | W) / (g(A | W) pi q)``, so a unit whose observed
+        arm no declared regime would assign carries an exact zero. Here that is a treated
+        unit with ``W1 <= 0``: ``never`` assigns control to everybody and ``rule`` assigns
+        treatment only above zero. The count is what separates a group loading part of
+        what it targets from one loading all of it unevenly, and the Kish ratio on its own
+        cannot tell those two apart.
+
+        ``positivity_report`` is called directly because ``diagnostics.support()`` sends a
+        regime fit to :class:`~cleverly.interventions.support.SupportReport` instead.
+        """
+        from cleverly.sensitivity import positivity_report
+
+        report = positivity_report(result)
+        unloaded = np.sum(
+            (np.asarray(result.data.treatment) == 1.0) & (frame["W1"].to_numpy() <= 0.0)
+        )
+        assert set(report.group_leverage) == {"regime"}
+        assert unloaded > 0, "the fixture must leave some row outside every regime"
+        assert report.group_leverage["regime"]["zero_load"] == float(unloaded)
+        # A zero leaves the Kish sums untouched but stays in ``n``, so the ratio it
+        # reports is over every targeted row rather than over the loaded ones alone.
+        assert report.group_leverage["regime"]["n"] == float(result.data.n)
+
     def test_support_dispatches_to_arm_overlap_on_an_arm_fit(self, frame) -> None:
         report = fit(frame).diagnostics.support()
         assert report.n == len(frame)

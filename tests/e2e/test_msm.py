@@ -440,6 +440,25 @@ class TestTheSurroundingMachineryWorks:
         report = result.diagnostics.support()
         assert set(report.propensity_quantiles) >= {f"g[{label}]" for label in DOSE}
 
+    def test_a_multi_column_group_reports_one_load_row(self, fitted) -> None:
+        """``msm`` fits two coefficients in one fluctuation, and gets one row for both.
+
+        The table is keyed by group rather than by score equation, so a row's load is the
+        total a unit carries across that group's equations. Here both coefficients weight
+        the same unit, so the row is a sum over two columns rather than a copy of one, and
+        it is larger than the unweighted maximum ``clever_covariate_max`` reports.
+        """
+        result, _ = fitted
+        report = result.diagnostics.support()
+        load = report.group_leverage["msm"]
+
+        assert report.group_leverage.keys() == result.fluctuations.keys() == {"msm"}
+        assert len(result.fluctuations["msm"].names) == 2
+        assert load["n"] == float(result.data.n)
+        assert np.isfinite(load["effective"]) and 0.0 < load["ess_ratio"] < 1.0
+        assert load["max_load"] > report.clever_covariate_max["msm"]
+        assert "msm at g_bounds" in report.summary()
+
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted, sweep) -> None:
         result, _ = fitted
         curve, combined = sweep

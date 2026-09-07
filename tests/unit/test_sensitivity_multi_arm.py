@@ -464,6 +464,31 @@ class TestTheOverlapReportOnAWeightedFit:
             assert abs(_kish(leverage) - _kish(clever)) > 50.0
             assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
+    def test_every_targeted_group_reports_its_own_load_row(self, weighted_exact_fit: Any) -> None:
+        """``_multi_arm_positivity_report`` fills the per-group table, not only the arm one.
+
+        The two reports are separate functions, so a field added to one is absent from the
+        other until somebody writes it there. Three groups here, two of them conditional
+        and one marginal, and the conditional rows read a different bound and a different
+        reference arm from the marginal one -- which is why the table cannot be derived
+        from the arm rows above.
+        """
+        report = weighted_exact_fit.diagnostics.support()
+        leverage = report.group_leverage
+
+        assert leverage.keys() == report.clever_covariate_max.keys()
+        assert leverage.keys() == weighted_exact_fit.fluctuations.keys()
+        assert set(leverage) == {"mean", "att", "atc"}
+        for group, load in leverage.items():
+            assert load["n"] == float(weighted_exact_fit.data.n), group
+            assert np.isfinite(load["effective"]) and 0.0 < load["ess_ratio"] < 1.0, group
+            assert 0.0 < load["top_1pct"] <= load["top_5pct"] <= 1.0, group
+            assert np.isfinite(load["max_load"]), group
+        # The conditional groups are not the marginal one rescaled: they divide by
+        # ``P(A = a)`` and reweight the reference arm by the propensity odds.
+        assert leverage["att"]["ess_ratio"] < leverage["mean"]["ess_ratio"] - 0.1
+        assert leverage["atc"]["ess_ratio"] > leverage["mean"]["ess_ratio"] + 0.1
+
 
 class TestTheRestOfTheFacade:
     """The entry points that reach the bound through a name, rather than computing it.

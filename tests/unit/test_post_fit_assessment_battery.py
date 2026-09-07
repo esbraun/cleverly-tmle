@@ -1624,6 +1624,116 @@ def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
         assert "No threshold is applied to that share" in verdict
 
 
+def _load(ratio: float, **overrides: float) -> dict[str, float]:
+    """One ``group_leverage`` row, carrying the seven keys the table promises."""
+    return {
+        "n": 100.0,
+        "effective": 100.0 * ratio,
+        "ess_ratio": ratio,
+        "top_1pct": 0.3,
+        "top_5pct": 0.5,
+        "max_load": 9.0,
+        "zero_load": 0.0,
+        **overrides,
+    }
+
+
+#: One fitted factor row, so a report can carry a mechanism ratio beside its arm ratio.
+_MECHANISM = {
+    "min": 0.2,
+    "q01": 0.3,
+    "q05": 0.4,
+    "median": 0.6,
+    "ess_ratio": 0.7,
+    "top_1pct": 0.1,
+    "top_5pct": 0.2,
+    "clipped": 0.0,
+    "clipped_fraction": 0.0,
+}
+
+
+def test_the_support_row_pools_the_group_ratios_with_the_arms_and_mechanisms() -> None:
+    """The combined row cannot quote a larger share than the report it retains.
+
+    Three tables report an effective-sample-size ratio, and the row states one number. A
+    group's own clever covariate can retain less than any arm or mechanism does, so the
+    pooled minimum has to see it. The control is the same report without the group table:
+    its minimum is the mechanism's, so the assertion below moves when the group rows are
+    dropped rather than passing on whichever table happened to be lowest.
+    """
+    groups = {"mean": _load(0.44), "att": _load(0.2)}
+    pooled = _positivity(
+        0.0,
+        0.9,
+        clever_covariate_max={"mean": 1.0, "att": 4.0},
+        group_leverage=groups,
+        mechanisms={"P(Delta=1|A,W)": _MECHANISM},
+    )
+    without = replace(pooled, group_leverage={})
+    fact = "minimum effective-sample-size ratio"
+
+    assert f"{fact} 20.0%" in INTERPRETERS["support"](pooled, None).detail
+    assert f"{fact} 70.0%" in INTERPRETERS["support"](without, None).detail
+    # And the number is the minimum over all three tables, not over the groups alone.
+    assert min([0.9, 0.7, *(row["ess_ratio"] for row in groups.values())]) == 0.2
+
+
+def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -> None:
+    """The group share is a second sentence, not a second threshold.
+
+    The pair differs by two orders of magnitude in the group ratio and by nothing else,
+    so any cutoff anyone puts on that share separates them and fails here. Both verdicts
+    still carry the arm sentence word for word, because the two are different weightings
+    and the reader needs both.
+    """
+    ample = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.99)})
+    threadbare = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.04)})
+
+    assert ample.severity == threadbare.severity == "adequate"
+    assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
+    assert "narrowest targeted group retains an effective 99%" in ample.verdict()
+    assert "narrowest targeted group retains an effective 4%" in threadbare.verdict()
+    for report in (ample, threadbare):
+        assert "effective 90% of the rows in its narrowest arm" in report.verdict()
+        assert "reported and not graded either" in report.verdict()
+
+
+def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
+    """A group with no targeted rows stores ``nan``, and the summary still has to print.
+
+    Built by hand rather than fitted, because a fit that targets a group and then weights
+    none of its rows is not a case the fast tier can reach cheaply. The verdict drops the
+    non-finite share instead of reporting it, which is the same rule the arm sentence
+    follows.
+    """
+    empty = {key: float("nan") for key in _load(0.0)}
+    report = _positivity(
+        0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_leverage={"mean": empty}
+    )
+    summary = report.summary()
+
+    assert "max |h|" in summary
+    assert "mean   nan" in summary
+    assert "mean at g_bounds" in summary
+    assert "narrowest targeted group" not in report.verdict()
+
+
+def test_a_report_without_the_group_table_still_lists_the_maxima() -> None:
+    """Backward compatibility: a report pickled before the table existed still reads.
+
+    The field is defaulted rather than required, so the older object constructs. What it
+    must not do is present a reader with nothing where the maxima used to be, so the
+    summary falls back to the line each group had.
+    """
+    report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
+
+    assert report.group_leverage == {}
+    assert "max |clever covariate| (mean): 1" in report.summary()
+    assert "max |clever covariate| (att): 4" in report.summary()
+    assert "max |h|" not in report.summary()
+    assert "narrowest targeted group" not in report.verdict()
+
+
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:
     """A binding bound changes the procedure, not the parameter it estimates."""
     verdict = _positivity(0.06, 0.9).verdict()
