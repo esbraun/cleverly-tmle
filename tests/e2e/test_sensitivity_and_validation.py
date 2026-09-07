@@ -1168,10 +1168,78 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert degenerate.mechanisms["P(Delta=1|A,W)"]["clipped_fraction"] <= 0.01
         assert degenerate.severity == "adequate"
 
+    def test_propensity_clipping_keeps_the_propensity_verdict(self, strained) -> None:
+        """A derived row's clipping is the union over its factors, so it can be all ``g``.
+
+        Triggering the mechanism branch on that union put a mechanism's name on a verdict
+        whose every number came from the propensity, and closed it with
+        ``mechanism=True``, which sweeps ``nuisance_bound`` alone. The propensity branch
+        below reports the same cells accurately and names the curve that moves them.
+        """
+        report = strained.diagnostics.support()
+        composed = "P(A=a,Delta=1|W)"
+
+        def with_clipping(name: str) -> object:
+            return dataclasses.replace(
+                report,
+                truncated={**report.truncated, "fraction": 0.09},
+                mechanisms={
+                    **report.mechanisms,
+                    name: {**report.mechanisms[name], "clipped_fraction": 0.2},
+                },
+            )
+
+        verdict = with_clipping(composed).verdict()
+        assert f"{composed} strains the estimate" not in verdict
+        assert "truncation is carrying this estimate" in verdict
+
+        # The control: a *factor* row's clipping is its own, and still earns the sentence
+        # ahead of the propensity's, which is the ordering this loop exists for.
+        assert "P(Delta=1|A,W) strains the estimate" in with_clipping("P(Delta=1|A,W)").verdict()
+
+        # And joint leverage still reaches the verdict through the derived row.
+        leveraged = dataclasses.replace(
+            report,
+            mechanisms={
+                **report.mechanisms,
+                composed: {**report.mechanisms[composed], "ess_ratio": 0.4},
+            },
+        )
+        assert f"{composed} strains the estimate" in leveraged.verdict()
+
     def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
         report = good_overlap.diagnostics.support()
         assert report.mechanisms == {}
         assert "P(Delta=1|A,W)" not in report.summary()
+
+    def test_a_conditional_arm_fit_reports_its_factors_and_no_product(self) -> None:
+        """``att`` divides by ``P(A = a)``, never by ``g_a(W) pi_a(W)``.
+
+        ``att_submodel`` builds ``1 / (P(A=a) pi_a pz_a)`` for the conditioning arm and
+        reweights the reference arm by the propensity odds, so the product is a
+        denominator that fit never forms. Reporting it would be the convenient
+        approximation to a different estimand -- and it would quote ``g_bounds`` where
+        the covariate was held to ``g_bounds_conditional``. The observation mechanism is
+        a denominator in both, so its factor row stays.
+        """
+        frame, _ = make_missing_outcome(n=800, seed=91, strength=1.5)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("att",))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
+            )
+        report = result.diagnostics.support()
+        assert set(result.fluctuations) == {"att"}
+        assert set(report.mechanisms) == {"P(Delta=1|A,W)"}
+        assert "P(A=a,Delta=1|W)" not in report.summary()
 
     def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
         # Traceability: a reported number must be traceable to every bound that shaped

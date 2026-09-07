@@ -126,7 +126,7 @@ and signed movement from that estimate. Default curves mark the exact fitted con
 parameter, while explicit grids preserve the requested evaluations and record when the fitted
 configuration was not among them. Combined rows summarize each parameter or coefficient separately.
 
-The composed support slice fixes this gap as one review unit. A derived row reports the complete
+The support report no longer stops at the separate factors. A derived row reports the complete
 denominator that each clever covariate uses. Missing-outcome fits report
 `P(A=a,Delta=1|W)`. Controlled-direct-effect fits report `P(A=a,Z=z|W)` on complete outcomes and
 `P(A=a,Delta=1,Z=z|W)` when outcomes are missing. Each row retains raw-product quantiles. It also
@@ -138,14 +138,16 @@ Its clipping count is the union of the factor-level clipping events. It does not
 bound to the product. A complete-data fit without an intermediate keeps its current report and
 adds no derived row.
 
+The derived row describes the marginal-mean estimands. A fit that targets only a conditional-arm
+estimand reports its factor rows and no derived row, because that covariate divides by `P(A=a)`
+rather than by the treatment mechanism. The verdict reads joint leverage from the derived row and
+reads truncation from the factor rows and the propensity, so each sentence names the bound that
+moved it.
+
 Tests compute each derived field by hand for missing-outcome and controlled-direct-effect fits.
 A nonzero witness makes each factor look acceptable while their product concentrates weight. A
 mutation control drops each factor in turn. Backend parity, persistence replay, combined-report
 retention, targeted-row selection, and complete-data non-regression complete this slice.
-
-Composed support diagnostics now report the complete denominator for missing-outcome and
-controlled-direct-effect fits. Each row retains raw-product quantiles. It reports ESS and top-weight
-concentration from the factorwise bounded product on residual-contributing rows.
 
 The rows below remain.
 

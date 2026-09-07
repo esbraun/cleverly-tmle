@@ -48,6 +48,17 @@ quantiles describe the complete factor product. Its ESS and concentration use th
 bounded product, observation weights, and only residual-contributing rows. This order matches the
 targeting construction. The diagnostic never applies a separate bound to the product.
 
+Every mechanism row reads each unit at the arm the unit received. `Propensity` names that column.
+A fit with more than two arms therefore weights each unit by its own denominator.
+
+A derived row counts a clipped cell when any factor moves. Either bound can therefore produce that
+count. Its verdict names both truncation curves for that reason. The verdict reads truncation from
+the factor rows and from the propensity, and reads joint leverage from the derived row.
+
+The derived row covers the marginal-mean groups. These are `mean`, `regime`, and `msm`, whose
+covariate divides by the product. A fit that targets only `att`, `atc`, or an incremental
+intervention gets no derived row. Those covariates divide by another quantity.
+
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.

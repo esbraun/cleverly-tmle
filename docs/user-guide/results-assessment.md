@@ -101,6 +101,14 @@ The estimator bounds each fitted factor before it multiplies them. The product r
 order and counts a cell when any factor changes. It does not apply a separate product bound. The
 factor rows remain available, so an analyst can locate which mechanism creates the joint load.
 
+Read the product row rather than the factor rows alone. Each factor can look acceptable while the
+product concentrates the weight, because the two costs multiply. The clever covariate divides by
+the product.
+
+The product row describes the marginal-mean estimands. These are `ey` and its contrasts, a regime,
+and a marginal structural model. A fit that targets only `att` or `atc` reports its factor rows and
+no product row. That covariate divides by `P(A=a)` rather than by the treatment mechanism.
+
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
 uses an existing diagnostic rule. An expected refusal becomes `unavailable`.

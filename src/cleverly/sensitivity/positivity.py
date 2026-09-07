@@ -42,14 +42,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._typing import FloatArray
-from ..data.weighting import effective_sample_size
+from .._typing import BoolArray, FloatArray
+from ..data.weighting import effective_sample_size, top_weight_share
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
 from ..inference.influence import median_estimates
 from ..targets import TARGETS, parameter_stem
-from ..utils.bounds import bound, g_bounds_for
+from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
 
@@ -64,14 +64,40 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 #: Thresholds at which the mass of extreme propensity scores is reported.
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
 
-#: The derived missing-outcome denominator ``g_a(W) pi_a(W)``.  It is a *product of two
-#: separately truncated factors* rather than a fitted or targeted mechanism of its own,
-#: which is why it is named once here: the report has to treat it differently from the
-#: rows that were held to a single bound.
+#: The derived denominators the clever covariate divides by: ``g_a(W) pi_a(W)`` when the
+#: outcome can be missing, ``g_a(W) q_z(a, W)`` for a controlled direct effect, and the
+#: three-factor product when a controlled direct effect also has missing outcomes.  Each is
+#: a *product of separately truncated factors* rather than a fitted or targeted mechanism of
+#: its own, which is why they are named once here: the report has to treat them differently
+#: from the rows that were held to a single bound.
 JOINT_MECHANISM = "P(A=a,Delta=1|W)"
 JOINT_INTERMEDIATE = "P(A=a,Z=z|W)"
 JOINT_MISSING_INTERMEDIATE = "P(A=a,Delta=1,Z=z|W)"
-_COMPOSED_MECHANISMS = {JOINT_MECHANISM, JOINT_INTERMEDIATE, JOINT_MISSING_INTERMEDIATE}
+
+#: Which derived row a fit reports, keyed by ``(an observation mechanism was fitted, an
+#: intermediate density was)``.  The two derived facts below come from this one table, so a
+#: further composition is one entry rather than three edits that have to agree.
+_COMPOSED_ROWS: dict[tuple[bool, bool], str] = {
+    (True, False): JOINT_MECHANISM,
+    (False, True): JOINT_INTERMEDIATE,
+    (True, True): JOINT_MISSING_INTERMEDIATE,
+}
+
+#: How many ``[nuisance_bound, 1]`` factors stand beside ``g`` in each derived row.
+_COMPOSED_NUISANCE_FACTORS = {name: sum(key) for key, name in _COMPOSED_ROWS.items()}
+
+_COMPOSED_MECHANISMS = frozenset(_COMPOSED_ROWS.values())
+
+#: The target groups whose clever covariate really divides by ``g_a(W) pi_a(W) q_z(a, W)``
+#: -- :func:`~cleverly.fluctuation.submodel.mean_submodel`, ``regime_submodel`` and
+#: ``msm_submodel`` all build ``1 / (g * pi * pz)`` arm by arm.  The rest do not, and a
+#: derived row would name a denominator they never form: ``att`` and ``atc`` divide by
+#: ``P(A = a)`` in place of ``g_a`` and reweight the reference arm by the propensity odds,
+#: ``ipsi`` discards the propensity outright, and ``mtp`` divides by a density ratio.
+#: Those three also read ``g_bounds_conditional`` where it applies, which is a second bound
+#: this row does not quote.  A fit that targets none of the groups below therefore reports
+#: its factor rows and no product.
+_COMPOSED_GROUPS = frozenset({"mean", "regime", "msm"})
 
 
 @dataclass(frozen=True)
@@ -102,11 +128,18 @@ class PositivityReport:
     mechanisms : dict of str to dict of str to float
         Overlap for the *other* denominators in the clever covariate:
         ``P(Delta = 1 | A, W)`` when outcomes are missing, and ``P(Z = z | A, W)`` for a
-        controlled direct effect.  Each carries the smallest and lowest-quantile value,
-        how many rows the ``nuisance_bound`` clipped, and ``ess_ratio`` -- the Kish
-        effective sample size the ``1 / mechanism`` weights leave behind, on the same
-        scale as the propensity's, so the two can be read side by side.  Empty when
+        controlled direct effect.  Every row carries the same nine keys: ``min``, ``q01``,
+        ``q05`` and ``median`` of the mechanism as fitted; ``clipped`` and
+        ``clipped_fraction`` for the cells the bound moved; and ``ess_ratio``,
+        ``top_1pct`` and ``top_5pct`` for the load the weights leave behind.  Empty when
         neither applies.
+
+        The three load measures are taken over the weights the estimating equation
+        actually forms: the *bounded* mechanism at each unit's realised arm, times that
+        unit's observation weight, over the rows whose residual it multiplies.  They are
+        on the same scale as the propensity's :attr:`effective_sample_size` and
+        :attr:`weight_share`, and fold in the design for the same reason those do, so the
+        two tables can be read side by side.
 
         These deserve reporting for exactly the reason ``g`` does: they enter the
         estimating equation as a denominator, so a value near zero gives one observation
@@ -115,16 +148,28 @@ class PositivityReport:
         healthy propensity overlap and still be resting on a handful of rows that were
         very unlikely to be observed at all.
 
-        A derived row reports the complete denominator for missing-outcome and
-        controlled-direct-effect fits. Its ``min`` and quantiles describe the raw
-        product. Its ``ess_ratio``, ``top_1pct``, and ``top_5pct`` describe the inverse
-        bounded product, including observation weights, on residual-contributing rows.
-        The estimator truncates each factor separately and multiplies. Therefore,
-        ``clipped`` counts cells where any factor changed rather than applying a bound
-        to the product.
+        **A derived row reports the complete denominator** for a missing-outcome fit
+        (``P(A=a,Delta=1|W)``), a controlled direct effect (``P(A=a,Z=z|W)``), or both at
+        once (``P(A=a,Delta=1,Z=z|W)``).  The ``z`` in those names is the level the fit
+        targets, which the factor row beside them states outright.  It is not a further
+        fitted mechanism and it was never held to a bound of its own: the estimator
+        truncates each factor separately and multiplies.  So its ``min`` and quantiles
+        stay on the untruncated product, as the fitted rows' do, while its ``clipped``
+        counts the cells where *any* factor moved -- which is the truncation this
+        denominator underwent, and which a comparison of the two products would miss
+        wherever a zero in one factor hides a clip in another.
+
+        The derived row is the reason this table exists.  Each factor can look
+        comfortable on its own while their product concentrates the weight, because the
+        costs multiply, and only the product is what the clever covariate divides by.
+        It describes the fit's **marginal-mean** estimands -- the ``ey`` family, its
+        contrasts, a regime, and a marginal structural model.  A fit that targets none of
+        those gets its factor rows and no product row, because an ATT or ATC covariate
+        divides by ``P(A = a)`` rather than ``g_a(W)`` and an incremental one drops the
+        propensity entirely.
     nuisance_bound : float
-        The lower bound applied to the *fitted* mechanisms above.  The derived joint row
-        has no single such bound -- see :meth:`_bound_label`.
+        The lower bound applied to the *fitted* mechanisms above.  A derived row has no
+        single such bound -- see :meth:`_bound_label`.
     simplex_deviation : float
         Largest ``|sum_a g(a | W) - 1|`` across rows *after* truncation, and ``0`` for a
         two-armed fit, where the complement form preserves the sum exactly.
@@ -200,13 +245,15 @@ class PositivityReport:
     def _bound_label(self, name: str) -> str:
         """How a mechanism row was truncated, as text a message can print.
 
-        The derived joint row is the only one with **two** bounds: the estimator clips
-        ``g`` and ``pi`` separately and multiplies them, so naming either alone -- which
-        both call sites used to do, always ``nuisance_bound`` -- quotes a bound that row
-        was never held to.
+        A derived row is the only kind with **more than one** bound: the estimator clips
+        each factor separately and multiplies them, so naming any one alone -- which both
+        call sites used to do, always ``nuisance_bound`` -- quotes a bound that row was
+        never held to.  How many it names comes from
+        :data:`_COMPOSED_NUISANCE_FACTORS`, so a further composition does not need a
+        second place to agree with.
         """
         if name in _COMPOSED_MECHANISMS:
-            nuisance_factors = 2 if name == JOINT_MISSING_INTERMEDIATE else 1
+            nuisance_factors = _COMPOSED_NUISANCE_FACTORS[name]
             tail = " x ".join(f"[{self.nuisance_bound:.4g}, 1]" for _ in range(nuisance_factors))
             return f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x {tail}, factor by factor"
         return f"[{self.nuisance_bound:.4g}, 1]"
@@ -381,16 +428,32 @@ class PositivityReport:
             # earns the *sentence*, because a reader who never sees the number cannot
             # weigh it, but it does not move the tier -- grading it would be the invented
             # cutoff this report refuses to apply to the propensity.
-            clipped = stats["clipped_fraction"] > 0.01
+            composed = name in _COMPOSED_MECHANISMS
+            # A derived row's clipped cells are the union over its factors, and its
+            # propensity factor is the one the branch below already reports -- accurately,
+            # and against the curve that can move it. Triggering here on that union put a
+            # mechanism's name on a verdict whose every number came from `g`, and sent the
+            # reader to `mechanism=True`, which sweeps `nuisance_bound` alone. So a derived
+            # row earns its sentence on joint leverage only, which is the one thing neither
+            # its factor rows nor the propensity branch can show. Each factor's own
+            # clipping still triggers on that factor's own row.
+            clipped = not composed and stats["clipped_fraction"] > 0.01
             if clipped or stats["ess_ratio"] < 0.6:
-                # The joint row *is* the whole denominator rather than a factor beside
-                # `g(W)`, so the closing sentence has to say something different about it.
                 leverage = (
-                    "It is the whole denominator of the clever covariate, so those rows "
-                    "carry outsized leverage however each factor looks on its own."
-                    if name in _COMPOSED_MECHANISMS
+                    "It is the whole denominator of the clever covariate for this fit's "
+                    "marginal-mean estimands, so those rows carry outsized leverage "
+                    "however each factor looks on its own."
+                    if composed
                     else "It divides the clever covariate exactly as g(W) does, so those "
                     "rows carry outsized leverage whatever the propensity overlap looks like."
+                )
+                # Either bound can have moved a derived row's cells, so naming one curve
+                # would send the reader to a knob that cannot move what they were shown.
+                advice = (
+                    "Check truncation_curve() and truncation_curve(mechanism=True); this "
+                    "row is clipped by either bound."
+                    if composed
+                    else "Check truncation_curve(mechanism=True)."
                 )
                 return (
                     "serious"
@@ -401,8 +464,7 @@ class PositivityReport:
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    f"{self._bound_label(name)}). {leverage} "
-                    "Check truncation_curve(mechanism=True).",
+                    f"{self._bound_label(name)}). {leverage} {advice}",
                 )
         if fraction > 0.05:
             return (
@@ -516,8 +578,8 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
             "ratio": _kish_ess(arm_weights) / float(mask.sum()) if mask.any() else float("nan"),
         }
         share[arm] = {
-            "top_1pct": _top_share(arm_weights, 0.01),
-            "top_5pct": _top_share(arm_weights, 0.05),
+            "top_1pct": top_weight_share(arm_weights, 0.01),
+            "top_5pct": top_weight_share(arm_weights, 0.05),
         }
 
     clipped = truncation.units
@@ -600,8 +662,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
             "ratio": _kish_ess(arm_weights) / nominal if mask.any() else float("nan"),
         }
         share[labels[arm]] = {
-            "top_1pct": _top_share(arm_weights, 0.01),
-            "top_5pct": _top_share(arm_weights, 0.05),
+            "top_1pct": top_weight_share(arm_weights, 0.01),
+            "top_5pct": top_weight_share(arm_weights, 0.05),
         }
 
     clipped_cells = truncation.clipped
@@ -638,13 +700,19 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
 def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     """Overlap for the denominators other than ``g`` -- ``pi`` and the intermediate density.
 
-    Two views, because they answer different questions.  The quantiles pool both arms,
-    since both columns are used: the treated arm's covariate divides by the mechanism at
-    ``a = 1`` and the control arm's by the one at ``a = 0``, so the union is the set of
-    values that appear as denominators anywhere.  The effective sample size instead takes
-    the weights the estimating equation *actually* forms -- ``1 / pi`` at each unit's
-    realised arm, over the rows whose residual it multiplies -- and is reported on the
-    same scale as the propensity's ESS so that the two can be read side by side.
+    Two views, because they answer different questions.  The quantiles pool every arm,
+    since every column is used: each arm's covariate divides by the mechanism at that
+    arm, so the union is the set of values that appear as denominators anywhere.  The
+    effective sample size instead takes the weights the estimating equation *actually*
+    forms -- ``1 / pi`` at each unit's realised arm, over the rows whose residual it
+    multiplies -- and is reported on the same scale as the propensity's ESS so that the
+    two can be read side by side.
+
+    Beside each fitted mechanism the report carries the *product* the clever covariate
+    divides by, named in :data:`_COMPOSED_ROWS`.  It is built here rather than stored on
+    the nuisance state, so a cached product cannot go stale against the factors it came
+    from, and each factor is bounded through the accessor that owns its rule before the
+    multiplication -- which is the order the estimator uses.
 
     Which rows those are depends on the estimand.  A row with no recorded outcome
     contributes a genuine zero to the residual term, and so does a row whose intermediate
@@ -657,15 +725,33 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     data = result.data
     nuisance = result.nuisance
     missingness_bound = result.config.missingness_bound
-    treated = data.treatment == 1.0
     contributing = targeted_rows(data, result.intermediate_value)
     out: dict[str, dict[str, float]] = {}
 
+    # Which column of an `(n, K)` mechanism each row realised.  Written as a gather rather
+    # than as `np.where(treatment == 1, values[:, 1], values[:, 0])`, which reports arm 0's
+    # denominator for every unit outside arms 0 and 1 -- silently, and on a report that is
+    # otherwise per arm.  A two-armed fit gathers the same two columns that expression did.
+    realised = np.zeros(data.n, dtype=int)
+    for arm in nuisance.propensity.arms:
+        realised[data.treatment == arm] = nuisance.propensity.column_for(arm)
+    rows = np.arange(data.n)
+
     def summarize(
-        raw: FloatArray, bounded: FloatArray, clipped: FloatArray | None = None
+        raw: FloatArray, bounded: FloatArray, clipped: BoolArray | None = None
     ) -> dict[str, float]:
+        """One mechanism row: raw quantiles, bounded-weight load, and the cells that moved.
+
+        The two arrays are deliberately different.  Quantiles pool every column, because
+        every column appears as a denominator somewhere, and they describe the mechanism
+        as fitted.  The weights are the ones the estimating equation actually forms: the
+        *bounded* array at each unit's realised arm, times that unit's observation weight,
+        over the rows whose residual it multiplies.  ``clipped`` defaults to the cells the
+        bound moved, which is the rule for a single factor; a derived row passes the union
+        of its factors' masks instead, because its own product was never bounded.
+        """
         flat = raw.reshape(-1)
-        at_arm = np.where(treated, bounded[:, 1], bounded[:, 0])
+        at_arm = bounded[rows, realised]
         weights = data.weights[contributing] / at_arm[contributing]
         changed = raw != bounded if clipped is None else clipped
         return {
@@ -676,78 +762,75 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
             "ess_ratio": (
                 _kish_ess(weights) / float(weights.size) if weights.size else float("nan")
             ),
-            "top_1pct": _top_share(weights, 0.01),
-            "top_5pct": _top_share(weights, 0.05),
+            "top_1pct": top_weight_share(weights, 0.01),
+            "top_5pct": top_weight_share(weights, 0.05),
             "clipped": float(np.count_nonzero(changed)),
             "clipped_fraction": float(np.mean(changed)),
         }
 
-    candidates: list[tuple[str, Any]] = [("P(Delta=1|A,W)", nuisance.missingness)]
-    if nuisance.intermediate is not None and result.intermediate_value is not None:
-        # The covariate divides by P(Z = z | A, W) for the targeted z, which is the
-        # fitted probability or its complement -- so report the one actually used.
-        candidates.append(
+    # Each fitted nuisance factor, as the pair the report needs: the array as fitted, and
+    # the same array as the estimator bounds it at targeting time.  Both come from the
+    # accessors that own those rules -- `bounded_missingness`, and `intermediate_density`,
+    # which is the one place the `z` / `1 - z` convention lives, so the row reports the
+    # level the covariate actually divides by rather than its complement.
+    level = result.intermediate_value
+    has_observation = nuisance.missingness is not None
+    has_intermediate = nuisance.intermediate is not None and level is not None
+    factors: list[tuple[str, FloatArray, FloatArray]] = []
+    if has_observation:
+        factors.append(
             (
-                f"P(Z={result.intermediate_value:.0f}|A,W)",
-                nuisance.intermediate_density(result.intermediate_value, 0.0),
+                "P(Delta=1|A,W)",
+                np.asarray(nuisance.missingness, dtype=float),
+                np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float),
+            )
+        )
+    if has_intermediate and level is not None:
+        factors.append(
+            (
+                f"P(Z={level:.0f}|A,W)",
+                np.asarray(nuisance.intermediate_density(level, 0.0), dtype=float),
+                np.asarray(nuisance.intermediate_density(level, missingness_bound), dtype=float),
             )
         )
 
-    for name, values in candidates:
-        if values is None:
-            continue
-        array = np.asarray(values, dtype=float)
-        out[name] = summarize(array, bound(array, missingness_bound, 1.0))
+    for name, raw, bounded_factor in factors:
+        out[name] = summarize(raw, bounded_factor)
 
-    # The product is a derived denominator, not a third fitted or targeted mechanism.
-    # Report it without storing it on the nuisance state so the treatment and observation
-    # probabilities cannot become stale relative to a cached product.
-    observation = (
-        None if nuisance.missingness is None else np.asarray(nuisance.missingness, dtype=float)
-    )
-    intermediate = (
-        None
-        if nuisance.intermediate is None or result.intermediate_value is None
-        else np.asarray(nuisance.intermediate_density(result.intermediate_value, 0.0), dtype=float)
-    )
-    if observation is not None or intermediate is not None:
-        g_lower, g_upper = result.config.g_bounds
-        treatment = np.asarray(nuisance.propensity.values, dtype=float)
-        factors = [treatment]
-        treatment_truncation = nuisance.propensity.truncate((g_lower, g_upper))
-        bounded_factors = [treatment_truncation.values]
-        clipped_factors = [treatment_truncation.clipped]
-        if observation is not None:
-            factors.append(observation)
-            bounded_factors.append(bound(observation, float(missingness_bound), 1.0))
-            clipped_factors.append(observation < missingness_bound)
-        if intermediate is not None:
-            factors.append(intermediate)
-            bounded_factors.append(bound(intermediate, float(missingness_bound), 1.0))
-            clipped_factors.append(intermediate < missingness_bound)
-        array = np.prod(np.stack(factors), axis=0)
-        # The estimator truncates the two factors **separately** and multiplies -- see
+    # The product is a derived denominator, not a further fitted or targeted mechanism.
+    # Report it without storing it on the nuisance state so the treatment, observation and
+    # intermediate probabilities cannot become stale relative to a cached product.  It is
+    # reported only for the groups that form it -- see `_COMPOSED_GROUPS`, whose comment
+    # names what the others divide by instead.  Refusing the row there is the point: an
+    # ATT fit's covariate never forms `g_a * pi_a`, so a row asserting that product is its
+    # whole denominator would describe an estimand nobody asked for.
+    if factors and not _COMPOSED_GROUPS.isdisjoint(result.fluctuations):
+        # The estimator truncates each factor **separately** and multiplies -- see
         # `build_submodel`'s `1 / (g * pi * pz)` and the missing-outcome reductions -- so
         # `g_bounds[0] * missingness_bound` is a floor no code applies. Counting the cells
         # beneath it reports a strict subset of the cells truncation altered, because a
         # small factor beside a large one leaves the product above the product of the
         # floors: at the shipped defaults that floor is around 5e-4, so the row read zero
         # on fits where a third of the observation mechanism was pinned. What is reported
-        # instead is the cells where the bounded product differs from the raw one, which
-        # is the truncation this row's denominator actually underwent.
-        bounded = np.prod(np.stack(bounded_factors), axis=0)
-        clipped = np.logical_or.reduce(np.stack(clipped_factors))
-        # The weight the estimating equation forms is the *bounded* product at the
-        # realised arm; flooring the raw product at `g_lo * m_lo` was a third thing,
-        # neither what was fitted nor what was divided by.
-        name = (
-            JOINT_MISSING_INTERMEDIATE
-            if observation is not None and intermediate is not None
-            else JOINT_MECHANISM
-            if observation is not None
-            else JOINT_INTERMEDIATE
+        # instead is the union of the factors' own clipped cells, which is the truncation
+        # this row's denominator actually underwent -- and which still marks a cell that a
+        # zero in another factor would have hidden from a product-level comparison.  The
+        # propensity contributes `Truncation`'s mask rather than a rebuilt predicate,
+        # because two arms on the simplex are clipped through `g1` and its complement, so
+        # a cell can move without ever standing below the bound.
+        truncation = nuisance.propensity.truncate(result.config.g_bounds)
+        raws = [np.asarray(nuisance.propensity.values, dtype=float)]
+        boundeds = [np.asarray(truncation.values, dtype=float)]
+        masks = [np.asarray(truncation.clipped, dtype=bool)]
+        for _, raw, bounded_factor in factors:
+            raws.append(raw)
+            boundeds.append(bounded_factor)
+            masks.append(raw != bounded_factor)
+        out[_COMPOSED_ROWS[has_observation, has_intermediate]] = summarize(
+            np.prod(np.stack(raws), axis=0),
+            np.prod(np.stack(boundeds), axis=0),
+            np.logical_or.reduce(np.stack(masks)),
         )
-        out[name] = summarize(array, bounded, clipped)
     return out
 
 
@@ -763,17 +846,6 @@ def _kish_ess(weights: FloatArray) -> float:
     if w.size == 0:
         return float("nan")
     return effective_sample_size(w, on_degenerate=0.0)
-
-
-def _top_share(weights: FloatArray, fraction: float) -> float:
-    """Share of total weight held by the largest ``fraction`` of units."""
-    w = np.asarray(weights, dtype=float)
-    if w.size == 0:
-        return float("nan")
-    count = max(1, int(np.ceil(fraction * w.size)))
-    largest = np.sort(w)[-count:]
-    total = w.sum()
-    return float(largest.sum() / total) if total > 0 else float("nan")
 
 
 def _max_abs_covariate(result: TMLEResult, group: str) -> float:
