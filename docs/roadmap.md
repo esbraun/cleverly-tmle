@@ -105,7 +105,7 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Four gaps the audit found are fixed.
+Five gaps the audit found are fixed.
 
 The combined support row no longer contradicts the report it retains. One tiering decision now
 lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
@@ -126,11 +126,31 @@ and signed movement from that estimate. Default curves mark the exact fitted con
 parameter, while explicit grids preserve the requested evaluations and record when the fitted
 configuration was not among them. Combined rows summarize each parameter or coefficient separately.
 
+The composed support slice fixes this gap as one review unit. A derived row reports the complete
+denominator that each clever covariate uses. Missing-outcome fits report
+`P(A=a,Delta=1|W)`. Controlled-direct-effect fits report `P(A=a,Z=z|W)` on complete outcomes and
+`P(A=a,Delta=1,Z=z|W)` when outcomes are missing. Each row retains raw-product quantiles. It also
+reports the ESS and top-weight concentration from the bounded product on the rows that contribute
+to the targeted residual.
+
+The diagnostic bounds each fitted factor before multiplication, exactly as the estimator does.
+Its clipping count is the union of the factor-level clipping events. It does not apply an invented
+bound to the product. A complete-data fit without an intermediate keeps its current report and
+adds no derived row.
+
+Tests compute each derived field by hand for missing-outcome and controlled-direct-effect fits.
+A nonzero witness makes each factor look acceptable while their product concentrates weight. A
+mutation control drops each factor in turn. Backend parity, persistence replay, combined-report
+retention, targeted-row selection, and complete-data non-regression complete this slice.
+
+Composed support diagnostics now report the complete denominator for missing-outcome and
+controlled-direct-effect fits. Each row retains raw-product quantiles. It reports ESS and top-weight
+concentration from the factorwise bounded product on residual-contributing rows.
+
 The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| composed support | report the complete clever-covariate denominator for missing-outcome and controlled-direct-effect fits, including joint ESS and concentration |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |

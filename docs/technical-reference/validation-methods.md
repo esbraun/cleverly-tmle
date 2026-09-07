@@ -43,6 +43,11 @@ It reports five separate quantities, because they fail in different places.
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
 
+Missing-outcome and controlled-direct-effect reports add a derived denominator row. Its raw
+quantiles describe the complete factor product. Its ESS and concentration use the factorwise
+bounded product, observation weights, and only residual-contributing rows. This order matches the
+targeting construction. The diagnostic never applies a separate bound to the product.
+
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.

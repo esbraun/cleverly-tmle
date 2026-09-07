@@ -1049,9 +1049,19 @@ class TestTheMechanismDenominatorsAreDiagnosed:
     def test_the_report_carries_the_mechanism(self, strained) -> None:
         report = strained.diagnostics.support()
         assert "P(Delta=1|A,W)" in report.mechanisms
+        assert "P(A=a,Delta=1|W)" in report.mechanisms
         stats = report.mechanisms["P(Delta=1|A,W)"]
         assert 0.0 < stats["min"] < stats["q01"] < stats["q05"] < stats["median"] < 1.0
         assert "P(Delta=1|A,W)" in report.summary()
+
+    def test_the_composed_row_reports_ess_and_concentration(self, strained) -> None:
+        report = strained.diagnostics.support()
+        stats = report.mechanisms["P(A=a,Delta=1|W)"]
+        assert {"ess_ratio", "top_1pct", "top_5pct"} <= stats.keys()
+        assert 0.0 < stats["ess_ratio"] <= 1.0
+        assert 0.0 < stats["top_1pct"] <= stats["top_5pct"] <= 1.0
+        retained = strained.assess().report("support")
+        assert retained.mechanisms == report.mechanisms
 
     def test_the_mechanism_explains_leverage_the_propensity_does_not(self, strained) -> None:
         """The case the diagnostic exists for, asserted as a whole.

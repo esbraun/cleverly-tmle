@@ -273,6 +273,38 @@ class TestTheEffectiveSampleSizeCountsOnlyTheRowsTheMechanismWeights:
         # 12 rows were forced to Z = 0 and nothing is missing here, so the mask is tight.
         assert int(mask.sum()) == 12
 
+    @pytest.mark.parametrize(("level", "z"), [("zero", 0.0), ("one", 1.0)])
+    def test_the_composed_row_uses_the_complete_bounded_denominator(
+        self, request: Any, level: str, z: float
+    ) -> None:
+        result = request.getfixturevalue(f"fit_at_{level}")
+        data, nuisance = result.data, result.nuisance
+        g = nuisance.propensity.values
+        q = nuisance.intermediate_density(z, 0.0)
+        g_lo, g_hi = result.config.g_bounds
+        lower = result.config.missingness_bound
+        bounded = nuisance.propensity.truncate((g_lo, g_hi)).values * np.clip(q, lower, 1.0)
+        mask = targeted_rows(data, z)
+        at_arm = np.where(data.treatment == 1.0, bounded[:, 1], bounded[:, 0])[mask]
+        weights = data.weights[mask] / at_arm
+        stats = result.diagnostics.support().mechanisms["P(A=a,Z=z|W)"]
+
+        expected_ess = weights.sum() ** 2 / (weights.size * np.square(weights).sum())
+        assert stats["ess_ratio"] == pytest.approx(expected_ess)
+        count = max(1, int(np.ceil(0.01 * weights.size)))
+        assert stats["top_1pct"] == pytest.approx(np.sort(weights)[-count:].sum() / weights.sum())
+        assert stats["min"] == pytest.approx(float((g * q).min()))
+
+        # Dropping either factor changes this nonzero witness. These controls make the
+        # hand calculation fail if the derived row silently becomes a factor row.
+        for wrong in (g, q):
+            wrong_at_arm = np.where(data.treatment == 1.0, wrong[:, 1], wrong[:, 0])[mask]
+            wrong_weights = data.weights[mask] / wrong_at_arm
+            wrong_ess = wrong_weights.sum() ** 2 / (
+                wrong_weights.size * np.square(wrong_weights).sum()
+            )
+            assert stats["ess_ratio"] != pytest.approx(wrong_ess, abs=1e-4)
+
 
 class TestTheLevelIsValidated:
     """A level the code does not recognise must raise, never fall through to ``1 - p``."""

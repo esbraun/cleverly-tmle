@@ -69,6 +69,9 @@ _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
 #: which is why it is named once here: the report has to treat it differently from the
 #: rows that were held to a single bound.
 JOINT_MECHANISM = "P(A=a,Delta=1|W)"
+JOINT_INTERMEDIATE = "P(A=a,Z=z|W)"
+JOINT_MISSING_INTERMEDIATE = "P(A=a,Delta=1,Z=z|W)"
+_COMPOSED_MECHANISMS = {JOINT_MECHANISM, JOINT_INTERMEDIATE, JOINT_MISSING_INTERMEDIATE}
 
 
 @dataclass(frozen=True)
@@ -112,14 +115,13 @@ class PositivityReport:
         healthy propensity overlap and still be resting on a handful of rows that were
         very unlikely to be observed at all.
 
-        **A randomized missing-outcome fit adds a derived row**, ``P(A=a,Delta=1|W)``,
-        which is the product ``g_a(W) pi_a(W)`` that equation (8)'s covariate divides by.
-        It is not a third fitted mechanism and it was never held to a bound of its own:
-        the estimator truncates each factor separately and multiplies. So its ``clipped``
-        counts the cells where the bounded product differs from the raw one -- that is,
-        where either factor's truncation bit -- and its ``ess_ratio`` weights by
-        ``clip(g) * clip(pi)``, the denominator actually formed. Its ``min`` and quantiles
-        stay on the untruncated product, as the fitted rows' do.
+        A derived row reports the complete denominator for missing-outcome and
+        controlled-direct-effect fits. Its ``min`` and quantiles describe the raw
+        product. Its ``ess_ratio``, ``top_1pct``, and ``top_5pct`` describe the inverse
+        bounded product, including observation weights, on residual-contributing rows.
+        The estimator truncates each factor separately and multiplies. Therefore,
+        ``clipped`` counts cells where any factor changed rather than applying a bound
+        to the product.
     nuisance_bound : float
         The lower bound applied to the *fitted* mechanisms above.  The derived joint row
         has no single such bound -- see :meth:`_bound_label`.
@@ -203,11 +205,10 @@ class PositivityReport:
         both call sites used to do, always ``nuisance_bound`` -- quotes a bound that row
         was never held to.
         """
-        if name == JOINT_MECHANISM:
-            return (
-                f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x "
-                f"[{self.nuisance_bound:.4g}, 1], factor by factor"
-            )
+        if name in _COMPOSED_MECHANISMS:
+            nuisance_factors = 2 if name == JOINT_MISSING_INTERMEDIATE else 1
+            tail = " x ".join(f"[{self.nuisance_bound:.4g}, 1]" for _ in range(nuisance_factors))
+            return f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x {tail}, factor by factor"
         return f"[{self.nuisance_bound:.4g}, 1]"
 
     def summary(self) -> str:
@@ -278,7 +279,17 @@ class PositivityReport:
             lines.append("")
             lines.append(
                 format_table(
-                    ["mechanism", "min", "1%", "5%", "median", "ESS / n", "clipped"],
+                    [
+                        "mechanism",
+                        "min",
+                        "1%",
+                        "5%",
+                        "median",
+                        "ESS / n",
+                        "top 1% weight",
+                        "top 5% weight",
+                        "clipped",
+                    ],
                     [
                         [
                             name,
@@ -287,6 +298,8 @@ class PositivityReport:
                             f"{stats['q05']:.4f}",
                             f"{stats['median']:.4f}",
                             f"{stats['ess_ratio']:.3f}",
+                            f"{stats['top_1pct']:.3f}",
+                            f"{stats['top_5pct']:.3f}",
                             f"{stats['clipped']:.0f} ({stats['clipped_fraction']:.2%})",
                         ]
                         for name, stats in self.mechanisms.items()
@@ -375,7 +388,7 @@ class PositivityReport:
                 leverage = (
                     "It is the whole denominator of the clever covariate, so those rows "
                     "carry outsized leverage however each factor looks on its own."
-                    if name == JOINT_MECHANISM
+                    if name in _COMPOSED_MECHANISMS
                     else "It divides the clever covariate exactly as g(W) does, so those "
                     "rows carry outsized leverage whatever the propensity overlap looks like."
                 )
@@ -648,6 +661,27 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     contributing = targeted_rows(data, result.intermediate_value)
     out: dict[str, dict[str, float]] = {}
 
+    def summarize(
+        raw: FloatArray, bounded: FloatArray, clipped: FloatArray | None = None
+    ) -> dict[str, float]:
+        flat = raw.reshape(-1)
+        at_arm = np.where(treated, bounded[:, 1], bounded[:, 0])
+        weights = data.weights[contributing] / at_arm[contributing]
+        changed = raw != bounded if clipped is None else clipped
+        return {
+            "min": float(flat.min()),
+            "q01": float(np.quantile(flat, 0.01)),
+            "q05": float(np.quantile(flat, 0.05)),
+            "median": float(np.median(flat)),
+            "ess_ratio": (
+                _kish_ess(weights) / float(weights.size) if weights.size else float("nan")
+            ),
+            "top_1pct": _top_share(weights, 0.01),
+            "top_5pct": _top_share(weights, 0.05),
+            "clipped": float(np.count_nonzero(changed)),
+            "clipped_fraction": float(np.mean(changed)),
+        }
+
     candidates: list[tuple[str, Any]] = [("P(Delta=1|A,W)", nuisance.missingness)]
     if nuisance.intermediate is not None and result.intermediate_value is not None:
         # The covariate divides by P(Z = z | A, W) for the targeted z, which is the
@@ -663,33 +697,35 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
         if values is None:
             continue
         array = np.asarray(values, dtype=float)
-        flat = array.reshape(-1)
-        clipped = flat < missingness_bound
-        # The weight the estimating equation forms: the mechanism at the realised arm,
-        # on the rows whose residual term it multiplies.  Rows with no outcome contribute
-        # a genuine zero to that term, so they are not weighted by it and do not belong
-        # in its effective sample size.
-        at_arm = np.where(treated, array[:, 1], array[:, 0])
-        used = np.maximum(at_arm[contributing], missingness_bound)
-        out[name] = {
-            "min": float(flat.min()),
-            "q01": float(np.quantile(flat, 0.01)),
-            "q05": float(np.quantile(flat, 0.05)),
-            "median": float(np.median(flat)),
-            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
-            "clipped": float(clipped.sum()),
-            "clipped_fraction": float(clipped.mean()),
-        }
+        out[name] = summarize(array, bound(array, missingness_bound, 1.0))
 
     # The product is a derived denominator, not a third fitted or targeted mechanism.
     # Report it without storing it on the nuisance state so the treatment and observation
     # probabilities cannot become stale relative to a cached product.
-    missing_reduction = getattr(nuisance.reduced, "reduction", None) == "missing_outcome"
-    if missing_reduction and nuisance.missingness is not None:
+    observation = (
+        None if nuisance.missingness is None else np.asarray(nuisance.missingness, dtype=float)
+    )
+    intermediate = (
+        None
+        if nuisance.intermediate is None or result.intermediate_value is None
+        else np.asarray(nuisance.intermediate_density(result.intermediate_value, 0.0), dtype=float)
+    )
+    if observation is not None or intermediate is not None:
         g_lower, g_upper = result.config.g_bounds
         treatment = np.asarray(nuisance.propensity.values, dtype=float)
-        observation = np.asarray(nuisance.missingness, dtype=float)
-        array = treatment * observation
+        factors = [treatment]
+        treatment_truncation = nuisance.propensity.truncate((g_lower, g_upper))
+        bounded_factors = [treatment_truncation.values]
+        clipped_factors = [treatment_truncation.clipped]
+        if observation is not None:
+            factors.append(observation)
+            bounded_factors.append(bound(observation, float(missingness_bound), 1.0))
+            clipped_factors.append(observation < missingness_bound)
+        if intermediate is not None:
+            factors.append(intermediate)
+            bounded_factors.append(bound(intermediate, float(missingness_bound), 1.0))
+            clipped_factors.append(intermediate < missingness_bound)
+        array = np.prod(np.stack(factors), axis=0)
         # The estimator truncates the two factors **separately** and multiplies -- see
         # `build_submodel`'s `1 / (g * pi * pz)` and the missing-outcome reductions -- so
         # `g_bounds[0] * missingness_bound` is a floor no code applies. Counting the cells
@@ -699,24 +735,19 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
         # on fits where a third of the observation mechanism was pinned. What is reported
         # instead is the cells where the bounded product differs from the raw one, which
         # is the truncation this row's denominator actually underwent.
-        bounded = bound(treatment, float(g_lower), float(g_upper)) * bound(
-            observation, float(missingness_bound), 1.0
-        )
-        flat = array.reshape(-1)
-        clipped = (array != bounded).reshape(-1)
+        bounded = np.prod(np.stack(bounded_factors), axis=0)
+        clipped = np.logical_or.reduce(np.stack(clipped_factors))
         # The weight the estimating equation forms is the *bounded* product at the
         # realised arm; flooring the raw product at `g_lo * m_lo` was a third thing,
         # neither what was fitted nor what was divided by.
-        used = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
-        out[JOINT_MECHANISM] = {
-            "min": float(flat.min()),
-            "q01": float(np.quantile(flat, 0.01)),
-            "q05": float(np.quantile(flat, 0.05)),
-            "median": float(np.median(flat)),
-            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
-            "clipped": float(clipped.sum()),
-            "clipped_fraction": float(clipped.mean()),
-        }
+        name = (
+            JOINT_MISSING_INTERMEDIATE
+            if observation is not None and intermediate is not None
+            else JOINT_MECHANISM
+            if observation is not None
+            else JOINT_INTERMEDIATE
+        )
+        out[name] = summarize(array, bounded, clipped)
     return out
 
 
