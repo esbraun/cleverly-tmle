@@ -1,9 +1,9 @@
 # Point-treatment TMLE: did transition navigation improve the experience score?
 
 This is the first test of change in the network's patient-experience program. It estimates one
-average treatment effect from observational data, and it demonstrates the property the method is
-named for. A TMLE stays consistent when the outcome regression is wrong **or** the treatment
-mechanism is wrong.
+average treatment effect from observational data. It also illustrates double-robust point
+consistency. Under the required regularity conditions, either nuisance can supply consistency when
+the other is misspecified. Valid influence-curve inference needs its own rate conditions.
 
 Read [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) for the parameter, the
 influence curve, and the algorithm.
@@ -33,9 +33,9 @@ navigator teams.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| observational data, confounders measured | a doubly-robust estimate. It is consistent if the outcome regression **or** the treatment mechanism is consistent | you must name the estimand first |
+| observational data, confounders measured | doubly-robust point consistency under the identification and regularity conditions | you must name the estimand first |
 | the nuisance functions are not linear | flexible learners fit both nuisances, and the estimate stays a plug-in | a valid interval needs a product rate on the two nuisances |
-| you want an interval you can report | the interval comes from the targeted influence curve | positivity must hold, and the support report is where you check it |
+| you want an interval you can report | the interval comes from the targeted influence curve | positivity must hold, and a support report cannot verify it |
 
 Two familiar alternatives fail here, for different reasons.
 
@@ -44,12 +44,12 @@ coefficient equals the average treatment effect only if the outcome model is cor
 is constant. Neither holds here. The number changes when you add an interaction term, and nothing in
 the output tells you which version answers the question.
 
-Inverse-probability weighting avoids the outcome model. It replaces it with a mean whose variance is
-set by the patient with the smallest propensity score. One unlucky row moves the answer.
+Inverse-probability weighting avoids the outcome model. A small fitted propensity can give one row
+a large weight. That row can then have a large effect on the estimate.
 
 TMLE uses both models. It starts from the outcome regression. It then moves that regression along a
-submodel chosen so the estimate solves the efficient score equation. That step is what makes one
-wrong model survivable.
+submodel chosen to solve the efficient score equation. The double-robust consistency result uses
+the resulting estimating equation.
 
 ## The data
 
@@ -178,8 +178,8 @@ something narrower, and the difference is not cosmetic.
 | ATC | what would patients who received usual support gain from an offer? | whoever is deciding on spread |
 
 These are three parameters, not three estimates of one. A second law makes the gap visible, because
-its effect modification is aligned with the propensity: patients most likely to receive an offer are
-that benefit most.
+its effect modification is aligned with the propensity. Patients most likely to receive an offer
+benefit most.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -212,33 +212,57 @@ simple = TMLEMethod(
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
     runtime=Runtime(random_state=23, n_jobs=1),
 )
+spread_results = {}
 for estimand, key in (
     (ATT(reference=0), "att"),
     (ATE(reference=0), "ate"),
     (ATC(reference=0), "atc"),
 ):
-    point = spread_study.identify(estimand).estimate(method=simple)[key]
+    fitted = spread_study.identify(estimand).estimate(method=simple)
+    spread_results[key] = fitted
+    point = fitted[key]
     low, high = point.ci
     print(
         f"{key}: {point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  population {spread_truth[key]:.3f}"
     )
 ```
 
-At the documented sample size the three sit in a strict order, and their intervals do not overlap.
-The ATT is the largest and the ATC is the smallest.
+The population law has `att > ate > atc` by construction. The printed estimates come from one
+sample. Do not use interval overlap as a test of the differences between these parameters.
 
 Read that as a warning about spread. The pilot's own result is the ATT, and it is the number a
 successful pilot reports. Patients who received usual support would get the ATC, which here is a small
 fraction of it. A program that budgets the network rollout against the pilot's number will
 overpromise.
 
-## The failure mode: one wrong model is survivable
+Read the support diagnostic on each fitted result. Each estimand has a different clever covariate,
+so inverse-probability weights alone do not describe its covariate load.
 
-Double robustness is a claim about *or*, not about *and*. The clearest way to see it is to break one
-nuisance at a time and watch the estimate.
+```python
+for estimand, group in (("ate", "mean"), ("att", "att"), ("atc", "atc")):
+    load = spread_results[estimand].diagnostics.support().group_leverage[group]
+    print(
+        f"{estimand}: equation={load['equation']}  "
+        f"Kish load ratio among targeted rows={load['targeted_ratio']:.2f}  "
+        f"top 5% load share={load['top_5pct']:.2f}"
+    )
+```
 
-A gradient-boosted learner is approximately right for this law. A linear learner is wrong for it, by
-construction. Three more fits therefore span the cases that matter.
+The ATE uses the `mean` group. The ATT and ATC use their named groups. Each row reports the score
+equation with the most concentrated absolute residual-multiplier load in that group. The ratio is
+a Kish concentration summary of that load. It is not an effective sample size for the estimate.
+
+The fitted result retains the exact score weights each group used. The ATT and ATC record
+`g_bounds_conditional`, while the mean group records `g_bounds`. Use the arm table to inspect
+inverse-probability weights. Use the group table to inspect the fitted residual multipliers.
+
+## Illustrate double-robust point consistency
+
+Double robustness is a claim about *or*, not about *and*. Use the known synthetic law to compare
+learner combinations. Treat the result as an illustration, not as validation evidence.
+
+A gradient-boosted learner can represent the law's nonlinear features. The linear learners omit
+those features by construction. Three more fits show the resulting finite-sample pattern.
 
 ```python
 def fit(outcome_learner, treatment_learner, label):
@@ -249,38 +273,42 @@ def fit(outcome_learner, treatment_learner, label):
     )
     point = effect.estimate(method=method)["ate"]
     low, high = point.ci
-    covered = low <= truth["ate"] <= high
-    print(f"{label:24s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covered}")
+    contains_truth = low <= truth["ate"] <= high
+    print(
+        f"{label:24s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  "
+        f"contains truth={contains_truth}"
+    )
 
 
 fit(
     HistGradientBoostingRegressor(random_state=21),
     LogisticRegression(max_iter=1000),
-    "outcome right, g wrong",
+    "flexible Q, linear g",
 )
 fit(
     LinearRegression(),
     HistGradientBoostingClassifier(random_state=21),
-    "outcome wrong, g right",
+    "linear Q, flexible g",
 )
-fit(LinearRegression(), LogisticRegression(max_iter=1000), "both wrong")
+fit(LinearRegression(), LogisticRegression(max_iter=1000), "both linear")
 print("population ATE:", truth["ate"])
 ```
 
-At the documented sample size the pattern is the one the theory predicts. The first two fits sit
-near the population value, and their intervals cover it. The third sits well below it, and its
-interval excludes it.
-
-That is the whole argument for the method. A single misspecified nuisance is repaired by the other
-one during the targeting step. Two misspecified nuisances leave nothing to repair with.
+Compare each estimate with the known population value. The different learner choices move the
+finite-sample result. This output does not establish nuisance consistency or repeated-sampling
+coverage.
 
 Three cautions belong with the demonstration.
 
 | caution | why |
 | --- | --- |
-| "wrong" here means wrong in a known way | you do not know which of your models is wrong in a real analysis. Double robustness buys two chances, not a diagnosis |
-| the intervals differ in width, not only in position | the standard error under a wrong treatment mechanism is not the efficient one |
-| one sample is one draw | coverage is a repeated-sampling property. The next section measures it |
+| the linear models omit known terms | a real analysis does not reveal which nuisance model is consistent |
+| one interval contains truth in this draw | coverage is a repeated-sampling property |
+| point consistency and interval validity differ | Wald inference needs the stated product-rate and regularity conditions |
+
+The [canonical point-treatment study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md)
+measures bias and interval behavior across repetitions. Use that study, not this draw, as package
+evidence.
 
 ## How far to trust this
 
@@ -303,14 +331,12 @@ print(scores.summary())
 The overview routes attention and follow-up work. The retained reports provide the tables needed to
 interpret each row. A `completed` sensitivity row means the calculation ran. It is not a pass.
 
-The support report is where positivity becomes visible. It gives the propensity quantiles, the
-effective sample size per arm, and the share of rows the truncation touched.
+The support report describes fitted overlap. It gives propensity quantiles, arm-weight
+concentration, and the share of rows affected by truncation. It cannot verify population positivity.
 
-**Read its verdict on this fit.** The gradient-boosted model separates offered patients from the
-usual-support group well. The price is a set of extreme propensity scores. The effective sample
-size in the navigation arm falls to about a fifth of those patients, and the largest clever covariate
-is in the tens. The verdict reports that fifth and does not grade it. Grading it is your job, and on
-this contrast a fifth is thin.
+**Read its verdict on this fit.** The boosted treatment model produces some extreme fitted
+probabilities. The arm table shows how the inverse-probability weights concentrate. Treat its Kish
+summary as a weight-concentration index, not as the estimate's effective sample size.
 
 Two lessons follow, and both are general.
 
@@ -319,16 +345,12 @@ for this purpose. Prediction accuracy and estimand-relevant behaviour are differ
 [collaborative TMLE](collaborative-tmle.md) is the entry that chooses between models on the second
 one.
 
-The second is what the support row does not say. It reports 0.9% truncation and a 20.1% minimum
-effective sample size, and its status is `completed` rather than `passed`. That is deliberate. The
-report grades the truncated fraction, because a clipped row contributes extrapolation instead of
-data. It does not grade the effective-sample-size ratio, because no published result fixes a cutoff
-on a Kish ratio, and a threshold invented here would read as a positivity clearance this package
-cannot give.
+The second lesson is what the report does not say. A truncated row uses the bounded fitted
+mechanism value in targeting. The row still contributes data. The report does not convert its Kish
+summaries into a positivity verdict, because no universal cutoff applies.
 
-So the 20.1% is yours to judge. It says the estimate leans on an effective fifth of the rows in its
-narrowest arm. That is a lot of strain for a small contrast, and it is the reason the truncation
-curve below is worth reading. A `passed` on this row would have told you nothing you should act on.
+A `completed` status means the descriptive calculation ran. It does not clear the positivity
+assumption. Inspect the retained tables and the truncation curve before reporting the estimate.
 
 The overview names the follow-up itself.
 
@@ -339,16 +361,12 @@ print(curve)
 ```
 
 The curve retargets the estimate at a range of truncation bounds. It does not refit the nuisance
-models. A point estimate that moves across the range depends on patients constrained by the bound.
+models. Movement shows sensitivity to this finite-sample regularisation choice. Limited movement
+does not verify positivity or show that all support effects occur through variance.
 
-Here it does not move much, and the interval narrows as the bound tightens. Read that as good news
-of a limited kind. The positivity strain is showing up in the variance rather than in the location
-of the estimate. It would still be wrong to report the number without the report.
-
-The nuisance report adds one more finding. The boosted assignment model is poorly calibrated, at a
-calibration slope well below one, while the outcome regression fits well. That combination is the
-one this page has been describing from the other side. The estimate survives it because the outcome
-regression is good, and double robustness is what makes that survival possible.
+The nuisance report adds calibration and prediction summaries for this draw. Use them to find
+model problems, but do not treat them as proofs of nuisance consistency. A close point estimate is
+compatible with double robustness; one synthetic draw does not verify that property.
 
 The sensitivity section comes next. It addresses assumptions that the observed data cannot test.
 

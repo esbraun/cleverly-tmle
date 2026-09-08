@@ -247,6 +247,445 @@ class TestPositivityUnderObservationWeights:
             assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.005
 
 
+class TestThePerGroupCovariateLeverageIsReported:
+    """Each targeted group's own clever covariate, read as a load and not as a maximum.
+
+    ``effective_sample_size`` is keyed by *arm* and built from ``1 / g`` alone, and
+    ``mechanisms`` is keyed by mechanism name and reports *denominators*.  Neither one
+    describes the weighting an ``att`` fit performs, because the ATT covariate is not an
+    inverse arm probability: it divides by ``P(A = a)`` and reweights the reference arm by
+    the propensity odds.  ``clever_covariate_max`` is keyed by group but reports a single
+    number, unweighted and over every row.  So a conditional-arm fit had no load measure
+    at all, and ``group_leverage`` is the row that supplies one.
+
+    Every check below rebuilds the covariate from the formula in
+    :func:`~cleverly.fluctuation.submodel.mean_submodel` and
+    :func:`~cleverly.fluctuation.submodel.att_submodel` rather than from the helper under
+    test, and each mutation control changes the *shape* of the load rather than its scale.
+    Kish's effective sample size is scale invariant, as ``345e5d4`` recorded, so a control
+    that only rescales the load passes on any implementation however wrong the row is.
+    """
+
+    @pytest.fixture(scope="class")
+    def loaded_fit(self) -> object:
+        """A weighted fit with missing outcomes, targeting one marginal and one conditional group.
+
+        Three things vary here, and each is what lets one control below fail.  The design
+        weights vary with ``W1``.  ``pi`` varies with ``A`` and ``W``, so the ``mean``
+        covariate is not ``1 / g`` rescaled.  And the fit targets an ``att``, whose
+        covariate loads the reference arm through the propensity odds rather than through
+        its own arm.
+        """
+        frame, _ = make_missing_outcome(n=400, seed=13, strength=1.5)
+        weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
+        return (
+            fast_tmle(estimands=("ate", "att"))
+            .fit(
+                weighted,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+                weights="obs_weight",
+            )
+            .single()
+        )
+
+    @pytest.fixture(scope="class")
+    def thin_overlap_fit(self) -> object:
+        """A fit whose propensity reaches both truncation bounds, and only for some rows.
+
+        ``g_bounds="auto"`` resolves to ``[0.036, 0.964]`` at this size and
+        ``g_bounds_conditional`` to the fixed ``[0.025, 0.975]``, so the two clip
+        different subsets of the rows.  That is the one condition under which rebuilding
+        the ``att`` row at the wrong bound can report a different number: on a fit where
+        neither bound binds the two rebuilds are the same array.
+        """
+        frame, _ = make_weak_overlap(n=500, seed=72)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            return (
+                fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
+            )
+
+    @pytest.fixture(scope="class")
+    def reversed_reference_fit(self) -> object:
+        """The same law as ``loaded_fit``, targeted against arm 1 rather than arm 0.
+
+        ``reference=1`` is the one thing that differs, and it is the only condition under
+        which the rebuild's ``reference=`` argument is observable: everywhere else in this
+        class the fit's reference is the lowest arm, which is also the fallback.
+        """
+        frame, _ = make_missing_outcome(n=400, seed=13, strength=1.5)
+        weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
+        return (
+            fast_tmle(estimands=("ate", "att"), reference=1)
+            .fit(
+                weighted,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+                weights="obs_weight",
+            )
+            .single()
+        )
+
+    @staticmethod
+    def _pieces(result) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """``(contributing rows, treated indicator, bounded missingness)`` for one fit.
+
+        The rows are the ones whose residual the covariate multiplies.  ``mean_submodel``
+        divides by ``pi`` but carries no ``Delta`` indicator, so an unmasked ratio would
+        average in rows the estimating equation never weights.
+        """
+        data, nuisance = result.data, result.nuisance
+        contributing = np.asarray(data.observed, dtype=bool)
+        treated = np.asarray(data.treatment == 1.0)
+        missingness = (
+            np.ones((data.n, 2))
+            if nuisance.missingness is None
+            else np.clip(
+                np.asarray(nuisance.missingness, dtype=float),
+                result.config.missingness_bound,
+                1.0,
+            )
+        )
+        return contributing, treated, missingness
+
+    def _mean_covariate(self, result) -> np.ndarray:
+        """``1 / (g_a(W) pi_a(W) q_a(W))`` at each unit's observed arm, over every row."""
+        _, treated, pi = self._pieces(result)
+        g = result.nuisance.propensity.bounded(result.config.g_bounds)
+        return 1.0 / (np.where(treated, g[:, 1], g[:, 0]) * np.where(treated, pi[:, 1], pi[:, 0]))
+
+    def _att_covariate(self, result, *, bounds=None, reference: float = 0.0) -> np.ndarray:
+        """``(1{A=a}/pi_a - 1{A=r}/pi_r g_a/g_r) / P(A = a)``, signed, over every row.
+
+        ``bounds`` and ``reference`` are arguments so that two of the controls below can
+        rebuild the same formula at the wrong one.  The defaults are what the fit used.
+        """
+        contrast = 1.0 - reference
+        _, treated, pi = self._pieces(result)
+        g = result.nuisance.propensity.bounded(bounds or result.config.g_bounds_conditional)
+        share = result.data.arm_fractions[int(contrast)]
+        at_contrast = treated if contrast == 1.0 else ~treated
+        own = 1.0 / (share * pi[:, int(contrast)])
+        against = (g[:, int(contrast)] / g[:, int(reference)]) / (share * pi[:, int(reference)])
+        return np.where(at_contrast, own, -against)
+
+    def _selected_artifact(self, result, group: str) -> tuple[np.ndarray, int]:
+        """Exact score-load column selected by the report's concentration rule."""
+        artifact = result.fluctuations[group].absolute_score_weights
+        assert artifact is not None
+        loads = np.asarray(artifact)
+        ratios = np.array([_kish(loads[:, j]) / loads.shape[0] for j in range(loads.shape[1])])
+        selected = int(np.argmin(ratios))
+        return loads[:, selected], selected
+
+    def test_the_mean_row_uses_one_exact_fitted_score_equation(self, loaded_fit) -> None:
+        """Every row value comes from the most concentrated stored score column."""
+        report = loaded_fit.diagnostics.support()
+        load, selected = self._selected_artifact(loaded_fit, "mean")
+        row = report.group_leverage["mean"]
+
+        assert row["equation"] == loaded_fit.fluctuations["mean"].names[selected]
+        assert row["n_targeted"] == float(load.size)
+        assert row["n_total"] == float(loaded_fit.data.n)
+        assert row["effective"] == pytest.approx(_kish(load), abs=0)
+        assert row["targeted_ratio"] == pytest.approx(_kish(load) / load.size, abs=0)
+        assert row["total_ratio"] == pytest.approx(_kish(load) / loaded_fit.data.n, abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
+        assert row["zero_load"] == float(np.count_nonzero(load == 0.0))
+
+    def test_the_att_row_uses_the_exact_fitted_score_artifact(self, loaded_fit) -> None:
+        """The diagnostic consumes fitted score rows instead of rebuilding a submodel."""
+        report = loaded_fit.diagnostics.support()
+        load, selected = self._selected_artifact(loaded_fit, "att")
+        row = report.group_leverage["att"]
+
+        assert row["equation"] == loaded_fit.fluctuations["att"].names[selected]
+        assert row["n_targeted"] == float(load.size)
+        assert row["effective"] == pytest.approx(_kish(load), abs=0)
+        assert row["targeted_ratio"] == pytest.approx(_kish(load) / load.size, abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
+        assert row["zero_load"] == float(np.count_nonzero(load == 0.0))
+
+    def test_dropping_the_design_weights_reports_a_different_row(self, loaded_fit) -> None:
+        """Control: the load without ``data.weights``.
+
+        This can fail because the weight profile is a function of ``W1``, and ``W1`` also
+        drives ``g`` and ``pi``.  So dropping it does not divide every row by one number;
+        it moves the heavy rows relative to the light ones.  A profile handed out by row
+        index would rescale the load and Kish's ratio would not notice.
+        """
+        report = loaded_fit.diagnostics.support()
+        contributing, _, _ = self._pieces(loaded_fit)
+        covariate = self._att_covariate(loaded_fit, reference=loaded_fit.config.reference_arm)
+
+        for group, values in (
+            ("mean", self._mean_covariate(loaded_fit)),
+            ("att", np.abs(covariate)),
+        ):
+            unweighted = values[contributing]
+            row = report.group_leverage[group]
+            # Measured: the mean row moves by 51 units of effective sample size and the
+            # att row by 51 as well, on 309 targeted rows.
+            assert abs(_kish(unweighted) - row["effective"]) > 20.0
+            assert abs(_top_share(unweighted, 0.05) - row["top_5pct"]) > 0.02
+
+    def test_the_arm_tables_inverse_propensity_is_not_this_covariate(self, loaded_fit) -> None:
+        """Control: ``1 / g`` at the observed arm, which is what the arm table weights by.
+
+        This can fail because ``pi`` depends on ``A`` and on ``W``, so dividing by it
+        multiplies each row by its own factor rather than by a common one.  On a
+        complete-outcome fit the two arrays coincide, and this control would be blind
+        there, which is why the fixture carries missing outcomes.
+        """
+        report = loaded_fit.diagnostics.support()
+        contributing, treated, _ = self._pieces(loaded_fit)
+        g = loaded_fit.nuisance.propensity.bounded(loaded_fit.config.g_bounds)
+        at_arm = np.where(treated, g[:, 1], g[:, 0])
+        arm_weight = loaded_fit.data.weights[contributing] * (1.0 / at_arm)[contributing]
+        row = report.group_leverage["mean"]
+
+        # Measured: 265 effective rows against the 200 the mechanism-bearing covariate
+        # leaves, and a top-5% share of 0.104 against 0.168.
+        assert abs(_kish(arm_weight) - row["effective"]) > 25.0
+        assert abs(_top_share(arm_weight, 0.05) - row["top_5pct"]) > 0.02
+        assert abs(float(arm_weight.max()) - row["max_load"]) > 1.0
+
+    def test_the_att_row_is_built_at_the_conditional_bound(self, thin_overlap_fit) -> None:
+        """ATT reports the bound and clipped units that its fitted score actually used."""
+        result = thin_overlap_fit
+        assert result.config.g_bounds != result.config.g_bounds_conditional
+        row = result.diagnostics.support().group_leverage["att"]
+        conditional = result.nuisance.propensity.truncate(result.config.g_bounds_conditional).units
+        marginal = result.nuisance.propensity.truncate(result.config.g_bounds).units
+
+        assert (row["lower_bound"], row["upper_bound"]) == result.config.g_bounds_conditional
+        assert row["clipped_count"] == float(np.count_nonzero(conditional))
+        assert row["clipped_fraction"] == pytest.approx(float(np.mean(conditional)), abs=0)
+        assert np.count_nonzero(conditional) != np.count_nonzero(marginal)
+        assert row["clipped_count"] != float(np.count_nonzero(marginal))
+
+    def test_the_att_row_is_built_against_the_fits_own_reference_arm(self, loaded_fit) -> None:
+        """Control: the ``att`` covariate contrasted against arm 1 instead of arm 0.
+
+        This can fail because swapping the reference swaps which arm carries ``own`` and
+        which carries ``against``, and inverts the propensity odds.  The result is a
+        different function of the row, not a multiple of the same one, so the ordering of
+        the loads changes and Kish's ratio moves with it.
+
+        It is a control on the *formula* and not on the argument that carries the
+        reference.  This fixture's reference is arm 0, which is also what
+        ``_reference_index(None, ...)`` returns, so dropping ``reference=`` from the
+        rebuild leaves this row where it is.
+        ``test_a_non_default_reference_arm_is_the_one_the_row_is_rebuilt_at`` is the case
+        that separates the two.
+        """
+        report = loaded_fit.diagnostics.support()
+        contributing, _, _ = self._pieces(loaded_fit)
+        assert loaded_fit.config.reference_arm == 0.0
+        flipped = self._att_covariate(loaded_fit, reference=1.0)
+        load = loaded_fit.data.weights[contributing] * np.abs(flipped)[contributing]
+        row = report.group_leverage["att"]
+
+        # Measured: 246 effective rows against 144, and a top-5% share of 0.130 against
+        # 0.215. The wrong reference reports a comfortable row for a strained fit.
+        assert abs(_kish(load) - row["effective"]) > 50.0
+        assert abs(_top_share(load, 0.05) - row["top_5pct"]) > 0.05
+
+    def test_a_non_default_reference_arm_is_the_one_the_row_is_rebuilt_at(
+        self, reversed_reference_fit
+    ) -> None:
+        """The deliberate-mutation control on ``reference=`` itself, not on the formula.
+
+        ``_group_submodel`` passes the fit's own ``reference_arm`` to the rebuild.  Drop
+        that argument and ``_reference_index`` falls back to the lowest arm, which is 0 on
+        every other fixture in this class and so is the same array they already assert.
+        Only a fit whose reference is **not** the lowest arm can tell the two apart, and
+        that is what this one is: ``reference=1`` makes ``att`` the effect among the units
+        in arm 0, whose covariate reweights arm 1 by the propensity odds rather than the
+        other way round.
+
+        Measured over seeds 11, 13, 17, 21 and 29 at ``n=400``. The reported row matches
+        the rebuild at arm 1 exactly, and the rebuild at arm 0 differs by 66 to 123
+        effective rows of about 300, by 0.069 to 0.105 in the top-5% share and by 5.8 to
+        31 in the largest single load.  The windows hold across that whole range.
+        """
+        result = reversed_reference_fit
+        report = result.diagnostics.support()
+        contributing, _, _ = self._pieces(result)
+        weights = result.data.weights[contributing]
+        row = report.group_leverage["att"]
+
+        assert result.config.reference_arm == 1.0
+        at_fit = weights * np.abs(self._att_covariate(result, reference=1.0))[contributing]
+        at_default = weights * np.abs(self._att_covariate(result, reference=0.0))[contributing]
+
+        assert row["effective"] == pytest.approx(_kish(at_fit), abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(at_fit, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(at_fit, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(at_fit.max()), abs=0)
+
+        assert abs(_kish(at_default) - row["effective"]) > 50.0
+        assert abs(_top_share(at_default, 0.05) - row["top_5pct"]) > 0.05
+        assert abs(float(at_default.max()) - row["max_load"]) > 5.0
+
+    def test_the_rows_the_equation_never_weights_stay_out_of_the_ratio(self, loaded_fit) -> None:
+        """The artifact's score mask defines n_targeted; n_total remains visible."""
+        report = loaded_fit.diagnostics.support()
+        contributing, _, _ = self._pieces(loaded_fit)
+        assert not contributing.all(), "the fixture must carry rows the equation drops"
+        for group in ("mean", "att"):
+            artifact = loaded_fit.fluctuations[group].absolute_score_weights
+            assert artifact is not None
+            row = report.group_leverage[group]
+            assert row["n_targeted"] == float(artifact.shape[0]) == float(contributing.sum())
+            assert row["n_total"] == float(loaded_fit.data.n)
+            assert row["n_targeted"] < row["n_total"]
+            assert row["total_ratio"] == pytest.approx(row["effective"] / row["n_total"], abs=0)
+
+    def test_a_group_can_retain_far_less_than_any_arm_does(self, loaded_fit) -> None:
+        """The nonzero witness: every arm looks comfortable and the ``att`` group does not.
+
+        This is the claim the slice makes, so it needs a law where the two disagree rather
+        than a fit where both are fine.  Measured across seeds 11-17 at this size and
+        strength: the narrowest arm retains 0.75 to 0.86 of its rows while the ``att``
+        group retains 0.36 to 0.68, and the gap runs 0.17 to 0.39. The windows below hold
+        across that whole range rather than around the one seed the fixture uses.
+        """
+        report = loaded_fit.diagnostics.support()
+        narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
+        conditional = report.group_leverage["att"]["targeted_ratio"]
+
+        assert report.truncated["fraction"] == 0.0
+        assert narrowest_arm > 0.70
+        assert conditional < 0.70
+        assert narrowest_arm - conditional > 0.15
+
+    def test_group_concentration_is_not_equated_with_mechanism_ess(self, loaded_fit) -> None:
+        """A selected score equation and a pooled denominator have different units."""
+        report = loaded_fit.diagnostics.support()
+        group_ratio = report.group_leverage["mean"]["targeted_ratio"]
+        mechanism_ratio = report.mechanisms["P(A=a,Delta=1|W)"]["ess_ratio"]
+        assert group_ratio != pytest.approx(mechanism_ratio, abs=1e-6)
+        assert report.composed_excluded == ("att",)
+
+    def test_the_keys_are_the_groups_the_fit_targeted(
+        self, poor_overlap, good_overlap, loaded_fit
+    ) -> None:
+        """One row per fluctuation, on a mean-only fit and on a mean-and-att fit.
+
+        Keyed exactly as ``clever_covariate_max`` is, because a reader compares the
+        maximum and the load of one group side by side and a table with its own key set
+        would silently pair the wrong two.
+        """
+        for result, groups in (
+            (poor_overlap, {"mean"}),
+            (good_overlap, {"mean", "att"}),
+            (loaded_fit, {"mean", "att"}),
+        ):
+            report = result.diagnostics.support()
+            assert set(result.fluctuations) == groups
+            assert report.group_leverage.keys() == report.clever_covariate_max.keys()
+            assert report.group_leverage.keys() == result.fluctuations.keys()
+
+    def test_the_table_renders_beside_the_maxima_it_keeps(self, loaded_fit) -> None:
+        """The table names equations, denominators, exact bounds, and descriptive units."""
+        report = loaded_fit.diagnostics.support()
+        summary = report.summary()
+        lines = summary.splitlines()
+        header = next(line for line in lines if line.startswith("group "))
+
+        assert "equation" in header and "target rows" in header
+        assert header.index("Kish-equivalent rows") < header.index("max |w h|")
+        assert "g bound" in header and "clipped" in header
+        assert "residual-multiplier concentration, not residual contributions" in summary
+        for group, load in report.group_leverage.items():
+            row = next(line for line in lines if line.startswith(f"{group} "))
+            assert str(load["equation"]) in row
+            assert f"{load['max_load']:.4g}" in row
+            assert f"{load['n_targeted']:.0f}/{load['n_total']:.0f}" in row
+        # The composed note now says where the estimands it refuses to cover are covered.
+        # The refusal is unchanged: this fit forms the product for its `ate` and never for
+        # its `att`, so the derived row is present and does not describe the `att`.
+        assert "P(A=a,Delta=1|W) does not describe att" in summary
+        assert "Their score-weight load is in the group table above" in summary
+
+    def test_the_verdict_names_the_narrowest_group_and_keeps_the_arm_sentence(
+        self, loaded_fit
+    ) -> None:
+        """Reported beside the arm share, not instead of it.
+
+        The two are different weightings and the narrower is not always the arm's, so the
+        verdict carries both. Neither is graded: this fit clips nothing and reads
+        ``adequate`` with a group retaining under half of the rows it weights.
+        """
+        report = loaded_fit.diagnostics.support()
+        verdict = report.verdict()
+        group, narrow = min(
+            report.group_leverage.items(), key=lambda item: item[1]["targeted_ratio"]
+        )
+        narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
+
+        assert f"group {group!r}, equation {narrow['equation']!r}" in verdict
+        assert f"{narrow['effective']:.1f} Kish-equivalent rows" in verdict
+        assert f"Kish-equivalent weight count of {narrowest_arm:.0%}" in verdict
+        assert "not estimator effective sample size" in verdict
+        assert report.truncated["fraction"] == 0.0
+        assert narrow["targeted_ratio"] < 0.5
+        assert report.severity == "adequate"
+
+    def test_a_complete_outcome_fit_reports_no_mechanism_and_the_same_tier(
+        self, good_overlap
+    ) -> None:
+        """Non-regression: the new table is added beside the old ones and moves neither.
+
+        ``good_overlap`` has no fitted factor beside ``g``, so there is no derived row and
+        nothing for a group to be outside of, even though it targets an ``att``. Its
+        every load row is still filled, and its tier is what it was.
+        """
+        report = good_overlap.diagnostics.support()
+        assert report.mechanisms == {}
+        assert report.composed_excluded == ()
+        assert report.severity == "adequate"
+        assert set(report.group_leverage) == {"mean", "att"}
+        for group, load in report.group_leverage.items():
+            assert np.isfinite(load["targeted_ratio"])
+            selected = good_overlap.fluctuations[group].names.index(str(load["equation"]))
+            artifact = good_overlap.fluctuations[group].absolute_score_weights
+            assert artifact is not None
+            assert load["zero_load"] == float(np.count_nonzero(artifact[:, selected] == 0.0))
+
+    def test_the_table_survives_a_save_and_a_load(self, loaded_fit, tmp_path) -> None:
+        """The report is recomputed from the restored result, so the rebuild has to travel.
+
+        ``_covariate_leverage`` reads the data, the nuisance estimates and the config
+        rather than the estimator, which is what lets a reloaded fit answer at all. Exact
+        equality, because a restored fit that rebuilt the covariate from anything else
+        would land nearby rather than on the number.
+        """
+        import cleverly
+
+        path = tmp_path / "loaded-fit.joblib"
+        loaded_fit.save(path)
+        restored = cleverly.load(path)
+        assert restored.diagnostics.support().group_leverage == (
+            loaded_fit.diagnostics.support().group_leverage
+        )
+
+    def test_the_combined_report_retains_the_same_table(self, loaded_fit) -> None:
+        """``assess()`` retains the report it interpreted, rather than a summary of it."""
+        report = loaded_fit.diagnostics.support()
+        assert loaded_fit.assess().report("support").group_leverage == report.group_leverage
+
+
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
         curve = nw.from_native(

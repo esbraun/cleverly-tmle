@@ -114,6 +114,10 @@ def test_the_recorded_score_is_the_score_at_the_returned_state(
 
     assert np.array_equal(solved.score, recomputed), "the score is not the returned state's"
     assert np.array_equal(solved.score_scale, score_scale(submodel.observed, weights, observed))
+    assert np.array_equal(
+        solved.absolute_score_weights,
+        np.abs(weights[observed])[:, None] * np.abs(submodel.observed[observed]),
+    )
 
 
 def test_it_holds_for_the_one_step_solver_too() -> None:
@@ -128,6 +132,10 @@ def test_it_holds_for_the_one_step_solver_too() -> None:
     )
 
     assert np.array_equal(solved.score, recomputed)
+    assert np.array_equal(
+        solved.absolute_score_weights,
+        np.abs(weights[observed])[:, None] * np.abs(submodel.observed[observed]),
+    )
 
 
 def test_the_invariant_is_not_vacuous() -> None:

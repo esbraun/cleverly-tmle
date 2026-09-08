@@ -175,6 +175,15 @@ class TestFoldWiseTargeting:
                 actual.observed[index], wrong.observed[index], rtol=0.0, atol=1e-6
             )
 
+        fluctuation = result.fluctuations[group]
+        expected_load = np.vstack(
+            [
+                np.abs(result.data.weights[index])[:, None] * np.abs(actual.observed[index])
+                for _, index in result.nuisance.folds
+            ]
+        )
+        np.testing.assert_array_equal(fluctuation.absolute_score_weights, expected_load)
+
     def test_a_pooled_fit_records_no_fold_detail(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=18)
         result = (
@@ -206,6 +215,46 @@ class TestFoldWiseTargeting:
 
 class TestCanonicalTargeting:
     """Structural pins for the common validation update used by the source algorithm."""
+
+    def test_absolute_score_weights_keep_the_equal_fold_risk_measure(self) -> None:
+        """The artifact retains validation weights, not the unequal input fold masses."""
+        frame, _ = make_linear_ate(n=300, seed=17)
+        settings = {**FAST_KWARGS, "cv_evaluation": True, "estimands": ("ate",)}
+        draft = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
+        weights = np.ones(len(frame))
+        for multiplier, (_, index) in zip(
+            (0.05, 0.2, 1.0, 5.0, 20.0), draft.nuisance.folds, strict=True
+        ):
+            weights[index] = multiplier
+        result = (
+            TMLE(**settings)
+            .fit(frame.assign(wt=weights), outcome="Y", treatment="A", weights="wt")
+            .single()
+        )
+        assert all(
+            np.array_equal(left[1], right[1])
+            for left, right in zip(draft.nuisance.folds, result.nuisance.folds, strict=True)
+        )
+
+        submodel = result.estimator._submodel(
+            result.data,
+            result.nuisance,
+            "mean",
+            result.config.g_bounds,
+            None,
+            None,
+            None,
+            result.config.reference_arm,
+        )
+        validation_weights = result.estimator._validation_weights(result.data, result.nuisance)
+        expected = np.abs(validation_weights)[:, None] * np.abs(submodel.observed)
+        wrong = np.abs(result.data.weights)[:, None] * np.abs(submodel.observed)
+        retained = result.fluctuations["mean"].absolute_score_weights
+
+        np.testing.assert_array_equal(retained, expected)
+        assert not np.allclose(retained, wrong, rtol=0.0, atol=1e-12)
+        fold_mass = [float(validation_weights[index].sum()) for _, index in result.nuisance.folds]
+        assert max(fold_mass) == pytest.approx(min(fold_mass), abs=1e-12)
 
     def test_it_fits_one_common_epsilon_not_one_per_fold(
         self, canonical_report, pooled_report

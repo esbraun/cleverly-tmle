@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import inspect
+import json
 import re
 import types
 import typing
@@ -30,7 +31,7 @@ from cleverly import (
 )
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
-from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
@@ -503,6 +504,73 @@ def test_cached_assessments_replay_after_persistence(
     assert set(restored.assessment_cache) == cache_keys
     assert restored.validate() == validation
     assert restored.diagnostics.run_all() == diagnostics
+
+
+def _without_cache_generation(key: str) -> str:
+    """Rewrite a current cache key as the unversioned key an older result carries."""
+    operation, encoded = key.split(":", 1)
+    payload = json.loads(encoded)
+    payload.pop("cache_generation")
+    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
+
+
+def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
+    point_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    """Old support, aggregate, and validation entries are cache misses after loading."""
+    result = dataclasses.replace(point_result)
+    result.diagnostics.support()
+    result.diagnostics.run_all()
+    result.validate()
+    versioned = {
+        key: value
+        for key, value in result.assessment_cache.items()
+        if key.split(":", 1)[0] in {"diagnostics.support", "diagnostics.run_all", "validate"}
+    }
+    assert {key.split(":", 1)[0] for key in versioned} == {
+        "diagnostics.support",
+        "diagnostics.run_all",
+        "validate",
+    }
+
+    result.assessment_cache.clear()
+    legacy_keys = {_without_cache_generation(key) for key in versioned}
+    result.assessment_cache.update(dict.fromkeys(legacy_keys, "legacy cached report"))
+    restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
+
+    assert restored.diagnostics.support().group_leverage
+    assert restored.diagnostics.run_all() != "legacy cached report"
+    assert restored.validate() != "legacy cached report"
+    assert restored.assess().diagnostics != "legacy cached report"
+    assert legacy_keys <= set(restored.assessment_cache)
+    assert any(
+        "cache_generation" in key and key.startswith("diagnostics.support:")
+        for key in restored.assessment_cache
+    )
+
+
+def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:
+    """Appending diagnostics must not reinterpret the former repeat and backend slots."""
+    report = PositivityReport(
+        {},
+        {},
+        {},
+        {},
+        {"fraction": 0.0},
+        {},
+        (0.01, 0.99),
+        10,
+        {},
+        (),
+        0.0,
+        0.0,
+        3,
+        "pandas",
+    )
+
+    assert report.n_repeats == 3
+    assert report.backend == "pandas"
+    assert report.group_leverage == {}
 
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]

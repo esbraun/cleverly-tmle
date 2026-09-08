@@ -14,6 +14,8 @@ learning, and the outcome regression is correctly specified for this process any
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import sklearn.linear_model
@@ -23,6 +25,7 @@ from cleverly import load
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.datasets.synthetic import MultiArmDGP
 from cleverly.estimators import TMLE
+from cleverly.exceptions import PositivityWarning
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS
@@ -31,12 +34,45 @@ from tests.conftest import FAST_KWARGS
 #: the labels -- which is the refusal ``MSM.linear`` makes, taken up.
 DOSE = {"low": 0.0, "medium": 1.0, "high": 2.0}
 
+#: The same three arms on a *centred* coding.  ``DOSE`` is non-negative, so every row of
+#: the clever covariate ``phi(a) / g_a(W)`` is same-signed and the two cross-column
+#: aggregations below agree on every row.  This coding puts a positive and a negative entry
+#: in one row, which is what separates them.
+CENTRED_DOSE = {"low": -1.0, "medium": 0.0, "high": 1.0}
+
 N = 2000
 SEED = 0
 
 
+def _kish(weights: np.ndarray) -> float:
+    """Kish's effective sample size, ``(sum w)^2 / sum w^2``, written out.
+
+    A sibling of the helper of the same name in
+    :mod:`tests.e2e.test_sensitivity_and_validation`, duplicated on the terms that module
+    records: the only home both could import from is ``tests/conftest.py``, and this
+    change does not own it.
+    """
+    w = np.asarray(weights, dtype=float)
+    return float(w.sum() ** 2 / np.square(w).sum())
+
+
+def _top_share(weights: np.ndarray, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of the rows."""
+    w = np.asarray(weights, dtype=float)
+    count = max(1, int(np.ceil(fraction * w.size)))
+    return float(np.sort(w)[-count:].sum() / w.sum())
+
+
 def _dose_design(arm, frame):
     return np.column_stack([np.ones(len(frame)), np.full(len(frame), DOSE[arm])])
+
+
+def _centred_dose_design(arm, frame):
+    return np.column_stack([np.ones(len(frame)), np.full(len(frame), CENTRED_DOSE[arm])])
+
+
+def _scaled_centred_dose_design(arm, frame):
+    return np.column_stack([np.ones(len(frame)), np.full(len(frame), 100.0 * CENTRED_DOSE[arm])])
 
 
 def _saturated_design(arm, frame):
@@ -49,6 +85,24 @@ def dose_response(link: str = "identity") -> MSM:
         design=_dose_design,
         terms=("(intercept)", "dose"),
         link=link,  # type: ignore[arg-type]
+    )
+
+
+def centred_dose_response() -> MSM:
+    """``m(a) = beta0 + beta1 * dose(a)`` on a dose that runs ``-1``, ``0``, ``1``."""
+    return MSM(
+        design=_centred_dose_design,
+        terms=("(intercept)", "dose"),
+        link="identity",
+    )
+
+
+def scaled_centred_dose_response() -> MSM:
+    """The same working-model span with the dose column expressed in other units."""
+    return MSM(
+        design=_scaled_centred_dose_design,
+        terms=("(intercept)", "dose"),
+        link="identity",
     )
 
 
@@ -440,6 +494,43 @@ class TestTheSurroundingMachineryWorks:
         report = result.diagnostics.support()
         assert set(report.propensity_quantiles) >= {f"g[{label}]" for label in DOSE}
 
+    def test_a_multi_column_group_reports_one_load_row(self, fitted) -> None:
+        """The group row selects and names its most concentrated score equation."""
+        result, _ = fitted
+        report = result.diagnostics.support()
+        row = report.group_leverage["msm"]
+        artifact = result.fluctuations["msm"].absolute_score_weights
+        assert artifact is not None
+        effective = np.array([_kish(artifact[:, j]) for j in range(artifact.shape[1])])
+        selected = int(np.argmin(effective / artifact.shape[0]))
+        load = artifact[:, selected]
+
+        assert report.group_leverage.keys() == result.fluctuations.keys() == {"msm"}
+        assert len(result.fluctuations["msm"].names) == 2
+        assert row["equation"] == result.fluctuations["msm"].names[selected]
+        assert row["n_targeted"] == float(artifact.shape[0])
+        assert row["n_total"] == float(result.data.n)
+        assert row["effective"] == pytest.approx(effective[selected], abs=0)
+        assert row["targeted_ratio"] == pytest.approx(effective[selected] / load.size, abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
+
+    def test_the_summary_labels_the_weighted_load_apart_from_the_covariate_maximum(
+        self, fitted
+    ) -> None:
+        """The table labels exact-equation absolute load as descriptive concentration."""
+        result, _ = fitted
+        report = result.diagnostics.support()
+        summary = report.summary()
+        header = next(line for line in summary.splitlines() if line.startswith("group "))
+        row = next(line for line in summary.splitlines() if line.startswith("msm "))
+
+        assert header.index("equation") < header.index("Kish-equivalent rows")
+        assert header.index("Kish / target") < header.index("max |w h|")
+        assert f"{report.group_leverage['msm']['max_load']:.4g}" in row
+        assert "Kish values describe residual-multiplier concentration" in summary
+        assert "not residual contributions or estimator information" in summary
+
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted, sweep) -> None:
         result, _ = fitted
         curve, combined = sweep
@@ -496,6 +587,84 @@ class TestTheSurroundingMachineryWorks:
         reloaded = load(result.save(tmp_path / "msm_refit.joblib"))
         refitted = reloaded.estimator.refit(reloaded.data)
         assert refitted.diagnostics.score_equations().passed
+
+
+class TestEachMSMScoreEquationIsDiagnosedSeparately:
+    """Cross-column aggregation is coordinate dependent; equations remain separate."""
+
+    @pytest.fixture(scope="class")
+    def centred(self):
+        """A working-model fit whose design columns take both signs on the same row.
+
+        ``n=800`` rather than the module's 2000. Nothing here is about recovering the
+        projection, and the separation this class measures is a property of the coding
+        rather than of the sample size. The overlap warning belongs to this process at
+        three arms and is not what the class is about.
+        """
+        frame, _ = make_multi_arm(n=800, seed=SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            ordinary = (
+                TMLE(msm=centred_dose_response(), **SETTINGS)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+            scaled = (
+                TMLE(msm=scaled_centred_dose_response(), **SETTINGS)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+        return ordinary, scaled
+
+    @staticmethod
+    def _covariate(result) -> np.ndarray:
+        """``phi(A, V) / g_A(W)``: one row per unit, one column per coefficient.
+
+        Written out from the formula in
+        :func:`~cleverly.fluctuation.submodel.msm_submodel` rather than read off the
+        submodel the reported row is built from. This fit has complete outcomes, no
+        intermediate variable and a uniform working-model weight, so the denominator is
+        the propensity at the realised arm and nothing else.
+        """
+        data, propensity = result.data, result.nuisance.propensity
+        g = propensity.bounded(result.config.g_bounds)
+        at_arm = g[np.arange(data.n), [propensity.column_for(arm) for arm in data.treatment]]
+        dose = np.array([CENTRED_DOSE[data.arm_label(arm)] for arm in data.treatment])
+        return np.column_stack([1.0 / at_arm, dose / at_arm])
+
+    def test_the_row_is_the_most_concentrated_individual_column(self, centred) -> None:
+        """All reported metrics use the selected column, never an L1 collapse."""
+        ordinary, _ = centred
+        report = ordinary.diagnostics.support()
+        row = report.group_leverage["msm"]
+        artifact = ordinary.fluctuations["msm"].absolute_score_weights
+        assert artifact is not None
+        ratios = np.array([_kish(artifact[:, j]) / artifact.shape[0] for j in range(2)])
+        selected = int(np.argmin(ratios))
+        load = artifact[:, selected]
+
+        assert row["equation"] == ordinary.fluctuations["msm"].names[selected]
+        assert row["n_targeted"] == float(load.size)
+        assert row["effective"] == pytest.approx(_kish(load), abs=0)
+        assert row["targeted_ratio"] == pytest.approx(ratios[selected], abs=0)
+        assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
+        assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
+        assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
+        assert row["zero_load"] == float(np.count_nonzero(load == 0.0))
+
+        l1 = artifact.sum(axis=1)
+        assert row["effective"] != pytest.approx(_kish(l1), abs=1e-6)
+
+    def test_per_column_rescaling_cannot_change_concentration(self, centred) -> None:
+        """Changing dose units rescales one column but leaves every share invariant."""
+        ordinary, scaled = centred
+        original = ordinary.diagnostics.support().group_leverage["msm"]
+        rescaled = scaled.diagnostics.support().group_leverage["msm"]
+
+        assert original["equation"] == rescaled["equation"]
+        for key in ("effective", "targeted_ratio", "total_ratio", "top_1pct", "top_5pct"):
+            assert rescaled[key] == pytest.approx(original[key], rel=1e-12, abs=1e-12)
+        assert rescaled["zero_load"] == original["zero_load"]
 
 
 class TestTheAxisIsExclusive:

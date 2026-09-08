@@ -191,6 +191,34 @@ class TestTheRegimesTravelWithTheFit:
         assert report.regimes["rule"].min_support_propensity > 0.0
         assert "rule" in report.summary()
 
+    def test_the_rows_no_regime_loads_are_counted(self, result, frame) -> None:
+        """``zero_load``, on the one point-treatment covariate that has exact zeros.
+
+        The regime covariate is ``g*(A | W) / (g(A | W) pi q)``, so a unit whose observed
+        arm no declared regime would assign carries an exact zero. Here that is a treated
+        unit with ``W1 <= 0``: ``never`` assigns control to everybody and ``rule`` assigns
+        treatment only above zero. The count is what separates a group loading part of
+        what it targets from one loading all of it unevenly, and the Kish ratio on its own
+        cannot tell those two apart.
+
+        ``positivity_report`` is called directly because ``diagnostics.support()`` sends a
+        regime fit to :class:`~cleverly.interventions.support.SupportReport` instead.
+        """
+        from cleverly.sensitivity import positivity_report
+
+        report = positivity_report(result)
+        assert set(report.group_leverage) == {"regime"}
+        row = report.group_leverage["regime"]
+        artifact = result.fluctuations["regime"].absolute_score_weights
+        assert artifact is not None
+        effective = np.square(artifact.sum(axis=0)) / np.square(artifact).sum(axis=0)
+        ratios = effective / artifact.shape[0]
+        selected = int(np.argmin(ratios))
+        assert row["equation"] == result.fluctuations["regime"].names[selected]
+        assert row["zero_load"] == float(np.count_nonzero(artifact[:, selected] == 0.0))
+        # Structural zeros remain in the score mask's denominator.
+        assert row["n_targeted"] == float(artifact.shape[0]) == float(result.data.n)
+
     def test_support_dispatches_to_arm_overlap_on_an_arm_fit(self, frame) -> None:
         report = fit(frame).diagnostics.support()
         assert report.n == len(frame)

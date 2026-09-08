@@ -464,6 +464,42 @@ class TestTheOverlapReportOnAWeightedFit:
             assert abs(_kish(leverage) - _kish(clever)) > 50.0
             assert abs(_top_share(leverage, 0.05) - _top_share(clever, 0.05)) > 0.01
 
+    def test_every_targeted_group_reports_its_own_load_row(self, weighted_exact_fit: Any) -> None:
+        """``_multi_arm_positivity_report`` fills the per-group table, not only the arm one.
+
+        The two reports are separate functions, so a field added to one is absent from the
+        other until somebody writes it there. Three groups here, two of them conditional
+        and one marginal, and the conditional rows read a different bound and a different
+        reference arm from the marginal one -- which is why the table cannot be derived
+        from the arm rows above.
+        """
+        report = weighted_exact_fit.diagnostics.support()
+        leverage = report.group_leverage
+
+        assert leverage.keys() == report.clever_covariate_max.keys()
+        assert leverage.keys() == weighted_exact_fit.fluctuations.keys()
+        assert set(leverage) == {"mean", "att", "atc"}
+        for group, load in leverage.items():
+            artifact = weighted_exact_fit.fluctuations[group].absolute_score_weights
+            assert artifact is not None
+            ratios = np.array(
+                [_kish(artifact[:, j]) / artifact.shape[0] for j in range(artifact.shape[1])]
+            )
+            selected = int(np.argmin(ratios))
+            assert load["equation"] == weighted_exact_fit.fluctuations[group].names[selected]
+            assert load["n_targeted"] == float(artifact.shape[0]), group
+            assert load["n_total"] == float(weighted_exact_fit.data.n), group
+            assert load["targeted_ratio"] == pytest.approx(ratios[selected], abs=0)
+            assert 0.0 < load["top_1pct"] <= load["top_5pct"] <= 1.0, group
+            assert np.isfinite(load["max_load"]), group
+        assert (leverage["mean"]["lower_bound"], leverage["mean"]["upper_bound"]) == (
+            weighted_exact_fit.config.g_bounds
+        )
+        for group in ("att", "atc"):
+            assert (leverage[group]["lower_bound"], leverage[group]["upper_bound"]) == (
+                weighted_exact_fit.config.g_bounds_conditional
+            )
+
 
 class TestTheRestOfTheFacade:
     """The entry points that reach the bound through a name, rather than computing it.

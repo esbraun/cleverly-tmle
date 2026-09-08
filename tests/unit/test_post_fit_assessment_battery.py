@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
+import pickle
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1620,8 +1622,206 @@ def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
     """The reader-facing half of the contract: ungraded is not unreported."""
     for fraction in (0.0, 0.02, 0.06):
         verdict = _positivity(fraction, 0.25).verdict()
-        assert "effective 25%" in verdict
-        assert "No threshold is applied to that share" in verdict
+        assert "Kish-equivalent weight count of 25%" in verdict
+        assert "no threshold is applied because none is derived" in verdict
+
+
+def _load(ratio: float, **overrides: float | str) -> dict[str, float | str]:
+    """One exact-equation absolute-load concentration row."""
+    return {
+        "equation": "mean[1]",
+        "n_total": 120.0,
+        "n_targeted": 100.0,
+        "effective": 100.0 * ratio,
+        "targeted_ratio": ratio,
+        "total_ratio": 100.0 * ratio / 120.0,
+        "top_1pct": 0.3,
+        "top_5pct": 0.5,
+        "max_load": 9.0,
+        "zero_load": 0.0,
+        "lower_bound": 0.05,
+        "upper_bound": 0.95,
+        "clipped_count": 0.0,
+        "clipped_fraction": 0.0,
+        **overrides,
+    }
+
+
+#: One fitted factor row, so a report can carry a mechanism ratio beside its arm ratio.
+_MECHANISM = {
+    "min": 0.2,
+    "q01": 0.3,
+    "q05": 0.4,
+    "median": 0.6,
+    "ess_ratio": 0.7,
+    "top_1pct": 0.1,
+    "top_5pct": 0.2,
+    "clipped": 0.0,
+    "clipped_fraction": 0.0,
+}
+
+
+def test_the_support_row_does_not_pool_group_concentration_with_mechanism_ess() -> None:
+    """Unlike units stay separate: score-load concentration is not mechanism ESS."""
+    groups = {"mean": _load(0.44), "att": _load(0.2)}
+    pooled = _positivity(
+        0.0,
+        0.9,
+        clever_covariate_max={"mean": 1.0, "att": 4.0},
+        group_leverage=groups,
+        mechanisms={"P(Delta=1|A,W)": _MECHANISM},
+    )
+    without = replace(pooled, group_leverage={})
+    fact = "minimum effective-sample-size ratio"
+
+    detail = INTERPRETERS["support"](pooled, None).detail
+    assert f"{fact} 70.0%" in detail
+    assert "group load: att:mean[1] 20.0/100 Kish-equivalent" in detail
+    assert f"{fact} 70.0%" in INTERPRETERS["support"](without, None).detail
+
+
+def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -> None:
+    """The group share is a second sentence, not a second threshold.
+
+    The pair differs by two orders of magnitude in the group ratio and by nothing else,
+    so any cutoff anyone puts on that share separates them and fails here. Both verdicts
+    still carry the arm sentence word for word, because the two are different weightings
+    and the reader needs both.
+    """
+    ample = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.99)})
+    threadbare = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.04)})
+
+    assert ample.severity == threadbare.severity == "adequate"
+    assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
+    assert "Absolute-load concentration is greatest" in ample.verdict()
+    assert "99.0 Kish-equivalent rows out of 100 score-mask rows (99%" in ample.verdict()
+    assert "4.0 Kish-equivalent rows out of 100 score-mask rows (4%" in threadbare.verdict()
+    for report in (ample, threadbare):
+        assert "Kish-equivalent weight count of 90%" in report.verdict()
+        assert "not estimator effective sample size" in report.verdict()
+
+
+def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
+    """A group with no targeted rows stores ``nan``, and the summary still has to print.
+
+    Built by hand rather than fitted, because a fit that targets a group and then weights
+    none of its rows is not a case the fast tier can reach cheaply. The verdict drops the
+    non-finite share instead of reporting it, which is the same rule the arm sentence
+    follows.
+    """
+    empty = _load(float("nan"), equation="empty")
+    report = _positivity(
+        0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_leverage={"mean": empty}
+    )
+    summary = report.summary()
+    header = next(line for line in summary.splitlines() if line.startswith("group "))
+
+    assert header.index("Kish-equivalent rows") < header.index("max |w h|")
+    assert "empty" in summary
+    assert "Absolute-load concentration" not in report.verdict()
+
+
+def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
+    """The field is defaulted, so a hand-built report constructs and still shows the maxima.
+
+    This is the *constructor* path and nothing more: ``default_factory`` fires normally
+    here, so the attribute is present before any reader looks at it. It does not exercise
+    backward compatibility, which is a different mechanism and is covered by
+    ``test_a_report_pickled_before_the_group_table_existed_still_reads``. What it does
+    check is that a report with no group table presents a reader with the maxima rather
+    than with nothing where they used to be.
+    """
+    report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
+
+    assert report.group_leverage == {}
+    assert "max |clever covariate| (mean): 1" in report.summary()
+    assert "max |clever covariate| (att): 4" in report.summary()
+    assert "Kish-equivalent rows" not in report.summary()
+    assert "Absolute-load concentration" not in report.verdict()
+
+
+def _older_state(report: PositivityReport) -> dict[str, object]:
+    """The instance dictionary a report pickled before ``group_leverage`` existed carries.
+
+    An older pickle stores the fields the older class had, and no key of that name. This
+    is that dictionary, taken from a real report so that every other field is a real
+    value rather than a stand-in.
+    """
+    state = dict(report.__dict__)
+    del state["group_leverage"]
+    del state["group_leverage_omissions"]
+    return state
+
+
+def test_a_report_pickled_before_the_group_table_existed_still_reads() -> None:
+    """Backward compatibility, through ``pickle`` rather than through the constructor.
+
+    ``dataclasses`` **deletes** the class attribute for a ``default_factory`` field, so
+    the default cannot stand behind an old pickle: the instance arrives with no
+    ``group_leverage`` key and nothing on the class to fall back to, and every reader of
+    the attribute raises ``AttributeError``. The first two assertions are that fact,
+    stated so that a future change which gives the class a real attribute fails here and
+    tells someone the mechanism moved. ``__setstate__`` is what closes the gap, and it is
+    driven by ``dataclasses.fields``, so ``n_repeats`` and ``backend`` come back filled by
+    the same pass.
+    """
+    report = _positivity(
+        0.0,
+        0.9,
+        clever_covariate_max={"mean": 1.0, "att": 4.0},
+        group_leverage={"mean": _load(0.5), "att": _load(0.3)},
+    )
+    state = _older_state(report)
+
+    assert getattr(type(report), "group_leverage", None) is None
+    raw = PositivityReport.__new__(PositivityReport)
+    raw.__dict__.update(state)
+    with pytest.raises(AttributeError, match="group_leverage"):
+        getattr(raw, "group_leverage")  # noqa: B009 -- the raise is the point
+
+    older = copy.copy(report)
+    older.__dict__.pop("group_leverage")
+    restored = pickle.loads(pickle.dumps(older))
+
+    assert "group_leverage" not in state
+    assert restored.group_leverage == {}
+    assert restored.group_leverage_omissions == {}
+    assert restored.n_repeats == 1 and restored.backend is None
+    assert restored.severity == "adequate"
+    assert "Absolute-load concentration" not in restored.verdict()
+    # And the summary takes the fallback branch: the table is gone, the maxima are not.
+    summary = restored.summary()
+    assert "max |clever covariate| (mean): 1" in summary
+    assert "max |clever covariate| (att): 4" in summary
+    assert "Kish-equivalent rows" not in summary
+
+
+def test_a_result_saved_before_the_group_table_existed_still_assesses(tmp_path) -> None:
+    """The same restore over the real artifact, which is where an old report comes from.
+
+    ``diagnostics.support()`` files its answer in ``assessment_cache``, and ``save()``
+    joblib-pickles the whole result with that cache inside it. So a stored artifact
+    written before this table existed carries exactly the report the test above builds by
+    hand, and ``cleverly.load`` is the reader that meets it. The cached report is edited
+    to drop the key rather than the class being rolled back, because the older class is
+    not importable from here.
+    """
+    result = _fit(_study(), ATE())
+    del result.diagnostics.support().__dict__["group_leverage"]
+    del result.diagnostics.support().__dict__["group_leverage_omissions"]
+    key = next(name for name in result.assessment_cache if "support" in name)
+    assert "group_leverage" not in result.assessment_cache[key].__dict__
+
+    restored = load(result.save(tmp_path / "older-result.joblib"))
+    report = restored.diagnostics.support()
+
+    assert report.group_leverage == {}
+    assert report.severity in {"adequate", "strain", "serious"}
+    assert "max |clever covariate| (mean): " in report.summary()
+    assert "max |h|" not in report.summary()
+    # The combined battery reads `severity` off the same object, which is the caller the
+    # missing attribute broke.
+    assert restored.assess().report("support").group_leverage == {}
 
 
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:

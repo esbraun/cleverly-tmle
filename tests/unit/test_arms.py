@@ -87,10 +87,8 @@ class TestThreeArms:
         kept = restrict(submodel, np.array([1, 2, 5]))
         assert kept.levels == LEVELS
         assert kept.arm_columns == submodel.arm_columns
-        signed, weights = weighted_form(submodel, np.ones(submodel.n))
-        assert signed.levels == LEVELS
-        assert set(np.unique(signed.arms[2.0])) <= {-1.0, 0.0, 1.0}
-        assert weights.shape == (submodel.n,)
+        with pytest.raises(ValueError, match="load multiple score equations"):
+            weighted_form(submodel, np.ones(submodel.n))
 
     def test_fluctuating_moves_all_three_arms(self) -> None:
         fit, submodel = _three_arm_fit(), _three_arm_submodel()

@@ -8,25 +8,26 @@ estimator can say what would have happened to that control unit under treatment.
 
 What to look at, in order of how much it tells you:
 
-**Effective sample size.**  The clever covariate reweights the sample.  Kish's
-effective sample size, :math:`(\sum_i \omega_i)^2 / \sum_i \omega_i^2` for
-:math:`\omega_i = 1/g(W_i)` in the treated arm, says how many observations the
-weighted analysis is really using.  An ESS of 40 out of 500 treated units means the
-estimate rests on a small effective subsample, whatever the nominal ``n`` says.
+**Kish weight concentration.**  Kish's equivalent count,
+:math:`(\sum_i \omega_i)^2 / \sum_i \omega_i^2` for
+:math:`\omega_i = 1/g(W_i)` in the treated arm, describes how concentrated those
+nonnegative weights are.  A value of 40 out of 500 treated units deserves attention,
+but it is not estimator information or the sample size behind the standard error.
 
-**Weight concentration.**  The share of the estimating equation contributed by the
-largest few weights.  If the top 1% of units carry 30% of it, the estimate is a
-statement about those units.
+**Weight concentration.**  The share of total nonnegative diagnostic weight held by the
+largest few weights.  It excludes the residual, so it is not a share of the realised
+estimating equation or influence.
 
 **Truncation load.**  How many propensity scores were clipped, and how far.  Truncation
 trades variance for potential second-order bias.  It regularises the finite-sample
 procedure, but it does not change the requested estimand.  A large clipped fraction
-means that the estimate relies on extrapolation.
+means that the estimate is sensitive to this regularisation in regions with limited
+fitted overlap.
 
 Observation weights are folded into :math:`\omega_i` rather than reported separately,
-because the two costs multiply: a design that halves the effective sample size and a
-clever covariate that halves it again leave a quarter, and a diagnostic that showed only
-one of them would look comfortable.  For the weighting cost on its own -- and for the
+because the diagnostic should describe their joint weight profile with the mechanism
+factor.  Their separately computed Kish ratios do not in general multiply.  For the
+weighting profile on its own -- and for the
 estimand statement that goes with it -- see
 :meth:`~cleverly.data.CausalData.weight_report` and :mod:`cleverly.data.weighting`.
 
@@ -37,8 +38,8 @@ diagnostic can be.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import MISSING, dataclass, field, fields
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import numpy as np
 
@@ -55,6 +56,7 @@ from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
+    from ..fluctuation.submodel import Submodel
 
 __all__ = ["PositivityReport", "positivity_report", "truncation_curve"]
 
@@ -63,6 +65,26 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 
 #: Thresholds at which the mass of extreme propensity scores is reported.
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
+
+
+class GroupLeverageRow(TypedDict):
+    """One equation's descriptive absolute residual-multiplier concentration."""
+
+    equation: str
+    n_total: float
+    n_targeted: float
+    effective: float
+    targeted_ratio: float
+    total_ratio: float
+    top_1pct: float
+    top_5pct: float
+    max_load: float
+    zero_load: float
+    lower_bound: float
+    upper_bound: float
+    clipped_count: float
+    clipped_fraction: float
+
 
 #: The derived denominators the clever covariate divides by: ``g_a(W) pi_a(W)`` when the
 #: outcome can be missing, ``g_a(W) q_z(a, W)`` for a controlled direct effect, and the
@@ -130,8 +152,44 @@ class PositivityReport:
         Count and fraction of propensity scores clipped by the truncation bounds, and
         the most extreme untruncated value.
     clever_covariate_max : dict of str to float
-        Largest absolute clever-covariate value per targeted estimand family -- the
-        single most direct summary of how much one observation can move the estimate.
+        Largest reconstructed absolute clever-covariate value per targeted estimand
+        family.  This is a covariate-scale diagnostic, not a score contribution or an
+        observation's influence on the estimate.
+    group_leverage : dict of str to dict of str to float or str
+        Absolute residual-multiplier concentration for each targeted family.  The fitted
+        fluctuation retains ``abs(w_i * h_ij)`` on the exact rows and with the exact
+        weights used to evaluate each score equation.  This report computes one Kish
+        concentration ratio per column, then retains the most concentrated column and
+        names it under ``equation``.  Every metric in a group row comes from that one
+        column.  It never sums columns with different units.
+
+        ``effective`` is the Kish-equivalent row count of that absolute load.  It is a
+        descriptive concentration index.  It is not the estimator's information, actual
+        influence, or the sample size used for its standard error.  ``targeted_ratio``
+        divides it by the rows in the fitted score mask.  ``total_ratio`` divides it by
+        the full data row count, so outcome missingness and intermediate selection remain
+        visible.  The two top shares, ``max_load``, and ``zero_load`` describe the same
+        selected column.
+
+        ``n_targeted`` counts rows in the fitted score mask, including a row whose selected
+        equation has a structural zero.  It does not count nonzero residual contributions.
+
+        ``lower_bound``, ``upper_bound``, ``clipped_count``, and ``clipped_fraction``
+        describe the treatment-mechanism bound used by that group.  ATT and ATC therefore
+        report ``g_bounds_conditional`` rather than the marginal bound.
+
+        The groups that reach this table through
+        :meth:`~cleverly.assessment.DiagnosticsFacade.support` are ``mean``, ``att``,
+        ``atc`` and ``msm``.  A regime, shift or incremental fit gets its own support
+        report from that method instead and so gets no row here; ``regime`` and ``ipsi``
+        appear only when :func:`positivity_report` is called directly.  ``mtp`` never
+        appears at all, because ``shifts=`` needs a continuous treatment and this report
+        refuses one.
+    group_leverage_omissions : dict of str to str
+        Machine-readable reasons an exact group diagnostic or one of its components could
+        not be reported.  Exact score-weight loads are never reconstructed from a generic
+        submodel, and clipping for a targeted treatment mechanism is unavailable unless
+        its fitted clipping mask was retained.
     bounds : tuple of float
         Truncation bounds the fit applied to the treatment mechanism.
     n : int
@@ -153,9 +211,10 @@ class PositivityReport:
         two tables can be read side by side.
 
         These deserve reporting for exactly the reason ``g`` does: they enter the
-        estimating equation as a denominator, so a value near zero gives one observation
-        unbounded leverage.  Unlike ``g`` they are one-sided -- only the approach to zero
-        matters -- and they are easy to overlook, because a fit can have perfectly
+        estimating equation as a denominator, so a value near zero can give one
+        observation a large residual multiplier.  Unlike ``g`` they are one-sided -- only
+        the approach to zero matters -- and they are easy to overlook, because a fit can
+        have perfectly
         healthy propensity overlap and still be resting on a handful of rows that were
         very unlikely to be observed at all.
 
@@ -172,7 +231,8 @@ class PositivityReport:
 
         The derived row is the reason this table exists.  Each factor can look
         comfortable on its own while their product concentrates the weight, because the
-        costs multiply, and only the product is what the clever covariate divides by.
+        denominator factors multiply.  That does not imply their Kish ratios multiply.
+        Only the product is what the clever covariate divides by.
         It describes the fit's **marginal-mean** estimands -- the ``ey`` family, its
         contrasts, a regime, and a marginal structural model.  A fit that targets none of
         those gets its factor rows and no product row, because an ATT or ATC covariate
@@ -225,6 +285,11 @@ class PositivityReport:
     composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
+    #: Defaulted rather than required, so a hand-built fixture still constructs.  The
+    #: default alone does not carry an *old pickle*, which arrives with no key of this name
+    #: at all; :meth:`__setstate__` is what fills it there.  Keyed exactly as
+    #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
+    #: over the fit's targeted groups.
     #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
     #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
@@ -238,6 +303,41 @@ class PositivityReport:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: Trailing for positional compatibility with reports created before this diagnostic.
+    group_leverage: dict[str, GroupLeverageRow] = field(default_factory=dict)
+    #: A fitted artifact can predate exact per-column absolute score weights.  Such a
+    #: group is omitted rather than reconstructed from a submodel that might not be the
+    #: one the fit used (for example under fold-specific targeting).
+    group_leverage_omissions: dict[str, str] = field(default_factory=dict)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a pickled report, filling in every field the pickle predates.
+
+        Defaulting a field is not on its own enough to keep an old pickle readable.
+        ``dataclasses`` *deletes* the class attribute for a ``default_factory`` field, so a
+        report pickled before :attr:`group_leverage` existed unpickles with no
+        ``group_leverage`` in its instance dict and no class-level fallback behind it, and
+        every reader of that attribute raises :class:`AttributeError` instead.  Filling the
+        gap here is what makes the defaults on the fields above true for a stored result
+        rather than only for a fresh construction.
+
+        The fill is driven by :func:`dataclasses.fields` rather than by a list of names, so
+        the next defaulted field is covered the day it is added.  The class is frozen, so
+        each fill goes through :func:`object.__setattr__`.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The instance dictionary the pickle carries.
+        """
+        self.__dict__.update(state)
+        for spec in fields(self):
+            if spec.name in state:
+                continue
+            if spec.default is not MISSING:
+                object.__setattr__(self, spec.name, spec.default)
+            elif spec.default_factory is not MISSING:
+                object.__setattr__(self, spec.name, spec.default_factory())
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -343,8 +443,64 @@ class PositivityReport:
             f"({self.truncated['fraction']:.2%}); most extreme untruncated g(W) = "
             f"{self.truncated['most_extreme']:.5g}"
         )
-        for group, value in self.clever_covariate_max.items():
-            lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.group_leverage:
+            lines.append("")
+            lines.append(
+                format_table(
+                    [
+                        "group",
+                        "equation",
+                        "target rows",
+                        "Kish-equivalent rows",
+                        "Kish / target",
+                        "Kish / total",
+                        "top 1% load",
+                        "top 5% load",
+                        "max |w h|",
+                        "zero load",
+                        "g bound",
+                        "clipped",
+                    ],
+                    [
+                        [
+                            group,
+                            str(load["equation"]),
+                            f"{load['n_targeted']:.0f}/{load['n_total']:.0f}",
+                            f"{load['effective']:.1f}",
+                            f"{load['targeted_ratio']:.3f}",
+                            f"{load['total_ratio']:.3f}",
+                            f"{load['top_1pct']:.3f}",
+                            f"{load['top_5pct']:.3f}",
+                            f"{load['max_load']:.4g}",
+                            f"{load['zero_load']:.0f}",
+                            (
+                                f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
+                                if np.isfinite(load["lower_bound"])
+                                else "not applicable"
+                            ),
+                            (
+                                f"{load['clipped_count']:.0f} ({load['clipped_fraction']:.2%})"
+                                if np.isfinite(load["clipped_fraction"])
+                                else "unavailable"
+                            ),
+                        ]
+                        for group, load in self.group_leverage.items()
+                    ],
+                )
+            )
+            lines.append(
+                "(absolute residual-multiplier load from the fitted equation; Kish values describe "
+                "residual-multiplier concentration, not residual contributions or estimator "
+                "information, influence, or precision; target rows are score-mask rows and "
+                "include structural zeros)"
+            )
+        if self.clever_covariate_max:
+            for group, value in self.clever_covariate_max.items():
+                lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.group_leverage_omissions:
+            lines.append("")
+            for group, reason in self.group_leverage_omissions.items():
+                lines.append(f"group diagnostic omitted ({group}): {reason}")
         if self.mechanisms:
             lines.append("")
             lines.append(
@@ -395,6 +551,11 @@ class PositivityReport:
         product, or no fitted factor stands beside ``g`` so there is no derived row at
         all.  Otherwise it names the groups and what each divides by instead, because an
         omission that does not explain itself reads exactly like a clean bill of health.
+
+        The refusal stands, and the note now says where those groups *are* covered.  The
+        per-group leverage table reads each covariate as built rather than a denominator
+        it never forms, so an excluded group has a load measure even though it has no
+        derived row.  Naming it keeps the sentence from reading as "nothing here for you".
         """
         if not self.composed_excluded:
             return None
@@ -409,7 +570,10 @@ class PositivityReport:
             if composed
             else "no derived denominator row is reported for"
         )
-        return f"({lead} {excluded}. Read the factor rows above for those estimands.)"
+        pointer = (
+            " Their score-weight load is in the group table above." if self.group_leverage else ""
+        )
+        return f"({lead} {excluded}. Read the factor rows above for those estimands.{pointer})"
 
     @property
     def severity(self) -> Literal["adequate", "strain", "serious"]:
@@ -447,8 +611,14 @@ class PositivityReport:
         a positivity clearance this package cannot give.  Every branch states the share
         instead, and the analyst judges it against the question.  What is graded is the
         truncated fraction, which is not a judgement about the data: it counts the rows
-        the fit clipped at a bound the caller configured, and a clipped row contributes
-        extrapolation rather than data.
+        the fit clipped at a bound the caller configured, and therefore identifies where
+        the score used a bounded rather than fitted mechanism value.
+
+        The **group** quantity from :attr:`group_leverage` is a different descriptive
+        object: concentration of ``abs(w_i * h_ij)`` in one fitted score equation.  It is
+        stated separately, never pooled with arm or mechanism ESS, and adds no tier or
+        threshold.  In particular it is not estimator effective sample size, information,
+        actual influence, precision, or itself a positivity test.
         """
         # Non-finite ratios are dropped rather than compared.  An arm with no rows stores
         # NaN here by construction, and `min` over a sequence containing NaN returns
@@ -459,16 +629,43 @@ class PositivityReport:
             for ess in self.effective_sample_size.values()
             if np.isfinite(ess["ratio"])
         ]
-        fraction = self.truncated["fraction"]
+        fraction = float(self.truncated["fraction"])
+        clip_label = (
+            f"the marginal treatment-mechanism bound [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
+        )
+        for group, load in self.group_leverage.items():
+            group_fraction = float(load["clipped_fraction"])
+            if np.isfinite(group_fraction) and group_fraction > fraction:
+                fraction = group_fraction
+                clip_label = (
+                    f"group {group!r}'s treatment-mechanism bound "
+                    f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
+                )
         share = (
             (
-                f"The weighted analysis uses an effective {min(ratios):.0%} of the rows in its "
-                "narrowest arm. No threshold is applied to that share, because none is derived; "
-                "read it against what the estimate is for."
+                f"The narrowest arm has a Kish-equivalent weight count of {min(ratios):.0%} "
+                "of its nominal rows. This is concentration, not estimator information, and "
+                "no threshold is applied because none is derived."
             )
             if ratios
             else "No arm reports a finite effective sample size."
         )
+        group_rows = [
+            (group, load)
+            for group, load in self.group_leverage.items()
+            if np.isfinite(load["targeted_ratio"])
+        ]
+        if group_rows:
+            group, load = min(group_rows, key=lambda item: item[1]["targeted_ratio"])
+            share += (
+                f" Absolute-load concentration is greatest for group {group!r}, equation "
+                f"{load['equation']!r}: {load['effective']:.1f} Kish-equivalent rows out of "
+                f"{load['n_targeted']:.0f} score-mask rows ({load['targeted_ratio']:.0%}; "
+                f"{load['total_ratio']:.0%} of {load['n_total']:.0f} total rows). This is a "
+                "descriptive residual-multiplier concentration index. It excludes the residual "
+                "and is not estimator effective sample size, information, actual influence, "
+                "precision, or a positivity test."
+            )
         for name, stats in self.mechanisms.items():
             # Checked before the propensity verdict, because this is the failure a reader
             # is least likely to be looking for: overlap in `g` can be immaculate while
@@ -514,13 +711,18 @@ class PositivityReport:
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    f"{self._bound_label(name)}). {leverage} {advice}",
+                    # `share` is carried onto this branch too, so that "every verdict
+                    # states the arm share and the group share" holds on the tier that
+                    # is already flagging strain rather than only on the three below.
+                    f"{self._bound_label(name)}). Maximum treatment-mechanism clipping is "
+                    f"{fraction:.2%} at {clip_label}. {leverage} {advice} {share}",
                 )
         if fraction > 0.05:
             return (
                 "serious",
                 f"VERDICT: truncation is carrying this estimate. {fraction:.1%} of units were "
-                "clipped, so their contributions rest on extrapolation rather than data. Treat "
+                f"clipped at {clip_label}, so the fitted score used bounded rather than fitted "
+                "mechanism values for those units. Treat "
                 "the estimate as sensitive to this finite-sample regularisation. The bound "
                 "does not change the requested estimand. Check "
                 f"truncation_curve() before drawing conclusions. {share}",
@@ -528,14 +730,15 @@ class PositivityReport:
         if fraction > 0.01:
             return (
                 "strain",
-                f"VERDICT: some truncation. {fraction:.1%} of units were clipped at the bound. "
+                f"VERDICT: some truncation. {fraction:.1%} of units were clipped at "
+                f"{clip_label}. "
                 "Report truncation_curve() alongside the estimate so readers can see how much "
                 f"the answer depends on it. {share}",
             )
         return (
             "adequate",
             f"VERDICT: no truncation-driven fragility detected ({fraction:.1%} of units "
-            f"clipped). {share}",
+            f"clipped at {clip_label}). {share}",
         )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -641,6 +844,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     # this is recorded rather than restructured.
     most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
 
+    group_leverage, group_omissions = _group_leverage(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -661,6 +865,8 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         nuisance_bound=result.config.missingness_bound,
         n_repeats=result.n_repeats,
         backend=data.backend,
+        group_leverage=group_leverage,
+        group_leverage_omissions=group_omissions,
     )
 
 
@@ -725,6 +931,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
     # report uses.
     most_extreme = float(inside.min()) if inside.size else float("nan")
 
+    group_leverage, group_omissions = _group_leverage(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -746,6 +953,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
         n_repeats=result.n_repeats,
         backend=data.backend,
+        group_leverage=group_leverage,
+        group_leverage_omissions=group_omissions,
     )
 
 
@@ -917,14 +1126,18 @@ def _kish_ess(weights: FloatArray) -> float:
     return effective_sample_size(w, on_degenerate=0.0)
 
 
-def _max_abs_covariate(result: TMLEResult, group: str) -> float:
-    """Largest absolute clever-covariate value for one targeted family.
+def _group_submodel(result: TMLEResult, group: str) -> Submodel:
+    """The clever covariate one targeted family was fluctuated along.
 
     Rebuilt from the data, the nuisance estimates and the config rather than from the
     estimator, so this stays a real number on a result whose estimator is gone.
+
+    Every reading of a group's covariate comes through here.  The largest absolute value
+    and the load measures describe the same array by construction, which they would not
+    if each caller rebuilt the submodel with bounds and a reference arm of its own.
     """
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
-    submodel = build_submodel(
+    return build_submodel(
         result.data,
         result.nuisance,
         group,
@@ -941,7 +1154,97 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
         # beta a per-fold covariate has no other summary of.
         msm_beta=_reported_beta(result, group),
     )
-    return submodel.max_abs
+
+
+def _max_abs_covariate(result: TMLEResult, group: str) -> float:
+    """Largest absolute clever-covariate value for one targeted family."""
+    return _group_submodel(result, group).max_abs
+
+
+def _group_leverage(
+    result: TMLEResult,
+) -> tuple[dict[str, GroupLeverageRow], dict[str, str]]:
+    """Summarise the most concentrated fitted score equation in each target group.
+
+    The fluctuation artifact is authoritative.  Rebuilding a generic submodel is not:
+    fold-targeted ATT can use fold-specific arm fractions, and a nonlinear MSM can use a
+    different beta in every fold.  An older artifact without the exact absolute score
+    weights is therefore omitted with a reason rather than approximated.
+
+    Each score column is considered separately.  Kish and top-share concentration are
+    invariant to a scalar change of that column's units, while an L1 sum across columns is
+    not.  The retained group row is the column with the smallest targeted-row Kish ratio,
+    and every metric in that row is computed from that same column.
+    """
+    rows: dict[str, GroupLeverageRow] = {}
+    omissions: dict[str, str] = {}
+    for group, fluctuation in result.fluctuations.items():
+        artifact = getattr(fluctuation, "absolute_score_weights", None)
+        if artifact is None:
+            omissions[group] = "the fitted artifact has no exact absolute score weights"
+            continue
+        loads = np.asarray(artifact, dtype=float)
+        if loads.ndim != 2 or loads.shape[1] != len(fluctuation.names) or loads.shape[1] == 0:
+            omissions[group] = (
+                "the fitted absolute score weights do not match the recorded score equations"
+            )
+            continue
+        if np.any(~np.isfinite(loads)) or np.any(loads < 0.0):
+            omissions[group] = "the fitted absolute score weights are not finite and nonnegative"
+            continue
+
+        n_targeted = int(loads.shape[0])
+        if n_targeted == 0:
+            omissions[group] = "the fitted score mask contains no rows"
+            continue
+        effective = np.array([_kish_ess(loads[:, j]) for j in range(loads.shape[1])])
+        targeted_ratio = effective / float(n_targeted)
+        # Stable first-column selection in an exact tie.  A zero-load equation has ratio
+        # zero and is correctly the one the report must expose rather than average away.
+        selected = int(np.argmin(targeted_ratio))
+        load = loads[:, selected]
+
+        if group == "ipsi":
+            lower = upper = float("nan")
+            clipped_count = clipped_fraction = 0.0
+        else:
+            lower, upper = g_bounds_for(
+                group, result.config.g_bounds, result.config.g_bounds_conditional
+            )
+            if fluctuation.reduction is not None or fluctuation.mechanism is not None:
+                # These fits solve the outcome equation against a treatment mechanism
+                # changed during targeting.  Its score loads are exact, but the retained
+                # initial nuisance cannot recover which cells the bound moved.  Reporting
+                # initial-g clipping here would attach the right numerical bound to the
+                # wrong mechanism.
+                clipped_count = clipped_fraction = float("nan")
+                omissions[f"{group}.clipping"] = (
+                    "the score used a targeted treatment mechanism whose exact clipping "
+                    "mask was not retained"
+                )
+            else:
+                clipped = result.nuisance.propensity.truncate((lower, upper)).units
+                clipped_count = float(np.count_nonzero(clipped))
+                clipped_fraction = float(np.mean(clipped))
+
+        chosen_effective = float(effective[selected])
+        rows[group] = {
+            "equation": fluctuation.names[selected],
+            "n_total": float(result.data.n),
+            "n_targeted": float(n_targeted),
+            "effective": chosen_effective,
+            "targeted_ratio": float(targeted_ratio[selected]),
+            "total_ratio": chosen_effective / float(result.data.n),
+            "top_1pct": top_weight_share(load, 0.01),
+            "top_5pct": top_weight_share(load, 0.05),
+            "max_load": float(np.max(load)),
+            "zero_load": float(np.count_nonzero(load == 0.0)),
+            "lower_bound": float(lower),
+            "upper_bound": float(upper),
+            "clipped_count": clipped_count,
+            "clipped_fraction": clipped_fraction,
+        }
+    return rows, omissions
 
 
 def _reported_beta(result: TMLEResult, group: str) -> Any:
@@ -1193,8 +1496,9 @@ def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: 
 
     The treatment branch asks :meth:`~cleverly.estimators._nuisance.Propensity.truncate`
     and reports the share of **units** it moves at ``pair``.  A unit is one row of the
-    mechanism, and one binding denominator is enough to make that row's contribution
-    extrapolation.  The share therefore belongs to the pair it was evaluated at, and it
+    mechanism, and one binding denominator is enough to make that row use a bounded
+    rather than fitted mechanism value.  The share therefore belongs to the pair it was
+    evaluated at, and it
     equals the :func:`positivity_report` figure only at that report's own pair.  A
     continuous treatment fits no arms at all, and the share is ``nan`` there rather than
     a claim that the bound moved nothing.

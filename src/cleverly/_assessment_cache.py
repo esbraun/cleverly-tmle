@@ -86,8 +86,26 @@ def _normalize(value: Any) -> Any:
     return {"object": repr(value), "type": type(value).__qualname__}
 
 
+#: Generations for cached reports whose interpretation or retained schema changed.  Keep
+#: the operation name itself stable so cache inspection and persisted-artifact tooling can
+#: still group keys by their prefix.  The generation lives in the normalized payload,
+#: which makes an older entry a harmless cache miss instead of serving a stale report.
+#:
+#: ``assess()`` is composed from ``validate`` and the two ``run_all`` surfaces rather than
+#: cached under a fourth key.  Versioning the diagnostic aggregate and validation keys is
+#: therefore what invalidates both direct calls and the corresponding parts of assess().
+_CACHE_GENERATIONS: dict[str, int] = {
+    "diagnostics.support": 2,
+    "diagnostics.run_all": 2,
+    "validate": 2,
+}
+
+
 def _cache_key(operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]) -> str:
     normalized = {"args": _normalize(tuple(args)), "kwargs": _normalize(kwargs)}
+    generation = _CACHE_GENERATIONS.get(operation)
+    if generation is not None:
+        normalized["cache_generation"] = generation
     return f"{operation}:{json.dumps(normalized, sort_keys=True, separators=(',', ':'))}"
 
 

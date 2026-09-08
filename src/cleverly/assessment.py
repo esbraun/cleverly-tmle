@@ -1863,6 +1863,15 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         for values in getattr(report, "mechanisms", {}).values():
             if "ess_ratio" in values:
                 ess.append(float(values["ess_ratio"]))
+        # Group rows carry two facts that must not be conflated. Their clipping fraction is
+        # the action of an estimand-specific propensity bound and belongs in the maximum.
+        # Their targeted ratio is concentration of absolute score load, not arm/mechanism
+        # effective sample size, so it is deliberately excluded from the pooled minimum.
+        for values in getattr(report, "group_leverage", {}).values():
+            if "clipped_fraction" in values:
+                clipped = float(values["clipped_fraction"])
+                if np.isfinite(clipped):
+                    truncated.append(clipped)
     if isinstance(report, LongitudinalDiagnostics):
         truncated.extend(float(row.share_truncated) for row in report.rows)
         ess.extend(float(row.effective_n / row.n_followed) for row in report.rows if row.n_followed)
@@ -1886,11 +1895,33 @@ def _support_facts(truncated: float | None, ess: float | None) -> list[str]:
     return facts
 
 
+def _group_load_fact(report: Any) -> str | None:
+    """The most concentrated score equation, separate from mechanism ESS."""
+    rows = [
+        (group, values)
+        for group, values in getattr(report, "group_leverage", {}).items()
+        if np.isfinite(float(values.get("targeted_ratio", np.nan)))
+    ]
+    if not rows:
+        return None
+    group, values = min(rows, key=lambda item: float(item[1]["targeted_ratio"]))
+    return (
+        f"group load: {group}:{values['equation']} "
+        f"{float(values['effective']):.1f}/{float(values['n_targeted']):.0f} "
+        "Kish-equivalent mask rows "
+        f"({float(values['targeted_ratio']):.1%}; "
+        f"{float(values['total_ratio']):.1%} all); not estimator ESS"
+    )
+
+
 def _support_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     warning = _support_warning(report)
     facts = _support_facts(*_support_metrics(report))
+    group_fact = _group_load_fact(report)
+    if group_fact is not None:
+        facts.append(group_fact)
     if warning:
         facts.append(warning)
     detail = "; ".join(facts) if facts else "stored support report completed"
