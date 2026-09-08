@@ -115,6 +115,23 @@ The rows below remain.
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
+The next pull request completes intervention load concentration. Each regime, shift, and
+incremental support row reads its matching column from the fitted fluctuation's retained absolute
+score weights. It does not rebuild that column from the intervention ratio, because fold-specific
+targeting and observation weights can change the fitted equation.
+
+Each row reports the equation name, fitted score-mask size, Kish-equivalent row count, ratios to
+the mask and full data, top-load shares, maximum load, and structural-zero count. These quantities
+describe the magnitude of `w_i H_ij`. They are not estimator effective sample size, information,
+influence, precision, or a positivity test. The combined support row reports the most concentrated
+intervention equation as a separate fact and does not use it to assign status.
+
+An artifact without exact score weights keeps the intervention report and records a machine-readable
+omission. The report remains backward compatible with direct support checks that have no fitted
+fluctuation. Tests bind columns to intervention names, compute every quantity from the artifact,
+and use unequal observation weights as a nonzero witness. They also cover repeated fits, persistence,
+pandas and Polars output, combined-report retention, and complete-data non-regression.
+
 Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
 nonzero witness and a method-specific mutation for every new diagnostic role.
 
