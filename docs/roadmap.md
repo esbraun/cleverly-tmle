@@ -113,6 +113,35 @@ The rows below remain.
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
+The longitudinal nuisance row reports only fits that the estimator made. Treatment and censoring
+models appear once per node because one shared model serves every regimen. Outcome and
+pseudo-outcome models appear per regimen, cause, horizon, and node because those regressions differ.
+
+| role | retained evaluation | reported loss |
+| --- | --- | --- |
+| treatment | the observed arm under the observed history | weighted negative log likelihood |
+| censoring | the observed retention indicator under the observed treatment history | weighted negative log likelihood |
+| outcome | the final regression target for each fitted recursion | weighted Brier loss for a binary target, or mean squared error otherwise |
+| pseudo-outcome | each earlier regression target in the fitted recursion | weighted mean squared error |
+
+Store the two observed-law mechanism predictions from the same fitted model pass. Do not refit a
+learner or reconstruct an observed history from regimen predictions. Label each loss as
+`out_of_fold` or `in_sample` from the fitted split count. Record a machine-readable reason when an
+older artifact lacks predictions or a complete-data design has no censoring learner.
+
+Each row also retains calibration and learner-library details through the shared nuisance-model
+report contract. Add defaults for the new fitted fields, so an older artifact can explain which
+details it lacks. Invalidate cached reports whose retained schema predates this contract.
+
+`support` is the one presentation name for the longitudinal leverage report. Keep `stagewise()` as
+a direct compatibility alias and keep its capability explicit. Mark that alias as excluded from a
+combined run, so the aggregate retains one `support` payload and no `stagewise` row. The support
+payload remains unchanged.
+
+Acceptance requires role-specific prediction mutations, pandas and Polars parity, persistence
+replay, and a complete-data fit. The tests must show that the added prediction calls do not change
+the fitted regimen predictions, estimates, influence curves, or registered-study artifacts.
+
 The paragraphs below, to the intervention support rows, describe the point-treatment nuisance
 report alone. `LongitudinalNuisanceDiagnostics` carries stagewise regression rows and a backend,
 and none of the fields these paragraphs name. The longitudinal row above is the gap that remains.
