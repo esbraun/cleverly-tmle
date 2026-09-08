@@ -1530,7 +1530,7 @@ class LTMLE:
             "material truncation can trade reduced weight extremes for truncation bias and "
             "can make plug-in "
             "influence-curve inference unreliable. Inspect "
-            "res.diagnostics.stagewise().to_frame(), report "
+            "res.diagnostics.support().to_frame(), report "
             "the configured bounds, and refit the full backward recursion under "
             "substantively justified alternatives.",
             PositivityWarning,

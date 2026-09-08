@@ -112,7 +112,7 @@ class NuisanceModelReport:
     kind : str
         Whether it is a regression or a classification.
     metrics : dict of str to float
-        Out-of-fold fit metrics.
+        Fit metrics at the report's evaluation rows.
     calibration : dict of str to list of float
         Binned mean prediction and observed rate.
     learner_weights : dict of str to float
@@ -701,7 +701,7 @@ def _aggregate_learner_info(
     """Average Super Learner weights and risks across cross-fitting folds."""
     if not diagnostics:
         return {}, {}
-    entries = diagnostics if isinstance(diagnostics, list) else [diagnostics]
+    entries = diagnostics if isinstance(diagnostics, (list, tuple)) else [diagnostics]
     weights: dict[str, list[float]] = {}
     risks: dict[str, list[float]] = {}
     for entry in entries:

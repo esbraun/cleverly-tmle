@@ -95,10 +95,10 @@ def _normalize(value: Any) -> Any:
 #: cached under a fourth key.  Versioning the diagnostic aggregate and validation keys is
 #: therefore what invalidates both direct calls and the corresponding parts of assess().
 _CACHE_GENERATIONS: dict[str, int] = {
-    "diagnostics.support": 3,
-    "diagnostics.nuisance_models": 1,
-    "diagnostics.run_all": 4,
-    "validate": 4,
+    "diagnostics.support": 4,
+    "diagnostics.nuisance_models": 2,
+    "diagnostics.run_all": 5,
+    "validate": 5,
 }
 
 

@@ -277,16 +277,19 @@ print(churn_diagnostics.summary())
 print("Competing-risk diagnostics")
 print(exit_diagnostics.summary())
 
-print(churn_diagnostics.report("stagewise").to_frame())
-print(exit_diagnostics.report("stagewise").to_frame())
+print(churn_diagnostics.report("support").to_frame())
+print(exit_diagnostics.report("support").to_frame())
 print(churn_diagnostics.report("score_equations").to_frame())
 print(churn_diagnostics.report("nuisance_models").to_frame())
 ```
 
-The stagewise table is where cumulative positivity becomes visible on an event process. A horizon
+The support table is where cumulative positivity becomes visible on an event process. A horizon
 is reached through every node before it, so `effective_n` falls faster here than on an
 end-of-study fit. [Longitudinal TMLE](longitudinal-tmle.md#how-far-to-trust-this) reads those three
 columns in full.
+
+The direct `stagewise()` method remains a compatibility alias for the same support report. A
+combined run keeps only the `support` name.
 
 The retention report has six stage rows. The competing-risk report has twelve because it also
 separates causes. Its `cause` and `horizon` columns show which risk set each row describes.
@@ -296,15 +299,22 @@ the equations fitted outside each reporting fold. The stitching row checks the p
 against its sampling scale. The aggregate verifies all competing-risk rows without printing a
 second large score table.
 
-The nuisance table contains held-out loss for sequential outcome regressions. It does not assess
-the treatment or censoring learners. The combined reports also record that longitudinal
-truncation curves and refutations are unavailable.
+The nuisance table covers every fitted role. Treatment and censoring models appear once per node.
+Outcome and pseudo-outcome rows also identify their regimen, cause, horizon, and node.
+
+Treatment and censoring rows report weighted negative log likelihood. An outcome row reports
+weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
+reports weighted mean squared error. The `evaluation` column is `out_of_fold` for these fits.
+
+The combined reports also record that longitudinal truncation curves and refutations are
+unavailable. A `completed` nuisance row means the retained losses exist, not that the models are
+correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the stagewise report | how many members were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
+| the support report | how many members were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
-| the nuisance report | held-out loss for each sequential outcome regression | treatment-model quality, censoring-model quality, or causal identification |
+| the nuisance report | retained loss and calibration for each fitted nuisance role | that any nuisance model is correct, or that causal identification holds |
 | the registered event-process studies | ordinary and cross-fitted fits recover known two-horizon survival and competing-risk truths | MSMs, weights, clustering, eliminated competing events, or simultaneous bands |
 
 The survival curve rests on two registered rows, the

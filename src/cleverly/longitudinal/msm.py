@@ -86,6 +86,7 @@ from ..fluctuation.iterative import (
 )
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
+from ..learners.super_learner import SuperLearnerDiagnostics
 from ..msm import MSM, Link, ProjectionFit, check_projection_rank, link_for, solve_projection
 from ..utils.bounds import OutcomeScaler
 from ..utils.parallel import map_parallel
@@ -483,6 +484,9 @@ class _FoldPass:
     #: aggregate anyway -- returning steps would ship the very objects this class exists to
     #: leave behind.
     held: list[dict[int, dict[str, FloatArray]]]
+    #: Super Learner diagnostics for each held cell and node. These are small fit
+    #: summaries, so they travel separately from the held-out prediction slices.
+    diagnostics: list[dict[int, tuple[SuperLearnerDiagnostics, ...]]]
     #: Deepest node first, one per node.  Every cell live at a node shares one solve, so a
     #: fold contributes one record per node however many cells were live.
     solves: list[_FoldSolve]
@@ -648,6 +652,7 @@ def fit_regimens_msm(
                             targeted=targeted[position],
                             clever=node.clever,
                             fluctuation=fluctuation,
+                            learner_diagnostics=node.learner_diagnostics,
                         )
                     )
                     carried[k] = np.where(node.at_risk, targeted[position], _FILLER)
@@ -841,6 +846,9 @@ def _crossfit_msm(
                 }
                 for cell in run.steps
             ],
+            diagnostics=[
+                {step.time: step.learner_diagnostics for step in cell} for cell in run.steps
+            ],
             solves=[
                 _FoldSolve(
                     record=FoldFluctuation(
@@ -887,6 +895,9 @@ def _crossfit_msm(
     }
     design = np.empty_like(model.design)
     solves: dict[int, list[_FoldSolve]] = {time: [] for time in range(1, horizon + 1)}
+    diagnostics: dict[int, dict[int, list[SuperLearnerDiagnostics]]] = {
+        k: {time: [] for time in range(1, model.cells[k].horizon + 1)} for k in range(model.n_cells)
+    }
     records: list[ProjectionFluctuation] = []
     for fold_pass, _ in outcomes:
         test = fold_pass.index
@@ -896,6 +907,9 @@ def _crossfit_msm(
             for time, values in cell.items():
                 for name, slice_ in values.items():
                     stitched[k][time][name][test] = slice_
+        for k, diagnostic_cell in enumerate(fold_pass.diagnostics):
+            for time, nuisance_records in diagnostic_cell.items():
+                diagnostics[k][time].extend(nuisance_records)
         for position, solve in enumerate(fold_pass.solves):
             solves[horizon - position].append(solve)
 
@@ -933,6 +947,7 @@ def _crossfit_msm(
                 targeted=stitched[k][time]["targeted"],
                 clever=stitched[k][time]["clever"],
                 fluctuation=node_at[time],
+                learner_diagnostics=tuple(diagnostics[k][time]),
             )
             for time in range(1, model.cells[k].horizon + 1)
         ]

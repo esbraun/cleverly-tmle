@@ -34,9 +34,12 @@ from .utils.frames import emit_frame
 from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
+    LONGITUDINAL_CENSORING_NOT_FITTED,
+    LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING,
     STITCHED_SCORE_Z_TOLERANCE,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
+    LongitudinalNuisanceOmission,
     LongitudinalNuisanceRow,
     LongitudinalScoreDiagnostics,
     LongitudinalScoreRow,
@@ -49,6 +52,8 @@ from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
+    "LONGITUDINAL_CENSORING_NOT_FITTED",
+    "LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING",
     "SENSITIVITY_ROUTES",
     "STITCHED_SCORE_Z_TOLERANCE",
     "VALIDATION_OPERATIONS",
@@ -60,6 +65,7 @@ __all__ = [
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
+    "LongitudinalNuisanceOmission",
     "LongitudinalNuisanceRow",
     "LongitudinalScoreDiagnostics",
     "LongitudinalScoreRow",
@@ -150,6 +156,8 @@ class AssessmentCapability:
     requires_replay : str or None
         Name of the :class:`Replayability` field the operation needs. ``None`` means the
         operation reads stored artifacts only.
+    include_in_combined : bool
+        Whether :meth:`DiagnosticsFacade.run_all` includes the capability as a report row.
     """
 
     operation: str
@@ -177,6 +185,9 @@ class AssessmentCapability:
     #: ``available=True`` on a result with no estimator while ``truncation_curve``,
     #: ``benchmark`` and ``simulated_confounding`` beside it reported the truth.
     requires_replay: str | None = None
+    #: Whether the combined report presents this operation. Compatibility aliases remain
+    #: explicit capabilities even when their canonical operation is the only combined row.
+    include_in_combined: bool = True
 
 
 def _capability(
@@ -195,6 +206,7 @@ def _capability(
     methods: Sequence[str] | None = None,
     accepts_random_state: bool = False,
     requires_replay: str | None = None,
+    include_in_combined: bool = True,
 ) -> AssessmentCapability:
     return AssessmentCapability(
         operation=operation,
@@ -215,6 +227,7 @@ def _capability(
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
         requires_replay=requires_replay,
+        include_in_combined=include_in_combined,
     )
 
 
@@ -292,8 +305,17 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "nuisance_models",
         "longitudinal",
-        artifacts=("node pseudo-outcomes", "initial node predictions"),
-        interpretation="stagewise held-out loss for the sequential outcome regressions",
+        artifacts=(
+            "observed-law treatment predictions",
+            "observed-law censoring predictions",
+            "node pseudo-outcomes",
+            "initial node predictions",
+            "nuisance learner diagnostics",
+        ),
+        interpretation=(
+            "weighted treatment, censoring, outcome, and pseudo-outcome fit by node and "
+            "fitted recursion"
+        ),
     ),
     _capability(
         "score_equations",
@@ -341,6 +363,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "longitudinal",
         artifacts=("sequential steps", "cumulative mechanism products"),
         interpretation="risk sets, assignment, leverage, truncation, and convergence by node",
+        include_in_combined=False,
     ),
 )
 
@@ -1170,6 +1193,8 @@ class _CapabilityFacade:
         def compute() -> DiagnosticReport:
             items = []
             for declared in self.capabilities:
+                if not declared.include_in_combined:
+                    continue
                 operation_arguments = dict(supplied.get(declared.operation, {}))
                 capability = self._capability_for_arguments(declared.operation, operation_arguments)
                 skipped = self._skipped(
@@ -1505,13 +1530,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             If the fitted result is not longitudinal.
         """
         self._require("stagewise")
-        return _cached(
-            self._result,
-            "diagnostics.stagewise",
-            (),
-            {},
-            lambda: _longitudinal_stagewise(self._result),
-        )
+        return self.support()
 
     def support(self) -> Any:
         """Return the support diagnostic for the fitted intervention.
@@ -1524,7 +1543,13 @@ class DiagnosticsFacade(_CapabilityFacade):
         """
         self._require("support")
         if _family(self._result) == "longitudinal":
-            return self.stagewise()
+            return _cached(
+                self._result,
+                "diagnostics.support",
+                (),
+                {},
+                lambda: _longitudinal_stagewise(self._result),
+            )
 
         def compute() -> Any:
             nuisance = self._result.nuisance
@@ -1803,7 +1828,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         Returns
         -------
         DiagnosticReport
-            One item for every declared diagnostic operation.
+            One item for every diagnostic operation included in the combined report.
 
         See Also
         --------
@@ -1997,15 +2022,17 @@ def _nuisance_item(
 ) -> AssessmentItem:
     findings = tuple(getattr(report, "findings", ()))
     if isinstance(report, LongitudinalNuisanceDiagnostics):
-        finite = [row.mse for row in report.rows if np.isfinite(row.mse)]
+        finite = [row.reported_loss for row in report.rows if np.isfinite(row.reported_loss)]
         if not finite:
             return AssessmentItem(
                 "nuisance_models",
                 AssessmentStatus.WARNING,
-                "no finite stagewise held-out loss is available",
+                "no finite longitudinal nuisance loss is available",
                 ("inspect result.diagnostics.nuisance_models()",),
             )
-        detail = f"{len(finite)} stagewise held-out loss value(s) are available"
+        detail = f"{len(finite)} longitudinal nuisance loss value(s) are available"
+        if report.omissions:
+            detail += f"; {len(report.omissions)} role omission(s) are recorded"
     else:
         facts = [
             "; ".join(findings)

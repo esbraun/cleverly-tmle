@@ -191,11 +191,47 @@ def test_longitudinal_stagewise_reports_one_row_per_node(longitudinal_result) ->
     assert set(frame["share_assigned_1"]) == {0.0, 1.0}  # two static regimens
 
 
+def test_longitudinal_stagewise_is_a_direct_support_alias(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+    result = dataclasses.replace(longitudinal_result)
+
+    stagewise = result.diagnostics.stagewise()
+
+    assert stagewise is result.diagnostics.support()
+    cache_operations = {key.split(":", 1)[0] for key in result.assessment_cache}
+    assert "diagnostics.support" in cache_operations
+    assert "diagnostics.stagewise" not in cache_operations
+
+
+def test_only_the_longitudinal_stagewise_alias_is_excluded_from_combined_reports(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    excluded = {
+        (row.result_family, row.operation)
+        for row in ASSESSMENT_CAPABILITIES
+        if not row.include_in_combined
+    }
+    assert excluded == {("longitudinal", "stagewise")}
+    assert not longitudinal_result.diagnostics.capability("stagewise").include_in_combined
+
+    combined = dataclasses.replace(longitudinal_result).diagnostics.run_all()
+    names = [item.name for item in combined.items]
+    assert names.count("support") == 1
+    assert "stagewise" not in names
+    assert combined.report("support").rows
+
+
 def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
     expected = sum(len(fit.steps) for fit in longitudinal_result.fits.values())
     scores = longitudinal_result.diagnostics.score_equations()
     nuisances = longitudinal_result.diagnostics.nuisance_models()
-    assert len(nuisances.rows) == expected
+    mechanism_rows = longitudinal_result.data.n_times * 2
+    assert len(nuisances.rows) == expected + mechanism_rows
+    assert {row.role for row in nuisances.rows} == {
+        "treatment",
+        "censoring",
+        "outcome",
+        "pseudo_outcome",
+    }
     # One row per node per question the node poses.  A cross-fitted node poses two -- did
     # every fold's solve reach its root, and is the stitched residual where sampling would
     # leave it -- and a single-fold node poses only the first.
@@ -204,7 +240,24 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
     assert kinds.count("stitching") in {0, expected}
     assert len(scores.rows) == len(kinds)
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)
-    assert all(row.n > 0 and row.mse >= 0 for row in nuisances.rows)
+    assert all(row.n > 0 and row.reported_loss >= 0 for row in nuisances.rows)
+
+
+def test_longitudinal_nuisance_capability_names_every_retained_artifact(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    capability = longitudinal_result.diagnostics.capability("nuisance_models")
+    assert capability.required_artifacts == (
+        "observed-law treatment predictions",
+        "observed-law censoring predictions",
+        "node pseudo-outcomes",
+        "initial node predictions",
+        "nuisance learner diagnostics",
+    )
+    assert capability.interpretation == (
+        "weighted treatment, censoring, outcome, and pseudo-outcome fit by node and "
+        "fitted recursion"
+    )
 
 
 @pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
@@ -623,8 +676,8 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
 
     result.assessment_cache.clear()
     legacy_keys = {_without_cache_generation(key) for key in versioned}
-    generation_two_keys = {_with_cache_generation(key, 2) for key in versioned}
-    stale_keys = legacy_keys | generation_two_keys
+    generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
+    stale_keys = legacy_keys | generation_one_keys
     result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
     restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
 
@@ -642,6 +695,41 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
         "cache_generation" in key and key.startswith("diagnostics.nuisance_models:")
         for key in restored.assessment_cache
     )
+
+
+def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
+    longitudinal_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    result = dataclasses.replace(longitudinal_result)
+    result.diagnostics.support()
+    result.diagnostics.run_all()
+    current = {
+        key: value
+        for key, value in result.assessment_cache.items()
+        if key.split(":", 1)[0] in {"diagnostics.support", "diagnostics.run_all"}
+    }
+    assert {key.split(":", 1)[0] for key in current} == {
+        "diagnostics.support",
+        "diagnostics.run_all",
+    }
+
+    result.assessment_cache.clear()
+    stale = {
+        _with_cache_generation(key, 3 if key.startswith("diagnostics.support:") else 4)
+        for key in current
+    }
+    result.assessment_cache.update(dict.fromkeys(stale, "legacy cached report"))
+    result.assessment_cache['diagnostics.stagewise:{"args":[],"kwargs":{}}'] = (
+        "legacy stagewise report"
+    )
+    restored = load(result.save(tmp_path / "legacy-longitudinal-assessment-cache.joblib"))
+
+    assert restored.diagnostics.stagewise() != "legacy stagewise report"
+    combined = restored.diagnostics.run_all()
+    assert combined != "legacy cached report"
+    assert [item.name for item in combined.items].count("support") == 1
+    assert "stagewise" not in {item.name for item in combined.items}
+    assert stale <= set(restored.assessment_cache)
 
 
 def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:

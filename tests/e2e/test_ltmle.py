@@ -492,9 +492,12 @@ def test_each_cumulative_mechanism_is_truncated_after_the_product() -> None:
 
 def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
     frame, _ = make_longitudinal(n=400, seed=91)
-    with pytest.warns(PositivityWarning, match="constant on scored rows"):
+    with pytest.warns(PositivityWarning, match="constant on scored rows") as caught:
         result = run(frame, regimens={"always": 1}, g_bounds=0.9)
-    diagnostics = result.diagnostics.stagewise().to_frame()
+    message = str(caught[0].message)
+    assert "diagnostics.support()" in message
+    assert "diagnostics.stagewise()" not in message
+    diagnostics = result.diagnostics.support().to_frame()
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]
     np.testing.assert_allclose(fit.cumulative[:, -1], 0.9)
