@@ -131,9 +131,16 @@ For an incremental target, the row describes the retained outcome score. The sep
 mechanism equation has no retained row-level weights and stays outside the report.
 
 An artifact without exact score weights keeps the intervention report. It records a machine-readable
-omission. Tests bind columns to intervention names and compute every quantity from the artifact.
-Unequal observation weights provide a nonzero witness. The tests also cover repeated fits,
-persistence, pandas and Polars parity, combined-report retention, and complete-data non-regression.
+omission. The tests recompute every reported quantity from the artifact. Unequal observation weights
+provide a nonzero witness. The tests also cover repeated fits, persistence, pandas and Polars parity,
+combined-report retention, and complete-data non-regression.
+
+A fitted equation name is positional, such as `h_regime0`, and carries no policy identity. The
+semantic witness is `test_the_column_a_regime_row_reports_is_the_one_that_policy_solved` in
+`tests/unit/test_intervention_load_diagnostics.py`. That test declares `Static(0, name="none")` and
+`Static(1, name="all")`, whose clever covariates hold structural zeros on complementary row sets. It
+locates each policy's column by that zero pattern, then reads the row the report publishes under the
+policy name. A permutation of the fitted artifact's columns fails it.
 
 Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
 nonzero witness and a method-specific mutation for every new diagnostic role.

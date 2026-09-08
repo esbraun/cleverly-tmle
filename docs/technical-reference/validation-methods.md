@@ -93,6 +93,14 @@ The public `diagnostics.support()` route provides group rows as follows.
 | regime | intervention-specific regime report | one row per regime equation |
 | shift | intervention-specific shift report | one row per shift equation |
 | incremental | intervention-specific incremental report | one row per outcome equation |
+| longitudinal | `LongitudinalDiagnostics` from `stagewise()` | no. A longitudinal fluctuation retains no absolute score weights |
+
+The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result leaves
+`diagnostics.support()` through `stagewise()`, so the call reaches neither `positivity_report` nor
+an intervention report. A longitudinal fluctuation also retains no `absolute_score_weights`, and
+that identifier appears nowhere under `src/cleverly/longitudinal/`. No fitted artifact therefore
+exists to describe, and no omission reason is recorded for one. Read `stagewise()` for the per-node
+support this route does supply.
 
 The intervention-specific reports keep their ratio and support fields. Their `score_load` field
 adds the fitted equation load without replacing those quantities. The report matches columns to
@@ -109,6 +117,27 @@ not add that ratio to the mechanism effective-sample-size minimum or use it to a
 An older fitted artifact might not retain exact absolute score weights. The report does not
 reconstruct an approximation. `group_leverage_omissions` names each omitted generic group and its
 reason. Each intervention row uses `score_load_omission` for the same purpose.
+
+The reason strings are machine-readable, so they are part of the API. Both paths accept an artifact
+through `cleverly.data.weighting.validate_score_loads` and record the constants that module
+declares. A given condition therefore produces the same text whichever report holds it.
+
+| constant | what the report means by it |
+| --- | --- |
+| `SCORE_LOAD_NO_EQUATION` | the fit recorded no score equation for this target |
+| `SCORE_LOAD_MISSING` | the fluctuation exists and retains no exact absolute score weights |
+| `SCORE_LOAD_SHAPE_MISMATCH` | the artifact is not one column per recorded score equation |
+| `SCORE_LOAD_NOT_FINITE` | a load is negative, infinite, or `nan` |
+| `SCORE_LOAD_EMPTY_MASK` | the fitted score mask selected no rows |
+| `SCORE_LOAD_MASK_TOO_LARGE` | the mask holds more rows than the fitted data |
+| `SCORE_LOAD_PREDATES` | the report unpickled from before the score-load fields existed |
+
+Two of those rows are behavior changes. The empty-mask and oversized-mask conditions were one reason
+before, and they say opposite things: a fit that targeted nothing, and a malformed block. The
+generic group path also had no size refusal at all. A mask taller than the fitted data was described
+rather than omitted, and the row published a `total_ratio` above one. A direct-call table in
+`tests/unit/test_intervention_load_diagnostics.py` reaches each condition, under
+`test_every_refused_score_artifact_names_the_one_condition_it_failed`.
 
 Every generic group row and intervention `score_load` row carries these concentration keys.
 
@@ -128,9 +157,21 @@ Every generic group row and intervention `score_load` row carries these concentr
 | `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
 | `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
 
+`top_1pct` and `top_5pct` count at least one row each. Each key takes the largest
+`max(1, ceil(fraction * n_targeted))` loads. At 20 score-mask rows or fewer the two keys therefore
+report the same number, which is the largest single row's share. Read them as separate quantities
+only above that size. The rounding rule lives in `cleverly.data.weighting.top_weight_share`.
+
 The bound and clipping fields apply only to generic group rows. The repeat fields apply only to
 intervention rows. A repeated fit's intervention load describes draw 01 and not its
 coordinatewise median-combined estimate.
+
+A generic group row carries no repeat fields. Its draw count comes from
+`PositivityReport.n_repeats`, which the report records once for the whole fit. Every reader renders
+the draw from the row or from the report, and no reader writes the count as a fixed string. The test
+`test_the_group_load_row_counts_the_same_draws_the_report_does` in
+`tests/unit/test_repeated_crossfit.py` holds the combined `support` row and
+`PositivityReport.summary()` to one total.
 
 The per-equation tests recompute these fields from the fitted score artifacts. They also use
 multi-column controls with different equation scales and signs.

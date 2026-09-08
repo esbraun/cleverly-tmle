@@ -10,6 +10,7 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    :nosignatures:
 
    cleverly.assessment.SensitivityFacade
+   cleverly.data.weighting.ScoreLoadRow
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
