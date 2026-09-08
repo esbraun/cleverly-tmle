@@ -109,16 +109,14 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| intervention load concentration | report per-equation covariate-load concentration for regime, shift, and incremental support reports |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-The next pull request completes intervention load concentration. Each regime, shift, and
-incremental support row reads its matching column from the fitted fluctuation's retained absolute
-score weights. It does not rebuild that column from the intervention ratio, because fold-specific
-targeting and observation weights can change the fitted equation.
+Intervention support rows now retain load concentration. Each regime, shift, and incremental row
+reads its matching column from the fitted fluctuation's absolute score weights. The report does not
+rebuild that column from the intervention ratio, because fitted weights can change the equation.
 
 Each row reports the equation name, fitted score-mask size, Kish-equivalent row count, ratios to
 the mask and full data, top-load shares, maximum load, and structural-zero count. These quantities
@@ -126,11 +124,16 @@ describe the magnitude of `w_i H_ij`. They are not estimator effective sample si
 influence, precision, or a positivity test. The combined support row reports the most concentrated
 intervention equation as a separate fact and does not use it to assign status.
 
-An artifact without exact score weights keeps the intervention report and records a machine-readable
-omission. The report remains backward compatible with direct support checks that have no fitted
-fluctuation. Tests bind columns to intervention names, compute every quantity from the artifact,
-and use unequal observation weights as a nonzero witness. They also cover repeated fits, persistence,
-pandas and Polars output, combined-report retention, and complete-data non-regression.
+For repeated cross-fitting, the row identifies draw 01 and the total draw count. The retained load
+does not describe the coordinatewise median-combined estimate.
+
+For an incremental target, the row describes the retained outcome score. The separate treatment
+mechanism equation has no retained row-level weights and stays outside the report.
+
+An artifact without exact score weights keeps the intervention report. It records a machine-readable
+omission. Tests bind columns to intervention names and compute every quantity from the artifact.
+Unequal observation weights provide a nonzero witness. The tests also cover repeated fits,
+persistence, pandas and Polars parity, combined-report retention, and complete-data non-regression.
 
 Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
 nonzero witness and a method-specific mutation for every new diagnostic role.

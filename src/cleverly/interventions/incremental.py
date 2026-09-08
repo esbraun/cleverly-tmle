@@ -89,6 +89,7 @@ from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size
 from ..exceptions import DataError
+from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
 
@@ -492,6 +493,11 @@ class IncrementalSupport:
         Kish effective sample size of those weights.
     ess_ratio : float
         That size as a share of ``n``.
+    score_load : dict or None
+        Concentration of the exact absolute score weights retained for this tilt's
+        outcome equation. ``None`` means the artifact did not supply a usable column.
+    score_load_omission : str or None
+        Machine-readable reason why :attr:`score_load` is unavailable.
     """
 
     name: str
@@ -505,6 +511,26 @@ class IncrementalSupport:
     max_ratio: float
     effective_sample_size: float
     ess_ratio: float
+    score_load: _InterventionLoadRow | None = None
+    score_load_omission: str | None = None
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a report whose pickle can predate the score-load fields.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            Instance values carried by the pickle.
+        """
+        self.__dict__.update(state)
+        if "score_load" not in state:
+            object.__setattr__(self, "score_load", None)
+        if "score_load_omission" not in state:
+            object.__setattr__(
+                self,
+                "score_load_omission",
+                "the report predates fitted score-load diagnostics",
+            )
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -515,16 +541,30 @@ class IncrementalSupport:
             A printable table, one line per row of the report.
         """
         low, high = self.guaranteed
+        score = (
+            "score load unavailable"
+            if self.score_load is None
+            else (
+                f"score load={self.score_load['effective']:.1f}/"
+                f"{self.score_load['n_targeted']:.0f} Kish-equivalent mask rows "
+                f"(draw 01 of {self.score_load['n_repeats']:02d})"
+            )
+        )
         return (
             f"{self.name}: min g(1|W)={self.min_propensity:.3g}, "
             f"covariate in [{low:.3g}, {high:.3g}] by construction, "
             f"max={self.max_ratio:.3g}, "
-            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n)"
+            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), {score}"
         )
 
 
 def check_incremental_support(
-    tilts: IPSISet, treatment: FloatArray
+    tilts: IPSISet,
+    treatment: FloatArray,
+    *,
+    absolute_score_weights: FloatArray | None = None,
+    equations: tuple[str, ...] = (),
+    n_repeats: int = 1,
 ) -> dict[str, IncrementalSupport]:
     """Per-tilt overlap, in the vocabulary the other two axes' reports use.
 
@@ -539,6 +579,12 @@ def check_incremental_support(
         The evaluated tilts to report on.
     treatment : ndarray
         ``(n,)`` observed treatment, in arm codes.
+    absolute_score_weights : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, in tilt order. ``None`` records an omission.
+    equations : tuple of str
+        Fitted outcome score-equation names, in tilt order.
+    n_repeats : int
+        Number of stored cross-fitting draws. The retained weights describe draw 1.
 
     Returns
     -------
@@ -547,6 +593,10 @@ def check_incremental_support(
     """
     observed = tilts.observed(treatment)
     n = observed.shape[0]
+    labels = tuple(tilts.names)
+    score_loads, load_omission = _intervention_loads(
+        labels, absolute_score_weights, equations, n, n_repeats
+    )
     out: dict[str, IncrementalSupport] = {}
     for index, name in enumerate(tilts.names):
         delta = tilts.deltas[index]
@@ -560,5 +610,7 @@ def check_incremental_support(
             max_ratio=float(column.max()) if column.size else 0.0,
             effective_sample_size=ess,
             ess_ratio=ess / n if n else 0.0,
+            score_load=score_loads.get(name),
+            score_load_omission=load_omission,
         )
     return out

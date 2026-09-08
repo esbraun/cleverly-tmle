@@ -90,17 +90,27 @@ The public `diagnostics.support()` route provides group rows as follows.
 | fitted group | support report | group row available |
 | --- | --- | --- |
 | `mean`, `att`, `atc`, or `msm` | `PositivityReport` | yes |
-| regime | intervention-specific regime report | no |
-| shift | intervention-specific shift report | no |
-| incremental | intervention-specific incremental report | no |
+| regime | intervention-specific regime report | one row per regime equation |
+| shift | intervention-specific shift report | one row per shift equation |
+| incremental | intervention-specific incremental report | one row per outcome equation |
 
-The intervention-specific reports remain the public support workflow. They do not yet provide
-per-equation covariate-load concentration.
+The intervention-specific reports keep their ratio and support fields. Their `score_load` field
+adds the fitted equation load without replacing those quantities. The report matches columns to
+policies in declaration order and retains the fitted equation name. It does not parse generated
+equation labels.
+
+An incremental fit solves a second equation for the treatment mechanism. `score_load` describes
+only the retained outcome residual-multiplier equation. The mechanism fluctuation does not retain
+an equivalent row-level absolute load, so the report does not claim to summarize it.
+
+The combined support row reports the most concentrated intervention equation separately. It does
+not add that ratio to the mechanism effective-sample-size minimum or use it to assign status.
 
 An older fitted artifact might not retain exact absolute score weights. The report does not
-reconstruct an approximation. `group_leverage_omissions` names each omitted group and its reason.
+reconstruct an approximation. `group_leverage_omissions` names each omitted generic group and its
+reason. Each intervention row uses `score_load_omission` for the same purpose.
 
-Each reported group carries these keys.
+Every generic group row and intervention `score_load` row carries these concentration keys.
 
 | key | what it holds |
 | --- | --- |
@@ -114,8 +124,13 @@ Each reported group carries these keys.
 | `top_5pct` | the share of the load the largest 5% of rows hold |
 | `max_load` | the selected equation's largest absolute residual multiplier |
 | `zero_load` | score-mask rows with a zero residual multiplier in the selected equation |
+| `reported_repeat`, `n_repeats` | draw 01 and the total draw count, on intervention rows only |
 | `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
 | `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
+
+The bound and clipping fields apply only to generic group rows. The repeat fields apply only to
+intervention rows. A repeated fit's intervention load describes draw 01 and not its
+coordinatewise median-combined estimate.
 
 The per-equation tests recompute these fields from the fitted score artifacts. They also use
 multi-column controls with different equation scales and signs.

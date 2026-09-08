@@ -90,6 +90,7 @@ from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size
 from ..exceptions import DataError, PositivityWarning
 from ..learners.density import ConditionalDensity, warn_if_unresolved
+from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["Shift", "ShiftSet", "ShiftSupport", "check_shift_support"]
 
@@ -452,6 +453,11 @@ class ShiftSupport:
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
         the quantiles and the effective sample size above are of the whole weight.
+    score_load : dict or None
+        Concentration of the exact absolute score weights retained for this shift's
+        equation. ``None`` means the fitted artifact did not supply a usable column.
+    score_load_omission : str or None
+        Machine-readable reason why :attr:`score_load` is unavailable.
     """
 
     name: str
@@ -468,6 +474,26 @@ class ShiftSupport:
     #: covariate alongside the ratio, or ``None`` when the fit declared neither.  The
     #: quantiles and ESS above are of the *whole* weight when this is not ``None``.
     min_mechanism: float | None = None
+    score_load: _InterventionLoadRow | None = None
+    score_load_omission: str | None = None
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a report whose pickle can predate the score-load fields.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            Instance values carried by the pickle.
+        """
+        self.__dict__.update(state)
+        if "score_load" not in state:
+            object.__setattr__(self, "score_load", None)
+        if "score_load_omission" not in state:
+            object.__setattr__(
+                self,
+                "score_load_omission",
+                "the report predates fitted score-load diagnostics",
+            )
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -482,11 +508,20 @@ class ShiftSupport:
             "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
         )
         label = "ratio" if self.min_mechanism is None else "weight"
+        score = (
+            "score load unavailable"
+            if self.score_load is None
+            else (
+                f"score load={self.score_load['effective']:.1f}/"
+                f"{self.score_load['n_targeted']:.0f} Kish-equivalent mask rows "
+                f"(draw 01 of {self.score_load['n_repeats']:02d})"
+            )
+        )
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}\n"
+            f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
             f"    {label} quantiles -- {quantiles}"
         )
 
@@ -497,6 +532,9 @@ def check_shift_support(
     treatment: FloatArray,
     *,
     mechanisms: Sequence[FloatArray] = (),
+    absolute_score_weights: FloatArray | None = None,
+    equations: tuple[str, ...] = (),
+    n_repeats: int = 1,
 ) -> dict[str, ShiftSupport]:
     """Per-shift overlap, in the vocabulary :mod:`cleverly.interventions.support` uses.
 
@@ -525,6 +563,12 @@ def check_shift_support(
     mechanisms : sequence of ndarray
         Further ``(n, S + 1)`` denominators the fit declared. Only column ``0``,
         the value at the row's own dose, is read.
+    absolute_score_weights : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, in shift order. ``None`` records an omission.
+    equations : tuple of str
+        Fitted score-equation names, in shift order.
+    n_repeats : int
+        Number of stored cross-fitting draws. The retained weights describe draw 1.
 
     Returns
     -------
@@ -537,6 +581,10 @@ def check_shift_support(
     denominator = np.ones(a.size)
     for values in at_observed:
         denominator = denominator * values
+    labels = tuple(shifts.names)
+    score_loads, load_omission = _intervention_loads(
+        labels, absolute_score_weights, equations, a.size, n_repeats
+    )
     out: dict[str, ShiftSupport] = {}
     for index, name in enumerate(shifts.names):
         weight = shifts.ratio[:, index] / denominator
@@ -554,5 +602,7 @@ def check_shift_support(
             capped_fraction=float(np.mean(shifts.capped[:, index])),
             unsupported=int(np.sum(observed_density <= 0.0)),
             min_mechanism=float(denominator.min()) if at_observed else None,
+            score_load=score_loads.get(name),
+            score_load_omission=load_omission,
         )
     return out

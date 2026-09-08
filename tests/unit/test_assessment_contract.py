@@ -514,6 +514,14 @@ def _without_cache_generation(key: str) -> str:
     return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
 
 
+def _with_cache_generation(key: str, generation: int) -> str:
+    """Rewrite a current cache key as an older versioned result carries it."""
+    operation, encoded = key.split(":", 1)
+    payload = json.loads(encoded)
+    payload["cache_generation"] = generation
+    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
+
+
 def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     point_result, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
@@ -535,14 +543,16 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
 
     result.assessment_cache.clear()
     legacy_keys = {_without_cache_generation(key) for key in versioned}
-    result.assessment_cache.update(dict.fromkeys(legacy_keys, "legacy cached report"))
+    generation_two_keys = {_with_cache_generation(key, 2) for key in versioned}
+    stale_keys = legacy_keys | generation_two_keys
+    result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
     restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
 
     assert restored.diagnostics.support().group_leverage
     assert restored.diagnostics.run_all() != "legacy cached report"
     assert restored.validate() != "legacy cached report"
     assert restored.assess().diagnostics != "legacy cached report"
-    assert legacy_keys <= set(restored.assessment_cache)
+    assert stale_keys <= set(restored.assessment_cache)
     assert any(
         "cache_generation" in key and key.startswith("diagnostics.support:")
         for key in restored.assessment_cache

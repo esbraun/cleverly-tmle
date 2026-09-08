@@ -1527,18 +1527,32 @@ class DiagnosticsFacade(_CapabilityFacade):
             )
             from .sensitivity.positivity import positivity_report
 
+            def score_artifact(group: str) -> tuple[Any, tuple[str, ...]]:
+                fluctuation = self._result.fluctuations.get(group)
+                if fluctuation is None:
+                    return None, ()
+                return (
+                    getattr(fluctuation, "absolute_score_weights", None),
+                    tuple(fluctuation.names),
+                )
+
             if nuisance.regimes is not None:
+                loads, equations = score_artifact("regime")
                 return check_support(
                     nuisance.regimes,
                     self._result.data.treatment,
                     nuisance.propensity.values,
                     backend=self._result.data.backend,
+                    absolute_score_weights=loads,
+                    equations=equations,
+                    n_repeats=self._result.n_repeats,
                 )
             # ``shifts`` alone, not ``shifts and density``: a shift fit without a fitted
             # density is a broken shift fit, and the density-ratio report says so by name.
             # Adding the second condition sent it to the arm-level report instead, which
             # answers a different question or refuses for an unrelated reason.
             if nuisance.shifts is not None:
+                loads, equations = score_artifact("mtp")
                 bound = self._result.config.missingness_bound
                 level = self._result.intermediate_value
                 mechanisms = [
@@ -1554,9 +1568,19 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.density,
                     self._result.data.treatment,
                     mechanisms=mechanisms,
+                    absolute_score_weights=loads,
+                    equations=equations,
+                    n_repeats=self._result.n_repeats,
                 )
             if nuisance.incremental is not None:
-                return check_incremental_support(nuisance.incremental, self._result.data.treatment)
+                loads, equations = score_artifact("ipsi")
+                return check_incremental_support(
+                    nuisance.incremental,
+                    self._result.data.treatment,
+                    absolute_score_weights=loads,
+                    equations=equations,
+                    n_repeats=self._result.n_repeats,
+                )
             return positivity_report(self._result)
 
         return _cached(self._result, "diagnostics.support", (), {}, compute)
@@ -1898,19 +1922,28 @@ def _support_facts(truncated: float | None, ess: float | None) -> list[str]:
 def _group_load_fact(report: Any) -> str | None:
     """The most concentrated score equation, separate from mechanism ESS."""
     rows = [
-        (group, values)
+        ("group", group, values)
         for group, values in getattr(report, "group_leverage", {}).items()
         if np.isfinite(float(values.get("targeted_ratio", np.nan)))
     ]
+    interventions = report.items() if isinstance(report, Mapping) else ()
+    regimes = getattr(report, "regimes", {}).items()
+    rows.extend(
+        ("intervention", str(name), values)
+        for name, item in (*interventions, *regimes)
+        if (values := getattr(item, "score_load", None)) is not None
+        and np.isfinite(float(values.get("targeted_ratio", np.nan)))
+    )
     if not rows:
         return None
-    group, values = min(rows, key=lambda item: float(item[1]["targeted_ratio"]))
+    kind, group, values = min(rows, key=lambda item: float(item[2]["targeted_ratio"]))
     return (
-        f"group load: {group}:{values['equation']} "
+        f"{kind} load: {group}:{values['equation']} "
         f"{float(values['effective']):.1f}/{float(values['n_targeted']):.0f} "
         "Kish-equivalent mask rows "
         f"({float(values['targeted_ratio']):.1%}; "
-        f"{float(values['total_ratio']):.1%} all); not estimator ESS"
+        f"{float(values['total_ratio']):.1%} all; "
+        f"draw 01 of {int(values.get('n_repeats', 1)):02d}); not estimator ESS"
     )
 
 
