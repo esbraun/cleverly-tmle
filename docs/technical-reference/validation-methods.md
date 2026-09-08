@@ -256,7 +256,8 @@ the earlier regressions were fitted to, and the whole pass has to run again.
 the predicted probability itself, so a miscalibrated fit moves every weight.
 
 **What it tells you.** Whether each nuisance fit is calibrated out of fold, and which library
-candidates the Super Learner actually used.
+candidates the Super Learner actually used. For C-TMLE, it also retains the selector or
+outcome-adaptive fit. For repeated cross-fitting, it reports parameter movement across split draws.
 
 **How.** `result.diagnostics.nuisance_models()` returns `NuisanceDiagnostics` from
 [`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py):
@@ -266,6 +267,22 @@ weights.
 
 Read the propensity AUC as a positivity signal and not as a score. A higher AUC means the treatment
 is more predictable, which means the arms overlap less. Higher is not better here.
+
+One exception changes the interpretation. A C-TMLE propensity is a selected working mechanism,
+not the estimated treatment law given the complete adjustment set. The report records this role in
+`treatment_role` and retains the exact method artifact in `selection`. It keeps the AUC and
+calibration values, but it does not infer limited confounding or treatment-law misspecification
+from them. Use `support()` to inspect the denominator the selected mechanism creates.
+
+The selector artifact retains every candidate, risk, fitted fold, and the selected index. The
+outcome-adaptive artifact retains its outcome-prediction features and treatment risk. On a repeated
+fit these objects describe draw 01, because the result retains method-specific state for that draw.
+
+`repeat_spread` contains one `RepeatSpreadRow` per reported parameter when the fit uses two or more
+draws. The row pairs `sd(psi)` across every retained draw with the median-combined result's standard
+error. `ratio_to_standard_error` is descriptive and has no pass threshold. A one-draw fit retains
+an empty tuple instead of reporting zero. `repeat_spread_frame()` follows the input dataframe
+backend.
 
 ### Score equations
 

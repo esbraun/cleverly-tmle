@@ -14,17 +14,19 @@ already produced, so they cost nothing.
 
 What each number is for:
 
-**Propensity model discrimination (AUC).**  Not "higher is better".  An AUC near 0.5
-means treatment is close to randomised given ``W``, which is *good* for overlap.  An AUC
-near 1 means treatment is nearly determined by ``W``, which means poor overlap and a
-fragile estimate -- read it together with
+**Propensity model discrimination (AUC).**  Not "higher is better".  For an ordinary
+estimated treatment law, an AUC near 0.5 means treatment is close to randomised given
+``W``, while an AUC near 1 can signal poor overlap.  A C-TMLE propensity is instead a
+selected working mechanism: its AUC describes the denominator the method used, not
+treatment given the complete adjustment set.  Read either case together with
 :meth:`~cleverly.assessment.DiagnosticsFacade.support`.
 
 **Calibration.**  Discrimination is irrelevant if the probabilities themselves are
-wrong: the clever covariate divides by ``g(W)``, so a systematically overconfident
-propensity model biases every weight.  The calibration slope from a logistic
-recalibration of the out-of-fold predictions should be near 1; the calibration table
-shows *where* it goes wrong.
+wrong: the clever covariate divides by ``g(W)``.  For an ordinary treatment-law estimate,
+systematic miscalibration is therefore evidence against the fitted weights.  C-TMLE's
+selected working mechanism keeps the same descriptive values without receiving that
+treatment-law interpretation.  The calibration table shows *where* predictions differ
+from observations.
 
 **Outcome model R-squared / Brier score.**  Bounds how much variance reduction the
 targeting step can buy.  A near-zero R-squared means the estimate is effectively
@@ -37,24 +39,34 @@ average, so the adjustment is doing very little.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
+from ..data.weighting import REPORTED_DRAW
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
+from ..utils.records import sentinel_equality
 from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
     from ..estimators.base import TMLEResult
+    from ..estimators.ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
 
-__all__ = ["NuisanceDiagnostics", "NuisanceModelReport", "nuisance_diagnostics"]
+__all__ = [
+    "NuisanceDiagnostics",
+    "NuisanceModelReport",
+    "RepeatSpreadRow",
+    "nuisance_diagnostics",
+]
 
 #: Number of bins in the calibration table.
 _CALIBRATION_BINS = 10
+
+TreatmentModelRole = Literal["estimated_treatment_law", "collaborative_working_model"]
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,33 @@ class NuisanceModelReport:
         ]
 
 
+@sentinel_equality
+@dataclass(frozen=True)
+class RepeatSpreadRow:
+    r"""Split sensitivity for one parameter in a repeated cross-fitted result.
+
+    Parameters
+    ----------
+    estimand : str
+        Stable alias of the reported parameter.
+    n_repeats : int
+        Number of cross-fitting split draws on the same sample.
+    standard_deviation : float
+        Sample standard deviation of :math:`\hat\psi_r` across the draws.
+    reported_standard_error : float
+        Standard error on the median-combined result.
+    ratio_to_standard_error : float
+        Split standard deviation divided by the reported standard error. This ratio is
+        descriptive and has no pass threshold.
+    """
+
+    estimand: str
+    n_repeats: int
+    standard_deviation: float
+    reported_standard_error: float
+    ratio_to_standard_error: float
+
+
 @dataclass(frozen=True)
 class NuisanceDiagnostics:
     """Out-of-fold fit quality for every nuisance model in a TMLE fit.
@@ -111,6 +150,22 @@ class NuisanceDiagnostics:
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    selection : Any or None
+        The fitted :class:`~cleverly.estimators.CTMLESelection` or
+        :class:`~cleverly.estimators.CTMLEOutcomeAdaptiveFit`. ``None`` means the method
+        is not collaborative, or the stored artifact is unavailable.
+    treatment_role : {"estimated_treatment_law", "collaborative_working_model"} or None
+        Statistical role of the propensity predictions in ``models``. A collaborative
+        working mechanism is not the complete treatment law.
+    repeat_spread : tuple of RepeatSpreadRow
+        One descriptive split-sensitivity row per reported parameter. A one-draw fit
+        retains an empty tuple rather than a false zero spread.
+    selection_omission : str or None
+        Machine-readable reason an expected C-TMLE artifact is absent.
+    repeat_spread_omission : str or None
+        Machine-readable reason no split-spread row is available.
+    reported_repeat : int
+        One-based draw described by the nuisance models and selection artifact.
     """
 
     models: tuple[NuisanceModelReport, ...]
@@ -125,6 +180,18 @@ class NuisanceDiagnostics:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: The exact method object already retained by the fitted result. Selector paths keep
+    #: every candidate and risk rather than flattening the selected index into prose.
+    selection: CTMLESelection | CTMLEOutcomeAdaptiveFit | None = field(default=None, compare=False)
+    #: The propensity report's role. The role changes its interpretation, not its values.
+    treatment_role: TreatmentModelRole | None = None
+    #: Unlike the nuisance models and selection, these rows read every retained draw.
+    repeat_spread: tuple[RepeatSpreadRow, ...] = ()
+    selection_omission: str | None = None
+    repeat_spread_omission: str | None = None
+    #: Nuisance models and the selection artifact describe this draw. One is the only
+    #: draw the fitted result retains method-specific extras for.
+    reported_repeat: int = REPORTED_DRAW
 
     def __getitem__(self, name: str) -> NuisanceModelReport:
         for model in self.models:
@@ -178,6 +245,30 @@ class NuisanceDiagnostics:
         payload = dict(self[name].calibration)
         return emit_frame(payload, data, backend=self.backend)
 
+    def repeat_spread_frame(self, data: Any = None) -> Any:
+        """Return one split-sensitivity row per reported parameter.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            Parameter aliases, draw counts, split standard deviations, reported standard
+            errors, and their descriptive ratios.
+        """
+        payload = {
+            "estimand": [row.estimand for row in self.repeat_spread],
+            "n_repeats": [row.n_repeats for row in self.repeat_spread],
+            "standard_deviation": [row.standard_deviation for row in self.repeat_spread],
+            "reported_standard_error": [row.reported_standard_error for row in self.repeat_spread],
+            "ratio_to_standard_error": [row.ratio_to_standard_error for row in self.repeat_spread],
+        }
+        return emit_frame(payload, data, backend=self.backend)
+
     def summary(self) -> str:
         """Return a printable summary.
 
@@ -191,7 +282,10 @@ class NuisanceDiagnostics:
             "-" * 40,
         ]
         if self.n_repeats > 1:
-            lines.append(f"describing draw 1 of {self.n_repeats}; each draw fits its own models")
+            lines.append(
+                f"describing draw {self.reported_repeat} of {self.n_repeats}; "
+                "each draw fits its own models"
+            )
         lines.append(
             format_table(
                 ["model", "auc", "brier", "log_loss", "r2", "mse", "cal_slope"],
@@ -206,6 +300,57 @@ class NuisanceDiagnostics:
             lines.append(
                 f"{model.name}: super learner weights "
                 + ", ".join(f"{name}={weight:.3f}" for name, weight in used.items())
+            )
+        if self.treatment_role == "collaborative_working_model":
+            lines.extend(
+                [
+                    "",
+                    "The propensity metrics describe the selected C-TMLE working mechanism.",
+                    "They do not describe treatment given the complete adjustment set.",
+                ]
+            )
+        if self.selection is not None:
+            suffix = (
+                f"; describing draw {self.reported_repeat} of {self.n_repeats}"
+                if self.n_repeats > 1
+                else ""
+            )
+            selected = getattr(self.selection, "selected", None)
+            if selected is not None:
+                selector = cast("CTMLESelection", self.selection)
+                lines.append(
+                    "C-TMLE selection: "
+                    f"strategy={selector.strategy}; "
+                    f"target={selector.estimand}; "
+                    f"candidate={selected + 1}/{len(selector.path)}{suffix}"
+                )
+            else:
+                oat = cast("CTMLEOutcomeAdaptiveFit", self.selection)
+                lines.append(
+                    f"C-TMLE fit: strategy=oat; features={len(oat.treatment_features)}{suffix}"
+                )
+        elif self.selection_omission is not None:
+            lines.append(f"C-TMLE selection unavailable: {self.selection_omission}")
+        if self.repeat_spread:
+            lines.extend(
+                [
+                    "",
+                    "Repeated-split sensitivity",
+                    format_table(
+                        ["estimand", "draws", "sd(psi)", "reported se", "sd/se"],
+                        [
+                            [
+                                row.estimand,
+                                str(row.n_repeats),
+                                f"{row.standard_deviation:.6g}",
+                                f"{row.reported_standard_error:.6g}",
+                                f"{row.ratio_to_standard_error:.6g}",
+                            ]
+                            for row in self.repeat_spread
+                        ],
+                    ),
+                    "The split ratio is descriptive and has no pass threshold.",
+                ]
             )
         lines.append("")
         lines.append(self.verdict())
@@ -222,12 +367,22 @@ class NuisanceDiagnostics:
         notes = list(self.findings)
         for model in self.models:
             auc = model.metrics.get("auc")
-            if model.name == "propensity" and auc is not None and auc < 0.55:
+            if (
+                model.name == "propensity"
+                and self.treatment_role != "collaborative_working_model"
+                and auc is not None
+                and auc < 0.55
+            ):
                 notes.append(
                     f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
                     "excellent and confounding by these covariates is limited"
                 )
         if not notes:
+            if self.treatment_role == "collaborative_working_model":
+                return (
+                    "VERDICT: C-TMLE working-model metrics are descriptive; inspect the "
+                    "selection and support reports."
+                )
             return "VERDICT: nuisance fits look reasonable."
         return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
 
@@ -238,7 +393,16 @@ class NuisanceDiagnostics:
         for model in self.models:
             auc = model.metrics.get("auc")
             slope = model.metrics.get("calibration_slope")
-            if model.name == "propensity" and auc is not None and auc > 0.9:
+            selected_propensity = (
+                model.name.startswith("propensity")
+                and self.treatment_role == "collaborative_working_model"
+            )
+            if (
+                model.name == "propensity"
+                and not selected_propensity
+                and auc is not None
+                and auc > 0.9
+            ):
                 notes.append(
                     f"the propensity model separates the arms almost perfectly "
                     f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit"
@@ -249,13 +413,13 @@ class NuisanceDiagnostics:
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
                     "gives them extreme leverage -- check res.diagnostics.support()"
                 )
-            if slope is not None and not 0.7 <= slope <= 1.4:
+            if not selected_propensity and slope is not None and not 0.7 <= slope <= 1.4:
                 notes.append(
                     f"{model.name} is poorly calibrated (slope {slope:.2f}, ideal 1.0); its "
                     "predicted probabilities are systematically off, which biases the weights"
                 )
             mean_weight = model.learner_weights.get("mean", 0.0)
-            if mean_weight > 0.8:
+            if not selected_propensity and mean_weight > 0.8:
                 notes.append(
                     f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean -- "
                     "no candidate beat predicting the average, so this model contributes little"
@@ -310,6 +474,13 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []
+    selection = result.extra.get("ctmle")
+    collaborative = result.fitted_method == "collaborative_tmle" or selection is not None
+    selection_omission = (
+        "the fitted result retains no ctmle method artifact"
+        if collaborative and selection is None
+        else None
+    )
 
     if data.is_binary_treatment:
         models.append(
@@ -385,8 +556,50 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=data.observed,
             )
         )
+    spread_rows: tuple[RepeatSpreadRow, ...] = ()
+    spread_omission: str | None = "the fit used one cross-fitting draw"
+    if result.n_repeats > 1:
+        spreads = result.repeat_spread()
+        unavailable = [name for name in result.estimates if name not in spreads]
+        spread_rows = tuple(
+            RepeatSpreadRow(
+                estimand=name,
+                n_repeats=result.n_repeats,
+                standard_deviation=spreads.get(name, float("nan")),
+                reported_standard_error=float(result.estimates[name].std_error),
+                ratio_to_standard_error=(
+                    spreads[name] / float(result.estimates[name].std_error)
+                    if name in spreads
+                    and np.isfinite(spreads[name])
+                    and np.isfinite(float(result.estimates[name].std_error))
+                    and float(result.estimates[name].std_error) > 0.0
+                    else float("nan")
+                ),
+            )
+            for name in result.estimates
+        )
+        spread_omission = (
+            "draw-specific estimates are unavailable for: " + ", ".join(unavailable)
+            if unavailable
+            else None
+            if spread_rows
+            else "no reported parameter is available"
+        )
     return NuisanceDiagnostics(
-        models=tuple(models), n_repeats=result.n_repeats, backend=result.data.backend
+        models=tuple(models),
+        n_repeats=result.n_repeats,
+        backend=result.data.backend,
+        selection=selection,
+        treatment_role=(
+            "collaborative_working_model"
+            if collaborative
+            else "estimated_treatment_law"
+            if not data.is_continuous_treatment
+            else None
+        ),
+        repeat_spread=spread_rows,
+        selection_omission=selection_omission,
+        repeat_spread_omission=spread_omission,
     )
 
 

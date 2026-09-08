@@ -39,6 +39,7 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import _select_evalue, _standardising_sd, evalue_from_rr
 from cleverly.sensitivity.positivity import PositivityReport
+from cleverly.validation import RepeatSpreadRow
 
 
 def _study(*, strata: bool = False) -> CausalStudy:
@@ -754,6 +755,60 @@ def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> 
     assert (
         INTERPRETERS["nuisance_models"](nuisance_warning, None).status is AssessmentStatus.WARNING
     )
+
+
+def test_method_facts_do_not_invent_a_warning_threshold() -> None:
+    selection = SimpleNamespace(
+        strategy="greedy",
+        selected=1,
+        path=((), ("W1",)),
+        estimand="ate",
+    )
+    report = SimpleNamespace(
+        findings=(),
+        models=(object(), object()),
+        selection=selection,
+        selection_omission=None,
+        reported_repeat=1,
+        n_repeats=3,
+        repeat_spread=(
+            RepeatSpreadRow(
+                estimand="ate",
+                n_repeats=3,
+                standard_deviation=0.2,
+                reported_standard_error=0.1,
+                ratio_to_standard_error=2.0,
+            ),
+        ),
+    )
+
+    item = INTERPRETERS["nuisance_models"](report, None)
+    assert item.status is AssessmentStatus.COMPLETED
+    assert "candidate 2 of 2" in item.detail
+    assert "largest sd/se 2 for ate" in item.detail
+
+
+def test_method_facts_choose_only_finite_split_ratios() -> None:
+    rows = (
+        RepeatSpreadRow("ey0", 3, 0.0, 0.0, float("nan")),
+        RepeatSpreadRow("ate", 3, 0.2, 0.1, 2.0),
+    )
+    report = SimpleNamespace(
+        findings=(),
+        models=(),
+        selection=None,
+        selection_omission=None,
+        n_repeats=3,
+        repeat_spread=rows,
+    )
+
+    detail = INTERPRETERS["nuisance_models"](report, None).detail
+    assert "largest sd/se 2 for ate" in detail
+    assert "largest sd/se nan" not in detail
+
+    unavailable = replace(rows[0], estimand="ey1")
+    report.repeat_spread = (rows[0], unavailable)
+    assert "sd/se unavailable" in INTERPRETERS["nuisance_models"](report, None).detail
 
 
 @pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "ctmle", "cv"])

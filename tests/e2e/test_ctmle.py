@@ -16,13 +16,14 @@ selector that always returns the empty propensity model; it takes that escape ro
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import ClassVar
 
 import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import SuperLearner
+from cleverly import SuperLearner, load
 from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
@@ -99,6 +100,72 @@ class TestDownstreamMachineryStillWorks:
             float(np.mean(fit.nuisance.propensity.arm(1.0)))
         )
 
+    def test_the_nuisance_report_retains_and_scopes_the_selection(self, fit) -> None:
+        diagnostics = fit.diagnostics.nuisance_models()
+
+        assert diagnostics.selection is fit.extra["ctmle"]
+        assert diagnostics.treatment_role == "collaborative_working_model"
+        assert diagnostics.reported_repeat == 1
+        assert diagnostics.selection.path == fit.extra["ctmle"].path
+        assert "C-TMLE selection" in diagnostics.summary()
+        assert "complete adjustment set" in diagnostics.summary()
+        assert diagnostics["propensity"].metrics["auc"] < 0.55
+        assert diagnostics["propensity"].metrics["calibration_slope"] < 0.7
+        assert "confounding by these covariates is limited" not in diagnostics.verdict()
+        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
+
+        wrong_role = replace(diagnostics, treatment_role="estimated_treatment_law")
+        assert "confounding by these covariates is limited" in wrong_role.verdict()
+        assert any("propensity is poorly calibrated" in item for item in wrong_role.findings)
+
+        propensity = diagnostics["propensity"]
+        high_auc = replace(propensity, metrics={**propensity.metrics, "auc": 0.95})
+        high_auc_models = tuple(
+            high_auc if model.name == "propensity" else model for model in diagnostics.models
+        )
+        collaborative_high_auc = replace(diagnostics, models=high_auc_models)
+        assert not any("positivity problem" in item for item in collaborative_high_auc.findings)
+        ordinary_high_auc = replace(
+            collaborative_high_auc, treatment_role="estimated_treatment_law"
+        )
+        assert any("positivity problem" in item for item in ordinary_high_auc.findings)
+
+        combined = fit.diagnostics.run_all()
+        retained = combined.report("nuisance_models")
+        assert retained.selection.path == diagnostics.selection.path
+        assert "C-TMLE greedy selected candidate" in combined["nuisance_models"].detail
+
+    def test_a_missing_selection_stays_a_machine_readable_omission(self, fit) -> None:
+        detached = replace(fit, extra={})
+        diagnostics = detached.diagnostics.nuisance_models()
+
+        assert diagnostics.selection is None
+        assert (
+            diagnostics.selection_omission == "the fitted result retains no ctmle method artifact"
+        )
+        assert "selection unavailable" in diagnostics.summary()
+
+    def test_the_warmed_method_report_survives_persistence(self, fit, tmp_path) -> None:
+        before = fit.diagnostics.run_all()
+        restored = load(fit.save(tmp_path / "ctmle-method-report.joblib"))
+        after = restored.diagnostics.run_all()
+
+        assert after["nuisance_models"].detail == before["nuisance_models"].detail
+        retained = after.report("nuisance_models")
+        assert retained.treatment_role == "collaborative_working_model"
+        assert retained.selection.path == fit.extra["ctmle"].path
+
+    def test_a_selected_candidate_mutation_moves_the_combined_row(self, fit) -> None:
+        selection = fit.extra["ctmle"]
+        assert len(selection.path) > 1
+        changed = replace(selection, selected=(selection.selected + 1) % len(selection.path))
+        mutated = replace(fit, extra={"ctmle": changed})
+
+        before = fit.diagnostics.run_all()["nuisance_models"].detail
+        after = mutated.diagnostics.run_all()["nuisance_models"].detail
+        assert after != before
+        assert f"candidate {changed.selected + 1} of {len(changed.path)}" in after
+
     def test_and_report_no_learner_table_for_a_selected_mechanism(self, fit) -> None:
         """Empty on purpose, and the one thing an accepted regression would look like.
 
@@ -130,6 +197,11 @@ class TestDownstreamMachineryStillWorks:
         )
         report = oat.diagnostics.nuisance_models()["propensity"]
         assert report.learner_weights and report.learner_risks
+        diagnostics = oat.diagnostics.nuisance_models()
+        assert diagnostics.selection is oat.extra["ctmle"]
+        assert diagnostics.treatment_role == "collaborative_working_model"
+        assert "C-TMLE fit: strategy=oat" in diagnostics.summary()
+        assert "outcome-adaptive fit" in oat.diagnostics.run_all()["nuisance_models"].detail
 
     def test_refutation_runs(self, fit) -> None:
         # A placebo refit goes back through CTMLE._nuisances, so the selection is
@@ -187,6 +259,43 @@ class TestBackendParity:
             from_pandas.extra["ctmle"].selected_covariates
             == from_polars.extra["ctmle"].selected_covariates
         )
+        pandas_report = from_pandas.diagnostics.nuisance_models()
+        polars_report = from_polars.diagnostics.nuisance_models()
+        assert pandas_report.treatment_role == polars_report.treatment_role
+        assert pandas_report.selection.path == polars_report.selection.path
+        assert pandas_report.summary() == polars_report.summary()
+        assert (
+            from_pandas.diagnostics.run_all()["nuisance_models"].detail
+            == from_polars.diagnostics.run_all()["nuisance_models"].detail
+        )
+
+
+def test_the_documented_seed_exercises_the_method_report() -> None:
+    frame, _ = make_instrument(n=2_000, seed=44)
+    result = (
+        CTMLE(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=3,
+            learner_folds=2,
+            random_state=44,
+            n_jobs=1,
+            strategy="greedy",
+            selection_folds=3,
+            selection_inner_folds=2,
+            estimands=("ate",),
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=("W1", "W2", "W3"))
+        .single()
+    )
+
+    report = result.diagnostics.nuisance_models()
+    assert report.selection is result.extra["ctmle"]
+    assert report.treatment_role == "collaborative_working_model"
+    assert "complete adjustment set" in report.summary()
+    assert (
+        "C-TMLE greedy selected candidate" in result.diagnostics.run_all()["nuisance_models"].detail
+    )
 
 
 #: The option each test in :class:`TestCombinedWithOtherOptions` combines the selection

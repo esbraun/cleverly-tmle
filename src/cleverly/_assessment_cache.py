@@ -96,8 +96,9 @@ def _normalize(value: Any) -> Any:
 #: therefore what invalidates both direct calls and the corresponding parts of assess().
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 3,
-    "diagnostics.run_all": 3,
-    "validate": 3,
+    "diagnostics.nuisance_models": 1,
+    "diagnostics.run_all": 4,
+    "validate": 4,
 }
 
 

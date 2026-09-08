@@ -18,7 +18,9 @@ instead keep the exact structural guarantees close to the implementation.
 
 from __future__ import annotations
 
+import pickle
 import warnings
+from dataclasses import replace
 from importlib import import_module
 from typing import Any
 
@@ -26,7 +28,12 @@ import numpy as np
 import pytest
 
 from cleverly.data.weighting import REPORTED_DRAW
-from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_linear_ate,
+    make_missing_outcome,
+    make_nonlinear_ate,
+)
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
@@ -114,6 +121,12 @@ class TestOneRepeatIsAnOrdinaryFit:
         assert once.n_repeats == 1
         assert once.repeats[0].nuisance is once.nuisance
         assert once.repeats[0].fluctuations is once.fluctuations
+
+        diagnostics = once.diagnostics.nuisance_models()
+        assert diagnostics.treatment_role == "estimated_treatment_law"
+        assert diagnostics.selection is None
+        assert diagnostics.selection_omission is None
+        assert "C-TMLE" not in diagnostics.summary()
 
 
 class TestTheMedianRule:
@@ -555,14 +568,98 @@ class TestTheSpreadAcrossDraws:
         with pytest.raises(ValueError, match="moved between draws"):
             once.repeat_spread()
 
+        diagnostics = once.diagnostics.nuisance_models()
+        assert diagnostics.repeat_spread == ()
+        assert diagnostics.repeat_spread_omission == "the fit used one cross-fitting draw"
+
+    def test_the_nuisance_report_pairs_split_spread_with_the_reported_error(
+        self, repeated: Any
+    ) -> None:
+        diagnostics = repeated.diagnostics.nuisance_models()
+
+        assert diagnostics.repeat_spread_omission is None
+        assert {row.estimand for row in diagnostics.repeat_spread} == set(repeated.estimates)
+        for row in diagnostics.repeat_spread:
+            expected = float(np.std([draw.psi[row.estimand] for draw in repeated.repeats], ddof=1))
+            assert row.n_repeats == REPEATS
+            assert row.standard_deviation == pytest.approx(expected)
+            assert row.reported_standard_error == repeated[row.estimand].std_error
+            assert row.ratio_to_standard_error == pytest.approx(
+                expected / repeated[row.estimand].std_error
+            )
+        assert "Repeated-split sensitivity" in diagnostics.summary()
+        assert "split spread" in repeated.diagnostics.run_all()["nuisance_models"].detail
+
+    def test_a_draw_specific_mutation_moves_the_retained_spread(self, repeated: Any) -> None:
+        before = repeated.diagnostics.nuisance_models().repeat_spread[0]
+        draws = list(repeated.repeats)
+        changed = dict(draws[-1].psi)
+        changed[before.estimand] += 0.5
+        draws[-1] = replace(draws[-1], psi=changed)
+        mutated = replace(repeated, repeats=tuple(draws))
+
+        after = mutated.diagnostics.nuisance_models().repeat_spread[0]
+        expected = float(np.std([draw.psi[before.estimand] for draw in draws], ddof=1))
+        assert after.standard_deviation == pytest.approx(expected)
+        assert after.standard_deviation != pytest.approx(before.standard_deviation)
+
+    def test_a_missing_draw_value_retains_the_parameter_and_an_omission(
+        self, repeated: Any
+    ) -> None:
+        draws = list(repeated.repeats)
+        missing = next(iter(repeated.estimates))
+        changed = dict(draws[-1].psi)
+        del changed[missing]
+        draws[-1] = replace(draws[-1], psi=changed)
+        mutated = replace(repeated, repeats=tuple(draws))
+
+        report = mutated.diagnostics.nuisance_models()
+        assert [row.estimand for row in report.repeat_spread] == list(repeated.estimates)
+        row = next(item for item in report.repeat_spread if item.estimand == missing)
+        assert np.isnan(row.standard_deviation)
+        assert np.isnan(row.ratio_to_standard_error)
+        assert report.repeat_spread_omission == (
+            f"draw-specific estimates are unavailable for: {missing}"
+        )
+
+    def test_the_spread_frame_uses_the_fit_backend(self, repeated: Any) -> None:
+        frame = repeated.diagnostics.nuisance_models().repeat_spread_frame()
+        assert list(frame.columns) == [
+            "estimand",
+            "n_repeats",
+            "standard_deviation",
+            "reported_standard_error",
+            "ratio_to_standard_error",
+        ]
+        assert frame["estimand"].to_list() == list(repeated.estimates)
+
     def test_the_summary_shows_it_beside_the_standard_error(self, repeated: Any, once: Any) -> None:
         assert "split noise" in repeated.summary()
         assert "of std_err" in repeated.summary()
         assert "split noise" not in once.summary()
 
     def test_it_survives_the_round_trip(self, repeated: Any) -> None:
+        report = repeated.diagnostics.nuisance_models()
+        combined = repeated.diagnostics.run_all()
         reloaded = loads(dumps(repeated))
         assert reloaded.repeat_spread() == repeated.repeat_spread()
+        restored = reloaded.diagnostics.nuisance_models()
+        assert restored.repeat_spread == report.repeat_spread
+        assert restored.repeat_spread_frame().to_dict(
+            orient="list"
+        ) == report.repeat_spread_frame().to_dict(orient="list")
+        assert (
+            reloaded.diagnostics.run_all()["nuisance_models"].detail
+            == combined["nuisance_models"].detail
+        )
+
+    def test_nan_rows_keep_equality_and_hashing_across_pickle(self, repeated: Any) -> None:
+        from cleverly.validation import RepeatSpreadRow
+
+        row = RepeatSpreadRow("ate", repeated.n_repeats, 0.0, 0.0, float("nan"))
+        restored = pickle.loads(pickle.dumps(row))
+        assert restored == row
+        assert hash(restored) == hash(row)
 
 
 class TestWhatTheResultExposes:
@@ -658,6 +755,8 @@ class TestTheSensitivityLayerFollowsTheDraws:
         report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
         assert "draw 1 of 3" in report.summary()
+        assert "draw 2 of 3" in replace(report, reported_repeat=2).summary()
+        assert "draw 1 of 3" not in replace(report, reported_repeat=2).summary()
 
     def test_the_group_load_row_counts_the_same_draws_the_report_does(
         self, repeated: Any, once: Any
@@ -758,6 +857,49 @@ class TestVariantsInheritRepeats:
         selections = {tuple(repeat.nuisance.treatment_covariates) for repeat in result.repeats}
         assert selections  # a selection was made in each draw
         assert np.isfinite(result["ate"].std_error)
+        report = result.diagnostics.nuisance_models()
+        assert report.selection is result.extra["ctmle"]
+        assert tuple(report.selection.selected_covariates) == tuple(
+            result.repeats[0].nuisance.treatment_covariates
+        )
+        assert report.reported_repeat == REPORTED_DRAW
+        assert report.n_repeats == 2
+        assert "draw 1 of 2" in report.summary()
+        assert "on draw 1 of 2" in result.diagnostics.run_all()["nuisance_models"].detail
+        spread = next(row for row in report.repeat_spread if row.estimand == "ate")
+        assert spread.standard_deviation == pytest.approx(
+            float(np.std([draw.psi["ate"] for draw in result.repeats], ddof=1))
+        )
+
+    def test_the_documented_seed_exercises_the_split_report(self) -> None:
+        from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+
+        from cleverly.estimators import TMLE
+
+        frame, _ = make_nonlinear_ate(n=3_000, seed=34)
+        result = (
+            TMLE(
+                outcome_learner=HistGradientBoostingRegressor(random_state=34),
+                treatment_learner=HistGradientBoostingClassifier(random_state=34),
+                n_folds=5,
+                learner_folds=3,
+                repeats=3,
+                random_state=34,
+                n_jobs=1,
+                simultaneous=False,
+                estimands=("ate",),
+            )
+            .fit(frame, **{**COLUMNS, "covariates": ["W1", "W2", "W3", "W4"]})
+            .single()
+        )
+
+        report = result.diagnostics.nuisance_models()
+        row = report.repeat_spread[0]
+        assert row.estimand == "ate"
+        assert row.standard_deviation == pytest.approx(
+            float(np.std([draw.psi["ate"] for draw in result.repeats], ddof=1))
+        )
+        assert "draw 1 of 3" in report.summary()
 
     def test_the_bootstrap_repeats_the_draws(self, frame: Any) -> None:
         # A replicate must resample the estimator that was reported -- the median of R

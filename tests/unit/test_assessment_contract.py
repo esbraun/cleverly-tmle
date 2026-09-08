@@ -506,6 +506,33 @@ def test_cached_assessments_replay_after_persistence(
     assert restored.diagnostics.run_all() == diagnostics
 
 
+def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(point_result, tmp_path) -> None:
+    import joblib
+
+    report = nuisance_diagnostics(point_result)
+    added = (
+        "selection",
+        "treatment_role",
+        "repeat_spread",
+        "selection_omission",
+        "repeat_spread_omission",
+        "reported_repeat",
+    )
+    for name in added:
+        object.__delattr__(report, name)
+
+    path = tmp_path / "legacy-nuisance-report.joblib"
+    joblib.dump(report, path)
+    restored = joblib.load(path)
+
+    assert restored.selection is None
+    assert restored.treatment_role is None
+    assert restored.repeat_spread == ()
+    assert restored.selection_omission is None
+    assert restored.repeat_spread_omission is None
+    assert restored.reported_repeat == 1
+
+
 def _without_cache_generation(key: str) -> str:
     """Rewrite a current cache key as the unversioned key an older result carries."""
     operation, encoded = key.split(":", 1)
@@ -528,15 +555,23 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     """Old support, aggregate, and validation entries are cache misses after loading."""
     result = dataclasses.replace(point_result)
     result.diagnostics.support()
+    result.diagnostics.nuisance_models()
     result.diagnostics.run_all()
     result.validate()
     versioned = {
         key: value
         for key, value in result.assessment_cache.items()
-        if key.split(":", 1)[0] in {"diagnostics.support", "diagnostics.run_all", "validate"}
+        if key.split(":", 1)[0]
+        in {
+            "diagnostics.support",
+            "diagnostics.nuisance_models",
+            "diagnostics.run_all",
+            "validate",
+        }
     }
     assert {key.split(":", 1)[0] for key in versioned} == {
         "diagnostics.support",
+        "diagnostics.nuisance_models",
         "diagnostics.run_all",
         "validate",
     }
@@ -549,12 +584,17 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
 
     assert restored.diagnostics.support().group_leverage
+    assert restored.diagnostics.nuisance_models() != "legacy cached report"
     assert restored.diagnostics.run_all() != "legacy cached report"
     assert restored.validate() != "legacy cached report"
     assert restored.assess().diagnostics != "legacy cached report"
     assert stale_keys <= set(restored.assessment_cache)
     assert any(
         "cache_generation" in key and key.startswith("diagnostics.support:")
+        for key in restored.assessment_cache
+    )
+    assert any(
+        "cache_generation" in key and key.startswith("diagnostics.nuisance_models:")
         for key in restored.assessment_cache
     )
 

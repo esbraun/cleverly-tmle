@@ -92,6 +92,19 @@ all_cached = result.diagnostics.run_all()
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
+`nuisance.selection` retains the complete C-TMLE selector or outcome-adaptive artifact. For these
+fits, `nuisance.treatment_role` is `collaborative_working_model`. The propensity values describe
+the selected denominator and not treatment given the complete adjustment set. The report does not
+infer limited confounding from its AUC or grade its calibration as a treatment-law defect.
+
+On a repeated fit, `nuisance.repeat_spread` contains one typed row per reported parameter. Each row
+gives `standard_deviation`, `reported_standard_error`, and `ratio_to_standard_error`. The ratio has
+no pass threshold. Use `nuisance.repeat_spread_frame()` for a dataframe in the input backend. A
+one-draw fit retains no spread rows.
+
+Nuisance models and C-TMLE selection describe draw 01. Split-spread rows read every retained draw.
+The distinction also appears in the nuisance summary and the combined assessment row.
+
 Missing-outcome and controlled-direct-effect support reports add a derived product row. This row
 is the complete denominator used by the clever covariate. Its quantiles describe the raw product.
 Its Kish summaries use the bounded product on residual-contributing rows. The calculation also

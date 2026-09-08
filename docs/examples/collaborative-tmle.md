@@ -145,11 +145,11 @@ print(collaborative.summary())
 print("population ATE:", truth["ate"])
 ```
 
-The selection path is stored on the fit. It says which candidate models were considered, in order,
-and which one the cross-validated loss chose.
+The nuisance report retains the selection path. It says which candidate models were considered,
+in order, and which one the cross-validated loss chose.
 
 ```python
-selection = collaborative.extra["ctmle"]
+selection = collaborative.diagnostics.nuisance_models().selection
 print("candidate path:", selection.path)
 print("selected covariates:", selection.path[selection.selected])
 ```
@@ -248,16 +248,16 @@ diagnostics = collaborative.diagnostics.run_all()
 print(diagnostics.summary())
 print(diagnostics.report("support").summary())
 print(diagnostics.report("score_equations").summary())
-print(diagnostics.report("nuisance_models").to_frame())
+nuisance = diagnostics.report("nuisance_models")
+print(nuisance.to_frame())
+print(nuisance.selection.summary())
 ```
 
-The overview marks the nuisance model as a warning. The selected assignment model is nearly
-constant, so its calibration slope is unstable and is not a useful selection verdict. The retained
-report also links its low AUC to limited confounding. Do not use that interpretation for C-TMLE.
-
-Here the AUC describes the selected nuisance model, not the observed assignment mechanism. Queue
-position strongly predicts assignment in this synthetic law. Read the nuisance table with the
-stored selection path and both support reports.
+The report labels the propensity as a collaborative working model. Its AUC and calibration values
+describe the selected denominator. They do not describe assignment given the complete adjustment
+set. The report therefore does not infer limited confounding from low AUC or grade this model's
+calibration as treatment-law misspecification. Read the values with the retained selection and the
+support report.
 
 One limitation is structural and belongs in every report of a collaborative fit.
 
@@ -269,9 +269,9 @@ entry records this among its declared limits, and no diagnostic on the fit can r
 | --- | --- | --- |
 | the diagnostic overview | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
 | the support report | how far the propensity reached into the tails, before and after selection | that the selected model is the right one |
-| the nuisance table | predictive metrics for the selected nuisance models | whether low AUC means limited confounding after collaborative selection |
+| the nuisance report | selected-model metrics, model role, and the retained selection | whether low AUC means limited confounding after collaborative selection |
 | the score-equation report | the pooled targeting continued from the selected candidate and converged | anything about the selection |
-| the stored selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |
+| the retained selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |
 | the registered studies | the selectors recover known truths and match R `ctmle` where a comparator exists | calibrated inference while selection is load-bearing. No cell asks for it |
 
 The evidence rows are

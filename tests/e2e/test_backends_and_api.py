@@ -54,6 +54,17 @@ def paired_fits() -> tuple[object, object, object]:
     )
 
 
+@pytest.fixture(scope="module")
+def paired_repeated_fits() -> tuple[object, object]:
+    pandas_frame, _ = make_linear_ate(n=400, seed=93, backend="pandas")
+    polars_frame, _ = make_linear_ate(n=400, seed=93, backend="polars")
+    columns = {"outcome": "Y", "treatment": "A"}
+    return (
+        fast_tmle(estimands=("ate",), repeats=3).fit(pandas_frame, **columns).single(),
+        fast_tmle(estimands=("ate",), repeats=3).fit(polars_frame, **columns).single(),
+    )
+
+
 class TestBackendParity:
     def test_the_generators_agree_across_backends(self) -> None:
         pandas_frame, _ = make_linear_ate(n=200, seed=92, backend="pandas")
@@ -108,6 +119,15 @@ class TestBackendParity:
         assert pandas_curve.to_dict(orient="list") == polars_curve.to_dict(as_series=False)
         assert not pandas_curve["is_fitted_bound"].any()
         assert set(pandas_curve["upper_bound"]) == {0.98}
+
+    def test_repeat_spread_frames_are_identical_across_backends(self, paired_repeated_fits) -> None:
+        from_pandas, from_polars = paired_repeated_fits
+        pandas_spread = from_pandas.diagnostics.nuisance_models().repeat_spread_frame()
+        polars_spread = from_polars.diagnostics.nuisance_models().repeat_spread_frame()
+
+        assert isinstance(pandas_spread, pd.DataFrame)
+        assert isinstance(polars_spread, pl.DataFrame)
+        assert pandas_spread.to_dict(orient="list") == polars_spread.to_dict(as_series=False)
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
         """Same text, character for character -- apart from when each fit ran.
