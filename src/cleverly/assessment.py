@@ -28,6 +28,7 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
+from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
 from .utils.text import format_table
@@ -1527,12 +1528,27 @@ class DiagnosticsFacade(_CapabilityFacade):
             )
             from .sensitivity.positivity import positivity_report
 
+            def score_arguments(group: str) -> dict[str, Any]:
+                """The fitted score artifact for one group, as ``check_*`` keywords.
+
+                A group with no fluctuation at all reports no equations, which is a
+                different state from a fluctuation whose artifact predates the retained
+                weights, and the two get different reasons in the report.
+                """
+                fluctuation = self._result.fluctuations.get(group)
+                return {
+                    "absolute_score_weights": getattr(fluctuation, "absolute_score_weights", None),
+                    "equations": () if fluctuation is None else tuple(fluctuation.names),
+                    "n_repeats": self._result.n_repeats,
+                }
+
             if nuisance.regimes is not None:
                 return check_support(
                     nuisance.regimes,
                     self._result.data.treatment,
                     nuisance.propensity.values,
                     backend=self._result.data.backend,
+                    **score_arguments("regime"),
                 )
             # ``shifts`` alone, not ``shifts and density``: a shift fit without a fitted
             # density is a broken shift fit, and the density-ratio report says so by name.
@@ -1554,9 +1570,14 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.density,
                     self._result.data.treatment,
                     mechanisms=mechanisms,
+                    **score_arguments("mtp"),
                 )
             if nuisance.incremental is not None:
-                return check_incremental_support(nuisance.incremental, self._result.data.treatment)
+                return check_incremental_support(
+                    nuisance.incremental,
+                    self._result.data.treatment,
+                    **score_arguments("ipsi"),
+                )
             return positivity_report(self._result)
 
         return _cached(self._result, "diagnostics.support", (), {}, compute)
@@ -1852,6 +1873,18 @@ def _score_item(
     return AssessmentItem("score_equations", status, detail, steps)
 
 
+def _intervention_rows(report: Any) -> tuple[tuple[str, Any], ...]:
+    """Every per-intervention record of a support report, whichever shape it arrived in.
+
+    A shift or incremental report *is* the mapping of its rows; a regime report keeps them
+    under ``regimes``. Both spellings reach the same records, and two readers that
+    enumerate them separately can come to disagree about which rows exist.
+    """
+    interventions = report.items() if isinstance(report, Mapping) else ()
+    regimes = getattr(report, "regimes", {}).items()
+    return (*interventions, *regimes)
+
+
 def _support_metrics(report: Any) -> tuple[float | None, float | None]:
     truncated: list[float] = []
     ess: list[float] = []
@@ -1876,11 +1909,11 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         truncated.extend(float(row.share_truncated) for row in report.rows)
         ess.extend(float(row.effective_n / row.n_followed) for row in report.rows if row.n_followed)
     if isinstance(report, Mapping):
+        # Only the shift and incremental rows carry a cap. A regime row has no
+        # `capped_fraction`, and defaulting one to zero for it would turn "this report
+        # truncates nothing" into a reported maximum of 0.0%.
         truncated.extend(float(getattr(row, "capped_fraction", 0.0)) for row in report.values())
-        ess.extend(float(getattr(row, "ess_ratio", np.nan)) for row in report.values())
-    regimes = getattr(report, "regimes", None)
-    if regimes:
-        ess.extend(float(getattr(row, "ess_ratio", np.nan)) for row in regimes.values())
+    ess.extend(float(getattr(row, "ess_ratio", np.nan)) for _, row in _intervention_rows(report))
     clean_ess = [value for value in ess if np.isfinite(value)]
     return (max(truncated) if truncated else None, min(clean_ess) if clean_ess else None)
 
@@ -1896,22 +1929,32 @@ def _support_facts(truncated: float | None, ess: float | None) -> list[str]:
 
 
 def _group_load_fact(report: Any) -> str | None:
-    """The most concentrated score equation, separate from mechanism ESS."""
-    rows = [
-        (group, values)
+    """The most concentrated score equation, separate from mechanism ESS.
+
+    A target-group row has no draw count of its own, so this reads the report's. Reading it
+    from the row instead printed "draw 01 of 01" for every repeated fit, which contradicted
+    the draw count :meth:`~cleverly.sensitivity.PositivityReport.summary` printed from the
+    same report. Copying the count onto each row would have made the two agree by making
+    the same number storable in two places, which is what let them disagree.
+    """
+    group_draw = (REPORTED_DRAW, int(getattr(report, "n_repeats", 1)))
+    rows: list[tuple[str, str, Any, tuple[int, int] | None]] = [
+        ("group", group, values, group_draw)
         for group, values in getattr(report, "group_leverage", {}).items()
         if np.isfinite(float(values.get("targeted_ratio", np.nan)))
     ]
+    # An intervention row records its own draw, so it is read from the row.
+    rows.extend(
+        ("intervention", str(name), values, None)
+        for name, item in _intervention_rows(report)
+        if (values := getattr(item, "score_load", None)) is not None
+        and np.isfinite(float(values.get("targeted_ratio", np.nan)))
+    )
     if not rows:
         return None
-    group, values = min(rows, key=lambda item: float(item[1]["targeted_ratio"]))
-    return (
-        f"group load: {group}:{values['equation']} "
-        f"{float(values['effective']):.1f}/{float(values['n_targeted']):.0f} "
-        "Kish-equivalent mask rows "
-        f"({float(values['targeted_ratio']):.1%}; "
-        f"{float(values['total_ratio']):.1%} all); not estimator ESS"
-    )
+    kind, name, values, draw = min(rows, key=lambda item: float(item[2]["targeted_ratio"]))
+    rendered = format_score_load(values, style="detail", draw=draw)
+    return f"{kind} load: {name}:{values['equation']} {rendered}; not estimator ESS"
 
 
 def _support_item(

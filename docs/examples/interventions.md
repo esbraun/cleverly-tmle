@@ -109,8 +109,14 @@ under this plan, so the fit never divides by their probability of receiving an o
 therefore be estimable where "offer to all" is not.
 
 ```python
-print(regime_diagnostics.report("support").summary())
+regime_support = regime_diagnostics.report("support")
+print(regime_support.summary())
+print(regime_support.regimes["screen on risk"].score_load)
 ```
+
+The policy row separates assigned-arm support from fitted score load. The first describes the
+estimated treatment law where the rule assigns. The second describes concentration of the exact
+absolute residual multipliers used by that policy's targeting equation.
 
 ## A modified treatment policy: add navigation hours
 
@@ -202,11 +208,15 @@ Now read the support report, which is published per policy rather than once for 
 ```python
 for policy, report in shift_diagnostics.report("support").items():
     print(report.summary())
+    print(report.score_load)
     print()
 ```
 
 Each declared shift moves the intensity into a different region of the conditional support, so each
 one has its own positivity problem.
+
+The density ratio omits observation weights. `score_load` includes the exact weights and score mask
+used by the fit. Read both quantities, because either one can be the more concentrated.
 
 | policy | what the report shows | how to read it |
 | --- | --- | --- |
@@ -244,6 +254,14 @@ incremental_result = study.estimate(
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 incremental_diagnostics = incremental_result.diagnostics.run_all()
 ```
+
+```python
+for policy, report in incremental_diagnostics.report("support").items():
+    print(policy, report.score_load)
+```
+
+This load describes the outcome targeting equation for each odds multiplier. The incremental fit
+also targets the treatment mechanism. That second equation has no row-level load in this report.
 
 This axis matches a program that controls assignment probabilities, and it carries a warning
 that the other two do not.

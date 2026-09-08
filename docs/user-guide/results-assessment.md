@@ -134,9 +134,24 @@ counts score-mask rows, including structural zeros in the selected equation. The
 prove or disprove population positivity.
 
 The public support workflow provides these group rows for `mean`, `att`, `atc`, and `msm` fits.
-Regime, shift, and incremental fits return intervention-specific support reports instead. Those
-reports do not yet include per-equation covariate-load concentration. Do not replace their support
-reports with the generic positivity function.
+Regime, shift, and incremental fits return intervention-specific support reports instead. Each
+policy row carries the matching fitted equation in `score_load`. Read its `equation`,
+`targeted_ratio`, and `top_5pct` entries together. A longitudinal fit returns stagewise diagnostics
+and carries no load row of either kind.
+
+The policy row keeps the intervention ratio and support measures separate from `score_load`.
+Unequal observation weights or a further mechanism can make the two concentrations differ. An
+incremental row describes its outcome score only. The separate treatment-mechanism equation has no
+retained row-level load.
+
+For repeated cross-fitting, `reported_repeat` and `n_repeats` make explicit that these retained
+loads describe draw 01. Every printed draw on a policy row is rendered from those two fields, so a
+summary and the combined `support` row cannot disagree about the total. The loads do not describe
+the coordinatewise median-combined estimate.
+
+An older result can lack exact score weights. The report keeps every existing policy field, sets
+`score_load` to `None`, and records the reason in `score_load_omission`. Do not replace an
+intervention-specific report with the generic positivity function.
 
 Read the group row for the fitted clever covariate. Read the product row for a composed mechanism
 denominator. The report keeps these quantities separate because they answer different questions.

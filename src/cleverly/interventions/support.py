@@ -22,14 +22,25 @@ handful of rows that happened to receive the assigned arm.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
 from .._typing import FloatArray
-from ..data.weighting import effective_sample_size
+from ..data.weighting import (
+    REPORTED_DRAW,
+    SCORE_LOAD_PREDATES,
+    SCORE_LOAD_SHAPE_MISMATCH,
+    ScoreLoadRow,
+    effective_sample_size,
+    format_score_load,
+    score_load_row,
+    validate_score_loads,
+)
 from ..utils.frames import emit_frame
+from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_table
 from .base import RegimeSet
 
@@ -42,8 +53,50 @@ _THRESHOLDS = (0.01, 0.025, 0.05)
 _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
 
 
+class _InterventionLoadRow(ScoreLoadRow):
+    """One intervention equation's fitted absolute score-weight concentration.
+
+    The ten shared concentration keys come from
+    :class:`~cleverly.data.weighting.ScoreLoadRow`.  What an intervention row adds is which
+    cross-fitting draw it describes, because the reports that hold these rows are plain
+    mappings and a per-regime record with no report-level field to keep the count in.
+    """
+
+    reported_repeat: int
+    n_repeats: int
+
+
+def _intervention_loads(
+    labels: tuple[str, ...],
+    absolute_score_weights: FloatArray | None,
+    equations: tuple[str, ...],
+    n_total: int,
+    n_repeats: int = 1,
+) -> tuple[dict[str, _InterventionLoadRow], str | None]:
+    """Match fitted score columns to intervention labels without rebuilding them.
+
+    The guards and the ten concentration values are
+    :func:`~cleverly.data.weighting.validate_score_loads` and
+    :func:`~cleverly.data.weighting.score_load_row`.  What is left here is the one thing
+    this path owns: binding column ``j`` to the label declared in position ``j``.
+    """
+    loads, reason = validate_score_loads(absolute_score_weights, len(equations), n_total)
+    if loads is None:
+        return {}, reason
+    if loads.shape[1] != len(labels):
+        return {}, SCORE_LOAD_SHAPE_MISMATCH
+    return {
+        label: {
+            **score_load_row(loads[:, index], equations[index], n_total),
+            "reported_repeat": REPORTED_DRAW,
+            "n_repeats": n_repeats,
+        }
+        for index, label in enumerate(labels)
+    }, None
+
+
 @dataclass(frozen=True)
-class RegimeSupport:
+class RegimeSupport(_DefaultingUnpickle):
     """Overlap for one regime.
 
     Parameters
@@ -72,6 +125,14 @@ class RegimeSupport:
         Rows where the regime assigns positive probability to an arm with an estimated
         propensity of exactly zero -- a structural violation rather than a practical one.
         The parameter is not identified for those rows at all.
+    score_load : _InterventionLoadRow or None
+        Concentration of the fitted ``abs(w_i * H_ij)`` values for this regime's score
+        equation, and the cross-fitting draw it describes. ``None`` means the fitted artifact
+        cannot supply the exact values. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
+    score_load_omission : str or None
+        Machine-readable reason why :attr:`score_load` is unavailable.
     """
 
     name: str
@@ -82,6 +143,20 @@ class RegimeSupport:
     ess_ratio: float
     tail_mass: dict[float, float]
     unsupported: int
+    score_load: _InterventionLoadRow | None = None
+    score_load_omission: str | None = None
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
+
+
+#: Which score-load value each frame column reads, and what it carries when the row has no
+#: score load at all.  One list rather than four copies of the same null guard.
+_SCORE_COLUMNS: tuple[tuple[str, Callable[[Mapping[str, Any]], Any], Any], ...] = (
+    ("score_equation", lambda load: load["equation"], None),
+    ("score_effective_n", lambda load: load["effective"], float("nan")),
+    ("score_load_ratio", lambda load: load["targeted_ratio"], float("nan")),
+    ("score_top_5pct", lambda load: load["top_5pct"], float("nan")),
+)
 
 
 @dataclass(frozen=True)
@@ -126,13 +201,21 @@ class SupportReport:
         dataframe
             One row per regime.
         """
-        payload = {
+        payload: dict[str, list[Any]] = {
             "regime": list(self.regimes),
             "min_propensity": [item.min_support_propensity for item in self.regimes.values()],
             "max_ratio": [item.max_ratio for item in self.regimes.values()],
             "effective_n": [item.effective_sample_size for item in self.regimes.values()],
             "unsupported": [item.unsupported for item in self.regimes.values()],
         }
+        for column, read, missing in _SCORE_COLUMNS:
+            payload[column] = [
+                missing if item.score_load is None else read(item.score_load)
+                for item in self.regimes.values()
+            ]
+        payload["score_load_omission"] = [
+            item.score_load_omission for item in self.regimes.values()
+        ]
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
@@ -151,6 +234,9 @@ class SupportReport:
                 f"{item.min_support_propensity:.4g}",
                 f"{item.max_ratio:.4g}",
                 f"{item.effective_sample_size:.1f}",
+                # The table cell is fixed width, so it takes the terse style; every other
+                # reader of the same row takes a wordier one from the same formatter.
+                format_score_load(item.score_load, style="cell"),
                 str(item.unsupported),
             ]
             for name, item in self.regimes.items()
@@ -159,7 +245,19 @@ class SupportReport:
             [
                 f"regime support (n = {self.n})",
                 "",
-                format_table(["regime", "min g", "max ratio", "effective n", "unsupported"], rows),
+                format_table(
+                    [
+                        "regime",
+                        "min g",
+                        "max ratio",
+                        "ratio effective n",
+                        "score load",
+                        "unsupported",
+                    ],
+                    rows,
+                ),
+                "",
+                "score load is Kish-equivalent mask rows from abs(w_i * H_ij), not estimator ESS.",
             ]
         )
 
@@ -171,6 +269,9 @@ def check_support(
     *,
     thresholds: tuple[float, ...] = _THRESHOLDS,
     backend: str | None = None,
+    absolute_score_weights: FloatArray | None = None,
+    equations: tuple[str, ...] = (),
+    n_repeats: int = 1,
 ) -> SupportReport:
     """Overlap diagnostics for each regime, from the untruncated mechanism.
 
@@ -195,6 +296,13 @@ def check_support(
         Propensity levels the tail mass is reported at.
     backend : str or None
         Dataframe backend the fit's data arrived in, for :meth:`SupportReport.to_frame`.
+    absolute_score_weights : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, in regime order. ``None`` records an
+        omission instead of rebuilding a possibly different equation.
+    equations : tuple of str
+        Fitted score-equation names, in regime order.
+    n_repeats : int
+        Number of stored cross-fitting draws. The retained weights describe draw 1.
 
     Returns
     -------
@@ -208,6 +316,10 @@ def check_support(
     observed_column = (a.reshape(-1, 1) == arm_codes.reshape(1, -1)).astype(float)
 
     out: dict[str, RegimeSupport] = {}
+    labels = tuple(regimes.label(code) for code in regimes.codes)
+    score_loads, load_omission = _intervention_loads(
+        labels, absolute_score_weights, equations, n, n_repeats
+    )
     for code in regimes.codes:
         star = regimes.column(code)
         mass = star > 0.0
@@ -223,8 +335,9 @@ def check_support(
         finite = ratio[np.isfinite(ratio)]
         ess = effective_sample_size(finite, on_degenerate=0.0)
         assigned = np.min(np.where(mass, g, np.inf), axis=1)
-        out[regimes.label(code)] = RegimeSupport(
-            name=regimes.label(code),
+        label = regimes.label(code)
+        out[label] = RegimeSupport(
+            name=label,
             min_support_propensity=float(np.min(supported)) if supported.size else float("nan"),
             ratio_quantiles={q: float(np.quantile(finite, q)) for q in _QUANTILES if finite.size},
             max_ratio=float(np.max(finite)) if finite.size else float("inf"),
@@ -234,5 +347,7 @@ def check_support(
                 float(t): float(np.mean(assigned < t)) if assigned.size else 0.0 for t in thresholds
             },
             unsupported=int(np.sum(np.any(mass & (g <= 0.0), axis=1))),
+            score_load=score_loads.get(label),
+            score_load_omission=load_omission,
         )
     return SupportReport(out, n, backend=backend)

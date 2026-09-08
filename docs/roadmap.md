@@ -109,11 +109,38 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| intervention load concentration | report per-equation covariate-load concentration for regime, shift, and incremental support reports |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
+
+Intervention support rows now retain load concentration. Each regime, shift, and incremental row
+reads its matching column from the fitted fluctuation's absolute score weights. The report does not
+rebuild that column from the intervention ratio, because fitted weights can change the equation.
+
+Each row reports the equation name, fitted score-mask size, Kish-equivalent row count, ratios to
+the mask and full data, top-load shares, maximum load, and structural-zero count. These quantities
+describe the magnitude of `w_i H_ij`. They are not estimator effective sample size, information,
+influence, precision, or a positivity test. The combined support row reports the most concentrated
+intervention equation as a separate fact and does not use it to assign status.
+
+For repeated cross-fitting, the row identifies draw 01 and the total draw count. The retained load
+does not describe the coordinatewise median-combined estimate.
+
+For an incremental target, the row describes the retained outcome score. The separate treatment
+mechanism equation has no retained row-level weights and stays outside the report.
+
+An artifact without exact score weights keeps the intervention report. It records a machine-readable
+omission. The tests recompute every reported quantity from the artifact. Unequal observation weights
+provide a nonzero witness. The tests also cover repeated fits, persistence, pandas and Polars parity,
+combined-report retention, and complete-data non-regression.
+
+A fitted equation name is positional, such as `h_regime0`, and carries no policy identity. The
+semantic witness is `test_the_column_a_regime_row_reports_is_the_one_that_policy_solved` in
+`tests/unit/test_intervention_load_diagnostics.py`. That test declares `Static(0, name="none")` and
+`Static(1, name="all")`, whose clever covariates hold structural zeros on complementary row sets. It
+locates each policy's column by that zero pattern, then reads the row the report publishes under the
+policy name. A permutation of the fitted artifact's columns fails it.
 
 Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
 nonzero witness and a method-specific mutation for every new diagnostic role.

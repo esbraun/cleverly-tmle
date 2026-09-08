@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly.data.weighting import REPORTED_DRAW
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -657,6 +658,26 @@ class TestTheSensitivityLayerFollowsTheDraws:
         report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
         assert "draw 1 of 3" in report.summary()
+
+    def test_the_group_load_row_counts_the_same_draws_the_report_does(
+        self, repeated: Any, once: Any
+    ) -> None:
+        """The assessment row and the report it was built from have to agree on the total.
+
+        A target-group score-load row records no draw count of its own, deliberately: the
+        count belongs to the whole fit and a second copy on every row is a second place for
+        it to disagree with the first. The row's own count was read anyway, and a
+        ``GroupLeverageRow`` has none, so every repeated arm-level fit printed a total of
+        one draw beside a summary that printed three.
+
+        A fit with one draw prints ``of 01`` either way, which is why the pair is here.
+        """
+        detail = repeated.diagnostics.run_all()["support"].detail
+        assert f"draw {REPORTED_DRAW:02d} of {REPEATS:02d}" in detail
+        assert detail == repeated.assess().diagnostics["support"].detail
+        assert f"draw {REPORTED_DRAW} of {REPEATS}" in positivity_report(repeated).summary()
+
+        assert f"draw {REPORTED_DRAW:02d} of 01" in once.diagnostics.run_all()["support"].detail
 
 
 class TestTheMnarTiltFollowsTheDraws:
