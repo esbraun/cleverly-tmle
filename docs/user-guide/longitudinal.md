@@ -96,9 +96,20 @@ influence curve.
 
 ## Diagnostics
 
-Longitudinal results provide stagewise cumulative support, targeting-score, and node-regression
-loss reports. Point-only sensitivity formulas remain unavailable unless a longitudinal derivation
-exists.
+Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
+node. Call `result.diagnostics.support()` for leverage and truncation by stage. The direct
+`stagewise()` method is a compatibility alias for the same report.
+
+The nuisance report separates four roles. Each fitted treatment and censoring model appears once
+per node. Outcome and pseudo-outcome models appear per fitted regimen, cause, horizon, and node.
+Each row labels its loss as `out_of_fold` or `in_sample`.
+
+The report uses weighted negative log likelihood for treatment and censoring. It uses weighted
+Brier loss for a binary final target and weighted mean squared error otherwise. Earlier
+pseudo-outcomes use weighted mean squared error. A complete-data fit records why no censoring
+learner appears in `nuisance.omissions`.
+
+Point-only sensitivity formulas remain unavailable unless a longitudinal derivation exists.
 
 Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
 no sample estimator for them. The

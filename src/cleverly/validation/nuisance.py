@@ -39,6 +39,7 @@ average, so the adjustment is doing very little.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -112,7 +113,7 @@ class NuisanceModelReport:
     kind : str
         Whether it is a regression or a classification.
     metrics : dict of str to float
-        Out-of-fold fit metrics.
+        Fit metrics at the report's evaluation rows.
     calibration : dict of str to list of float
         Binned mean prediction and observed rate.
     learner_weights : dict of str to float
@@ -141,6 +142,24 @@ class NuisanceModelReport:
         return [self.name] + [
             f"{self.metrics[key]:.4f}" if key in self.metrics else "-" for key in order
         ]
+
+
+def _metric_names(models: Iterable[NuisanceModelReport | None]) -> list[str]:
+    """Every metric any report carries, in first-seen order.
+
+    One report need not carry what another does: a regression emits ``mse`` where a
+    probability model emits ``brier``, and a multinomial model emits neither.  A frame that
+    columns them has to take the union and fill the gaps, which is the same statement for
+    the point-treatment table and the longitudinal one, so both read it here.
+    """
+    names: list[str] = []
+    for model in models:
+        if model is None:
+            continue
+        for name in model.metrics:
+            if name not in names:
+                names.append(name)
+    return names
 
 
 def _is_propensity(model: NuisanceModelReport) -> bool:
@@ -221,7 +240,10 @@ class RepeatSpreadRow:
 
 @dataclass(frozen=True)
 class NuisanceDiagnostics:
-    """Out-of-fold fit quality for every nuisance model in a TMLE fit.
+    """Fit quality for every nuisance model in a TMLE fit.
+
+    The metrics are out-of-fold when the fit cross-fitted its nuisances, and in-sample when
+    it used one fold.
 
     Parameters
     ----------
@@ -294,11 +316,7 @@ class NuisanceDiagnostics:
         dataframe
             One row per nuisance model, with its fit metrics.
         """
-        keys: list[str] = []
-        for model in self.models:
-            for key in model.metrics:
-                if key not in keys:
-                    keys.append(key)
+        keys = _metric_names(self.models)
         payload: dict[str, Any] = {
             "model": [model.name for model in self.models],
             "kind": [model.kind for model in self.models],
@@ -358,8 +376,12 @@ class NuisanceDiagnostics:
         str
             A printable table, one line per nuisance model.
         """
+        # The header used to say "(out of fold)" whatever the fit did. That is true of a
+        # cross-fitted fit and false of a one-fold one, and this object records no fold
+        # count to tell them apart, so it states the subject and leaves the evaluation
+        # scope to the class docstring rather than overclaiming on every line above.
         lines = [
-            "Nuisance model diagnostics (out of fold)",
+            "Nuisance model diagnostics",
             "-" * 40,
         ]
         if self.n_repeats > 1:
@@ -534,7 +556,7 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
 
 
 def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
-    """Out-of-fold diagnostics for every nuisance model in the fit.
+    """Fit diagnostics for every nuisance model in the fit.
 
     Parameters
     ----------
@@ -701,7 +723,7 @@ def _aggregate_learner_info(
     """Average Super Learner weights and risks across cross-fitting folds."""
     if not diagnostics:
         return {}, {}
-    entries = diagnostics if isinstance(diagnostics, list) else [diagnostics]
+    entries = diagnostics if isinstance(diagnostics, (list, tuple)) else [diagnostics]
     weights: dict[str, list[float]] = {}
     risks: dict[str, list[float]] = {}
     for entry in entries:

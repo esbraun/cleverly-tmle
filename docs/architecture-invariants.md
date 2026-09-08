@@ -152,11 +152,15 @@ takes an estimand; that table and the declared capabilities are checked against 
 both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
 the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
 
-`run_all` sorts every capability row into one of three execution classes. A `summarize` row reads
-stored state and always runs. A `refit` row refits nuisances and runs only under `include_refits`.
-A `retarget` row retargets cached nuisances and runs under `include_retargets`, unless its own row
-declares `cost` as `cheap`. A cheap retarget runs by default, which is how an eligible ordinary
-TMLE fit reports its derived E-value without refitting a nuisance model.
+`run_all` sorts each included capability row into one of three execution classes. A direct alias
+can remain explicit while its canonical row alone enters the combined report. Longitudinal
+`stagewise` is such an alias for `support`.
+
+A `summarize` row reads stored state and always runs. A `refit` row refits nuisances and runs only
+under `include_refits`. A `retarget` row retargets cached nuisances and runs under
+`include_retargets`, unless its own row declares `cost` as `cheap`. A cheap retarget runs by
+default, which is how an eligible ordinary TMLE fit reports its derived E-value without refitting a
+nuisance model.
 
 The two flags stay separate because the two costs are disjoint: refutation and benchmarking refit
 nuisances without retargeting, and the truncation curve retargets cached nuisances without

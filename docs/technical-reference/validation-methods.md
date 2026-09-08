@@ -93,14 +93,15 @@ The public `diagnostics.support()` route provides group rows as follows.
 | regime | intervention-specific regime report | one row per regime equation |
 | shift | intervention-specific shift report | one row per shift equation |
 | incremental | intervention-specific incremental report | one row per outcome equation |
-| longitudinal | `LongitudinalDiagnostics` from `stagewise()` | no. A longitudinal fluctuation retains no absolute score weights |
+| longitudinal | `LongitudinalDiagnostics` from `support()` | no. A longitudinal fluctuation retains no absolute score weights |
 
-The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result leaves
-`diagnostics.support()` through `stagewise()`, so the call reaches neither `positivity_report` nor
-an intervention report. A longitudinal fluctuation also retains no `absolute_score_weights`, and
-that identifier appears nowhere under `src/cleverly/longitudinal/`. No fitted artifact therefore
-exists to describe, and no omission reason is recorded for one. Read `stagewise()` for the per-node
-support this route does supply.
+The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result returns
+per-node leverage through `diagnostics.support()`. The direct `stagewise()` call remains a
+compatibility alias for the same payload. A combined run retains only the `support` row.
+
+The route reaches neither `positivity_report` nor an intervention report. A longitudinal
+fluctuation also retains no `absolute_score_weights`. No fitted artifact therefore exists for a
+generic or intervention load row.
 
 The intervention-specific reports keep their ratio and support fields. Their `score_load` field
 adds the fitted equation load without replacing those quantities. The report matches columns to
@@ -255,15 +256,58 @@ the earlier regressions were fitted to, and the whole pass has to run again.
 **Why.** A nuisance model can predict well and remain miscalibrated. The clever covariate divides by
 the predicted probability itself, so a miscalibrated fit moves every weight.
 
-**What it tells you.** Whether each nuisance fit is calibrated out of fold, and which library
-candidates the Super Learner actually used. For C-TMLE, it also retains the selector or
-outcome-adaptive fit. For repeated cross-fitting, it reports parameter movement across split draws.
+**What it tells you.** The report gives prediction loss and calibration for each retained nuisance
+fit. It also gives the candidate weights and risks when a Super Learner supplies them. For C-TMLE,
+it retains the selector or outcome-adaptive fit. For repeated cross-fitting, it reports parameter
+movement across split draws.
 
-**How.** `result.diagnostics.nuisance_models()` returns `NuisanceDiagnostics` from
-[`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py):
-out-of-fold propensity AUC, a calibration slope from a logistic recalibration of the out-of-fold
-predictions, a calibration table, outcome $R^2$ or Brier score, and the Super Learner candidate
-weights.
+**How.** `result.diagnostics.nuisance_models()` returns a report for the fitted result family.
+Point-treatment results return `NuisanceDiagnostics` from
+[`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py).
+That report contains propensity AUC, logistic calibration, outcome fit metrics, and Super Learner
+candidate details. The metrics are out-of-fold when the fit cross-fitted its nuisances. They are
+in-sample when it used one fold.
+
+Longitudinal results return `LongitudinalNuisanceDiagnostics`. The report includes only models the
+estimator fitted. Treatment and censoring models appear once per node because each model serves all
+regimens. Outcome and pseudo-outcome models appear for each fitted regimen, cause, horizon, and
+node.
+
+| role | evaluation target | reported loss |
+| --- | --- | --- |
+| treatment | observed arm under the observed history | weighted negative log likelihood |
+| censoring | observed retention under the observed treatment history | weighted negative log likelihood |
+| outcome | final target in each fitted recursion | weighted Brier loss for a binary target, or mean squared error otherwise |
+| pseudo-outcome | each earlier target in the fitted recursion | weighted mean squared error |
+
+The treatment and censoring predictions come from the fitted observed-law pass. The report does not
+refit those learners or reconstruct observed histories from regimen predictions. Each row uses
+`evaluation` to label its loss as `out_of_fold` or `in_sample`.
+
+`loss_name` is `log_loss`, `brier`, or `mse`. `loss` holds that role-specific value, while
+`reported_loss` preserves the MSE from an older regression row. The nested `model` is a
+`NuisanceModelReport`. It retains calibration and learner-library details.
+
+The `mse` field stays the legacy column, and it answers about node regressions alone. An outcome
+row or a pseudo-outcome row reports its square loss there. A treatment row or a censoring row
+reports `nan`, because a mechanism fit has no square loss.
+
+Two further changes affect a weighted fit. The `mse` value now averages under the observation
+weights, where an older release averaged without them. The frame also admits an empty value in
+`regimen`, `cause`, and `horizon`, because a mechanism row carries no regimen identity. That row
+stores `None`, which a dataframe renders as `None` or as `NaN` by column type.
+
+For a categorical treatment, `log_loss` is the observed-class multinomial negative log likelihood.
+The nested report uses `kind="multinomial probability"` and retains no binary calibration table.
+Armwise calibration requires a separate report design because no treatment arm is privileged.
+
+`LongitudinalNuisanceDiagnostics.omissions` holds typed `LongitudinalNuisanceOmission` records.
+Each record names `role`, `time`, and `reason`. An older artifact uses
+`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING` when it lacks an observed-law mechanism prediction. A
+complete-data design uses `LONGITUDINAL_CENSORING_NOT_FITTED` because it made no censoring fit.
+
+`to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
+adds the union of metrics that the nested model reports.
 
 Read the propensity AUC as a positivity signal and not as a score. A higher AUC means the treatment
 is more predictable, which means the arms overlap less. Higher is not better here.

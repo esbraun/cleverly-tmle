@@ -109,13 +109,51 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-The paragraphs below, to the intervention support rows, describe the point-treatment nuisance
-report alone. `LongitudinalNuisanceDiagnostics` carries stagewise regression rows and a backend,
-and none of the fields these paragraphs name. The longitudinal row above is the gap that remains.
+The longitudinal nuisance report now covers only fits that the estimator made. Treatment and censoring
+models appear once per node because one shared model serves every regimen. Outcome and
+pseudo-outcome models appear per regimen, cause, horizon, and node because those regressions differ.
+
+| role | retained evaluation | reported loss |
+| --- | --- | --- |
+| treatment | the observed arm under the observed history | weighted negative log likelihood |
+| censoring | the observed retention indicator under the observed treatment history | weighted negative log likelihood |
+| outcome | the final regression target for each fitted recursion | weighted Brier loss for a binary target, or mean squared error otherwise |
+| pseudo-outcome | each earlier regression target in the fitted recursion | weighted mean squared error |
+
+The fit stores both observed-law mechanism predictions from the same model pass. The report does
+not refit a learner or reconstruct an observed history from regimen predictions. It labels each
+loss as `out_of_fold` or `in_sample` from the fitted split count.
+
+`LongitudinalNuisanceDiagnostics.omissions` records typed reasons for unavailable mechanism rows.
+`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING` identifies an older artifact without the required
+prediction. `LONGITUDINAL_CENSORING_NOT_FITTED` identifies a complete-data design with no censoring
+learner.
+
+Each row also retains calibration and learner-library details through the shared nuisance-model
+report contract. Additive field defaults let an older artifact explain which details it lacks.
+Changed cache generations reject a retained report that predates this contract.
+
+The legacy `mse` field keeps one meaning: the square loss of a node regression. A mechanism row
+reports `nan` there rather than borrowing the Brier value of its own model report. Two retained
+behaviours changed for a weighted fit. The value averages under the observation weights, and the
+frame admits an empty value in the regimen identity columns that a mechanism row cannot fill.
+
+`support` is the one presentation name for the longitudinal leverage report. `stagewise()` remains
+a direct compatibility alias, and its capability stays explicit. The alias is excluded from a
+combined run, so the aggregate retains one `support` payload and no `stagewise` row. The support
+payload remains unchanged.
+
+The contract tests use role-specific prediction mutations, pandas and Polars parity, persistence
+replay, and a complete-data fit. `test_observed_law_predictions_are_additive_to_fitted_outputs`
+compares the former and current paths. It holds regimen predictions, estimates, influence curves,
+and sequential predictions exactly equal. The pull-request diff contains no registered-study
+artifact change.
+
+The point-treatment nuisance report remains a separate shape. The next paragraphs describe its
+method-specific additions.
 
 The point-treatment nuisance report now retains the exact C-TMLE selector or outcome-adaptive
 artifact. It labels the propensity as a collaborative working model. That label drops two claims

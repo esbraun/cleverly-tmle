@@ -41,6 +41,24 @@ class Row:
     hidden: float = field(default=0.0, compare=False)
 
 
+@dataclass(frozen=True)
+class NestedReport:
+    """A nested dataclass with the container types used by nuisance reports."""
+
+    metrics: dict[str, float]
+    calibration: list[tuple[float, float]]
+    hidden: float = field(default=0.0, compare=False)
+
+
+@sentinel_equality
+@dataclass(frozen=True)
+class NestedRow:
+    """A decorated row whose compared field is a dict-backed dataclass."""
+
+    name: str
+    report: NestedReport
+
+
 class TestTheSentinelCompares:
     def test_two_separately_built_sentinels_are_equal(self) -> None:
         """The case the generated ``__eq__`` never got right, on any interpreter.
@@ -82,6 +100,43 @@ class TestTheSentinelCompares:
     def test_a_field_marked_uncompared_stays_uncompared(self) -> None:
         """The decorator reads ``field.compare``, as the generated ``__eq__`` does."""
         assert Row("a", 1.0, hidden=1.0) == Row("a", 1.0, hidden=2.0)
+
+    def test_nested_dataclass_and_container_sentinels_are_canonical(self) -> None:
+        left = NestedRow(
+            "a",
+            NestedReport(
+                metrics={"loss": 0.2, "missing": float("nan")},
+                calibration=[(0.1, float("nan"))],
+                hidden=1.0,
+            ),
+        )
+        right = NestedRow(
+            "a",
+            NestedReport(
+                metrics={"missing": float("nan"), "loss": 0.2},
+                calibration=[(0.1, float("nan"))],
+                hidden=2.0,
+            ),
+        )
+
+        assert left.report.metrics["missing"] is not right.report.metrics["missing"]
+        assert left == right
+        assert hash(left) == hash(right)
+        assert len({left, right}) == 1
+
+    def test_a_nested_compared_value_still_decides(self) -> None:
+        left = NestedRow("a", NestedReport({"loss": 0.2}, [(0.1, float("nan"))]))
+        right = NestedRow("a", NestedReport({"loss": 0.3}, [(0.1, float("nan"))]))
+
+        assert left != right
+
+    def test_nested_list_and_tuple_values_remain_distinct(self) -> None:
+        @sentinel_equality
+        @dataclass(frozen=True)
+        class ContainerRow:
+            value: Any
+
+        assert ContainerRow([float("nan")]) != ContainerRow((float("nan"),))
 
 
 class TestTheRowsStayHashable:

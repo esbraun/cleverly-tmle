@@ -100,8 +100,10 @@ training law.
 depend on the row count, the effective sample size, the fitted probabilities, or the follow-up
 depth. A cumulative path probability shrinks with depth, so falling below `0.01` does not by itself
 prove a node-level positivity failure. Clipping can also replace every scored row and make the
-clever covariate constant. `res.diagnostics.stagewise().to_frame()["share_truncated"]` reports the
+clever covariate constant. `res.diagnostics.support().to_frame()["share_truncated"]` reports the
 effect per regimen and node.
+
+The direct `stagewise()` method remains a compatibility alias.
 
 ### Survival and competing risks
 

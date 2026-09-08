@@ -14,7 +14,7 @@ report                                    what one row says
 ========================================  =====================================================
 :class:`LongitudinalDiagnostics`          how much data a node had, and how hard it leaned on it
 :class:`LongitudinalScoreDiagnostics`     whether that node's fluctuation reached its root
-:class:`LongitudinalNuisanceDiagnostics`  the loss of that node's sequential regression
+:class:`LongitudinalNuisanceDiagnostics`  the loss of every retained nuisance fit
 ========================================  =====================================================
 
 :mod:`cleverly.assessment` routes a caller to these and re-exports every public name, so
@@ -29,20 +29,41 @@ from typing import Any
 
 import numpy as np
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import effective_sample_size
 from ..inference.cluster import cluster_sums
 from ..utils.frames import emit_frame
+from ..utils.records import _DefaultingUnpickle, sentinel_equality
+from .nuisance import (
+    NuisanceModelReport,
+    _aggregate_learner_info,
+    _binary_report,
+    _continuous_report,
+    _metric_names,
+)
 
 __all__ = [
+    "LONGITUDINAL_CENSORING_NOT_FITTED",
+    "LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING",
     "STITCHED_SCORE_Z_TOLERANCE",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
+    "LongitudinalNuisanceOmission",
     "LongitudinalNuisanceRow",
     "LongitudinalScoreDiagnostics",
     "LongitudinalScoreRow",
     "LongitudinalStageRow",
 ]
+
+
+#: The data has no censoring columns, so the estimator made no censoring fit.
+LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
+
+#: A result written before observed-law mechanism predictions were retained cannot
+#: report mechanism fit quality without refitting.
+LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING = (
+    "the fitted artifact predates observed-law mechanism predictions"
+)
 
 
 #: How far a cross-fitted longitudinal fit's *stitched* score may sit from zero, in
@@ -240,33 +261,145 @@ class LongitudinalScoreDiagnostics:
         )
 
 
+@sentinel_equality
 @dataclass(frozen=True)
-class LongitudinalNuisanceRow:
-    regimen: str
+class LongitudinalNuisanceRow(_DefaultingUnpickle):
+    """Fit quality for one longitudinal nuisance role at one node.
+
+    The first six fields retain the construction accepted by older releases. ``mse``
+    remains the regression MSE when that metric applies. New code reads ``loss_name``
+    and ``loss`` for the role-specific proper loss, and ``model`` retains the shared
+    calibration and learner-library report.
+
+    One retained value changed. An older release averaged the node regression's square
+    loss without weights. It now averages under the observation weights, which is what
+    every other reported loss does. The two agree when the weights are equal, and differ
+    on a weighted fit.
+
+    Parameters
+    ----------
+    regimen : str or None
+        Regimen label for an outcome recursion. Mechanism rows use ``None``.
+    cause : str or None
+        Cause label for a competing-risk recursion.
+    horizon : int or None
+        Survival horizon for a recursive regression.
+    time : int
+        One-based node index.
+    n : int
+        Number of rows used to evaluate the fit.
+    mse : float
+        Legacy weighted square loss. Binary outcome rows retain their Brier value here.
+        Mechanism rows use ``nan``.
+    role : str
+        Nuisance role at this node.
+    evaluation : str
+        ``"out_of_fold"`` or ``"in_sample"`` from the fitted split count.
+    loss_name : str
+        Name of the role-specific proper loss.
+    loss : float
+        Weighted value of the role-specific proper loss.
+    model : NuisanceModelReport or None
+        Shared metric, calibration, and learner-library report.
+    """
+
+    regimen: str | None
     cause: str | None
     horizon: int | None
     time: int
     n: int
     mse: float
+    role: str = "pseudo_outcome"
+    evaluation: str = "in_sample"
+    loss_name: str = "mse"
+    loss: float = float("nan")
+    model: NuisanceModelReport | None = None
+
+    @property
+    def reported_loss(self) -> float:
+        """Return the role-specific loss, including an older row's MSE fallback."""
+        return self.loss if np.isfinite(self.loss) else self.mse
 
 
 @dataclass(frozen=True)
-class LongitudinalNuisanceDiagnostics:
-    """Stagewise loss of each sequential outcome/pseudo-outcome regression."""
+class LongitudinalNuisanceOmission(_DefaultingUnpickle):
+    """A nuisance role the fitted artifact cannot report.
+
+    Parameters
+    ----------
+    role : str
+        Nuisance role that is absent.
+    time : int or None
+        One-based node index. ``None`` means the whole role is inapplicable.
+    reason : str
+        Stable reason that the role is absent.
+    """
+
+    role: str
+    time: int | None
+    reason: str
+
+
+@dataclass(frozen=True)
+class LongitudinalNuisanceDiagnostics(_DefaultingUnpickle):
+    """Fit quality for every treatment, censoring, outcome, and pseudo-outcome fit.
+
+    Parameters
+    ----------
+    rows : tuple of LongitudinalNuisanceRow
+        One row per fitted nuisance and longitudinal coordinate.
+    backend : str or None
+        Dataframe backend used when :meth:`to_frame` receives no data.
+    omissions : tuple of LongitudinalNuisanceOmission
+        Machine-readable reasons for roles the result cannot report.
+    """
 
     rows: tuple[LongitudinalNuisanceRow, ...]
     backend: str | None = None
+    omissions: tuple[LongitudinalNuisanceOmission, ...] = ()
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return one row per retained nuisance fit, in the input dataframe backend.
+
+        Parameters
+        ----------
+        data : Any
+            A dataframe or fitted container whose backend to match. ``None`` uses the
+            backend recorded on this object.
+
+        Returns
+        -------
+        dataframe
+            The row identity, evaluation, loss, and model columns, then the union of the
+            metrics the nested reports carry.
+        """
+        payload: dict[str, Any] = {
+            "regimen": [row.regimen for row in self.rows],
+            "cause": [row.cause for row in self.rows],
+            "horizon": [row.horizon for row in self.rows],
+            "time": [row.time for row in self.rows],
+            "n": [row.n for row in self.rows],
+            "mse": [row.mse for row in self.rows],
+            "role": [row.role for row in self.rows],
+            "evaluation": [row.evaluation for row in self.rows],
+            "loss_name": [row.loss_name for row in self.rows],
+            "loss": [row.reported_loss for row in self.rows],
+            "model": [None if row.model is None else row.model.name for row in self.rows],
+            "kind": [None if row.model is None else row.model.kind for row in self.rows],
+        }
+        # ``mse`` is already a column, and it holds the legacy square loss rather than the
+        # metric of that name. The skip keeps one meaning under one name, and loses nothing:
+        # ``_continuous_report`` is the only report that emits an ``mse`` metric, and every
+        # row carrying one puts the same value in the legacy column.
+        for name in _metric_names(row.model for row in self.rows):
+            if name in payload:
+                continue
+            payload[name] = [
+                float("nan") if row.model is None else row.model.metrics.get(name, float("nan"))
+                for row in self.rows
+            ]
         return emit_frame(
-            {
-                "regimen": [row.regimen for row in self.rows],
-                "cause": [row.cause for row in self.rows],
-                "horizon": [row.horizon for row in self.rows],
-                "time": [row.time for row in self.rows],
-                "n": [row.n for row in self.rows],
-                "mse": [row.mse for row in self.rows],
-            },
+            payload,
             data,
             backend=self.backend,
         )
@@ -582,20 +715,199 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
     return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
 
 
+def _nuisance_row(
+    *,
+    role: str,
+    time: int,
+    report: NuisanceModelReport,
+    loss_name: str,
+    evaluation: str,
+    n: int,
+    regimen: str | None = None,
+    cause: str | None = None,
+    horizon: int | None = None,
+) -> LongitudinalNuisanceRow:
+    """Bind one shared nuisance report to its longitudinal coordinates.
+
+    ``mse`` is the legacy column, and an older release put one quantity in it: the square
+    loss of a node regression.  A mechanism row is new here and has no square loss, so it
+    reports ``nan`` rather than borrowing the Brier value that
+    :func:`~cleverly.validation.nuisance._binary_report` also emits.  ``frame["mse"].max()``
+    therefore still answers about node regressions alone.
+    """
+    regression = role in {"outcome", "pseudo_outcome"}
+    return LongitudinalNuisanceRow(
+        regimen=regimen,
+        cause=cause,
+        horizon=horizon,
+        time=time,
+        n=n,
+        mse=(
+            report.metrics.get("mse", report.metrics.get("brier", float("nan")))
+            if regression
+            else float("nan")
+        ),
+        role=role,
+        evaluation=evaluation,
+        loss_name=loss_name,
+        loss=report.metrics[loss_name],
+        model=report,
+    )
+
+
+def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelReport:
+    """Observed-law treatment report, including multinomial negative log likelihood."""
+    mechanism = result.mechanism
+    probabilities = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
+    actual = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    diagnostics = (
+        mechanism.treatment_diagnostics[time - 1]
+        if time <= len(mechanism.treatment_diagnostics)
+        else ()
+    )
+    name = f"treatment[t={time}]"
+    if probabilities.shape[1] == 2:
+        return _binary_report(
+            name,
+            probabilities[:, 1],
+            actual == 1,
+            result.data.weights,
+            diagnostics,
+            mask=mask,
+        )
+
+    # A multinomial fit has no privileged arm. Report its source-backed proper loss and
+    # do not manufacture binary AUC or calibration-slope semantics from top-class
+    # confidence. Armwise calibration is a separate report design, not a scalar model row.
+    #
+    # The clip is the one ``_binary_report`` uses, so a row labelled ``log_loss`` names the
+    # same formula whichever branch its node took.
+    rows = np.arange(result.data.n)
+    observed = np.clip(probabilities[rows, actual], 1e-12, 1.0 - 1e-12)
+    log_loss = float(-np.average(np.log(observed[mask]), weights=result.data.weights[mask]))
+    learner_weights, learner_risks = _aggregate_learner_info(diagnostics)
+    return NuisanceModelReport(
+        name=name,
+        kind="multinomial probability",
+        metrics={"log_loss": log_loss},
+        calibration={},
+        learner_weights=learner_weights,
+        learner_risks=learner_risks,
+    )
+
+
 def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
-    rows = []
+    rows: list[LongitudinalNuisanceRow] = []
+    omissions: list[LongitudinalNuisanceOmission] = []
+    evaluation = "out_of_fold" if result.folds.n_folds > 1 else "in_sample"
+    mechanism = result.mechanism
+    fit_masks = result.data.regimen_masks(result.data.treatment)
+    # Read directly, as the diagnostics fields below are. The new ``Mechanism`` fields use
+    # plain defaults rather than a ``default_factory``, so the class attribute answers for
+    # an artifact pickled before they existed and an empty tuple records the omission.
+    treatment_observed = tuple(mechanism.treatment_observed)
+    censoring_observed = tuple(mechanism.censoring_observed)
+
+    for time in range(1, result.data.n_times + 1):
+        at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        if time <= len(treatment_observed):
+            report = _treatment_report(result, time, at_risk)
+            rows.append(
+                _nuisance_row(
+                    role="treatment",
+                    time=time,
+                    report=report,
+                    loss_name="log_loss",
+                    evaluation=evaluation,
+                    n=int(at_risk.sum()),
+                )
+            )
+        else:
+            omissions.append(
+                LongitudinalNuisanceOmission(
+                    "treatment", time, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING
+                )
+            )
+
+        if not result.data.censoring_names:
+            continue
+        if time <= len(censoring_observed):
+            diagnostics = (
+                mechanism.censoring_diagnostics[time - 1]
+                if time <= len(mechanism.censoring_diagnostics)
+                else ()
+            )
+            report = _binary_report(
+                f"censoring[t={time}]",
+                censoring_observed[time - 1],
+                result.data.uncensored[:, time - 1],
+                result.data.weights,
+                diagnostics,
+                mask=at_risk,
+            )
+            rows.append(
+                _nuisance_row(
+                    role="censoring",
+                    time=time,
+                    report=report,
+                    loss_name="log_loss",
+                    evaluation=evaluation,
+                    n=int(at_risk.sum()),
+                )
+            )
+        else:
+            omissions.append(
+                LongitudinalNuisanceOmission(
+                    "censoring", time, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING
+                )
+            )
+
+    if not result.data.censoring_names:
+        omissions.append(
+            LongitudinalNuisanceOmission("censoring", None, LONGITUDINAL_CENSORING_NOT_FITTED)
+        )
+
     for fit in result.fits.values():
         for step in fit.steps:
             mask = step.trained_on
-            residual = np.asarray(step.pseudo_outcome[mask] - step.initial[mask], dtype=float)
-            rows.append(
-                LongitudinalNuisanceRow(
-                    fit.regimen.label,
-                    fit.cause,
-                    fit.horizon if result.data.is_survival else None,
-                    step.time,
-                    int(mask.sum()),
-                    float(np.mean(np.square(residual))) if residual.size else float("nan"),
+            role = "outcome" if step.time == fit.horizon else "pseudo_outcome"
+            name = (
+                f"{role}[regimen={fit.regimen.label}, t={step.time}"
+                + (f", cause={fit.cause}" if fit.cause is not None else "")
+                + (f", horizon={fit.horizon}" if result.data.is_survival else "")
+                + "]"
+            )
+            binary = role == "outcome" and result.data.family == "binomial"
+            report = (
+                _binary_report(
+                    name,
+                    step.initial,
+                    step.pseudo_outcome,
+                    result.data.weights,
+                    step.learner_diagnostics,
+                    mask=mask,
+                )
+                if binary
+                else _continuous_report(
+                    name,
+                    step.initial,
+                    step.pseudo_outcome,
+                    result.data.weights,
+                    step.learner_diagnostics,
+                    mask=mask,
                 )
             )
-    return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend)
+            rows.append(
+                _nuisance_row(
+                    role=role,
+                    time=step.time,
+                    report=report,
+                    loss_name="brier" if binary else "mse",
+                    evaluation=evaluation,
+                    n=int(mask.sum()),
+                    regimen=fit.regimen.label,
+                    cause=fit.cause,
+                    horizon=fit.horizon if result.data.is_survival else None,
+                )
+            )
+    return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))

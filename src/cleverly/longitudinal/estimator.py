@@ -593,18 +593,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def diagnostics(self) -> Any:
-        """Unified stagewise, support, nuisance, score, and refutation diagnostics."""
+        """Unified support, nuisance, score, and refutation diagnostics."""
         from ..assessment import DiagnosticsFacade
 
         return DiagnosticsFacade(self)
 
     def validate(self) -> Any:
-        """Run the inexpensive stagewise default battery without refitting.
+        """Run the inexpensive default battery without refitting.
 
         Returns
         -------
         ValidationReport
-            One item per stagewise check, read off stored artifacts.
+            One item per validated check, read off stored artifacts.
         """
         from ..assessment import validate_result
 
@@ -1530,7 +1530,7 @@ class LTMLE:
             "material truncation can trade reduced weight extremes for truncation bias and "
             "can make plug-in "
             "influence-curve inference unreliable. Inspect "
-            "res.diagnostics.stagewise().to_frame(), report "
+            "res.diagnostics.support().to_frame(), report "
             "the configured bounds, and refit the full backward recursion under "
             "substantively justified alternatives.",
             PositivityWarning,

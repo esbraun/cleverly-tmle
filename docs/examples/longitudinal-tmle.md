@@ -299,11 +299,11 @@ family cannot run.
 diagnostics = result.diagnostics.run_all()
 print(diagnostics.summary())
 
-stagewise = diagnostics.report("stagewise")
+support = diagnostics.report("support")
 scores = diagnostics.report("score_equations")
 nuisances = diagnostics.report("nuisance_models")
 
-print(stagewise.to_frame())
+print(support.to_frame())
 print(scores.to_frame())
 print(nuisances.to_frame())
 ```
@@ -312,7 +312,7 @@ The report marks corrections as `not_applicable`. Longitudinal targeting does no
 point-treatment correction system. It marks the truncation curve and refutation as `unavailable`.
 No cost flag can supply the missing longitudinal implementations.
 
-The stagewise table is where cumulative positivity becomes visible. Read three of its columns
+The support table is where cumulative positivity becomes visible. Read three of its columns
 together.
 
 | column | what it says |
@@ -323,21 +323,28 @@ together.
 
 An `effective_n` far below `n_followed` says the estimate rests on few members, whatever the row
 count is. That is the longitudinal form of a positivity problem, and it grows with the number of
-nodes.
+nodes. The direct `stagewise()` method remains an alias for this support report.
 
 The score table has two rows per fitted stage because this fit uses cross-fitting. A `solver` row
 checks the equations fitted outside each reporting fold. A `stitching` row checks the pooled
 out-of-fold residual against its sampling scale. The stitched residual need not equal zero.
 
-The nuisance table reports held-out mean squared error for each sequential outcome regression. It
-does not report treatment-model or censoring-model loss. A `completed` status means those values
-are available. It is not a verdict that any nuisance model is correct.
+The nuisance table identifies each fitted model by role and node. Treatment and censoring models
+appear once per node because all regimens share them. Outcome and pseudo-outcome models also carry
+their regimen identity.
+
+Treatment and censoring rows report weighted negative log likelihood. Outcome rows report weighted
+Brier loss for a binary target, or mean squared error otherwise. Pseudo-outcome rows report weighted
+mean squared error. The `evaluation` column is `out_of_fold` for this three-split fit.
+
+A `completed` status means the retained losses are available. It is not a verdict that any
+nuisance model is correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the stagewise report | how many members followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
+| the support report | how many members followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
-| the nuisance report | held-out loss for each sequential outcome regression | treatment-model quality, censoring-model quality, or causal identification |
+| the nuisance report | retained loss and calibration for each fitted nuisance role | that any nuisance model is correct, or that causal identification holds |
 | the registered studies | end-of-study fits recover known two-node truths and witness targeting, recursion, and held-out prediction | MSM, weights, clustering, simultaneous bands, or broad learner-library selection |
 
 Read that last cell carefully against this page. Two registered rows cover the end-of-study
@@ -345,7 +352,7 @@ construction, the
 [ordinary](../technical-reference/method-evidence/ordinary-end-of-study-longitudinal-tmle.md) and
 the
 [cross-fitted](../technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)
-study. Positivity is comfortable in both. Neither row speaks to a fit whose stagewise report shows
+study. Positivity is comfortable in both. Neither row speaks to a fit whose support report shows
 a small effective sample size.
 
 Two variants of this method have no longitudinal derivation.

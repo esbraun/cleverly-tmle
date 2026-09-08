@@ -92,6 +92,31 @@ all_cached = result.diagnostics.run_all()
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
+For a longitudinal result, `nuisance.rows` covers every retained nuisance fit. Each fitted
+treatment and censoring model appears once per time node. Outcome and pseudo-outcome rows also
+identify their regimen, cause, and horizon when those fields apply.
+
+The `evaluation` field is `out_of_fold` when the fit used more than one outer fold. It is
+`in_sample` for a one-fold fit. The `loss_name` field is `log_loss`, `brier`, or `mse`. The `loss`
+field holds the named value.
+
+Treatment and censoring rows report weighted negative log likelihood. An outcome row reports
+weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
+reports weighted mean squared error. `reported_loss` preserves the MSE from an older regression
+row.
+
+The legacy `mse` field answers about node regressions alone. A treatment row and a censoring row
+report `nan` there. On a weighted fit the value now averages under the observation weights, where
+an older release averaged without them.
+
+The nested `model` retains calibration and Super Learner details when the learner supplies them.
+`nuisance.omissions` retains typed reasons for unavailable mechanism rows. A complete-data fit records
+`LONGITUDINAL_CENSORING_NOT_FITTED`. An older artifact without observed-law predictions records
+`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING`.
+
+A categorical treatment row uses `kind="multinomial probability"` and an empty calibration table.
+The report does not convert top-class confidence into binary calibration for a privileged arm.
+
 `nuisance.selection` retains the complete C-TMLE selector or outcome-adaptive artifact. For these
 fits, `nuisance.treatment_role` is `collaborative_working_model`. The propensity values describe
 the selected denominator and not treatment given the complete adjustment set.
@@ -175,8 +200,12 @@ prove or disprove population positivity.
 The public support workflow provides these group rows for `mean`, `att`, `atc`, and `msm` fits.
 Regime, shift, and incremental fits return intervention-specific support reports instead. Each
 policy row carries the matching fitted equation in `score_load`. Read its `equation`,
-`targeted_ratio`, and `top_5pct` entries together. A longitudinal fit returns stagewise diagnostics
-and carries no load row of either kind.
+`targeted_ratio`, and `top_5pct` entries together. A longitudinal fit returns per-node support
+diagnostics and carries no load row of either kind.
+
+For a longitudinal fit, `support()` is the aggregate report name. The direct `stagewise()` method
+is a compatibility alias for the same report. `run_all()` retains only `support`, so it does not
+duplicate the payload under `stagewise`.
 
 The policy row keeps the intervention ratio and support measures separate from `score_load`.
 Unequal observation weights or a further mechanism can make the two concentrations differ. An
