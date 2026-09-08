@@ -32,9 +32,10 @@ templates_path = ["_templates"]
 source_suffix = {".rst": "restructuredtext", ".md": "myst-nb", ".ipynb": "myst-nb"}
 exclude_patterns = ["_build", "api/generated/*.md", "Thumbs.db", ".DS_Store"]
 
-# Notebooks are executed deliberately before review and commit their outputs.  Documentation
-# builds remain deterministic, offline, and quick: they render those stored outputs without
-# downloading data or refitting estimators.
+# The notebook executor stamps every committed output against its cells, the generator, the
+# package source, and the dependency lock. The fast tier discovers every reader-facing notebook
+# and verifies that stamp. Documentation builds therefore stay deterministic, offline, and quick:
+# they render stored outputs without downloading data or refitting estimators.
 nb_execution_mode = "off"
 
 myst_enable_extensions = [

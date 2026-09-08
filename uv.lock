@@ -369,6 +369,8 @@ all = [
 dev = [
     { name = "matplotlib" },
     { name = "mypy" },
+    { name = "nbclient" },
+    { name = "nbformat" },
     { name = "nox" },
     { name = "numpydoc" },
     { name = "pandas" },
@@ -411,6 +413,8 @@ requires-dist = [
     { name = "myst-nb", marker = "extra == 'docs'", specifier = ">=1.2,<2" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0,<5" },
     { name = "narwhals", specifier = ">=2.0" },
+    { name = "nbclient", marker = "extra == 'dev'", specifier = ">=0.10,<1" },
+    { name = "nbformat", marker = "extra == 'dev'", specifier = ">=5.10,<6" },
     { name = "nox", marker = "extra == 'dev'", specifier = ">=2024.3" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "numpydoc", marker = "extra == 'dev'", specifier = ">=1.10,<2" },

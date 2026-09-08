@@ -33,25 +33,25 @@ else.  Learners, fold counts, seeds, estimands and interventions run exactly as 
 them, because those are what the example is *about* -- a rewrite that reached them would leave
 this module checking a configuration nobody is shown.
 
-**Documents are registered rather than discovered, because most of them need a prelude.**  A
-guide page picks up ``study`` or ``result`` from the surrounding prose rather than building it,
-so :data:`PRELUDES` gives each one the names its fences assume.  Registering is not optional:
-:func:`test_every_documented_example_is_registered` fails when a page with Python appears in the
-reader-facing set and is not listed, since the alternative is a new guide quietly escaping the
-check -- which is the same failure :mod:`tests.documents` exists to prevent.
+**Documents are discovered, then executable Markdown is registered because it needs a prelude.**
+A guide page picks up ``study`` or ``result`` from the surrounding prose rather than building it,
+so :data:`PRELUDES` gives each one the names its fences assume. Every reader-facing Python fence
+must have an entry. Every reader-facing notebook instead carries a provenance-complete execution
+stamp. A new example therefore enters one of the two runtime gates through the shared document
+set rather than through somebody remembering a directory or the current notebook's name.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
+import nbformat
 import pytest
+from scripts.execute_notebook import notebook_execution_stamp
 
-from tests.documents import ROOT, python_blocks
+from tests.documents import NOTEBOOKS, READER_FACING, ROOT, python_blocks
 
 #: Small enough that the whole module is a fast-tier cost, large enough that a fit converges.
 SMALL_N = 200
@@ -169,6 +169,7 @@ data = frame.rename(
 #: Document -> the code its fences assume was already run.  An empty string means the document
 #: builds everything it uses, which is the standard the examples section is held to.
 PRELUDES: dict[str, str] = {
+    "README.md": "",
     "docs/examples/point-treatment-tmle.md": "",
     "docs/examples/cross-fitting.md": "",
     "docs/examples/collaborative-tmle.md": "",
@@ -180,6 +181,7 @@ PRELUDES: dict[str, str] = {
     "docs/examples/msm-projections.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
+    "docs/technical-reference/dr-tmle/supported-estimands.md": "",
     "docs/user-guide/longitudinal.md": "",
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,
@@ -188,60 +190,47 @@ PRELUDES: dict[str, str] = {
     "docs/workflow.md": _WORKFLOW,
 }
 
-#: The reader-facing set this module is responsible for.  ``docs/development/`` and the design
-#: documents are excluded by not being here: they argue about work that is proposed or historical,
-#: and several show an API on purpose that no longer exists.
-REACHED = ("docs/examples", "docs/getting-started", "docs/user-guide", "docs/workflow.md")
-
-#: Declared, not silent.  The TWINS notebook downloads a pinned external dataset and deliberately
-#: runs the estimator comparison at publication time; Sphinx renders its stored outputs with
-#: execution disabled.  It is left out rather than half-covered, and remains an explicit gap in
-#: this smoke module rather than a property of the document.
-EXCLUDED = frozenset({"docs/examples/twins-causal-inference.ipynb"})
-
 TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
 
 
 def documented() -> set[str]:
     """Every reader-facing document that carries Python, as repository-relative posix paths."""
-    found = set()
-    for reached in REACHED:
-        target = ROOT / reached
-        paths = (
-            [target]
-            if target.is_file()
-            else sorted((*target.glob("*.md"), *target.glob("*.ipynb")))
-        )
-        for path in paths:
-            # Notebooks carry code in JSON rather than Markdown fences.  Their presence is enough
-            # to require an explicit PRELUDES or EXCLUDED decision.
-            if path.suffix == ".ipynb" or python_blocks(path):
-                found.add(path.relative_to(ROOT).as_posix())
-    return found
+    return {
+        path.relative_to(ROOT).as_posix()
+        for path in READER_FACING
+        if path.suffix == ".ipynb" or python_blocks(path)
+    }
 
 
 def test_every_documented_example_is_registered() -> None:
-    """A new guide is covered by existing, not by being remembered."""
-    unregistered = documented() - set(PRELUDES) - EXCLUDED
+    """A new example is covered by discovery, not by being remembered."""
+    notebooks = {path.relative_to(ROOT).as_posix() for path in NOTEBOOKS}
+    unregistered = documented() - set(PRELUDES) - notebooks
     assert not unregistered, (
-        f"reader-facing document(s) with python fences and no entry in PRELUDES: "
-        f"{sorted(unregistered)}. Add a prelude (or an empty one, if the document builds "
-        f"everything it uses), or list it in EXCLUDED with the reason"
+        f"reader-facing document(s) with Python and no runtime gate: {sorted(unregistered)}. "
+        f"Add a PRELUDES entry for Markdown, or commit a stamped notebook artifact"
     )
 
 
 def test_the_registry_names_real_documents() -> None:
     """The negative control: a rename would otherwise empty this module silently."""
     assert len(PRELUDES) >= 10
-    for relative in [*PRELUDES, *EXCLUDED]:
+    assert NOTEBOOKS, "the reader-facing notebook set is unexpectedly empty"
+    for relative in PRELUDES:
         assert (ROOT / relative).is_file(), f"{relative} is registered but does not exist"
 
 
-def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
-    """The expensive external-data example is stored complete rather than trusted implicitly."""
-    notebook = json.loads(TWINS_NOTEBOOK.read_text(encoding="utf-8"))
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_every_notebook_is_a_current_successfully_executed_artifact(path: Path) -> None:
+    """Every published notebook stores successful outputs from the current checkout."""
+    notebook = nbformat.read(path, as_version=4)
     code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
-    assert code, "the TWINS notebook has no code cells"
+    relative = path.relative_to(ROOT).as_posix()
+    assert code, f"{relative} has no code cells"
 
     unexecuted = [cell["id"] for cell in code if cell.get("execution_count") is None]
     errors = [
@@ -250,6 +239,25 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         for output in cell.get("outputs", ())
         if output.get("output_type") == "error"
     ]
+    counts = [cell.get("execution_count") for cell in code]
+    execution = notebook.get("metadata", {}).get("cleverly_execution", {})
+    expected = notebook_execution_stamp(notebook, path)
+
+    assert not unexecuted, f"unexecuted cell(s) in {relative}: {unexecuted}"
+    assert not errors, f"error output(s) in {relative}: {errors}"
+    assert counts == list(range(1, len(code) + 1)), (
+        f"execution counts in {relative} are not contiguous: {counts}"
+    )
+    assert execution == expected, (
+        f"{relative} is stale relative to its outputs, generator, library source, or lockfile; "
+        f"run {expected['command']}"
+    )
+
+
+def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
+    """The TWINS artifact retains the figures and ordinary TMLE interval its prose interprets."""
+    notebook = nbformat.read(TWINS_NOTEBOOK, as_version=4)
+    code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
     figures = [
         output
         for cell in code
@@ -266,26 +274,9 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         line for line in comparison_text.splitlines() if "ordinary package TMLE" in line
     )
 
-    counts = [cell.get("execution_count") for cell in code]
-    source_payload = "\n\n# --- notebook cell ---\n\n".join(
-        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
-        for cell in code
-    ).encode()
-    expected_digest = hashlib.sha256(source_payload).hexdigest()
-    execution = notebook.get("metadata", {}).get("cleverly_execution", {})
-
-    assert not unexecuted, f"unexecuted TWINS notebook cell(s): {unexecuted}"
-    assert not errors, f"TWINS notebook error output(s): {errors}"
-    assert counts == list(range(1, len(code) + 1)), (
-        f"TWINS execution counts are not contiguous: {counts}"
-    )
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
     assert "NaN" not in ordinary_tmle_row, (
         "the ordinary package TMLE lost its confidence interval in the comparison figure"
-    )
-    assert execution.get("code_source_sha256") == expected_digest, (
-        "TWINS code changed without re-executing stored outputs; run "
-        "python scripts/execute_notebook.py docs/examples/twins-causal-inference.ipynb"
     )
 
 

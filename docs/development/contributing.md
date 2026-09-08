@@ -72,9 +72,14 @@ behind the commands.
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -m "not slow" -q`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -m "not slow" -q` |
 | a regenerated evidence artifact | the row above. The fast tier recomputes each study's verdicts from the artifacts you commit |
+| a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
 
 The fast tier is the handoff gate for every one of those rows. The registered validation studies
 run inside it, so the statistical evidence is checked in minutes rather than hours.
+
+The notebook command executes every cell and replaces the stored outputs. It also records hashes
+for the cells, outputs, generator, package source, and dependency lock. The fast tier discovers
+every reader-facing notebook and rejects a stale stamp.
 
 The repeated-sampling studies that predate the registered rows are deprecated, and pytest skips
 each one. Do not re-enable one to justify a change. Read

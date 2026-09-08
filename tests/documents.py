@@ -28,7 +28,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["DOCUMENTS", "READER_FACING", "ROOT", "pipe_table", "python_blocks"]
+__all__ = [
+    "DOCUMENTS",
+    "NOTEBOOKS",
+    "READER_FACING",
+    "ROOT",
+    "pipe_table",
+    "python_blocks",
+]
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,6 +73,11 @@ READER_FACING = sorted(
         ),
     }
 )
+
+#: Every committed notebook that Sphinx can publish. Keeping this selection beside
+#: :data:`READER_FACING` makes prose, runtime, and artifact checks discover future notebooks
+#: from one definition instead of naming the current notebook in each consumer.
+NOTEBOOKS = tuple(path for path in READER_FACING if path.suffix == ".ipynb")
 
 #: A fenced ``python`` block.  Non-greedy to the closing fence, and anchored at line starts
 #: so a fence quoted inside another block's body cannot open a match.
