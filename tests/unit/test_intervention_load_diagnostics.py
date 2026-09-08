@@ -40,6 +40,7 @@ from cleverly.data.weighting import (
     SCORE_LOAD_NOT_FINITE,
     SCORE_LOAD_PREDATES,
     SCORE_LOAD_SHAPE_MISMATCH,
+    format_score_load,
     score_load_row,
     validate_score_loads,
 )
@@ -431,6 +432,45 @@ def test_an_empty_score_column_has_no_load_to_describe() -> None:
     """
     with pytest.raises(DataError, match="empty score column"):
         score_load_row(np.asarray([], dtype=float), "h0", 4)
+
+
+#: A hand-built row whose reported draw is neither ``1`` nor its own total.  Every fit
+#: this package can produce retains draw one, so a row taken from a fit cannot tell a
+#: renderer that *reads* ``reported_repeat`` from one that prints the literal ``01``.
+#: Two and three are both wrong for either literal, which is the whole point of it.
+SECOND_DRAW_ROW: dict[str, Any] = {
+    "equation": "h0",
+    "n_total": 400.0,
+    "n_targeted": 300.0,
+    "effective": 120.0,
+    "targeted_ratio": 0.4,
+    "total_ratio": 0.3,
+    "top_1pct": 0.2,
+    "top_5pct": 0.5,
+    "max_load": 9.0,
+    "zero_load": 0.0,
+    "reported_repeat": 2,
+    "n_repeats": 3,
+}
+
+
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [("cell", "draw 02/03"), ("inline", "draw 02 of 03"), ("detail", "draw 02 of 03)")],
+)
+def test_every_style_prints_the_draw_the_row_records(style: str, expected: str) -> None:
+    """Each rendered style reads ``reported_repeat`` instead of repeating a literal.
+
+    Parameters
+    ----------
+    style : str
+        The rendering style to check.
+    expected : str
+        The draw text that style has to produce.
+    """
+    rendered = format_score_load(SECOND_DRAW_ROW, style=style)  # type: ignore[arg-type]
+    assert expected in rendered
+    assert "draw 01" not in rendered
 
 
 #: A column whose top shares can be counted by hand.  Thirty rows makes the rounding rule
