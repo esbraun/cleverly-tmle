@@ -81,15 +81,16 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import effective_sample_size
+from ..data.weighting import SCORE_LOAD_PREDATES, effective_sample_size, format_score_load
 from ..exceptions import DataError, PositivityWarning
 from ..learners.density import ConditionalDensity, warn_if_unresolved
+from ..utils.records import _DefaultingUnpickle
 from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["Shift", "ShiftSet", "ShiftSupport", "check_shift_support"]
@@ -421,7 +422,7 @@ def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArra
 
 
 @dataclass(frozen=True)
-class ShiftSupport:
+class ShiftSupport(_DefaultingUnpickle):
     """Overlap for one shift: how hard the density ratio is working, and where it fails.
 
     Parameters
@@ -453,9 +454,10 @@ class ShiftSupport:
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
         the quantiles and the effective sample size above are of the whole weight.
-    score_load : dict or None
+    score_load : ScoreLoadRow or None
         Concentration of the exact absolute score weights retained for this shift's
-        equation. ``None`` means the fitted artifact did not supply a usable column.
+        equation, and the cross-fitting draw it describes. ``None`` means the fitted artifact
+        did not supply a usable column.
     score_load_omission : str or None
         Machine-readable reason why :attr:`score_load` is unavailable.
     """
@@ -477,23 +479,7 @@ class ShiftSupport:
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a report whose pickle can predate the score-load fields.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            Instance values carried by the pickle.
-        """
-        self.__dict__.update(state)
-        if "score_load" not in state:
-            object.__setattr__(self, "score_load", None)
-        if "score_load_omission" not in state:
-            object.__setattr__(
-                self,
-                "score_load_omission",
-                "the report predates fitted score-load diagnostics",
-            )
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -508,15 +494,7 @@ class ShiftSupport:
             "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
         )
         label = "ratio" if self.min_mechanism is None else "weight"
-        score = (
-            "score load unavailable"
-            if self.score_load is None
-            else (
-                f"score load={self.score_load['effective']:.1f}/"
-                f"{self.score_load['n_targeted']:.0f} Kish-equivalent mask rows "
-                f"(draw 01 of {self.score_load['n_repeats']:02d})"
-            )
-        )
+        score = format_score_load(self.score_load, style="inline")
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "

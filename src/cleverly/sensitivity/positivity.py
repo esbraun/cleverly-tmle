@@ -38,13 +38,21 @@ diagnostic can be.
 
 from __future__ import annotations
 
-from dataclasses import MISSING, dataclass, field, fields
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..data.weighting import effective_sample_size, top_weight_share
+from ..data.weighting import (
+    REPORTED_DRAW,
+    SCORE_LOAD_RATIO_FORMAT,
+    ScoreLoadRow,
+    effective_sample_size,
+    score_load_row,
+    top_weight_share,
+    validate_score_loads,
+)
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
@@ -52,6 +60,7 @@ from ..inference.influence import median_estimates
 from ..targets import TARGETS, parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
+from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -67,19 +76,22 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
 
 
-class GroupLeverageRow(TypedDict):
-    """One equation's descriptive absolute residual-multiplier concentration."""
+class GroupLeverageRow(ScoreLoadRow):
+    """One equation's descriptive absolute residual-multiplier concentration.
 
-    equation: str
-    n_total: float
-    n_targeted: float
-    effective: float
-    targeted_ratio: float
-    total_ratio: float
-    top_1pct: float
-    top_5pct: float
-    max_load: float
-    zero_load: float
+    The ten shared concentration keys come from
+    :class:`~cleverly.data.weighting.ScoreLoadRow`.  What a target-group row adds is the
+    propensity bound that group was held to and how much of the mechanism that bound moved,
+    neither of which an intervention row has: a regime, shift or tilt is described by the
+    policy it declares rather than by an arm-level truncation interval.
+
+    There is deliberately no draw count here.  A group row is held by a
+    :class:`PositivityReport`, which records :attr:`PositivityReport.n_repeats` once for the
+    whole fit, and a second copy on every row is a second place for it to disagree with the
+    first.  The intervention rows carry their own because the reports that hold them do not
+    have such a field.
+    """
+
     lower_bound: float
     upper_bound: float
     clipped_count: float
@@ -134,7 +146,7 @@ _COMPOSED_EXCLUSIONS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class PositivityReport:
+class PositivityReport(_DefaultingUnpickle):
     """Overlap diagnostics for a fitted TMLE.
 
     Parameters
@@ -155,10 +167,12 @@ class PositivityReport:
         Largest reconstructed absolute clever-covariate value per targeted estimand
         family.  This is a covariate-scale diagnostic, not a score contribution or an
         observation's influence on the estimate.
-    group_leverage : dict of str to dict of str to float or str
-        Absolute residual-multiplier concentration for each targeted family.  The fitted
-        fluctuation retains ``abs(w_i * h_ij)`` on the exact rows and with the exact
-        weights used to evaluate each score equation.  This report computes one Kish
+    group_leverage : dict of str to ScoreLoadRow
+        Absolute residual-multiplier concentration for each targeted family, as a
+        :class:`~cleverly.data.weighting.ScoreLoadRow` with the group's propensity bound and
+        clipping counts added.  The fitted fluctuation retains ``abs(w_i * h_ij)`` on the
+        exact rows and with the exact weights used to evaluate each score equation.  This
+        report computes one Kish
         concentration ratio per column, then retains the most concentrated column and
         names it under ``equation``.  Every metric in a group row comes from that one
         column.  It never sums columns with different units.
@@ -310,34 +324,10 @@ class PositivityReport:
     #: one the fit used (for example under fold-specific targeting).
     group_leverage_omissions: dict[str, str] = field(default_factory=dict)
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a pickled report, filling in every field the pickle predates.
-
-        Defaulting a field is not on its own enough to keep an old pickle readable.
-        ``dataclasses`` *deletes* the class attribute for a ``default_factory`` field, so a
-        report pickled before :attr:`group_leverage` existed unpickles with no
-        ``group_leverage`` in its instance dict and no class-level fallback behind it, and
-        every reader of that attribute raises :class:`AttributeError` instead.  Filling the
-        gap here is what makes the defaults on the fields above true for a stored result
-        rather than only for a fresh construction.
-
-        The fill is driven by :func:`dataclasses.fields` rather than by a list of names, so
-        the next defaulted field is covered the day it is added.  The class is frozen, so
-        each fill goes through :func:`object.__setattr__`.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The instance dictionary the pickle carries.
-        """
-        self.__dict__.update(state)
-        for spec in fields(self):
-            if spec.name in state:
-                continue
-            if spec.default is not MISSING:
-                object.__setattr__(self, spec.name, spec.default)
-            elif spec.default_factory is not MISSING:
-                object.__setattr__(self, spec.name, spec.default_factory())
+    # Unpickling a report from before `group_leverage` existed is
+    # `cleverly.utils.records._DefaultingUnpickle`, which this class's own hand-written
+    # restore became.  Its docstring carries the argument for driving the fill from
+    # `dataclasses.fields` rather than from a list of names.
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -396,8 +386,8 @@ class PositivityReport:
         ]
         if self.n_repeats > 1:
             lines.append(
-                f"describing draw 1 of {self.n_repeats}: overlap is a property of one "
-                "fitted mechanism, not of the median-combined estimate"
+                f"describing draw {REPORTED_DRAW} of {self.n_repeats}: overlap is a property "
+                "of one fitted mechanism, not of the median-combined estimate"
             )
         lines.append("")
         quantiles = sorted(next(iter(self.propensity_quantiles.values())))
@@ -660,8 +650,10 @@ class PositivityReport:
             share += (
                 f" Absolute-load concentration is greatest for group {group!r}, equation "
                 f"{load['equation']!r}: {load['effective']:.1f} Kish-equivalent rows out of "
-                f"{load['n_targeted']:.0f} score-mask rows ({load['targeted_ratio']:.0%}; "
-                f"{load['total_ratio']:.0%} of {load['n_total']:.0f} total rows). This is a "
+                f"{load['n_targeted']:.0f} score-mask rows "
+                f"({load['targeted_ratio']:{SCORE_LOAD_RATIO_FORMAT}}; "
+                f"{load['total_ratio']:{SCORE_LOAD_RATIO_FORMAT}} of "
+                f"{load['n_total']:.0f} total rows). This is a "
                 "descriptive residual-multiplier concentration index. It excludes the residual "
                 "and is not estimator effective sample size, information, actual influence, "
                 "precision, or a positivity test."
@@ -1175,34 +1167,34 @@ def _group_leverage(
     invariant to a scalar change of that column's units, while an L1 sum across columns is
     not.  The retained group row is the column with the smallest targeted-row Kish ratio,
     and every metric in that row is computed from that same column.
+
+    The guards and the ten concentration values are
+    :func:`~cleverly.data.weighting.validate_score_loads` and
+    :func:`~cleverly.data.weighting.score_load_row`, shared with the intervention reports.
+    Adopting them adds one refusal this path did not have: a block with more rows than the
+    fit had is now omitted with a reason, where before it was described and published a
+    ``total_ratio`` above one.
     """
     rows: dict[str, GroupLeverageRow] = {}
     omissions: dict[str, str] = {}
     for group, fluctuation in result.fluctuations.items():
-        artifact = getattr(fluctuation, "absolute_score_weights", None)
-        if artifact is None:
-            omissions[group] = "the fitted artifact has no exact absolute score weights"
-            continue
-        loads = np.asarray(artifact, dtype=float)
-        if loads.ndim != 2 or loads.shape[1] != len(fluctuation.names) or loads.shape[1] == 0:
-            omissions[group] = (
-                "the fitted absolute score weights do not match the recorded score equations"
-            )
-            continue
-        if np.any(~np.isfinite(loads)) or np.any(loads < 0.0):
-            omissions[group] = "the fitted absolute score weights are not finite and nonnegative"
+        loads, reason = validate_score_loads(
+            getattr(fluctuation, "absolute_score_weights", None),
+            len(fluctuation.names),
+            result.data.n,
+        )
+        if loads is None:
+            assert reason is not None  # returned together; narrows the type
+            omissions[group] = reason
             continue
 
-        n_targeted = int(loads.shape[0])
-        if n_targeted == 0:
-            omissions[group] = "the fitted score mask contains no rows"
-            continue
-        effective = np.array([_kish_ess(loads[:, j]) for j in range(loads.shape[1])])
-        targeted_ratio = effective / float(n_targeted)
+        columns = [
+            score_load_row(loads[:, index], name, result.data.n)
+            for index, name in enumerate(fluctuation.names)
+        ]
         # Stable first-column selection in an exact tie.  A zero-load equation has ratio
         # zero and is correctly the one the report must expose rather than average away.
-        selected = int(np.argmin(targeted_ratio))
-        load = loads[:, selected]
+        selected = int(np.argmin([column["targeted_ratio"] for column in columns]))
 
         if group == "ipsi":
             lower = upper = float("nan")
@@ -1227,18 +1219,8 @@ def _group_leverage(
                 clipped_count = float(np.count_nonzero(clipped))
                 clipped_fraction = float(np.mean(clipped))
 
-        chosen_effective = float(effective[selected])
         rows[group] = {
-            "equation": fluctuation.names[selected],
-            "n_total": float(result.data.n),
-            "n_targeted": float(n_targeted),
-            "effective": chosen_effective,
-            "targeted_ratio": float(targeted_ratio[selected]),
-            "total_ratio": chosen_effective / float(result.data.n),
-            "top_1pct": top_weight_share(load, 0.01),
-            "top_5pct": top_weight_share(load, 0.05),
-            "max_load": float(np.max(load)),
-            "zero_load": float(np.count_nonzero(load == 0.0)),
+            **columns[selected],
             "lower_bound": float(lower),
             "upper_bound": float(upper),
             "clipped_count": clipped_count,

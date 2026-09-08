@@ -1,4 +1,11 @@
-"""Equality for the report rows whose ``nan`` means "this column does not apply".
+"""What a frozen report row means by a default: an absent column, and an absent field.
+
+This module holds the two dataclass behaviours that a report row needs and that
+``@dataclass`` does not give it.  :func:`sentinel_equality` says what a defaulted ``nan``
+column means for equality, and :class:`_DefaultingUnpickle` says what an *absent* field
+means for a pickle written before that field existed.  Both are one implementation
+because the alternative is one copy per record class, and a copy that names its own
+fields goes stale the day a field is added.
 
 Several report classes are frozen dataclasses with a ``nan`` default on the columns that
 only some of their rows carry -- :class:`~cleverly.validation.ScoreCheckRow`'s
@@ -36,12 +43,62 @@ the interpreter happens to generate, which is why the test that pins it construc
 from __future__ import annotations
 
 import math
-from dataclasses import fields
-from typing import Any, TypeVar
+from dataclasses import MISSING, fields
+from typing import Any, ClassVar, TypeVar, cast
 
 __all__ = ["sentinel_equality"]
 
 T = TypeVar("T", bound=type)
+
+
+class _DefaultingUnpickle:
+    """Restore a frozen record whose pickle predates some of its fields.
+
+    Defaulting a field is not on its own enough to keep an old pickle readable.
+    ``dataclasses`` *deletes* the class attribute for a ``default_factory`` field, so a
+    record pickled before that field existed unpickles with no entry in its instance dict
+    and no class-level fallback behind it, and every reader of that attribute raises
+    :class:`AttributeError` instead.  Filling the gap here is what makes the defaults on
+    the fields true for a stored result rather than only for a fresh construction.
+
+    The fill is driven by :func:`dataclasses.fields` rather than by a list of names, so the
+    next defaulted field is covered the day it is added.  Four record classes had written
+    this restore out by hand, three of them byte for byte, and each named its own fields --
+    which is the list that goes stale.
+
+    A field whose *stored* value has to differ from its constructor default -- a reason
+    string saying the report predates a diagnostic, rather than the ``None`` a fresh report
+    means by it -- names that value in :attr:`_PICKLE_BACKFILL`.
+
+    Use as a base class of a frozen dataclass.  It declares no fields of its own, so it
+    does not change the generated signature, and each fill goes through
+    :func:`object.__setattr__` because the class is frozen.
+    """
+
+    #: Stored values for the fields whose backfill is not their constructor default, keyed
+    #: by field name.  Every other missing field takes its own default.
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a pickled record, filling in every field the pickle predates.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The instance dictionary the pickle carries.
+        """
+        self.__dict__.update(state)
+        # `self` is a dataclass instance by contract rather than by annotation: the mixin
+        # carries no fields, so it cannot be one itself.
+        for spec in fields(cast("Any", self)):
+            if spec.name in state:
+                continue
+            if spec.name in self._PICKLE_BACKFILL:
+                object.__setattr__(self, spec.name, self._PICKLE_BACKFILL[spec.name])
+            elif spec.default is not MISSING:
+                object.__setattr__(self, spec.name, spec.default)
+            elif spec.default_factory is not MISSING:
+                object.__setattr__(self, spec.name, spec.default_factory())
 
 
 class _NotApplicable:
