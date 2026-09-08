@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ValidationReport,
     )
     from ..validation.score import ScoreCheck
+    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -562,15 +563,29 @@ class TMLEResult:
         return len(self.repeats)
 
     def repeat_spread(self) -> dict[str, float]:
-        r"""Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
+        r"""Split spread of the estimate across the cross-fitting draws, per estimand.
 
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
         arbitrary fold assignment moved the answer: the ``R`` draws differ in nothing but
-        the split, so :math:`\mathrm{sd}(\psi_r)` is the size of the fold noise a single
-        fit carries silently. Read against
+        the split, so this is the size of the fold noise a single fit carries silently.
+
+        Reported **on the inference scale**, which is the scale
+        :attr:`~cleverly.ParameterEstimate.std_error` is on: the original outcome scale
+        for a level or a difference, and the log scale for a ratio.  A ``ratio`` estimand
+        therefore contributes :math:`\mathrm{sd}(\log\hat\psi_r)`.  Read against
         :attr:`~cleverly.ParameterEstimate.std_error`: a spread that is an appreciable
         fraction of the standard error means the split mattered, and one near zero means
-        the nuisance fits were stable enough that repeating bought little.
+        the nuisance fits were stable enough that repeating bought little.  That is a way
+        to read the number and not a threshold on it.  No rule in this package assigns the
+        ratio a status, and
+        :class:`~cleverly.validation.RepeatSpreadRow` reports it without one.  A spread taken
+        on ``psi`` itself would not be comparable with the standard error of an ``rr`` or
+        an ``or``, and would be wrong by roughly the estimate's own magnitude.
+
+        A draw whose ``psi`` is not finite, or whose ratio-scale ``psi`` is not positive,
+        yields ``nan`` for that estimand rather than ``-inf`` or an exception.  There is no
+        spread on the inference scale to report there, and the caller needs the other
+        estimands.
 
         What it must not be used for is inference.  It says nothing about the *sampling*
         variability of the estimand, so it is not an alternative to the reported standard
@@ -582,8 +597,8 @@ class TMLEResult:
         Returns
         -------
         dict of str to float
-            Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
-            Zero for an ordinary one-draw fit.
+            Standard deviation across the cross-fitting draws, per estimand, on the
+            inference scale of that estimand.
         """
         if self.n_repeats < 2:
             raise ValueError(
@@ -592,10 +607,23 @@ class TMLEResult:
                 "repeats=2 or more."
             )
         shared = [name for name in self.estimates if all(name in r.psi for r in self.repeats)]
-        return {
-            name: float(np.std([repeat.psi[name] for repeat in self.repeats], ddof=1))
-            for name in shared
-        }
+        spreads: dict[str, float] = {}
+        for name in shared:
+            values = np.asarray([repeat.psi[name] for repeat in self.repeats], dtype=float)
+            # Outside the ratio branch, because a draw that is not finite has no spread on
+            # any scale.  Leaving it inside sent an infinite difference-scale draw into
+            # ``np.std``, which warns and therefore raises under this project's
+            # ``error::RuntimeWarning`` filter rather than yielding the promised ``nan``.
+            if not np.all(np.isfinite(values)):
+                spreads[name] = float("nan")
+                continue
+            if self.estimates[name].scale == "ratio":
+                if np.any(values <= 0.0):
+                    spreads[name] = float("nan")
+                    continue
+                values = np.log(values)
+            spreads[name] = float(np.std(values, ddof=1))
+        return spreads
 
     # ------------------------------------------------------------- accessors
 
@@ -658,6 +686,25 @@ class TMLEResult:
         """
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
+
+    @property
+    def ctmle_selection(self) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | None:
+        """The collaborative selection artifact a C-TMLE fit retained, if any.
+
+        The sibling of :attr:`cv_targeting` for the ``ctmle`` key, and typed for the same
+        reason: a reader who reaches into ``extra`` gets ``Any`` and has to re-assert the
+        type at every call site.  ``None`` covers both an ordinary fit and a collaborative
+        result whose artifact is absent, which the reports distinguish by
+        :attr:`fitted_method`.
+
+        The two classes are imported inside the property because
+        :mod:`cleverly.estimators.ctmle` imports this module, so the dependency only runs
+        in the direction the package already has.
+        """
+        from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+
+        value = self.extra.get("ctmle")
+        return value if isinstance(value, CTMLESelection | CTMLEOutcomeAdaptiveFit) else None
 
     # ------------------------------------------------------------- contrasts
 
@@ -1114,11 +1161,17 @@ class TMLEResult:
             # nothing about whether the split mattered.
             parts.append("")
             parts.append(
-                f"split noise -- sd(psi) across the {self.n_repeats} draws, a diagnostic "
-                "and not a standard error:"
+                f"split noise -- spread across the {self.n_repeats} draws on the inference "
+                "scale (the log scale for a ratio), a diagnostic and not a standard error:"
             )
             for name, value in self.repeat_spread().items():
                 error = self[name].std_error
+                # "-" and a named reason, as every other table in this package renders a
+                # cell it has no value for.  A draw this spread could not be taken over
+                # printed "nan (nan% of std_err)" here.
+                if not np.isfinite(value):
+                    parts.append(f"  {name:<5s} -  (no spread on the inference scale)")
+                    continue
                 share = f"{value / error:.0%} of std_err" if error > 0 else "std_err unavailable"
                 parts.append(f"  {name:<5s} {value:.4g}  ({share})")
         if self.simultaneous is not None:

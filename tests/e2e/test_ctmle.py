@@ -24,10 +24,16 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import SuperLearner, load
-from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
+from cleverly.datasets import (
+    instrument_dgp,
+    make_instrument,
+    make_missing_outcome,
+    make_multi_arm,
+)
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
 from cleverly.inference.influence import counterfactual_means
+from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
 from tests.conftest import FAST_KWARGS
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -107,43 +113,207 @@ class TestDownstreamMachineryStillWorks:
         assert diagnostics.treatment_role == "collaborative_working_model"
         assert diagnostics.reported_repeat == 1
         assert diagnostics.selection.path == fit.extra["ctmle"].path
-        assert "C-TMLE selection" in diagnostics.summary()
+        assert "C-TMLE greedy selected candidate" in diagnostics.summary()
+        assert diagnostics.selection.describe() in diagnostics.summary()
         assert "complete adjustment set" in diagnostics.summary()
-        assert diagnostics["propensity"].metrics["auc"] < 0.55
-        assert diagnostics["propensity"].metrics["calibration_slope"] < 0.7
-        assert "confounding by these covariates is limited" not in diagnostics.verdict()
-        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
-
-        wrong_role = replace(diagnostics, treatment_role="estimated_treatment_law")
-        assert "confounding by these covariates is limited" in wrong_role.verdict()
-        assert any("propensity is poorly calibrated" in item for item in wrong_role.findings)
-
-        propensity = diagnostics["propensity"]
-        high_auc = replace(propensity, metrics={**propensity.metrics, "auc": 0.95})
-        high_auc_models = tuple(
-            high_auc if model.name == "propensity" else model for model in diagnostics.models
-        )
-        collaborative_high_auc = replace(diagnostics, models=high_auc_models)
-        assert not any("positivity problem" in item for item in collaborative_high_auc.findings)
-        ordinary_high_auc = replace(
-            collaborative_high_auc, treatment_role="estimated_treatment_law"
-        )
-        assert any("positivity problem" in item for item in ordinary_high_auc.findings)
 
         combined = fit.diagnostics.run_all()
         retained = combined.report("nuisance_models")
         assert retained.selection.path == diagnostics.selection.path
         assert "C-TMLE greedy selected candidate" in combined["nuisance_models"].detail
 
+    def test_the_role_suppresses_two_claims_and_no_others(self, fit) -> None:
+        """Exactly two claims are about the treatment *law*, and only those two go quiet.
+
+        Both suppressed claims read a metric of a model nobody fitted: the selected
+        working mechanism is an intercept-only candidate here, so its AUC sits at chance
+        and its calibration slope is far from one.  Reporting "overlap is excellent" or
+        "poorly calibrated" from those describes assignment given the complete adjustment
+        set, which this fit never estimated.
+
+        The high-AUC positivity note is the control that keeps the suppression narrow.
+        ``CTMLE._nuisances`` puts the selected mechanism on ``nuisance.propensity``, so it
+        *is* the denominator of the clever covariate, and an AUC near one there is a
+        statement about the estimator's own weights rather than about the treatment law.
+        Suppressing it by role would hide a positivity problem the fit really has.
+        """
+        diagnostics = fit.diagnostics.nuisance_models()
+        assert diagnostics["propensity"].metrics["auc"] < 0.55
+        assert diagnostics["propensity"].metrics["calibration_slope"] < 0.7
+
+        # Suppressed: both claims would otherwise fire on these very metrics.
+        assert "confounding by these covariates is limited" not in diagnostics.verdict()
+        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
+        wrong_role = replace(diagnostics, treatment_role="estimated_treatment_law")
+        assert "confounding by these covariates is limited" in wrong_role.verdict()
+        assert any("propensity is poorly calibrated" in item for item in wrong_role.findings)
+
+        # Not suppressed: the same metric read as a property of the weights, not the law.
+        propensity = diagnostics["propensity"]
+        high_auc = replace(propensity, metrics={**propensity.metrics, "auc": 0.95})
+        high_auc_models = tuple(
+            high_auc if model.name == "propensity" else model for model in diagnostics.models
+        )
+        collaborative_high_auc = replace(diagnostics, models=high_auc_models)
+        ordinary_high_auc = replace(
+            collaborative_high_auc, treatment_role="estimated_treatment_law"
+        )
+        for report in (collaborative_high_auc, ordinary_high_auc):
+            assert any("positivity problem" in item for item in report.findings)
+        assert "positivity problem" in collaborative_high_auc.verdict()
+
+    def test_a_mean_only_learner_library_is_reported_for_a_working_model_too(self, fit) -> None:
+        """A fact about a learner library, and not an interpretation of a treatment law.
+
+        "no candidate beat predicting the average" says a super learner found nothing in
+        its library worth weighting, whatever the fitted object is for. It was suppressed
+        for a collaborative fit along with the two claims that do read the treatment law,
+        and the suppression had no test at all, so a mean-only ``oat`` mechanism reported
+        nothing about a library that had failed.
+
+        The selected mechanism here comes off the candidate path and has no library, so
+        the weights are substituted. That is the state an ``oat`` fit reaches honestly.
+        """
+        diagnostics = fit.diagnostics.nuisance_models()
+        propensity = diagnostics["propensity"]
+        assert propensity.learner_weights == {}
+        mean_only = replace(propensity, learner_weights={"mean": 0.95, "glm": 0.05})
+        report = replace(
+            diagnostics,
+            models=tuple(
+                mean_only if model.name == "propensity" else model for model in diagnostics.models
+            ),
+        )
+
+        assert report.treatment_role == "collaborative_working_model"
+        notes = [note for note in report.findings if "weight on the marginal mean" in note]
+        assert len(notes) == 1
+        assert notes[0].startswith("propensity put 95%")
+        assert notes[0] in report.verdict()
+        # The two treatment-law claims are still quiet on the very same report.
+        assert not any("poorly calibrated" in note for note in report.findings)
+        assert "confounding by these covariates is limited" not in report.verdict()
+        # And a weight under the threshold reports nothing, so the rule still has a gate.
+        below = replace(propensity, learner_weights={"mean": 0.8, "glm": 0.2})
+        quiet = replace(
+            report,
+            models=tuple(below if model.name == "propensity" else model for model in report.models),
+        )
+        assert not any("weight on the marginal mean" in note for note in quiet.findings)
+
+    def test_the_role_reaches_a_multi_arm_report_named_for_its_arm(self) -> None:
+        """The one input on which the two propensity predicates disagree.
+
+        Role suppression tests ``propensity[<label>]`` by prefix, while the two AUC rules
+        test ``"propensity"`` exactly.  Every other test here fits a binary treatment,
+        where the single report is named ``"propensity"`` and both predicates agree, so
+        nothing distinguishes them and the widening is a term that vanishes at the truth.
+
+        A K-armed collaborative fit is where they part.  Its one selected mechanism is
+        reported once per arm, and the calibration slope of an intercept-only selection is
+        far from one on every arm.  Narrowing the suppression to the exact name would make
+        this report state, three times, that a model nobody fitted is poorly calibrated.
+        """
+        frame, _ = make_multi_arm(n=600, seed=5)
+        result = (
+            CTMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=3,
+                learner_folds=2,
+                random_state=5,
+                n_jobs=1,
+                strategy="greedy",
+                selection_folds=3,
+                selection_inner_folds=2,
+                estimands=("ate",),
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+        report = result.diagnostics.nuisance_models()
+        assert report.treatment_role == "collaborative_working_model"
+        arms = [model for model in report.models if model.name.startswith("propensity[")]
+        # The witness: every arm's slope is outside the gate the rule applies.
+        assert len(arms) >= 2
+        assert all(not 0.7 <= model.metrics["calibration_slope"] <= 1.4 for model in arms)
+
+        assert not any("poorly calibrated" in note for note in report.findings)
+        ordinary = replace(report, treatment_role="estimated_treatment_law")
+        fired = [note for note in ordinary.findings if "poorly calibrated" in note]
+        assert len(fired) == len(arms)
+        assert all(any(model.name in note for note in fired) for model in arms)
+
+    def test_the_working_model_verdict_replaces_the_ordinary_reassurance(self, fit) -> None:
+        """With no finding to report, the two roles must not print the same sentence.
+
+        "nuisance fits look reasonable" is a claim about fitted models, and a selected
+        working mechanism is not one of those. The collaborative branch says so and sends
+        the reader to the artifacts that do carry the evidence.
+        """
+        diagnostics = fit.diagnostics.nuisance_models()
+        assert diagnostics.findings == ()
+        assert diagnostics.verdict() == (
+            "VERDICT: C-TMLE working-model metrics are descriptive; inspect the selection "
+            "and support reports."
+        )
+        assert diagnostics.verdict() in diagnostics.summary()
+
+        ordinary = replace(diagnostics, treatment_role="estimated_treatment_law")
+        assert ordinary.findings != ()  # the calibration claim comes back
+        no_metrics = replace(
+            ordinary,
+            models=tuple(replace(model, metrics={}) for model in diagnostics.models),
+        )
+        assert no_metrics.verdict() == "VERDICT: nuisance fits look reasonable."
+
     def test_a_missing_selection_stays_a_machine_readable_omission(self, fit) -> None:
+        """A lost artifact is an absent artifact, and never an absent method.
+
+        ``treatment_role`` is derived from ``fitted_method``, not from ``extra["ctmle"]``.
+        That separation is the point of this PR: tying the role to the artifact would let
+        a detached collaborative result print the treatment-law claims about a working
+        mechanism, which is the misinterpretation the role exists to prevent. Every other
+        assertion in this test passes under that mistake, so the role is asserted here.
+        """
         detached = replace(fit, extra={})
         diagnostics = detached.diagnostics.nuisance_models()
 
         assert diagnostics.selection is None
+        assert diagnostics.selection_omission == NUISANCE_SELECTION_MISSING
         assert (
-            diagnostics.selection_omission == "the fitted result retains no ctmle method artifact"
+            f"C-TMLE selection unavailable: {NUISANCE_SELECTION_MISSING}" in diagnostics.summary()
         )
-        assert "selection unavailable" in diagnostics.summary()
+
+        assert detached.fitted_method == "collaborative_tmle"
+        assert diagnostics.treatment_role == "collaborative_working_model"
+        assert "confounding by these covariates is limited" not in diagnostics.verdict()
+        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
+        assert "The propensity metrics describe the selected C-TMLE working mechanism" in (
+            diagnostics.summary()
+        )
+
+        detail = detached.diagnostics.run_all()["nuisance_models"].detail
+        assert f"C-TMLE selection unavailable: {NUISANCE_SELECTION_MISSING}" in detail
+        assert "selected candidate" not in detail
+
+    def test_an_artifact_of_the_wrong_type_is_no_artifact(self, fit) -> None:
+        """``ctmle_selection`` narrows the ``extra`` slot to the two classes that describe.
+
+        ``extra`` is a plain mapping, so anything can occupy the ``ctmle`` key: an older
+        artifact, or a value a caller wrote. The typed accessor reports it as absent
+        rather than calling ``describe`` on it, which keeps a foreign value out of the
+        report as an omission instead of as a traceback inside a diagnostic.
+        """
+        assert fit.ctmle_selection is fit.extra["ctmle"]
+
+        foreign = replace(fit, extra={"ctmle": "a value from somewhere else"})
+        assert foreign.ctmle_selection is None
+        report = foreign.diagnostics.nuisance_models()
+        assert report.selection is None
+        assert report.selection_omission == NUISANCE_SELECTION_MISSING
+        assert NUISANCE_SELECTION_MISSING in report.summary()
 
     def test_the_warmed_method_report_survives_persistence(self, fit, tmp_path) -> None:
         before = fit.diagnostics.run_all()
@@ -200,8 +370,16 @@ class TestDownstreamMachineryStillWorks:
         diagnostics = oat.diagnostics.nuisance_models()
         assert diagnostics.selection is oat.extra["ctmle"]
         assert diagnostics.treatment_role == "collaborative_working_model"
-        assert "C-TMLE fit: strategy=oat" in diagnostics.summary()
-        assert "outcome-adaptive fit" in oat.diagnostics.run_all()["nuisance_models"].detail
+        features = len(oat.extra["ctmle"].treatment_features)
+        assert features > 0
+        assert (
+            f"C-TMLE outcome-adaptive fit used {features} Qbar feature(s)" in diagnostics.summary()
+        )
+        assert diagnostics.selection.describe() in diagnostics.summary()
+        assert (
+            f"C-TMLE outcome-adaptive fit used {features} Qbar feature(s)"
+            in oat.diagnostics.run_all()["nuisance_models"].detail
+        )
 
     def test_refutation_runs(self, fit) -> None:
         # A placebo refit goes back through CTMLE._nuisances, so the selection is
@@ -270,7 +448,17 @@ class TestBackendParity:
         )
 
 
-def test_the_documented_seed_exercises_the_method_report() -> None:
+def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
+    """The exact numbers ``docs/examples/collaborative-tmle.md`` asks a reader to read.
+
+    At this seed the search cuts at the intercept-only candidate, so the working
+    mechanism is a constant: AUC lands on chance and the calibration slope on ``-2``.
+    Those are the two values the page tells the reader not to interpret as a treatment
+    law, and they are also the two values that would each raise a finding under the
+    ordinary role.  Pinning them together with a ``completed`` status is the claim the
+    page makes; the mutated-role report below is the control that shows the numbers are
+    extreme enough for the suppression to be doing the work.
+    """
     frame, _ = make_instrument(n=2_000, seed=44)
     result = (
         CTMLE(
@@ -290,12 +478,18 @@ def test_the_documented_seed_exercises_the_method_report() -> None:
     )
 
     report = result.diagnostics.nuisance_models()
-    assert report.selection is result.extra["ctmle"]
-    assert report.treatment_role == "collaborative_working_model"
-    assert "complete adjustment set" in report.summary()
-    assert (
-        "C-TMLE greedy selected candidate" in result.diagnostics.run_all()["nuisance_models"].detail
-    )
+    metrics = report["propensity"].metrics
+    assert metrics["auc"] == pytest.approx(0.499, abs=5e-3)
+    assert metrics["calibration_slope"] == pytest.approx(-2.00, abs=5e-2)
+    assert report.findings == ()
+
+    item = result.diagnostics.run_all()["nuisance_models"]
+    assert item.status.value == "completed"
+    assert "C-TMLE greedy selected candidate" in item.detail
+
+    ordinary = replace(report, treatment_role="estimated_treatment_law")
+    assert any("poorly calibrated" in note for note in ordinary.findings)
+    assert "confounding by these covariates is limited" in ordinary.verdict()
 
 
 #: The option each test in :class:`TestCombinedWithOtherOptions` combines the selection

@@ -225,7 +225,7 @@ weak_collaborative = effect.estimate(
 show("constant Q, plain", weak_plain)
 show("constant Q, C-TMLE", weak_collaborative)
 
-weak_selection = weak_collaborative.extra["ctmle"]
+weak_selection = weak_collaborative.ctmle_selection
 print("selected covariates:", weak_selection.path[weak_selection.selected])
 print("population ATE:", truth["ate"])
 ```
@@ -249,15 +249,21 @@ print(diagnostics.summary())
 print(diagnostics.report("support").summary())
 print(diagnostics.report("score_equations").summary())
 nuisance = diagnostics.report("nuisance_models")
-print(nuisance.to_frame())
+print("treatment role:", nuisance.treatment_role)
+print(nuisance.summary())
 print(nuisance.selection.summary())
 ```
 
-The report labels the propensity as a collaborative working model. Its AUC and calibration values
-describe the selected denominator. They do not describe assignment given the complete adjustment
-set. The report therefore does not infer limited confounding from low AUC or grade this model's
-calibration as treatment-law misspecification. Read the values with the retained selection and the
-support report.
+The role prints as `collaborative_working_model`, and the summary states it in words. The AUC and
+calibration values describe the selected denominator. They do not describe assignment given the
+complete adjustment set.
+
+That role drops two claims and no others. The report drops the claim that a low AUC means limited
+confounding, and it drops the calibration-slope claim about this model. It keeps the high-AUC
+positivity finding, because the selected mechanism is the denominator the clever covariate divides
+by. It also keeps the super-learner mean-weight finding, which describes a learner library.
+[Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality) gives
+the rule as a table. Read the retained values with the selection and the support report.
 
 One limitation is structural and belongs in every report of a collaborative fit.
 

@@ -113,16 +113,30 @@ The rows below remain.
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-The nuisance report now retains the exact C-TMLE selector or outcome-adaptive artifact. It labels
-the propensity as a collaborative working model. The AUC and calibration values stay available,
-but their interpretation does not describe the complete treatment law or imply limited
-confounding. The combined row reports the strategy and selected candidate or features; selector
-rows also name their target.
+The paragraphs below, to the intervention support rows, describe the point-treatment nuisance
+report alone. `LongitudinalNuisanceDiagnostics` carries stagewise regression rows and a backend,
+and none of the fields these paragraphs name. The longitudinal row above is the gap that remains.
+
+The point-treatment nuisance report now retains the exact C-TMLE selector or outcome-adaptive
+artifact. It labels the propensity as a collaborative working model. That label drops two claims
+and no others: the low-AUC claim that overlap is excellent and confounding is limited, and the
+propensity calibration-slope claim.
+
+The report keeps the high-AUC positivity finding, because the selected mechanism is the denominator
+the clever covariate divides by. It also keeps the super-learner mean-weight finding, which states
+a fact about a learner library. `test_the_role_suppresses_two_claims_and_no_others` in
+`tests/e2e/test_ctmle.py` reads each of the four claims under both roles. Both the report and the
+combined row render the one selection sentence through `CTMLESelection.describe()` or
+`CTMLEOutcomeAdaptiveFit.describe()`.
 
 A repeated fit adds one `RepeatSpreadRow` per reported parameter. Each row gives the standard
-deviation across draw-specific estimates, the reported standard error, and their descriptive
-ratio. The report assigns no threshold or status to the ratio. Nuisance models and selection
-describe draw 01, while the split rows read every retained draw. A one-draw fit reports no spread.
+deviation across draw-specific estimates, the reported standard error, and their descriptive ratio.
+The spread is on the inference scale the standard error is on, which is the log scale for a ratio.
+The report assigns no threshold or status to the ratio.
+
+Nuisance models and selection describe draw 1, while the split rows read every retained draw. A
+one-draw fit reports no spread, and `repeat_spread_omission` names the cause of every missing or
+non-finite spread. A table cell with no finite value prints `-`.
 
 The retained report, combined row, split frame, and selection survive persistence. Their cache
 generations reject saved pre-change reports. The tests mutate the selected candidate and one

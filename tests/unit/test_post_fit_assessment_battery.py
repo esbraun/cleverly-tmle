@@ -40,6 +40,7 @@ from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import _select_evalue, _standardising_sd, evalue_from_rr
 from cleverly.sensitivity.positivity import PositivityReport
 from cleverly.validation import RepeatSpreadRow
+from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW
 
 
 def _study(*, strata: bool = False) -> CausalStudy:
@@ -757,58 +758,120 @@ def test_interpreters_reserve_failed_and_warning_for_evidence_backed_rules() -> 
     )
 
 
-def test_method_facts_do_not_invent_a_warning_threshold() -> None:
-    selection = SimpleNamespace(
+def _nuisance_stub(**overrides: object) -> SimpleNamespace:
+    """A nuisance report holding exactly the attributes ``_nuisance_item`` reads.
+
+    A stub rather than a fitted report, because these cases are about the arithmetic the
+    interpreter does over rows it is handed rather than about producing the rows.
+
+    Every attribute the interpreter reads is present, including ``reported_repeat``. A
+    stub that omits it reads as passing only while ``selection`` is ``None``, which is the
+    one case that never reaches the draw suffix.
+    """
+    fields: dict[str, object] = {
+        "findings": (),
+        "models": (),
+        "selection": None,
+        "selection_omission": None,
+        "repeat_spread": (),
+        "repeat_spread_omission": None,
+        "n_repeats": 3,
+        "reported_repeat": 1,
+    }
+    return SimpleNamespace(**{**fields, **overrides})
+
+
+def _real_selection() -> object:
+    """A genuine :class:`~cleverly.estimators.CTMLESelection` over a two-candidate path.
+
+    Constructed rather than stubbed so the rendered sentence comes from the shipped
+    ``describe``. A stub with the same fields renders whatever the test writes down, which
+    is how the two call sites drifted apart before ``describe`` existed.
+    """
+    from cleverly.estimators.ctmle import CTMLESelection
+    from cleverly.learners.crossfit import Folds
+
+    risks = np.asarray([1.0, 0.5])
+    return CTMLESelection(
         strategy="greedy",
-        selected=1,
-        path=((), ("W1",)),
+        preorder=None,
         estimand="ate",
+        target_names=("ate",),
+        loss="loglik",
+        penalized=False,
+        path=((), ("W1",)),
+        n_steps=(1, 1),
+        train_risk=risks,
+        train_loss=risks,
+        penalty=np.zeros(2),
+        treatment_risk=risks,
+        cv_risk=risks,
+        selected=1,
+        covariates=("W1",),
+        folds=Folds(np.asarray([0, 1, 0, 1]), 2),
     )
-    report = SimpleNamespace(
-        findings=(),
+
+
+def test_method_facts_do_not_invent_a_warning_threshold() -> None:
+    """Facts, a draw, and a status: a descriptive ratio never becomes a warning."""
+    selection = _real_selection()
+    report = _nuisance_stub(
         models=(object(), object()),
         selection=selection,
-        selection_omission=None,
-        reported_repeat=1,
-        n_repeats=3,
-        repeat_spread=(
-            RepeatSpreadRow(
-                estimand="ate",
-                n_repeats=3,
-                standard_deviation=0.2,
-                reported_standard_error=0.1,
-                ratio_to_standard_error=2.0,
-            ),
-        ),
+        repeat_spread=(RepeatSpreadRow("ate", 3, 0.2, 0.1, 2.0),),
     )
 
     item = INTERPRETERS["nuisance_models"](report, None)
     assert item.status is AssessmentStatus.COMPLETED
-    assert "candidate 2 of 2" in item.detail
+    assert selection.describe() in item.detail
+    assert "C-TMLE greedy selected candidate 2 of 2 for ate on draw 1 of 3" in item.detail
     assert "largest sd/se 2 for ate" in item.detail
 
 
-def test_method_facts_choose_only_finite_split_ratios() -> None:
-    rows = (
-        RepeatSpreadRow("ey0", 3, 0.0, 0.0, float("nan")),
-        RepeatSpreadRow("ate", 3, 0.2, 0.1, 2.0),
-    )
-    report = SimpleNamespace(
-        findings=(),
-        models=(),
-        selection=None,
-        selection_omission=None,
-        n_repeats=3,
-        repeat_spread=rows,
-    )
+@pytest.mark.parametrize(
+    ("rows", "expected", "absent"),
+    [
+        pytest.param(
+            (
+                RepeatSpreadRow("ey0", 3, 0.0, 0.0, float("nan")),
+                RepeatSpreadRow("ate", 3, 0.2, 0.1, 2.0),
+            ),
+            "largest sd/se 2 for ate",
+            "largest sd/se nan",
+            id="one row has no usable ratio",
+        ),
+        pytest.param(
+            (
+                RepeatSpreadRow("ey0", 3, 0.0, 0.0, float("nan")),
+                RepeatSpreadRow("ey1", 3, 0.0, 0.0, float("nan")),
+            ),
+            "sd/se unavailable",
+            "largest sd/se",
+            id="no row has one",
+        ),
+    ],
+)
+def test_method_facts_choose_only_finite_split_ratios(
+    rows: tuple[RepeatSpreadRow, ...], expected: str, absent: str
+) -> None:
+    detail = INTERPRETERS["nuisance_models"](_nuisance_stub(repeat_spread=rows), None).detail
+    assert expected in detail
+    assert absent not in detail
+    assert f"split spread for {len(rows)} parameter(s) across 3 draws" in detail
 
-    detail = INTERPRETERS["nuisance_models"](report, None).detail
-    assert "largest sd/se 2 for ate" in detail
-    assert "largest sd/se nan" not in detail
 
-    unavailable = replace(rows[0], estimand="ey1")
-    report.repeat_spread = (rows[0], unavailable)
-    assert "sd/se unavailable" in INTERPRETERS["nuisance_models"](report, None).detail
+def test_method_facts_carry_the_reason_no_split_spread_is_available() -> None:
+    """The row states the cause rather than leaving the reader an empty tuple."""
+    detail = INTERPRETERS["nuisance_models"](
+        _nuisance_stub(repeat_spread_omission="the reason it is absent"), None
+    ).detail
+    assert "split spread unavailable: the reason it is absent" in detail
+
+    # And an ordinary one-draw fit never prints its ordinary reason.
+    ordinary = INTERPRETERS["nuisance_models"](
+        _nuisance_stub(n_repeats=1, repeat_spread_omission=SPREAD_SINGLE_DRAW), None
+    ).detail
+    assert "split spread unavailable" not in ordinary
 
 
 @pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "ctmle", "cv"])

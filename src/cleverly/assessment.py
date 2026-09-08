@@ -31,7 +31,7 @@ from ._assessment_cache import (
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
-from .utils.text import format_table
+from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     STITCHED_SCORE_Z_TOLERANCE,
@@ -2012,24 +2012,15 @@ def _nuisance_item(
             if findings
             else f"{len(getattr(report, 'models', ()))} nuisance model report(s) are available"
         ]
+        n_repeats = int(getattr(report, "n_repeats", 1))
         selection = getattr(report, "selection", None)
         if selection is not None:
-            draw = (
-                f" on draw {report.reported_repeat} of {report.n_repeats}"
-                if report.n_repeats > 1
-                else ""
-            )
-            if hasattr(selection, "selected"):
-                facts.append(
-                    f"C-TMLE {selection.strategy} selected candidate "
-                    f"{selection.selected + 1} of {len(selection.path)} for "
-                    f"{selection.estimand}{draw}"
-                )
-            else:
-                facts.append(
-                    "C-TMLE outcome-adaptive fit used "
-                    f"{len(selection.treatment_features)} Qbar feature(s){draw}"
-                )
+            # The artifact says what it is. Discriminating a selector from an
+            # outcome-adaptive fit here as well is what let this line and the one in
+            # `NuisanceDiagnostics.summary` drift into two spellings of one fact.
+            reported = int(getattr(report, "reported_repeat", REPORTED_DRAW))
+            draw = f" on {format_draw(reported, n_repeats)}" if n_repeats > 1 else ""
+            facts.append(f"{selection.describe()}{draw}")
         elif getattr(report, "selection_omission", None) is not None:
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
         spread = tuple(getattr(report, "repeat_spread", ()))
@@ -2041,14 +2032,20 @@ def _nuisance_item(
                 largest_row = max(finite_rows, key=lambda row: row.ratio_to_standard_error)
                 facts.append(
                     f"split spread for {len(spread)} parameter(s) across "
-                    f"{report.n_repeats} draws; largest sd/se "
+                    f"{n_repeats} draws; largest sd/se "
                     f"{largest_row.ratio_to_standard_error:.3g} for {largest_row.estimand}"
                 )
             else:
                 facts.append(
                     f"split spread for {len(spread)} parameter(s) across "
-                    f"{report.n_repeats} draws; sd/se unavailable"
+                    f"{n_repeats} draws; sd/se unavailable"
                 )
+        spread_omission = getattr(report, "repeat_spread_omission", None)
+        if n_repeats > 1 and spread_omission is not None:
+            # Guarded on the draw count for the reason `NuisanceDiagnostics.summary` is:
+            # the one-draw reason is the ordinary state and states nothing a reader of an
+            # ordinary fit needs.
+            facts.append(f"split spread unavailable: {spread_omission}")
         detail = "; ".join(facts)
     return AssessmentItem(
         "nuisance_models",

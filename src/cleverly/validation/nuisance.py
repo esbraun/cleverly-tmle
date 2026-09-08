@@ -40,7 +40,7 @@ average, so the adjustment is doing very little.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -49,7 +49,7 @@ from ..data.weighting import REPORTED_DRAW
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_table
+from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
@@ -57,6 +57,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
+    "NUISANCE_SELECTION_MISSING",
+    "SPREAD_NOT_FINITE",
+    "SPREAD_NO_PARAMETERS",
+    "SPREAD_SINGLE_DRAW",
+    "SPREAD_UNAVAILABLE_DRAWS",
     "NuisanceDiagnostics",
     "NuisanceModelReport",
     "RepeatSpreadRow",
@@ -65,6 +70,33 @@ __all__ = [
 
 #: Number of bins in the calibration table.
 _CALIBRATION_BINS = 10
+
+# ------------------------------------------------------------------ omission reasons
+#
+# Named for the reason :data:`~cleverly.data.weighting.SCORE_LOAD_MISSING` and its
+# siblings are: the producer here, the consumers in
+# :func:`~cleverly.validation.nuisance.NuisanceDiagnostics.summary` and
+# :mod:`cleverly.assessment`, and the test that asserts a report states its cause all name
+# one object rather than three hand-written copies of one sentence.
+
+#: The fit declares itself collaborative and retains no ``ctmle`` artifact to describe.
+NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact"
+
+#: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
+#: fault: it is the ordinary state of an ordinary fit.
+SPREAD_SINGLE_DRAW = "the fit used one cross-fitting draw"
+
+#: Prefix naming the parameters some draw did not report, so their spread is over fewer
+#: draws than the fit made and is not computed at all.
+SPREAD_UNAVAILABLE_DRAWS = "draw-specific estimates are unavailable for: "
+
+#: Prefix naming the parameters whose spread exists but is not finite. A ratio-scale draw
+#: at or below zero has no inference-scale value, and a non-finite ``psi`` has none on any
+#: scale, so :meth:`~cleverly.estimators.TMLEResult.repeat_spread` yields ``nan`` there.
+SPREAD_NOT_FINITE = "the split spread is not finite for: "
+
+#: The result reports no parameter, so there is nothing to take a spread of.
+SPREAD_NO_PARAMETERS = "no reported parameter is available"
 
 TreatmentModelRole = Literal["estimated_treatment_law", "collaborative_working_model"]
 
@@ -111,6 +143,34 @@ class NuisanceModelReport:
         ]
 
 
+def _is_propensity(model: NuisanceModelReport) -> bool:
+    """Whether a report describes a treatment mechanism rather than another nuisance.
+
+    Matches the multi-arm reports too, which are named ``propensity[<label>]``.  This is
+    the test for *whose interpretation a role changes*, so it covers every report the role
+    applies to: a collaborative fit selects one mechanism however many arms the report
+    splits it into.
+    """
+    return model.name.startswith("propensity")
+
+
+def _is_binary_propensity(model: NuisanceModelReport) -> bool:
+    """Whether a report is the single binary-treatment propensity the AUC rules read.
+
+    Deliberately narrower than :func:`_is_propensity`, and narrow in the way the two AUC
+    rules have always been.  Both gates are calibrated against a binary mechanism, and a
+    one-vs-rest report is not on that scale: a rare arm separates from the pooled rest
+    almost perfectly for the very reason it is rare, so ``0.9`` would fire on the arm
+    count rather than on a positivity problem.
+
+    Extending the AUC rules to a K-armed fit needs its own thresholds and its own
+    evidence, exactly as :func:`_at_realised_treatment` records for the mechanism it
+    reads.  Named here so the asymmetry with :func:`_is_propensity` reads as the
+    pre-existing scope it is, rather than as something a reader has to rediscover.
+    """
+    return model.name == "propensity"
+
+
 @sentinel_equality
 @dataclass(frozen=True)
 class RepeatSpreadRow:
@@ -123,9 +183,11 @@ class RepeatSpreadRow:
     n_repeats : int
         Number of cross-fitting split draws on the same sample.
     standard_deviation : float
-        Sample standard deviation of :math:`\hat\psi_r` across the draws.
+        Sample standard deviation of :math:`\hat\psi_r` across the draws, on the
+        inference scale of the estimand. That is :math:`\log\hat\psi_r` for a ratio, so
+        the value is comparable with ``reported_standard_error``.
     reported_standard_error : float
-        Standard error on the median-combined result.
+        Standard error on the median-combined result, on the inference scale.
     ratio_to_standard_error : float
         Split standard deviation divided by the reported standard error. This ratio is
         descriptive and has no pass threshold.
@@ -136,6 +198,25 @@ class RepeatSpreadRow:
     standard_deviation: float
     reported_standard_error: float
     ratio_to_standard_error: float
+
+    def row(self) -> list[str]:
+        """Return this parameter's spread as one row of the split-sensitivity table.
+
+        Returns
+        -------
+        list of str
+            The formatted cells, in the column order
+            :meth:`NuisanceDiagnostics.summary` prints. A cell with no finite value reads
+            ``"-"``, as every other table in this package renders a missing cell.
+        """
+        values = (
+            self.standard_deviation,
+            self.reported_standard_error,
+            self.ratio_to_standard_error,
+        )
+        return [self.estimand, str(self.n_repeats)] + [
+            f"{value:.6g}" if np.isfinite(value) else "-" for value in values
+        ]
 
 
 @dataclass(frozen=True)
@@ -150,7 +231,7 @@ class NuisanceDiagnostics:
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
-    selection : Any or None
+    selection : CTMLESelection or CTMLEOutcomeAdaptiveFit or None
         The fitted :class:`~cleverly.estimators.CTMLESelection` or
         :class:`~cleverly.estimators.CTMLEOutcomeAdaptiveFit`. ``None`` means the method
         is not collaborative, or the stored artifact is unavailable.
@@ -283,7 +364,7 @@ class NuisanceDiagnostics:
         ]
         if self.n_repeats > 1:
             lines.append(
-                f"describing draw {self.reported_repeat} of {self.n_repeats}; "
+                f"describing {format_draw(self.reported_repeat, self.n_repeats)}; "
                 "each draw fits its own models"
             )
         lines.append(
@@ -301,7 +382,7 @@ class NuisanceDiagnostics:
                 f"{model.name}: super learner weights "
                 + ", ".join(f"{name}={weight:.3f}" for name, weight in used.items())
             )
-        if self.treatment_role == "collaborative_working_model":
+        if self._working_model:
             lines.extend(
                 [
                     "",
@@ -310,48 +391,30 @@ class NuisanceDiagnostics:
                 ]
             )
         if self.selection is not None:
-            suffix = (
-                f"; describing draw {self.reported_repeat} of {self.n_repeats}"
-                if self.n_repeats > 1
-                else ""
-            )
-            selected = getattr(self.selection, "selected", None)
-            if selected is not None:
-                selector = cast("CTMLESelection", self.selection)
-                lines.append(
-                    "C-TMLE selection: "
-                    f"strategy={selector.strategy}; "
-                    f"target={selector.estimand}; "
-                    f"candidate={selected + 1}/{len(selector.path)}{suffix}"
-                )
-            else:
-                oat = cast("CTMLEOutcomeAdaptiveFit", self.selection)
-                lines.append(
-                    f"C-TMLE fit: strategy=oat; features={len(oat.treatment_features)}{suffix}"
-                )
+            # No draw suffix here. The header above already states which draw every
+            # method-specific artifact in this report describes, and a repeated
+            # collaborative fit printed that fact twice.
+            lines.append(self.selection.describe())
         elif self.selection_omission is not None:
             lines.append(f"C-TMLE selection unavailable: {self.selection_omission}")
         if self.repeat_spread:
             lines.extend(
                 [
                     "",
-                    "Repeated-split sensitivity",
+                    "Repeated-split sensitivity. The sd and reported se columns are on "
+                    "the estimand's inference scale, which is the log scale for a ratio.",
                     format_table(
-                        ["estimand", "draws", "sd(psi)", "reported se", "sd/se"],
-                        [
-                            [
-                                row.estimand,
-                                str(row.n_repeats),
-                                f"{row.standard_deviation:.6g}",
-                                f"{row.reported_standard_error:.6g}",
-                                f"{row.ratio_to_standard_error:.6g}",
-                            ]
-                            for row in self.repeat_spread
-                        ],
+                        ["estimand", "draws", "sd", "reported se", "sd/se"],
+                        [row.row() for row in self.repeat_spread],
                     ),
                     "The split ratio is descriptive and has no pass threshold.",
                 ]
             )
+        if self.n_repeats > 1 and self.repeat_spread_omission is not None:
+            # Guarded on the draw count rather than on the reason, because the one-draw
+            # reason is the ordinary state of an ordinary fit and would otherwise print
+            # under every summary this package produces.
+            lines.append(f"split spread unavailable: {self.repeat_spread_omission}")
         lines.append("")
         lines.append(self.verdict())
         return "\n".join(lines)
@@ -366,19 +429,16 @@ class NuisanceDiagnostics:
         """
         notes = list(self.findings)
         for model in self.models:
+            if not _is_binary_propensity(model) or self._working_mechanism(model):
+                continue
             auc = model.metrics.get("auc")
-            if (
-                model.name == "propensity"
-                and self.treatment_role != "collaborative_working_model"
-                and auc is not None
-                and auc < 0.55
-            ):
+            if auc is not None and auc < 0.55:
                 notes.append(
                     f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
                     "excellent and confounding by these covariates is limited"
                 )
         if not notes:
-            if self.treatment_role == "collaborative_working_model":
+            if self._working_model:
                 return (
                     "VERDICT: C-TMLE working-model metrics are descriptive; inspect the "
                     "selection and support reports."
@@ -387,22 +447,37 @@ class NuisanceDiagnostics:
         return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
 
     @property
+    def _working_model(self) -> bool:
+        """Whether the propensity reports describe a selected C-TMLE working mechanism."""
+        return self.treatment_role == "collaborative_working_model"
+
+    def _working_mechanism(self, model: NuisanceModelReport) -> bool:
+        """Whether this report is a collaborative fit's own selected propensity.
+
+        Exactly two claims are suppressed for such a report, and both are claims about
+        the *treatment law* that a working mechanism does not make. An intercept-only
+        C-TMLE selection legitimately gives an AUC near 0.5 and a calibration slope near
+        ``-2``, and reporting "overlap is excellent" or "poorly calibrated" from those is
+        a false positive about a model nobody fitted.
+
+        Nothing else is suppressed. The high-AUC positivity note stays, because
+        ``CTMLE._nuisances`` puts the selected mechanism on ``nuisance.propensity`` and it
+        is therefore the denominator the clever covariate divides by: an AUC near one
+        there means the estimator's own weights are near-degenerate. The Super Learner
+        mean-weight note stays too, because it is a fact about a learner library rather
+        than an interpretation of the treatment law.
+        """
+        return self._working_model and _is_propensity(model)
+
+    @property
     def findings(self) -> tuple[str, ...]:
         """Return findings that meet an existing diagnostic warning rule."""
         notes: list[str] = []
         for model in self.models:
             auc = model.metrics.get("auc")
             slope = model.metrics.get("calibration_slope")
-            selected_propensity = (
-                model.name.startswith("propensity")
-                and self.treatment_role == "collaborative_working_model"
-            )
-            if (
-                model.name == "propensity"
-                and not selected_propensity
-                and auc is not None
-                and auc > 0.9
-            ):
+            working_mechanism = self._working_mechanism(model)
+            if _is_binary_propensity(model) and auc is not None and auc > 0.9:
                 notes.append(
                     f"the propensity model separates the arms almost perfectly "
                     f"(AUC {auc:.3f}); this signals a positivity problem, not a good fit"
@@ -413,13 +488,13 @@ class NuisanceDiagnostics:
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
                     "gives them extreme leverage -- check res.diagnostics.support()"
                 )
-            if not selected_propensity and slope is not None and not 0.7 <= slope <= 1.4:
+            if not working_mechanism and slope is not None and not 0.7 <= slope <= 1.4:
                 notes.append(
                     f"{model.name} is poorly calibrated (slope {slope:.2f}, ideal 1.0); its "
                     "predicted probabilities are systematically off, which biases the weights"
                 )
             mean_weight = model.learner_weights.get("mean", 0.0)
-            if not selected_propensity and mean_weight > 0.8:
+            if mean_weight > 0.8:
                 notes.append(
                     f"{model.name} put {mean_weight:.0%} of its weight on the marginal mean -- "
                     "no candidate beat predicting the average, so this model contributes little"
@@ -474,13 +549,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []
-    selection = result.extra.get("ctmle")
+    selection = result.ctmle_selection
     collaborative = result.fitted_method == "collaborative_tmle" or selection is not None
-    selection_omission = (
-        "the fitted result retains no ctmle method artifact"
-        if collaborative and selection is None
-        else None
-    )
+    selection_omission = NUISANCE_SELECTION_MISSING if collaborative and selection is None else None
 
     if data.is_binary_treatment:
         models.append(
@@ -556,35 +627,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=data.observed,
             )
         )
-    spread_rows: tuple[RepeatSpreadRow, ...] = ()
-    spread_omission: str | None = "the fit used one cross-fitting draw"
-    if result.n_repeats > 1:
-        spreads = result.repeat_spread()
-        unavailable = [name for name in result.estimates if name not in spreads]
-        spread_rows = tuple(
-            RepeatSpreadRow(
-                estimand=name,
-                n_repeats=result.n_repeats,
-                standard_deviation=spreads.get(name, float("nan")),
-                reported_standard_error=float(result.estimates[name].std_error),
-                ratio_to_standard_error=(
-                    spreads[name] / float(result.estimates[name].std_error)
-                    if name in spreads
-                    and np.isfinite(spreads[name])
-                    and np.isfinite(float(result.estimates[name].std_error))
-                    and float(result.estimates[name].std_error) > 0.0
-                    else float("nan")
-                ),
-            )
-            for name in result.estimates
-        )
-        spread_omission = (
-            "draw-specific estimates are unavailable for: " + ", ".join(unavailable)
-            if unavailable
-            else None
-            if spread_rows
-            else "no reported parameter is available"
-        )
+    spread_rows, spread_omission = _spread_rows(result)
     return NuisanceDiagnostics(
         models=tuple(models),
         n_repeats=result.n_repeats,
@@ -601,6 +644,55 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
     )
+
+
+def _spread_rows(result: TMLEResult) -> tuple[tuple[RepeatSpreadRow, ...], str | None]:
+    """Split-sensitivity rows for a repeated fit, and the reason any are missing.
+
+    Returns ``(rows, reason)``, the contract
+    :func:`~cleverly.interventions.support._intervention_loads` already uses: a caller
+    that receives no row always receives a machine-readable cause for it, and never has
+    to infer one from an empty tuple.
+
+    A ``nan`` cell is a stated outcome and not a silence.  Two states produce one: a draw
+    that reported no ``psi`` for the parameter, and a spread that exists but is not finite
+    on the inference scale, which is what a non-positive ratio draw gives.  Only one
+    reason can be carried, so the missing draw is reported first: it says the spread was
+    never computed, which is the stronger statement about the row.
+    """
+    if result.n_repeats < 2:
+        return (), SPREAD_SINGLE_DRAW
+    spreads = result.repeat_spread()
+    rows: list[RepeatSpreadRow] = []
+    unavailable: list[str] = []
+    not_finite: list[str] = []
+    for name in result.estimates:
+        standard_error = float(result.estimates[name].std_error)
+        spread = spreads.get(name, float("nan"))
+        if name not in spreads:
+            unavailable.append(name)
+        elif not np.isfinite(spread):
+            not_finite.append(name)
+        rows.append(
+            RepeatSpreadRow(
+                estimand=name,
+                n_repeats=result.n_repeats,
+                standard_deviation=spread,
+                reported_standard_error=standard_error,
+                ratio_to_standard_error=(
+                    spread / standard_error
+                    if np.isfinite(spread) and np.isfinite(standard_error) and standard_error > 0.0
+                    else float("nan")
+                ),
+            )
+        )
+    if not rows:
+        return (), SPREAD_NO_PARAMETERS
+    if unavailable:
+        return tuple(rows), SPREAD_UNAVAILABLE_DRAWS + ", ".join(unavailable)
+    if not_finite:
+        return tuple(rows), SPREAD_NOT_FINITE + ", ".join(not_finite)
+    return tuple(rows), None
 
 
 def _aggregate_learner_info(
