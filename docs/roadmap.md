@@ -114,6 +114,20 @@ The rows below remain.
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
+Complete the method-aware row inside the existing nuisance report. Do not add another assessment
+operation. The report must retain the fitted C-TMLE selection object and label its treatment model
+as a selected working mechanism. Its propensity metrics must not describe the complete treatment
+law or imply limited confounding. The report must identify selector and outcome-adaptive fits.
+
+For repeated cross-fitting, add one typed row per reported parameter. Each row must give the
+standard deviation of the draw-specific estimates, the reported standard error, and their ratio.
+The ratio is descriptive and has no pass threshold. Selection and nuisance metrics describe draw
+one, while split spread reads every retained draw. A one-draw fit must not report a zero spread.
+
+Use the current collaborative and cross-fitting example seeds as regression fixtures. Mutation
+controls must fail when the report drops the selection, changes its fitted role, or ignores a
+draw-specific estimate. Cache generations must prevent a saved pre-change report from replaying.
+
 Intervention support rows now retain load concentration. Each regime, shift, and incremental row
 reads its matching column from the fitted fluctuation's absolute score weights. The report does not
 rebuild that column from the intervention ratio, because fitted weights can change the equation.
