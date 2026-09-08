@@ -124,13 +124,17 @@ declares. A given condition therefore produces the same text whichever report ho
 
 | constant | what the report means by it |
 | --- | --- |
-| `SCORE_LOAD_NO_EQUATION` | the fit recorded no score equation for this target |
-| `SCORE_LOAD_MISSING` | the fluctuation exists and retains no exact absolute score weights |
+| `SCORE_LOAD_MISSING` | no artifact arrived, so there are no exact absolute score weights |
+| `SCORE_LOAD_NO_EQUATION` | an artifact arrived and the fit recorded no score equation for it |
 | `SCORE_LOAD_SHAPE_MISMATCH` | the artifact is not one column per recorded score equation |
 | `SCORE_LOAD_NOT_FINITE` | a load is negative, infinite, or `nan` |
 | `SCORE_LOAD_EMPTY_MASK` | the fitted score mask selected no rows |
 | `SCORE_LOAD_MASK_TOO_LARGE` | the mask holds more rows than the fitted data |
 | `SCORE_LOAD_PREDATES` | the report unpickled from before the score-load fields existed |
+
+The table order is the guard order. A caller can be in the first two states at once, because
+`check_support`, `check_shift_support`, and `check_incremental_support` all default to no artifact
+and no equation names. That caller reads `SCORE_LOAD_MISSING`.
 
 Two of those rows are behavior changes. The empty-mask and oversized-mask conditions were one reason
 before, and they say opposite things: a fit that targeted nothing, and a malformed block. The

@@ -17,11 +17,16 @@ running pins nothing.
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import pkgutil
 from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
 import pytest
 
-from cleverly.utils.records import sentinel_equality
+import cleverly
+from cleverly.utils.records import _DefaultingUnpickle, sentinel_equality
 from cleverly.validation import CorrectionRow, ScoreCheckRow
 
 
@@ -136,3 +141,98 @@ class TestTheRealRowsUseIt:
         right = CorrectionRow(0, 1.0, "1", "D*_Q", 1e-14, 2e-14, 0, True)
 
         assert left != right
+
+
+# --------------------------------------------------------------------------------------
+# The pickle backfill, which is a second list of field names
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Restored(_DefaultingUnpickle):
+    """A record with one optional field a stored value has to differ on."""
+
+    name: str
+    reason: str | None = None
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"reason": "the record predates the field"}
+
+
+@dataclass(frozen=True)
+class _Renamed(_DefaultingUnpickle):
+    """The same record after the field was renamed and the entry was not."""
+
+    name: str
+    omission: str | None = None
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"reason": "the record predates the field"}
+
+
+@dataclass(frozen=True)
+class _Required(_DefaultingUnpickle):
+    """A record naming a field that has no default, so no pickle can be filled with one."""
+
+    name: str
+    reason: str
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"reason": "the record predates the field"}
+
+
+def _restore(record_class: type, state: dict[str, Any]) -> Any:
+    """Run ``__setstate__`` the way ``pickle`` does, on an uninitialised instance."""
+    record = object.__new__(record_class)
+    record.__setstate__(state)
+    return record
+
+
+class TestThePickleBackfill:
+    """What a stale ``_PICKLE_BACKFILL`` does, and what it is made to do instead.
+
+    The map is a second list of field names beside the dataclass's own, so it is the half
+    that goes stale, and every way it can go stale is quiet by default.  A key that names
+    nothing is skipped and the field takes its own ``None``, which restores a report saying
+    it has no score load and no reason for one.  A key that names a field with no default
+    used to be filled from the map before anything asked whether the field had a default,
+    which would call an unreadable pickle restored.  Both are refused now.
+    """
+
+    def test_the_stored_value_replaces_the_constructor_default(self) -> None:
+        assert _restore(_Restored, {"name": "row"}).reason == "the record predates the field"
+
+    def test_a_present_field_is_not_backfilled_over(self) -> None:
+        assert _restore(_Restored, {"name": "row", "reason": "kept"}).reason == "kept"
+
+    def test_a_key_that_names_no_field_is_refused(self) -> None:
+        with pytest.raises(TypeError, match="names no such field: reason"):
+            _restore(_Renamed, {"name": "row"})
+
+    def test_a_key_that_names_a_required_field_is_refused(self) -> None:
+        with pytest.raises(TypeError, match="names a required field: reason"):
+            _restore(_Required, {"name": "row"})
+
+    def test_every_shipped_record_declares_a_backfill_its_fields_still_have(self) -> None:
+        """The sweep, so a rename fails here rather than on somebody's stored result.
+
+        The refusals above run at restore time, which is the moment nobody is watching.
+        Walking the package makes the same check run in the fast tier, over the classes
+        that actually ship, without either list naming the other.
+        """
+        modules = [cleverly]
+        for found in pkgutil.walk_packages(cleverly.__path__, "cleverly."):
+            modules.append(importlib.import_module(found.name))
+        shipped = {
+            obj
+            for module in modules
+            for obj in vars(module).values()
+            if inspect.isclass(obj)
+            and issubclass(obj, _DefaultingUnpickle)
+            and obj is not _DefaultingUnpickle
+            and obj.__module__.startswith("cleverly")
+        }
+
+        assert shipped, "no _DefaultingUnpickle subclasses found; check the walk"
+        assert any(obj._PICKLE_BACKFILL for obj in shipped), (
+            "no shipped record declares a backfill; this sweep would pass vacuously"
+        )
+        for obj in shipped:
+            obj.check_pickle_backfill()

@@ -481,10 +481,12 @@ class IncrementalSupport(_DefaultingUnpickle):
     :class:`~cleverly.interventions.ShiftSupport` carry quantile mappings that are part of
     what makes one of their rows different from another, so neither has ever had a hash.
     This row's identity is the declared tilt and what the data did with it, all of which
-    is hashable, and callers have been able to put these rows in a set since the class
-    shipped.  :attr:`score_load` is therefore declared ``hash=False`` rather than
-    ``compare=False``: two tilts that differ only in their fitted score load are still
-    different rows and still compare unequal, but the ``dict`` stays out of the hash.
+    was hashable until :attr:`score_load` was added.  That field holds a ``dict``, so
+    adding it made every *fitted* row of this class raise ``TypeError: unhashable type:
+    'dict'`` while an omitted row, whose field is ``None``, still hashed.  Declaring the
+    field ``hash=False`` restores the hash rather than preserving one.  ``compare=False``
+    would have gone too far: two tilts that differ only in their fitted score load are
+    different rows and still compare unequal, and only the ``dict`` leaves the hash.
 
     Parameters
     ----------
@@ -504,10 +506,12 @@ class IncrementalSupport(_DefaultingUnpickle):
         Kish effective sample size of those weights.
     ess_ratio : float
         That size as a share of ``n``.
-    score_load : ScoreLoadRow or None
+    score_load : _InterventionLoadRow or None
         Concentration of the exact absolute score weights retained for this tilt's
         outcome equation, and the cross-fitting draw it describes. ``None`` means the artifact
-        did not supply a usable column.
+        did not supply a usable column. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
     score_load_omission : str or None
         Machine-readable reason why :attr:`score_load` is unavailable.
     """
@@ -523,8 +527,9 @@ class IncrementalSupport(_DefaultingUnpickle):
     max_ratio: float
     effective_sample_size: float
     ess_ratio: float
-    #: Kept out of the generated ``__hash__`` and left in ``__eq__``, which is what keeps
-    #: this class hashable.  The class docstring says why the siblings are not.
+    #: Kept out of the generated ``__hash__`` and left in ``__eq__``, which is what gives
+    #: this class its hash back.  The class docstring says what adding the field broke and
+    #: why the siblings are unhashable for a different reason.
     score_load: _InterventionLoadRow | None = field(default=None, hash=False)
     score_load_omission: str | None = None
 

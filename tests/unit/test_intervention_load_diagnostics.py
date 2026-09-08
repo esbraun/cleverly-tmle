@@ -22,6 +22,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import pickle
+import warnings
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -29,6 +30,7 @@ import numpy as np
 import pytest
 
 from cleverly import load
+from cleverly.data import CausalData
 from cleverly.data.weighting import (
     REPORTED_DRAW,
     SCORE_LOAD_EMPTY_MASK,
@@ -43,10 +45,22 @@ from cleverly.data.weighting import (
 )
 from cleverly.datasets import make_missing_outcome, make_nonlinear_ate, make_shift_dose
 from cleverly.exceptions import DataError
-from cleverly.interventions import Incremental, Rule, Shift, Static
+from cleverly.interventions import (
+    Incremental,
+    IPSISet,
+    RegimeSet,
+    Rule,
+    Shift,
+    ShiftSet,
+    Static,
+    check_incremental_support,
+    check_shift_support,
+    check_support,
+)
 from cleverly.interventions.incremental import IncrementalSupport
 from cleverly.interventions.shift import ShiftSupport
 from cleverly.interventions.support import RegimeSupport, _intervention_loads
+from cleverly.learners.density import ConditionalDensity
 from cleverly.sensitivity import positivity_report
 from cleverly.sensitivity.positivity import PositivityReport
 from tests.conftest import fast_tmle
@@ -257,10 +271,18 @@ def _support_detail(result: Any) -> str:
 #: Every way a fitted score artifact can be refused, and the reason each one earns.  The
 #: guards short-circuit in the order they are written, so a case is described by the first
 #: condition it meets rather than by every condition it happens to satisfy.
+#:
+#: The first three rows pin the *precedence* of the two states a caller can be in at once.
+#: An absent artifact is refused before an absent equation list, because every public entry
+#: point defaults ``equations=()`` and so a caller who passes no score weights passes no
+#: equation names either.  That caller is in the absent-artifact state and reads
+#: :data:`SCORE_LOAD_MISSING`.  ``SCORE_LOAD_NO_EQUATION`` is left to the state it was
+#: introduced for: an artifact arrived and the fit recorded no equation to bind it to.
 REFUSALS: tuple[tuple[str, Any, int, int, str], ...] = (
     ("no equation was recorded", np.ones((4, 1)), 0, 4, SCORE_LOAD_NO_EQUATION),
     ("no columns and no equations", np.ones((4, 0)), 0, 4, SCORE_LOAD_NO_EQUATION),
     ("the artifact is absent", None, 1, 4, SCORE_LOAD_MISSING),
+    ("neither an artifact nor an equation", None, 0, 4, SCORE_LOAD_MISSING),
     ("one dimension", np.ones(4), 1, 4, SCORE_LOAD_SHAPE_MISMATCH),
     ("three dimensions", np.ones((4, 1, 1)), 1, 4, SCORE_LOAD_SHAPE_MISMATCH),
     ("no columns for one equation", np.ones((4, 0)), 1, 4, SCORE_LOAD_SHAPE_MISMATCH),
@@ -334,6 +356,71 @@ def test_a_label_count_that_disagrees_with_the_accepted_columns_is_refused() -> 
     rows, refused = _intervention_loads(("only",), np.ones((4, 2)), ("h0", "h1"), 4)
     assert rows == {}
     assert refused == SCORE_LOAD_SHAPE_MISMATCH
+
+
+def _bare_support_reports() -> dict[str, Mapping[str, Any]]:
+    """Each public entry point called the way its signature lets a caller call it."""
+    rng = np.random.default_rng(0)
+    n = 40
+
+    import pandas as pd
+
+    arms = CausalData.from_frame(
+        pd.DataFrame(
+            {
+                "Y": rng.binomial(1, 0.4, n).astype(float),
+                "A": np.tile([0.0, 1.0], n // 2),
+                "W1": rng.normal(size=n),
+            }
+        ),
+        outcome="Y",
+        treatment="A",
+        covariates=["W1"],
+    )
+    g1 = np.full(n, 0.5)
+    propensity = np.column_stack([1.0 - g1, g1])
+
+    edges = np.array([-0.5, 0.5, 1.5, 2.5, 3.5])
+    doses = np.tile(np.arange(4.0), n // 4)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        continuous = CausalData.from_arrays(
+            rng.binomial(1, 0.5, n).astype(float),
+            doses,
+            rng.normal(size=(n, 1)),
+            treatment_kind="continuous",
+        )
+        density = ConditionalDensity(np.tile(np.array([0.4, 0.3, 0.2, 0.1]), (n, 1)), edges)
+        shifts = ShiftSet.evaluate((Shift(1.0, cap=3.0, name="up"),), continuous, density)
+
+    return {
+        "check_support": check_support(
+            RegimeSet.evaluate([Static(1)], arms), arms.treatment, propensity
+        ).regimes,
+        "check_shift_support": check_shift_support(shifts, density, continuous.treatment),
+        "check_incremental_support": check_incremental_support(
+            IPSISet.evaluate((Incremental(2.0),), arms, propensity), arms.treatment
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "entry_point", ["check_support", "check_shift_support", "check_incremental_support"]
+)
+def test_a_direct_caller_who_passes_no_score_weights_reads_the_absent_artifact_reason(
+    entry_point: str,
+) -> None:
+    """The precedence the three public entry points actually reach.
+
+    All three default ``absolute_score_weights=None`` *and* ``equations=()``, so the caller
+    who supplies neither is in both refusable states at once and the order of the two guards
+    decides which reason is published. These strings are documented as machine-readable, so
+    the answer is the one this API has always given: the artifact is absent.
+    """
+    rows = _bare_support_reports()[entry_point]
+    assert rows
+    assert all(row.score_load is None for row in rows.values())
+    assert {row.score_load_omission for row in rows.values()} == {SCORE_LOAD_MISSING}
 
 
 def test_an_empty_score_column_has_no_load_to_describe() -> None:
@@ -672,9 +759,32 @@ def test_the_support_row_renders_the_whole_regime_load_fact(
     assert (
         f"intervention load: {worst}:{values['equation']} "
         f"{values['effective']:.1f}/{values['n_targeted']:.0f} Kish-equivalent mask rows "
-        f"({values['targeted_ratio']:.0%}; {values['total_ratio']:.0%} all; "
+        f"({values['targeted_ratio']:.1%}; {values['total_ratio']:.1%} all; "
         "draw 01 of 01); not estimator ESS"
     ) in _support_detail(result)
+
+
+def test_the_assessment_row_keeps_a_digit_where_the_load_is_most_concentrated(
+    intervention_results: dict[str, Any],
+) -> None:
+    """The precision the detail row needs, at the value that needs it.
+
+    One row carrying the whole column is the smallest Kish ratio a column can have, and on
+    this fixture it is ``1 / 500 = 0.2%``. That is exactly where a reader most needs the
+    number, and it is where whole-percent precision destroys it: ``0.2%``, ``0.04%`` and a
+    ratio of literally zero all render as ``0%``. The overlap verdict states the same
+    quantity at whole percent on purpose, which
+    ``test_post_fit_assessment_battery.py`` pins, so the two surfaces are checked apart.
+    """
+    result = intervention_results["regime"]
+    artifact = _artifact(result, "regime").copy()
+    artifact[:, 0] = 0.0
+    artifact[0, 0] = 1.0
+
+    detail = _support_detail(_with_artifact(result, "regime", artifact))
+    assert f"{1.0 / N:.1%}" == "0.2%"
+    assert f"1.0/{N} Kish-equivalent mask rows (0.2%; " in detail
+    assert "(0%; " not in detail
 
 
 @pytest.mark.parametrize("position", [0, 1, 2])

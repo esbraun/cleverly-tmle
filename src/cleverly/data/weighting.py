@@ -276,7 +276,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast
 
 import numpy as np
 
@@ -293,8 +293,8 @@ __all__ = [
     "SCORE_LOAD_NOT_FINITE",
     "SCORE_LOAD_NO_EQUATION",
     "SCORE_LOAD_PREDATES",
-    "SCORE_LOAD_RATIO_FORMAT",
     "SCORE_LOAD_SHAPE_MISMATCH",
+    "SCORE_LOAD_VERDICT_RATIO_FORMAT",
     "ScoreLoadRow",
     "ScoreLoadStyle",
     "WeightKind",
@@ -736,13 +736,16 @@ def top_weight_share(weights: FloatArray, fraction: float) -> float:
 #: equation no reported estimate was solved from.
 REPORTED_DRAW = 1
 
-#: No score equation was recorded for this target at all -- the fit has no fluctuation for
-#: it, or the caller supplied no equation names.  Distinct from :data:`SCORE_LOAD_MISSING`,
-#: which is a fit that *did* fluctuate and whose artifact predates the retained weights.
+#: An artifact is present and the fit recorded no score equation to bind its columns to.
+#: Tested *after* :data:`SCORE_LOAD_MISSING`, because the caller who supplies neither an
+#: artifact nor equation names is in the absent-artifact state and has always read that
+#: reason.
 SCORE_LOAD_NO_EQUATION = "no fitted score equation was recorded for this target"
 
 #: The fluctuation exists but kept no exact absolute score weights, which is what an
-#: artifact fitted before this diagnostic looks like.
+#: artifact fitted before this diagnostic looks like.  It is also what a direct caller of
+#: :func:`~cleverly.interventions.check_support` and its two siblings gets, because all
+#: three default to no artifact.
 SCORE_LOAD_MISSING = "the fitted artifact has no exact absolute score weights"
 
 #: The artifact is not an ``(m, k)`` block with one column per recorded equation.
@@ -766,15 +769,24 @@ SCORE_LOAD_MASK_TOO_LARGE = "the fitted score mask size is outside the fitted da
 #: :class:`~cleverly.utils.records._DefaultingUnpickle` rather than by a fresh build.
 SCORE_LOAD_PREDATES = "the report predates fitted score-load diagnostics"
 
-#: How every reader renders a score-load Kish ratio, so that the assessment row and the
-#: overlap verdict quote the same quantity to the same precision.
-SCORE_LOAD_RATIO_FORMAT = ".0%"
+#: How :meth:`~cleverly.sensitivity.PositivityReport.summary` states a score-load Kish ratio
+#: in its overlap verdict.  A whole percent, because that sentence names which target group
+#: is the most concentrated one rather than sizing the ratio it quotes.
+SCORE_LOAD_VERDICT_RATIO_FORMAT = ".0%"
 
 #: Which rendering of a score-load row a reader wants.  ``"cell"`` is a fixed-width table
 #: cell and is deliberately the terse one; ``"inline"`` is a clause inside a one-line
 #: report summary; ``"detail"`` is the assessment row, the only one that also states the
 #: ratios.
 ScoreLoadStyle = Literal["cell", "inline", "detail"]
+
+#: The ratio precision each style states, for the one style that states a ratio.  The
+#: precision belongs to the surface and not to the row: the ``"detail"`` assessment line
+#: states a tenth of a percent, because the most concentrated column a fit can produce has a
+#: targeted ratio near ``0.002``, which reads ``0.2%`` here and ``0%`` at the whole percent
+#: :data:`SCORE_LOAD_VERDICT_RATIO_FORMAT` uses.  Two surfaces share this formatter and the
+#: row it renders.  They do not share a precision.
+_STYLE_RATIO_FORMAT: Final[Mapping[ScoreLoadStyle, str]] = {"detail": ".1%"}
 
 
 class ScoreLoadRow(TypedDict):
@@ -826,10 +838,15 @@ def validate_score_loads(
         The validated ``(m, n_equations)`` block and ``None``, or ``None`` and the
         machine-readable reason it was refused.
     """
-    if n_equations <= 0:
-        return None, SCORE_LOAD_NO_EQUATION
+    # Order matters, and this is the order the reports have always reported in.  Every
+    # public entry point defaults `equations` to `()`, so a caller who passes no artifact
+    # usually passes no equation names either, and the state that caller is in is the
+    # absent artifact.  `SCORE_LOAD_NO_EQUATION` is for the other state: an artifact is
+    # present and the fit recorded no equation to bind its columns to.
     if artifact is None:
         return None, SCORE_LOAD_MISSING
+    if n_equations <= 0:
+        return None, SCORE_LOAD_NO_EQUATION
     loads = np.asarray(artifact, dtype=float)
     if loads.ndim != 2 or loads.shape[1] != n_equations:
         return None, SCORE_LOAD_SHAPE_MISMATCH
@@ -937,9 +954,10 @@ def format_score_load(
         return f"{size} (draw {reported:02d}/{total:02d})"
     if style == "inline":
         return f"score load={size} Kish-equivalent mask rows (draw {reported:02d} of {total:02d})"
+    ratio = _STYLE_RATIO_FORMAT[style]
     return (
         f"{size} Kish-equivalent mask rows "
-        f"({row['targeted_ratio']:{SCORE_LOAD_RATIO_FORMAT}}; "
-        f"{row['total_ratio']:{SCORE_LOAD_RATIO_FORMAT}} all; "
+        f"({row['targeted_ratio']:{ratio}}; "
+        f"{row['total_ratio']:{ratio}} all; "
         f"draw {reported:02d} of {total:02d})"
     )

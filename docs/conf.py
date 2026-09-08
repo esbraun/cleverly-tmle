@@ -65,11 +65,6 @@ numpydoc_show_inherited_class_members = False
 numpydoc_class_members_toctree = False
 numpydoc_attributes_as_param_list = True
 numpydoc_xref_param_type = True
-# `numpydoc_xref_param_type` turns a bare type name into a `py:obj` reference, which the Python
-# domain resolves against the documented object's own module.  A shared row type lives in
-# `cleverly.data.weighting` and is named by report classes in three other packages, so the short
-# name has to be mapped to its full path once here rather than spelled out at every use.
-numpydoc_xref_aliases = {"ScoreLoadRow": "cleverly.data.weighting.ScoreLoadRow"}
 # The build fails on a docstring that is structurally incomplete, because `pages.yml`
 # builds with `-W`.  What is deliberately *off*: GL01, because a summary on the opening-quote
 # line is house style here; ES01, because an extended summary is not owed by every one-line

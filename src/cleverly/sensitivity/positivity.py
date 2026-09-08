@@ -46,7 +46,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import (
     REPORTED_DRAW,
-    SCORE_LOAD_RATIO_FORMAT,
+    SCORE_LOAD_VERDICT_RATIO_FORMAT,
     ScoreLoadRow,
     effective_sample_size,
     score_load_row,
@@ -167,10 +167,14 @@ class PositivityReport(_DefaultingUnpickle):
         Largest reconstructed absolute clever-covariate value per targeted estimand
         family.  This is a covariate-scale diagnostic, not a score contribution or an
         observation's influence on the estimate.
-    group_leverage : dict of str to ScoreLoadRow
-        Absolute residual-multiplier concentration for each targeted family, as a
-        :class:`~cleverly.data.weighting.ScoreLoadRow` with the group's propensity bound and
-        clipping counts added.  The fitted fluctuation retains ``abs(w_i * h_ij)`` on the
+    group_leverage : dict of str to GroupLeverageRow
+        Absolute residual-multiplier concentration for each targeted family.  A row holds
+        fourteen keys: ``equation``, ``n_total``, ``n_targeted``, ``effective``,
+        ``targeted_ratio``, ``total_ratio``, ``top_1pct``, ``top_5pct``, ``max_load``,
+        ``zero_load``, ``lower_bound``, ``upper_bound``, ``clipped_count`` and
+        ``clipped_fraction``.  It carries no draw count, which
+        :attr:`PositivityReport.n_repeats` records once for the whole fit.  The fitted
+        fluctuation retains ``abs(w_i * h_ij)`` on the
         exact rows and with the exact weights used to evaluate each score equation.  This
         report computes one Kish
         concentration ratio per column, then retains the most concentrated column and
@@ -651,8 +655,8 @@ class PositivityReport(_DefaultingUnpickle):
                 f" Absolute-load concentration is greatest for group {group!r}, equation "
                 f"{load['equation']!r}: {load['effective']:.1f} Kish-equivalent rows out of "
                 f"{load['n_targeted']:.0f} score-mask rows "
-                f"({load['targeted_ratio']:{SCORE_LOAD_RATIO_FORMAT}}; "
-                f"{load['total_ratio']:{SCORE_LOAD_RATIO_FORMAT}} of "
+                f"({load['targeted_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}}; "
+                f"{load['total_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}} of "
                 f"{load['n_total']:.0f} total rows). This is a "
                 "descriptive residual-multiplier concentration index. It excludes the residual "
                 "and is not estimator effective sample size, information, actual influence, "

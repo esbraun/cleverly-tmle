@@ -454,10 +454,12 @@ class ShiftSupport(_DefaultingUnpickle):
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
         the quantiles and the effective sample size above are of the whole weight.
-    score_load : ScoreLoadRow or None
+    score_load : _InterventionLoadRow or None
         Concentration of the exact absolute score weights retained for this shift's
         equation, and the cross-fitting draw it describes. ``None`` means the fitted artifact
-        did not supply a usable column.
+        did not supply a usable column. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
     score_load_omission : str or None
         Machine-readable reason why :attr:`score_load` is unavailable.
     """

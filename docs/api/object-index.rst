@@ -98,7 +98,6 @@ categorized API tables.
    cleverly.interventions.check_incremental_support
    cleverly.interventions.check_shift_support
    cleverly.assessment.SensitivityFacade
-   cleverly.data.weighting.ScoreLoadRow
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements

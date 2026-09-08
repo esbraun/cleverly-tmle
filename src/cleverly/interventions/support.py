@@ -125,10 +125,12 @@ class RegimeSupport(_DefaultingUnpickle):
         Rows where the regime assigns positive probability to an arm with an estimated
         propensity of exactly zero -- a structural violation rather than a practical one.
         The parameter is not identified for those rows at all.
-    score_load : ScoreLoadRow or None
+    score_load : _InterventionLoadRow or None
         Concentration of the fitted ``abs(w_i * H_ij)`` values for this regime's score
         equation, and the cross-fitting draw it describes. ``None`` means the fitted artifact
-        cannot supply the exact values.
+        cannot supply the exact values. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
     score_load_omission : str or None
         Machine-readable reason why :attr:`score_load` is unavailable.
     """

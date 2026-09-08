@@ -70,14 +70,55 @@ class _DefaultingUnpickle:
     string saying the report predates a diagnostic, rather than the ``None`` a fresh report
     means by it -- names that value in :attr:`_PICKLE_BACKFILL`.
 
+    That map is a second list of field names, so it is the thing that goes stale, and it
+    fails *quietly* when it does.  Rename ``score_load_omission`` and the entry stops
+    matching any field: the old pickle then takes the field's own ``None`` default and
+    restores a report that claims no score load and no reason for one, which is a worse
+    answer than an error.  A required field named there would be filled from the map before
+    anything asked whether it had a default, which would hide a genuinely unreadable pickle.
+    :meth:`check_pickle_backfill` refuses both at restore time, and
+    ``tests/unit/test_record_equality.py`` sweeps every subclass in the package so the
+    refusal does not wait for someone to unpickle an old file.
+
     Use as a base class of a frozen dataclass.  It declares no fields of its own, so it
     does not change the generated signature, and each fill goes through
     :func:`object.__setattr__` because the class is frozen.
     """
 
     #: Stored values for the fields whose backfill is not their constructor default, keyed
-    #: by field name.  Every other missing field takes its own default.
+    #: by field name.  Every other missing field takes its own default.  Every key has to
+    #: name a field of the class that declares it, and that field has to have a default of
+    #: its own: this map replaces a default, it does not supply one.
     _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {}
+
+    @classmethod
+    def check_pickle_backfill(cls) -> None:
+        """Refuse a ``_PICKLE_BACKFILL`` that no longer describes this class's fields.
+
+        Raises
+        ------
+        TypeError
+            If a key names no field of this class, or names a field with no default.
+        """
+        specs = {spec.name: spec for spec in fields(cast("Any", cls))}
+        unknown = sorted(set(cls._PICKLE_BACKFILL) - set(specs))
+        if unknown:
+            raise TypeError(
+                f"{cls.__name__}._PICKLE_BACKFILL names no such field: {', '.join(unknown)}; "
+                "a renamed field needs its entry renamed with it, or an old pickle silently "
+                "takes the field's own default"
+            )
+        required = sorted(
+            name
+            for name in cls._PICKLE_BACKFILL
+            if specs[name].default is MISSING and specs[name].default_factory is MISSING
+        )
+        if required:
+            raise TypeError(
+                f"{cls.__name__}._PICKLE_BACKFILL names a required field: "
+                f"{', '.join(required)}; a pickle that predates a field with no default is "
+                "unreadable rather than fillable"
+            )
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a pickled record, filling in every field the pickle predates.
@@ -87,18 +128,25 @@ class _DefaultingUnpickle:
         state : dict of str to Any
             The instance dictionary the pickle carries.
         """
+        type(self).check_pickle_backfill()
         self.__dict__.update(state)
         # `self` is a dataclass instance by contract rather than by annotation: the mixin
         # carries no fields, so it cannot be one itself.
         for spec in fields(cast("Any", self)):
             if spec.name in state:
                 continue
-            if spec.name in self._PICKLE_BACKFILL:
-                object.__setattr__(self, spec.name, self._PICKLE_BACKFILL[spec.name])
-            elif spec.default is not MISSING:
-                object.__setattr__(self, spec.name, spec.default)
+            # The default is what makes a field fillable, so it is tested first.  The map
+            # only *replaces* a default.  Consulting it first would fill a required field
+            # from it and call an unreadable pickle restored.
+            if spec.default is not MISSING:
+                fill: Any = spec.default
             elif spec.default_factory is not MISSING:
-                object.__setattr__(self, spec.name, spec.default_factory())
+                fill = spec.default_factory()
+            else:
+                continue
+            if spec.name in self._PICKLE_BACKFILL:
+                fill = self._PICKLE_BACKFILL[spec.name]
+            object.__setattr__(self, spec.name, fill)
 
 
 class _NotApplicable:
