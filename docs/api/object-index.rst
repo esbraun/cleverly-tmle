@@ -121,6 +121,7 @@ categorized API tables.
    cleverly.validation.ScoreCheckRow
    cleverly.validation.NuisanceDiagnostics
    cleverly.validation.NuisanceModelReport
+   cleverly.validation.RepeatSpreadRow
    cleverly.validation.GaussianNoise
    cleverly.validation.GaussianIndependentOutcome
    cleverly.validation.GaussianAdjustmentOutcome

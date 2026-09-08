@@ -316,19 +316,27 @@ repeated = effect.estimate(
     )
 )
 show("three fold draws", repeated, truth["ate"])
-print(repeated.repeat_spread())
+repeated_diagnostics = repeated.diagnostics.run_all()
+repeated_nuisance = repeated_diagnostics.report("nuisance_models")
+print(repeated_nuisance.repeat_spread_frame())
 ```
 
 `repeats=` is the same estimator over several draws rather than a new estimator. It reports the
-median point and includes split displacement in the variance. `repeat_spread()` reports how much
-the answer moved between draws. A large spread says the fold draw is doing work that the sample
-size should be doing.
+median point and includes split displacement in the variance. The retained nuisance report gives
+the spread of each parameter across draws, the reported standard error, and their ratio.
+
+Both the spread and the standard error are on the inference scale, which is the log scale for a
+ratio. The ratio therefore divides two like quantities. The report defines no threshold for it.
 
 Two things follow from the median rule. The report is coordinatewise, so this call sets
-`simultaneous=False`. A repeated fit reports no simultaneous band. The registered study validates
-the median report at three draws. No cell measures whether three draws move the point estimate less
-across seeds than one draw does, so read the spread as a diagnostic rather than as a demonstrated
-gain.
+`simultaneous=False`. A repeated fit reports no simultaneous band.
+
+The registered study validates the median report at three draws. Its `repeat_stability` cells also
+measure less point-estimate spread than the paired first-draw control. That measurement uses one
+fixed binary-law sample at one versus three fold draws.
+
+The study declares that condition as its own limit. It establishes nothing for another sample, law,
+or repeat count. Read the retained ratio descriptively rather than as a pass threshold.
 
 Three things constrain what this page establishes.
 
@@ -338,8 +346,9 @@ Three things constrain what this page establishes.
 | the diagnostic overview | which cached checks need attention and which costly operations did not run | the detailed severity of every retained report |
 | the out-of-fold nuisance report | how the learners performed on unseen patients | that the learners converge fast enough for the remainder condition |
 | the retained support report | truncation, effective sample size, and clever-covariate leverage | that cross-fitting repairs poor support. It does not |
-| `repeat_spread()` | how much the estimate moved across the three declared fold draws | that three draws improve repeated-sampling performance |
-| the registered studies | stacked CV-TMLE matches R `tmle3` on identical realized folds, and both constructions recover known truths | that folds fix a product-rate failure. They do not |
+| the retained split-spread rows | how much the estimate moved across the three declared fold draws | whether that amount is acceptable or another draw would help |
+| the two construction studies | that stacked CV-TMLE matches R `tmle3` on identical realized folds, and that both constructions recover known truths | that folds fix a product-rate failure. They do not |
+| the repeated cross-fitting study | that the three-draw median reduced fold-seed spread against the paired first-draw control, on one fixed binary-law sample | the same reduction on another sample, law, or repeat count. The study declares that limit |
 
 Leakage is checked separately, and without a tolerance. A test rigs a law where a nearest-neighbour
 learner reproduces a held-out row exactly if and only if a same-cluster row was in its training set.

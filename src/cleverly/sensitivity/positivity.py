@@ -61,7 +61,7 @@ from ..targets import TARGETS, parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.records import _DefaultingUnpickle
-from ..utils.text import format_table
+from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -390,8 +390,8 @@ class PositivityReport(_DefaultingUnpickle):
         ]
         if self.n_repeats > 1:
             lines.append(
-                f"describing draw {REPORTED_DRAW} of {self.n_repeats}: overlap is a property "
-                "of one fitted mechanism, not of the median-combined estimate"
+                f"describing {format_draw(REPORTED_DRAW, self.n_repeats)}: overlap is a "
+                "property of one fitted mechanism, not of the median-combined estimate"
             )
         lines.append("")
         quantiles = sorted(next(iter(self.propensity_quantiles.values())))

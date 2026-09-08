@@ -256,7 +256,8 @@ the earlier regressions were fitted to, and the whole pass has to run again.
 the predicted probability itself, so a miscalibrated fit moves every weight.
 
 **What it tells you.** Whether each nuisance fit is calibrated out of fold, and which library
-candidates the Super Learner actually used.
+candidates the Super Learner actually used. For C-TMLE, it also retains the selector or
+outcome-adaptive fit. For repeated cross-fitting, it reports parameter movement across split draws.
 
 **How.** `result.diagnostics.nuisance_models()` returns `NuisanceDiagnostics` from
 [`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py):
@@ -266,6 +267,73 @@ weights.
 
 Read the propensity AUC as a positivity signal and not as a score. A higher AUC means the treatment
 is more predictable, which means the arms overlap less. Higher is not better here.
+
+One exception changes the interpretation. A C-TMLE propensity is a selected working mechanism, not
+the estimated treatment law given the complete adjustment set. The report records this role in
+`treatment_role` and retains the exact method artifact in `selection`. `TMLEResult.ctmle_selection`
+returns that same artifact, typed. The report keeps every AUC and calibration value.
+
+The role drops exactly two claims. Both claims read a treatment law that a collaborative fit never
+estimates.
+
+| claim the report can make about the propensity | on a collaborative fit | why |
+| --- | --- | --- |
+| an AUC below 0.55 means overlap is excellent and confounding by these covariates is limited | dropped | an intercept-only candidate gives an AUC near chance by construction, so the claim describes a model nobody fitted |
+| a calibration slope outside 0.7 to 1.4 means the predicted probabilities are systematically off | dropped | the same reason. A selected working mechanism has no calibration target |
+| an AUC above 0.9 signals a positivity problem | kept | `CTMLE._nuisances` puts the selected mechanism on `nuisance.propensity`, so it is the denominator the clever covariate divides by. An AUC near one there means the fitted weights are near-degenerate |
+| a super learner weight above 0.8 on the marginal mean means the model contributes little | kept | the note states a fact about a learner library, not an interpretation of the treatment law |
+
+`tests/e2e/test_ctmle.py` holds both halves of this rule. Its
+`test_the_role_suppresses_two_claims_and_no_others` mutates the retained report and asserts that
+each dropped claim returns under `estimated_treatment_law`. Its
+`test_a_mean_only_learner_library_is_reported_for_a_working_model_too` raises the mean weight on a
+working model and requires the note. Use `support()` to inspect the denominator the selected
+mechanism creates.
+
+The selector artifact retains every candidate, risk, fitted fold, and the selected index. The
+outcome-adaptive artifact retains its outcome-prediction features and treatment risk. Each artifact
+renders one sentence through `describe()`. The nuisance summary and the combined assessment row
+both print that one sentence.
+
+| artifact | what `describe()` renders |
+| --- | --- |
+| `CTMLESelection` | `C-TMLE greedy selected candidate 2 of 4 for ate` |
+| `CTMLEOutcomeAdaptiveFit` | `C-TMLE outcome-adaptive fit used 2 Qbar feature(s)` |
+
+On a repeated fit these objects describe draw 1, because the result retains method-specific state
+for that draw. The nuisance summary and the combined assessment row render the scope through
+`cleverly.utils.text.format_draw`, as `draw 1 of 3`. The score-load rows above print the
+zero-padded `draw 01 of 03` instead. Those rows pad every style, so a table cell and the
+sentence that describes it agree on one width.
+
+`repeat_spread` contains one `RepeatSpreadRow` per reported parameter when the fit uses two or more
+draws. The row pairs the split standard deviation across every retained draw with the
+median-combined result's standard error.
+
+Both quantities are on the inference scale of the estimand. That scale is the log scale for a ratio,
+and the outcome scale otherwise, so `ratio_to_standard_error` divides two like quantities.
+`test_a_ratio_takes_its_spread_on_the_scale_its_standard_error_lives_on` in
+`tests/unit/test_repeated_crossfit.py` reads `ate`, `rr`, and `or` off one fit. The ratio is
+descriptive and has no pass threshold.
+
+A one-draw fit retains an empty tuple instead of reporting zero. A table cell with no finite value
+prints `-`. `repeat_spread_frame()` follows the input dataframe backend.
+
+`repeat_spread_omission` names the cause of every missing spread, and `selection_omission` does the
+same for an absent artifact. Both read a constant that `cleverly.validation.nuisance` declares, so
+one condition always produces one text.
+
+| constant | what the report means by it |
+| --- | --- |
+| `SPREAD_SINGLE_DRAW` | the fit drew the split once, so there is no between-draw spread |
+| `SPREAD_UNAVAILABLE_DRAWS` | some draw reported no estimate for the named parameters |
+| `SPREAD_NOT_FINITE` | the spread exists and is not finite for the named parameters |
+| `SPREAD_NO_PARAMETERS` | the result reports no parameter to take a spread of. No fitted result reaches this state, because every fit reports at least one estimand |
+| `NUISANCE_SELECTION_MISSING` | the fit declares itself collaborative and retains no `ctmle` artifact |
+
+The summary and the combined row print a spread reason only above one draw. `SPREAD_SINGLE_DRAW` is
+the ordinary state of an ordinary fit, and printing it would put an "unavailable" line under every
+report this package produces.
 
 ### Score equations
 

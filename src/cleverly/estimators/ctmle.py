@@ -404,6 +404,26 @@ class CTMLESelection:
             )
         return "\n".join([*header, table, *footer])
 
+    def describe(self) -> str:
+        """One sentence naming the strategy, the candidate the search cut at, and its target.
+
+        The sentence every report of a collaborative fit prints, in the house pattern of
+        :meth:`~cleverly.estimators.TMLEConfig.describe`.  Its counterpart is
+        :meth:`CTMLEOutcomeAdaptiveFit.describe`, so a caller renders a retained artifact
+        without first discriminating which of the two it holds.  Two call sites
+        discriminated by hand and had already drifted to ``candidate=2/5`` against
+        ``candidate 2 of 5``.
+
+        Returns
+        -------
+        str
+            A complete sentence, ready to embed in a report line.
+        """
+        return (
+            f"C-TMLE {self.strategy} selected candidate {self.selected + 1} of "
+            f"{len(self.path)} for {self.estimand}"
+        )
+
     @property
     def treatment_features(self) -> tuple[str, ...]:
         """The covariates entering the selected treatment model."""
@@ -427,6 +447,19 @@ class CTMLEOutcomeAdaptiveFit:
     def treatment_risk_selected(self) -> float:
         """Treatment negative log likelihood, under the shared C-TMLE diagnostic API."""
         return self.treatment_risk
+
+    def describe(self) -> str:
+        """One sentence naming this fit and the size of the treatment model it built.
+
+        The counterpart of :meth:`CTMLESelection.describe`.  There is no candidate path to
+        cut, so what a reader wants instead is how many ``Qbar`` features reached ``g``.
+
+        Returns
+        -------
+        str
+            A complete sentence, ready to embed in a report line.
+        """
+        return f"C-TMLE outcome-adaptive fit used {len(self.treatment_features)} Qbar feature(s)"
 
     def summary(self) -> str:
         features = ", ".join(self.treatment_features)

@@ -42,15 +42,48 @@ def arrow_backed(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.convert_dtypes(dtype_backend="pyarrow")
 
 
+#: Draws in ``paired_repeated_fits``. Three, so the spread is a spread of three values.
+REPEATS = 3
+
+#: The role columns every fit in this module reads.
+COLUMNS = {"outcome": "Y", "treatment": "A"}
+
+
+def one_sample_two_backends(n: int, seed: int) -> tuple[pd.DataFrame, pl.DataFrame]:
+    """The same generated sample, in each dataframe library.
+
+    Every parity fixture here needs the pair, and it is only a pair when both calls take
+    the same ``n`` and the same ``seed``.
+    """
+    pandas_frame, _ = make_linear_ate(n=n, seed=seed, backend="pandas")
+    polars_frame, _ = make_linear_ate(n=n, seed=seed, backend="polars")
+    return pandas_frame, polars_frame
+
+
 @pytest.fixture(scope="module")
 def paired_fits() -> tuple[object, object, object]:
-    pandas_frame, _ = make_linear_ate(n=900, seed=91, backend="pandas")
-    polars_frame, _ = make_linear_ate(n=900, seed=91, backend="polars")
-    columns = {"outcome": "Y", "treatment": "A"}
+    pandas_frame, polars_frame = one_sample_two_backends(n=900, seed=91)
     return (
-        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **columns).single(),
-        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **columns).single(),
-        fast_tmle(estimands=ESTIMANDS).fit(arrow_backed(pandas_frame), **columns).single(),
+        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **COLUMNS).single(),
+        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **COLUMNS).single(),
+        fast_tmle(estimands=ESTIMANDS).fit(arrow_backed(pandas_frame), **COLUMNS).single(),
+    )
+
+
+@pytest.fixture(scope="module")
+def paired_repeated_fits() -> tuple[object, object]:
+    """A repeated pair, kept separate from ``paired_fits`` rather than folded into it.
+
+    Most of this class reads ``paired_fits``, which already pays for three backends and
+    five estimands. Adding three draws there would triple all of that for one test. This
+    pair fits one estimand on a smaller sample, so the draws cost less than the fixture
+    they avoid.
+    """
+    pandas_frame, polars_frame = one_sample_two_backends(n=400, seed=93)
+    settings = {"estimands": ("ate",), "repeats": REPEATS}
+    return (
+        fast_tmle(**settings).fit(pandas_frame, **COLUMNS).single(),
+        fast_tmle(**settings).fit(polars_frame, **COLUMNS).single(),
     )
 
 
@@ -108,6 +141,27 @@ class TestBackendParity:
         assert pandas_curve.to_dict(orient="list") == polars_curve.to_dict(as_series=False)
         assert not pandas_curve["is_fitted_bound"].any()
         assert set(pandas_curve["upper_bound"]) == {0.98}
+
+    def test_repeat_spread_frames_are_identical_across_backends(self, paired_repeated_fits) -> None:
+        """Two empty frames are also identical, so the frame has to carry a row first.
+
+        The producer builds no row unless the fit drew the split more than once. Under an
+        inverted draw-count guard both backends would return an empty frame and compare
+        equal, so the row count and one recomputed value are pinned before the comparison.
+        """
+        from_pandas, from_polars = paired_repeated_fits
+        pandas_spread = from_pandas.diagnostics.nuisance_models().repeat_spread_frame()
+        polars_spread = from_polars.diagnostics.nuisance_models().repeat_spread_frame()
+
+        assert isinstance(pandas_spread, pd.DataFrame)
+        assert isinstance(polars_spread, pl.DataFrame)
+        assert len(pandas_spread) == 1
+        assert list(pandas_spread["estimand"]) == ["ate"]
+        assert list(pandas_spread["n_repeats"]) == [REPEATS]
+        expected = float(np.std([draw.psi["ate"] for draw in from_pandas.repeats], ddof=1))
+        assert expected > 0.0
+        assert pandas_spread["standard_deviation"][0] == pytest.approx(expected)
+        assert pandas_spread.to_dict(orient="list") == polars_spread.to_dict(as_series=False)
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
         """Same text, character for character -- apart from when each fit ran.

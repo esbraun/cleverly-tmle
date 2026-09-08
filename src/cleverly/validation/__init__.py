@@ -9,7 +9,12 @@ from .drtmle import (
     CorrectionRow,
     correction_check,
 )
-from .nuisance import NuisanceDiagnostics, NuisanceModelReport, nuisance_diagnostics
+from .nuisance import (
+    NuisanceDiagnostics,
+    NuisanceModelReport,
+    RepeatSpreadRow,
+    nuisance_diagnostics,
+)
 from .refute import (
     DEFAULT_OUTCOME_REPLICATES,
     DEFAULT_TESTS,
@@ -57,6 +62,7 @@ __all__ = [
     "RefutationResult",
     "RefutationTest",
     "RelativeGaussianNoise",
+    "RepeatSpreadRow",
     "ReplicationFailure",
     "ReplicationRecord",
     "ScoreCheck",

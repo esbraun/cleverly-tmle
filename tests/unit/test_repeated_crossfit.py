@@ -18,7 +18,9 @@ instead keep the exact structural guarantees close to the implementation.
 
 from __future__ import annotations
 
+import pickle
 import warnings
+from dataclasses import replace
 from importlib import import_module
 from typing import Any
 
@@ -35,6 +37,12 @@ from cleverly.provenance import fingerprint_array
 from cleverly.sensitivity import missingness_tilt, positivity_report, truncation_curve
 from cleverly.targets import parameter_stem
 from cleverly.validation import score_check
+from cleverly.validation.nuisance import (
+    SPREAD_NO_PARAMETERS,
+    SPREAD_NOT_FINITE,
+    SPREAD_SINGLE_DRAW,
+    SPREAD_UNAVAILABLE_DRAWS,
+)
 from tests.conftest import FAST_KWARGS, fast_tmle
 
 COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2", "W3"]}
@@ -52,6 +60,22 @@ CANONICAL: dict[str, Any] = {
     "cv_evaluation": True,
     "estimands": ["ate", "att"],
 }
+
+
+def split_spread(result: Any, name: str) -> float:
+    """Recompute one parameter's between-draw spread from the retained draws.
+
+    Written out here rather than read off ``repeat_spread`` so that every assertion below
+    has an independently computed expected value.  It follows the rule the estimator
+    states: the spread lives on the **inference scale**, which is the scale ``std_error``
+    is on.  That is the log scale for a ratio and the reported scale otherwise.  A spread
+    taken on ``psi`` itself is not comparable with the standard error of an ``rr`` or an
+    ``or``, and is wrong there by roughly the estimate's own magnitude.
+    """
+    values = np.asarray([draw.psi[name] for draw in result.repeats], dtype=float)
+    if result.estimates[name].scale == "ratio":
+        values = np.log(values)
+    return float(np.std(values, ddof=1))
 
 
 @pytest.fixture(scope="module")
@@ -79,6 +103,18 @@ def once(frame: Any) -> Any:
 def repeated(frame: Any) -> Any:
     """One repeated fit, shared by every test that only needs to read one."""
     return fast_tmle(repeats=REPEATS).fit(frame, **COLUMNS).single()
+
+
+@pytest.fixture(scope="module")
+def ratio_repeated(binary_frame: Any) -> Any:
+    """One repeated fit reporting both inference scales, for the spread that reads them.
+
+    ``rr`` and ``or`` report a standard error for ``log psi``, and ``ate`` one for ``psi``.
+    A single fit carrying all three is what makes the scale rule falsifiable: one scale
+    alone cannot distinguish the corrected spread from the naive one.
+    """
+    estimator = fast_tmle(repeats=REPEATS, estimands=("ate", "rr", "or"))
+    return estimator.fit(binary_frame, **COLUMNS).single()
 
 
 class TestOneRepeatIsAnOrdinaryFit:
@@ -114,6 +150,12 @@ class TestOneRepeatIsAnOrdinaryFit:
         assert once.n_repeats == 1
         assert once.repeats[0].nuisance is once.nuisance
         assert once.repeats[0].fluctuations is once.fluctuations
+
+        diagnostics = once.diagnostics.nuisance_models()
+        assert diagnostics.treatment_role == "estimated_treatment_law"
+        assert diagnostics.selection is None
+        assert diagnostics.selection_omission is None
+        assert "C-TMLE" not in diagnostics.summary()
 
 
 class TestTheMedianRule:
@@ -544,16 +586,264 @@ class TestTheSpreadAcrossDraws:
         spread = repeated.repeat_spread()
         assert set(spread) == set(repeated.estimates)
         for name, value in spread.items():
-            per_draw = [repeat.psi[name] for repeat in repeated.repeats]
-            assert value == pytest.approx(float(np.std(per_draw, ddof=1)))
+            assert value == pytest.approx(split_spread(repeated, name))
         # And the draws it is the spread of are the ones the report takes the median of.
         assert repeated.psi("ate") == pytest.approx(
             float(np.median([repeat.psi["ate"] for repeat in repeated.repeats]))
         )
 
+    def test_a_ratio_takes_its_spread_on_the_scale_its_standard_error_lives_on(
+        self, ratio_repeated: Any
+    ) -> None:
+        """The headline of the correction: ``sd/se`` has to compare two like quantities.
+
+        ``std_error`` for ``rr`` and ``or`` is the standard error of ``log psi`` -- the
+        interval is exponentiated back. A spread taken on ``psi`` itself is larger by
+        roughly ``psi``, so the printed ratio for an ``or`` near two was inflated by about
+        a factor of two while the ``ate`` beside it was right. The difference-scale
+        parameters must be untouched by the same rule.
+        """
+        spread = ratio_repeated.repeat_spread()
+        assert set(spread) == {"ate", "rr", "or"}
+
+        for name in ("rr", "or"):
+            draws = [draw.psi[name] for draw in ratio_repeated.repeats]
+            assert ratio_repeated.estimates[name].scale == "ratio"
+            assert spread[name] == pytest.approx(float(np.std(np.log(draws), ddof=1)))
+            # And it is not the naive spread, which is what the correction replaced.
+            assert spread[name] != pytest.approx(float(np.std(draws, ddof=1)), rel=1e-3)
+
+        ate_draws = [draw.psi["ate"] for draw in ratio_repeated.repeats]
+        assert ratio_repeated.estimates["ate"].scale == "difference"
+        assert spread["ate"] == pytest.approx(float(np.std(ate_draws, ddof=1)))
+
+    def test_the_summary_says_which_scale_the_split_noise_is_on(self, ratio_repeated: Any) -> None:
+        summary = ratio_repeated.summary()
+        assert "the log scale for a ratio" in summary
+        assert "sd(psi) across" not in summary
+
     def test_one_draw_has_no_spread_to_report(self, once: Any) -> None:
+        """And the ordinary reason for it never reaches an ordinary reader.
+
+        ``SPREAD_SINGLE_DRAW`` is the state of nearly every fit this package produces, so
+        printing it would put an "unavailable" line under every summary. The reason is
+        retained for a caller that asks, and the renderers gate on the draw count.
+        """
         with pytest.raises(ValueError, match="moved between draws"):
             once.repeat_spread()
+
+        diagnostics = once.diagnostics.nuisance_models()
+        assert diagnostics.repeat_spread == ()
+        assert diagnostics.repeat_spread_omission == SPREAD_SINGLE_DRAW
+        assert "split spread unavailable" not in diagnostics.summary()
+        assert SPREAD_SINGLE_DRAW not in diagnostics.summary()
+        assert (
+            "split spread unavailable" not in once.diagnostics.run_all()["nuisance_models"].detail
+        )
+
+    def test_the_nuisance_report_pairs_split_spread_with_the_reported_error(
+        self, repeated: Any
+    ) -> None:
+        diagnostics = repeated.diagnostics.nuisance_models()
+
+        assert diagnostics.repeat_spread_omission is None
+        assert {row.estimand for row in diagnostics.repeat_spread} == set(repeated.estimates)
+        for row in diagnostics.repeat_spread:
+            expected = split_spread(repeated, row.estimand)
+            assert row.n_repeats == REPEATS
+            assert row.standard_deviation == pytest.approx(expected)
+            assert row.reported_standard_error == repeated[row.estimand].std_error
+            assert row.ratio_to_standard_error == pytest.approx(
+                expected / repeated[row.estimand].std_error
+            )
+        assert "Repeated-split sensitivity" in diagnostics.summary()
+        assert "split spread" in repeated.diagnostics.run_all()["nuisance_models"].detail
+
+    def test_the_combined_row_names_the_widest_parameter_and_not_the_narrowest(
+        self, repeated: Any
+    ) -> None:
+        """``max`` over the rows, and the five-parameter fit that can tell it from ``min``.
+
+        Every other report here carries one finite row, where a selection rule cannot be
+        wrong.  This fit reports five, so the winner is pinned by both its value and its
+        name, and the losing extreme is required to be absent.
+        """
+        report = repeated.diagnostics.nuisance_models()
+        ratios = {row.estimand: row.ratio_to_standard_error for row in report.repeat_spread}
+        assert len(ratios) == 5
+        widest = max(ratios, key=lambda name: ratios[name])
+        narrowest = min(ratios, key=lambda name: ratios[name])
+        assert widest != narrowest
+
+        detail = repeated.diagnostics.run_all()["nuisance_models"].detail
+        assert f"split spread for 5 parameter(s) across {REPEATS} draws" in detail
+        assert f"largest sd/se {ratios[widest]:.3g} for {widest}" in detail
+        assert f"for {narrowest}" not in detail
+        assert f"{ratios[narrowest]:.3g}" not in detail
+
+    def test_a_draw_specific_mutation_moves_the_retained_spread(self, repeated: Any) -> None:
+        before = repeated.diagnostics.nuisance_models().repeat_spread[0]
+        draws = list(repeated.repeats)
+        changed = dict(draws[-1].psi)
+        changed[before.estimand] += 0.5
+        draws[-1] = replace(draws[-1], psi=changed)
+        mutated = replace(repeated, repeats=tuple(draws))
+
+        after = mutated.diagnostics.nuisance_models().repeat_spread[0]
+        assert after.standard_deviation == pytest.approx(split_spread(mutated, before.estimand))
+        assert after.standard_deviation != pytest.approx(before.standard_deviation)
+
+    def test_a_missing_draw_value_retains_the_parameter_and_an_omission(
+        self, repeated: Any
+    ) -> None:
+        draws = list(repeated.repeats)
+        missing = next(iter(repeated.estimates))
+        changed = dict(draws[-1].psi)
+        del changed[missing]
+        draws[-1] = replace(draws[-1], psi=changed)
+        mutated = replace(repeated, repeats=tuple(draws))
+
+        report = mutated.diagnostics.nuisance_models()
+        assert [row.estimand for row in report.repeat_spread] == list(repeated.estimates)
+        row = next(item for item in report.repeat_spread if item.estimand == missing)
+        assert np.isnan(row.standard_deviation)
+        assert np.isnan(row.ratio_to_standard_error)
+        assert report.repeat_spread_omission == SPREAD_UNAVAILABLE_DRAWS + missing
+        assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in report.summary()
+        assert f"split spread unavailable: {SPREAD_UNAVAILABLE_DRAWS}{missing}" in (
+            mutated.diagnostics.run_all()["nuisance_models"].detail
+        )
+
+    def test_a_spread_with_no_finite_value_gets_its_own_reason(self, ratio_repeated: Any) -> None:
+        """A ``nan`` spread and an uncomputed spread are different states, and say so.
+
+        A ratio draw at or below zero has no inference-scale value at all, so the spread
+        it produces is ``nan`` rather than a number.  The row stays -- the parameter was
+        reported and a reader still wants its standard error -- and the reason names the
+        parameter rather than leaving the reader to find the ``nan`` cell.
+        """
+        draws = list(ratio_repeated.repeats)
+        draws[-1] = replace(draws[-1], psi={**draws[-1].psi, "rr": -0.5})
+        mutated = replace(ratio_repeated, repeats=tuple(draws))
+
+        assert np.isnan(mutated.repeat_spread()["rr"])
+        report = mutated.diagnostics.nuisance_models()
+        row = next(item for item in report.repeat_spread if item.estimand == "rr")
+        assert np.isnan(row.standard_deviation)
+        assert np.isnan(row.ratio_to_standard_error)
+        assert row.reported_standard_error == ratio_repeated["rr"].std_error
+        assert report.repeat_spread_omission == SPREAD_NOT_FINITE + "rr"
+        assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in report.summary()
+        assert f"split spread unavailable: {SPREAD_NOT_FINITE}rr" in (
+            mutated.diagnostics.run_all()["nuisance_models"].detail
+        )
+        # The other parameters are unaffected, which is why the whole call does not raise.
+        assert np.isfinite(mutated.repeat_spread()["ate"])
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_a_non_finite_psi_is_not_finite_on_any_scale(self, repeated: Any, value: float) -> None:
+        """The guard has to sit outside the ratio branch, and ``inf`` is what proves it.
+
+        ``nan`` alone cannot: it reaches ``np.std`` without complaint and propagates to the
+        same answer either way.  An infinite draw is the falsifying input.  ``np.std`` warns
+        on it, and this project turns a ``RuntimeWarning`` into an error, so a guard scoped
+        to ratios raises here instead of reporting the ``nan`` the docstring promises.
+        """
+        draws = list(repeated.repeats)
+        draws[-1] = replace(draws[-1], psi={**draws[-1].psi, "ate": value})
+        mutated = replace(repeated, repeats=tuple(draws))
+
+        assert mutated["ate"].scale != "ratio"
+        assert np.isnan(mutated.repeat_spread()["ate"])
+        report = mutated.diagnostics.nuisance_models()
+        assert np.isnan(report.repeat_spread[0].standard_deviation)
+        assert report.repeat_spread[0].estimand == "ate"
+        assert report.repeat_spread_omission == SPREAD_NOT_FINITE + "ate"
+
+    def test_the_estimator_summary_prints_a_dash_for_a_spread_it_does_not_have(
+        self, ratio_repeated: Any
+    ) -> None:
+        """The other renderer of this quantity, held to the same rule as the report table.
+
+        ``RepeatSpreadRow.row`` prints ``-`` for a cell with no finite value.  This block
+        printed ``nan (nan% of std_err)`` for the identical state, one call away.
+        """
+        draws = list(ratio_repeated.repeats)
+        draws[-1] = replace(draws[-1], psi={**draws[-1].psi, "rr": -0.5})
+        mutated = replace(ratio_repeated, repeats=tuple(draws))
+
+        summary = mutated.summary()
+        assert "rr    -  (no spread on the inference scale)" in summary
+        assert "nan" not in summary
+        # The finite parameters still report their share, so the dash is not a blanket.
+        assert "of std_err" in summary
+
+    def test_no_reported_parameter_leaves_a_reason_and_no_row(self, repeated: Any) -> None:
+        """The last omission reason, and the only one no fitted result reaches.
+
+        A fit always reports at least one estimand, so this state is constructed rather
+        than fitted.  It is still the documented contract of the field: a caller that
+        receives no row receives a cause, never an unexplained empty tuple.
+        """
+        mutated = replace(repeated, estimates={})
+
+        report = mutated.diagnostics.nuisance_models()
+        assert report.repeat_spread == ()
+        assert report.repeat_spread_omission == SPREAD_NO_PARAMETERS
+        assert f"split spread unavailable: {SPREAD_NO_PARAMETERS}" in report.summary()
+
+    @pytest.mark.parametrize("variance", [0.0, float("nan")])
+    def test_a_row_survives_a_standard_error_it_cannot_divide_by(
+        self, repeated: Any, variance: float
+    ) -> None:
+        """The ratio is the only cell that needs the standard error, so only it goes.
+
+        Both guards are dropped terms under every other test here, because a real fit
+        reports a positive finite standard error for every parameter.  A zero divisor
+        would return an infinity, and a ``nan`` one would propagate silently; the row that
+        carries the spread the reader asked for must survive either.
+        """
+        estimates = dict(repeated.estimates)
+        estimates["ate"] = replace(estimates["ate"], variance=variance)
+        mutated = replace(repeated, estimates=estimates)
+        assert not mutated["ate"].std_error > 0.0
+
+        report = mutated.diagnostics.nuisance_models()
+        assert [row.estimand for row in report.repeat_spread] == list(repeated.estimates)
+        row = next(item for item in report.repeat_spread if item.estimand == "ate")
+        assert row.standard_deviation == pytest.approx(split_spread(repeated, "ate"))
+        assert np.isnan(row.ratio_to_standard_error)
+        # The spread itself is available, so this is not an omission.
+        assert report.repeat_spread_omission is None
+        # And the combined row still names a finite winner rather than this row.
+        detail = mutated.diagnostics.run_all()["nuisance_models"].detail
+        assert "largest sd/se" in detail
+        assert "for ate" not in detail
+        assert "nan" not in detail and "inf" not in detail
+
+    def test_a_cell_with_no_finite_value_prints_a_dash(self) -> None:
+        """The table renders the ``nan`` states above the way every other table does."""
+        from cleverly.validation import RepeatSpreadRow
+
+        assert RepeatSpreadRow("rr", 3, float("nan"), 0.25, float("nan")).row() == [
+            "rr",
+            "3",
+            "-",
+            "0.25",
+            "-",
+        ]
+        assert RepeatSpreadRow("ate", 3, 0.5, 0.25, 2.0).row() == ["ate", "3", "0.5", "0.25", "2"]
+
+    def test_the_spread_frame_uses_the_fit_backend(self, repeated: Any) -> None:
+        frame = repeated.diagnostics.nuisance_models().repeat_spread_frame()
+        assert list(frame.columns) == [
+            "estimand",
+            "n_repeats",
+            "standard_deviation",
+            "reported_standard_error",
+            "ratio_to_standard_error",
+        ]
+        assert frame["estimand"].to_list() == list(repeated.estimates)
 
     def test_the_summary_shows_it_beside_the_standard_error(self, repeated: Any, once: Any) -> None:
         assert "split noise" in repeated.summary()
@@ -561,8 +851,27 @@ class TestTheSpreadAcrossDraws:
         assert "split noise" not in once.summary()
 
     def test_it_survives_the_round_trip(self, repeated: Any) -> None:
+        report = repeated.diagnostics.nuisance_models()
+        combined = repeated.diagnostics.run_all()
         reloaded = loads(dumps(repeated))
         assert reloaded.repeat_spread() == repeated.repeat_spread()
+        restored = reloaded.diagnostics.nuisance_models()
+        assert restored.repeat_spread == report.repeat_spread
+        assert restored.repeat_spread_frame().to_dict(
+            orient="list"
+        ) == report.repeat_spread_frame().to_dict(orient="list")
+        assert (
+            reloaded.diagnostics.run_all()["nuisance_models"].detail
+            == combined["nuisance_models"].detail
+        )
+
+    def test_nan_rows_keep_equality_and_hashing_across_pickle(self, repeated: Any) -> None:
+        from cleverly.validation import RepeatSpreadRow
+
+        row = RepeatSpreadRow("ate", repeated.n_repeats, 0.0, 0.0, float("nan"))
+        restored = pickle.loads(pickle.dumps(row))
+        assert restored == row
+        assert hash(restored) == hash(row)
 
 
 class TestWhatTheResultExposes:
@@ -658,6 +967,8 @@ class TestTheSensitivityLayerFollowsTheDraws:
         report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
         assert "draw 1 of 3" in report.summary()
+        assert "draw 2 of 3" in replace(report, reported_repeat=2).summary()
+        assert "draw 1 of 3" not in replace(report, reported_repeat=2).summary()
 
     def test_the_group_load_row_counts_the_same_draws_the_report_does(
         self, repeated: Any, once: Any
@@ -748,16 +1059,38 @@ class TestSerialization:
 
 class TestVariantsInheritRepeats:
     def test_ctmle_repeats_its_selection_per_draw(self, frame: Any) -> None:
+        """Each draw selects for itself, and the retained artifact is draw one's.
+
+        ``selection_folds=2`` rather than the default is what makes this falsifiable. At
+        the default the search cuts at the intercept-only candidate in *both* draws, so
+        the retained selection is the empty tuple, and an implementation that attributed
+        it to the last draw -- or to no draw -- would pass every assertion here. With two
+        selection folds the draws disagree, so the artifact can be traced to one of them.
+        """
         # CTMLE overrides _nuisances alone, and the repeat loop sits around that method,
         # so this works without estimators/ctmle.py knowing repeats exist.
         from cleverly.estimators import CTMLE
 
-        kwargs = {**FAST_KWARGS, "repeats": 2, "estimands": ["ate"]}
+        kwargs = {**FAST_KWARGS, "repeats": 2, "estimands": ["ate"], "selection_folds": 2}
         result = CTMLE(**kwargs).fit(frame, **COLUMNS).single()
         assert result.n_repeats == 2
-        selections = {tuple(repeat.nuisance.treatment_covariates) for repeat in result.repeats}
-        assert selections  # a selection was made in each draw
+        per_draw = [tuple(repeat.nuisance.treatment_covariates) for repeat in result.repeats]
+        assert len(set(per_draw)) == 2, "the draws must disagree for the attribution to bite"
         assert np.isfinite(result["ate"].std_error)
+
+        report = result.diagnostics.nuisance_models()
+        assert report.selection is result.extra["ctmle"]
+        selected = tuple(report.selection.selected_covariates)
+        assert selected, "the retained selection must name a covariate"
+        assert selected == per_draw[0]
+        assert selected != per_draw[1]
+        assert set(selected) <= set(COLUMNS["covariates"])
+
+        assert report.n_repeats == 2
+        assert "draw 1 of 2" in report.summary()
+        assert "on draw 1 of 2" in result.diagnostics.run_all()["nuisance_models"].detail
+        spread = next(row for row in report.repeat_spread if row.estimand == "ate")
+        assert spread.standard_deviation == pytest.approx(split_spread(result, "ate"))
 
     def test_the_bootstrap_repeats_the_draws(self, frame: Any) -> None:
         # A replicate must resample the estimator that was reported -- the median of R

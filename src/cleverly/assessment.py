@@ -31,7 +31,7 @@ from ._assessment_cache import (
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
-from .utils.text import format_table
+from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     STITCHED_SCORE_Z_TOLERANCE,
@@ -231,8 +231,15 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "nuisance_models",
         "point",
-        artifacts=("out-of-fold nuisance predictions",),
-        interpretation="held-out fit quality and calibration of each fitted nuisance",
+        artifacts=(
+            "out-of-fold nuisance predictions",
+            "method selection state",
+            "repeat-specific point estimates",
+            "reported standard errors",
+        ),
+        interpretation=(
+            "held-out nuisance fit, collaborative selection, and descriptive split spread"
+        ),
     ),
     _capability(
         "score_equations",
@@ -1583,12 +1590,14 @@ class DiagnosticsFacade(_CapabilityFacade):
         return _cached(self._result, "diagnostics.support", (), {}, compute)
 
     def nuisance_models(self) -> Any:
-        """Return held-out fit diagnostics for nuisance models.
+        """Return method-aware held-out nuisance and split diagnostics.
 
         Returns
         -------
         NuisanceDiagnostics or LongitudinalNuisanceDiagnostics
-            Held-out diagnostics for point or sequential nuisance models.
+            Held-out diagnostics for point or sequential nuisance models. Point-treatment
+            reports also retain C-TMLE selection state and pair repeated-split spread with
+            each reported standard error when those artifacts exist.
         """
         self._require("nuisance_models")
 
@@ -1987,13 +1996,6 @@ def _nuisance_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     findings = tuple(getattr(report, "findings", ()))
-    if findings:
-        return AssessmentItem(
-            "nuisance_models",
-            AssessmentStatus.WARNING,
-            "; ".join(findings),
-            ("inspect result.diagnostics.nuisance_models()",),
-        )
     if isinstance(report, LongitudinalNuisanceDiagnostics):
         finite = [row.mse for row in report.rows if np.isfinite(row.mse)]
         if not finite:
@@ -2005,8 +2007,52 @@ def _nuisance_item(
             )
         detail = f"{len(finite)} stagewise held-out loss value(s) are available"
     else:
-        detail = f"{len(getattr(report, 'models', ()))} nuisance model report(s) are available"
-    return AssessmentItem("nuisance_models", AssessmentStatus.COMPLETED, detail)
+        facts = [
+            "; ".join(findings)
+            if findings
+            else f"{len(getattr(report, 'models', ()))} nuisance model report(s) are available"
+        ]
+        n_repeats = int(getattr(report, "n_repeats", 1))
+        selection = getattr(report, "selection", None)
+        if selection is not None:
+            # The artifact says what it is. Discriminating a selector from an
+            # outcome-adaptive fit here as well is what let this line and the one in
+            # `NuisanceDiagnostics.summary` drift into two spellings of one fact.
+            reported = int(getattr(report, "reported_repeat", REPORTED_DRAW))
+            draw = f" on {format_draw(reported, n_repeats)}" if n_repeats > 1 else ""
+            facts.append(f"{selection.describe()}{draw}")
+        elif getattr(report, "selection_omission", None) is not None:
+            facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
+        spread = tuple(getattr(report, "repeat_spread", ()))
+        if spread:
+            finite_rows: list[Any] = [
+                row for row in spread if np.isfinite(row.ratio_to_standard_error)
+            ]
+            if finite_rows:
+                largest_row = max(finite_rows, key=lambda row: row.ratio_to_standard_error)
+                facts.append(
+                    f"split spread for {len(spread)} parameter(s) across "
+                    f"{n_repeats} draws; largest sd/se "
+                    f"{largest_row.ratio_to_standard_error:.3g} for {largest_row.estimand}"
+                )
+            else:
+                facts.append(
+                    f"split spread for {len(spread)} parameter(s) across "
+                    f"{n_repeats} draws; sd/se unavailable"
+                )
+        spread_omission = getattr(report, "repeat_spread_omission", None)
+        if n_repeats > 1 and spread_omission is not None:
+            # Guarded on the draw count for the reason `NuisanceDiagnostics.summary` is:
+            # the one-draw reason is the ordinary state and states nothing a reader of an
+            # ordinary fit needs.
+            facts.append(f"split spread unavailable: {spread_omission}")
+        detail = "; ".join(facts)
+    return AssessmentItem(
+        "nuisance_models",
+        AssessmentStatus.WARNING if findings else AssessmentStatus.COMPLETED,
+        detail,
+        ("inspect result.diagnostics.nuisance_models()",) if findings else (),
+    )
 
 
 def _correction_item(

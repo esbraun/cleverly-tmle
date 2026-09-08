@@ -92,6 +92,45 @@ all_cached = result.diagnostics.run_all()
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
+`nuisance.selection` retains the complete C-TMLE selector or outcome-adaptive artifact. For these
+fits, `nuisance.treatment_role` is `collaborative_working_model`. The propensity values describe
+the selected denominator and not treatment given the complete adjustment set.
+
+The role drops exactly two claims. The report keeps every other claim it makes about the propensity.
+
+| claim | on a collaborative fit | why |
+| --- | --- | --- |
+| an AUC below 0.55 means overlap is excellent and confounding by these covariates is limited | dropped | the claim reads a treatment law that the fit never estimated. An intercept-only candidate gives an AUC near chance by construction |
+| a calibration slope outside 0.7 to 1.4 means the predicted probabilities are systematically off | dropped | the same reason. A selected working mechanism has no calibration target |
+| an AUC above 0.9 signals a positivity problem | kept | `CTMLE._nuisances` puts the selected mechanism on `nuisance.propensity`, so it is the denominator the clever covariate divides by |
+| a super learner that puts over 80% of its weight on the marginal mean contributes little | kept | the note describes a learner library and not a treatment law |
+
+Two tests in `tests/e2e/test_ctmle.py` hold this rule. They are
+`test_the_role_suppresses_two_claims_and_no_others` and
+`test_a_mean_only_learner_library_is_reported_for_a_working_model_too`. Each one mutates the
+retained report and reads the claim under both roles.
+
+On a repeated fit, `nuisance.repeat_spread` contains one typed row per reported parameter. Each row
+gives `standard_deviation`, `reported_standard_error`, and `ratio_to_standard_error`.
+
+Both `standard_deviation` and `reported_standard_error` are on the inference scale of the estimand.
+That scale is the log scale for `rr` and `or`, and the outcome scale otherwise. The two are
+therefore comparable, and `test_a_ratio_takes_its_spread_on_the_scale_its_standard_error_lives_on`
+in `tests/unit/test_repeated_crossfit.py` checks both scales on one fit. The ratio stays descriptive
+and carries no pass threshold.
+
+Use `nuisance.repeat_spread_frame()` for a dataframe in the input backend. A one-draw fit retains no
+spread row. `nuisance.repeat_spread_omission` then names the cause, and every absent or non-finite
+spread gets its own machine-readable reason. A table cell with no finite value prints `-`.
+
+Nuisance models and C-TMLE selection describe draw 1. Split-spread rows read every retained draw.
+The nuisance summary states the scope on its own line, as `describing draw 1 of 3`.
+
+The combined assessment row states the draw beside the C-TMLE selection fact alone. An ordinary
+repeated fit therefore carries no draw text in that row.
+`test_ctmle_repeats_its_selection_per_draw` in `tests/unit/test_repeated_crossfit.py` checks the
+collaborative case.
+
 Missing-outcome and controlled-direct-effect support reports add a derived product row. This row
 is the complete denominator used by the clever covariate. Its quantiles describe the raw product.
 Its Kish summaries use the bounded product on residual-contributing rows. The calculation also
