@@ -264,8 +264,9 @@ movement across split draws.
 **How.** `result.diagnostics.nuisance_models()` returns a report for the fitted result family.
 Point-treatment results return `NuisanceDiagnostics` from
 [`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py).
-That report contains out-of-fold propensity AUC, logistic calibration, outcome fit metrics, and
-Super Learner candidate details.
+That report contains propensity AUC, logistic calibration, outcome fit metrics, and Super Learner
+candidate details. The metrics are out-of-fold when the fit cross-fitted its nuisances. They are
+in-sample when it used one fold.
 
 Longitudinal results return `LongitudinalNuisanceDiagnostics`. The report includes only models the
 estimator fitted. Treatment and censoring models appear once per node because each model serves all
@@ -286,6 +287,15 @@ refit those learners or reconstruct observed histories from regimen predictions.
 `loss_name` is `log_loss`, `brier`, or `mse`. `loss` holds that role-specific value, while
 `reported_loss` preserves the MSE from an older regression row. The nested `model` is a
 `NuisanceModelReport`. It retains calibration and learner-library details.
+
+The `mse` field stays the legacy column, and it answers about node regressions alone. An outcome
+row or a pseudo-outcome row reports its square loss there. A treatment row or a censoring row
+reports `nan`, because a mechanism fit has no square loss.
+
+Two further changes affect a weighted fit. The `mse` value now averages under the observation
+weights, where an older release averaged without them. The frame also admits an empty value in
+`regimen`, `cause`, and `horizon`, because a mechanism row carries no regimen identity. That row
+stores `None`, which a dataframe renders as `None` or as `NaN` by column type.
 
 For a categorical treatment, `log_loss` is the observed-class multinomial negative log likelihood.
 The nested report uses `kind="multinomial probability"` and retains no binary calibration table.

@@ -19,13 +19,14 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.datasets import make_longitudinal
 from cleverly.fluctuation.submodel import Submodel
 from cleverly.learners.crossfit import Folds, make_folds
-from cleverly.learners.super_learner import resolve_learner
+from cleverly.learners.super_learner import SuperLearner, resolve_learner
 from cleverly.longitudinal import LongitudinalData, resolve_plans, resolve_regimens
 from cleverly.longitudinal import msm as longitudinal_msm
 from cleverly.longitudinal.sequential import fit_mechanism, fit_regimen
 from cleverly.msm import MSM
 from cleverly.utils.bounds import OutcomeScaler
 
+from ..conftest import _AdaptiveGLM, _AdaptiveMean
 from .test_longitudinal_msm import DURATION
 
 LABELS = ("always", "never", "early")
@@ -276,3 +277,76 @@ class TestTheLossWeightsMultiply:
         for (covariate, weights), (base_covariate, base_weights) in zip(seen, base, strict=True):
             np.testing.assert_array_equal(covariate.observed, base_covariate)
             np.testing.assert_allclose(weights, 2.0 * base_weights)
+
+
+class TestTheCrossFittedPassRetainsItsLearnerDiagnostics:
+    """The stitched fold diagnostics, checked where the public estimator cannot reach them.
+
+    ``LTMLE`` refuses ``msm=`` above one outer fold, so ``_crossfit_msm`` is reachable only
+    from :func:`fit_regimens_msm` directly. Its diagnostics are stitched per cell and per
+    node exactly as the per-regimen recursion stitches its own, and without a check here
+    that stitch is code no test executes.
+    """
+
+    @staticmethod
+    def _ensemble() -> Any:
+        """A two-candidate Super Learner, which is what reports a diagnostics record."""
+        return SuperLearner(
+            library=[("mean", _AdaptiveMean()), ("glm", _AdaptiveGLM())],
+            task=None,
+            n_folds=3,
+            clip=(0.0, 1.0),
+            random_state=0,
+        )
+
+    def _fit(self, folds: Any) -> Any:
+        frame, _ = make_longitudinal(n=N, seed=0)
+        data = LongitudinalData.from_frame(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        )
+        plans = resolve_plans(resolve_regimens(SPEC, data.n_times), data)
+        mechanism = fit_mechanism(
+            data,
+            plans,
+            treatment_learner=self._ensemble(),
+            censoring_learner=self._ensemble(),
+            folds=folds,
+        )
+        model = longitudinal_msm.evaluate_regimen_msm(
+            MSM(design=saturated_design, terms=LABELS), data, plans, (data.n_times,)
+        )
+        fitted = longitudinal_msm.fit_regimens_msm(
+            data,
+            plans,
+            mechanism,
+            model,
+            outcome_learner=self._ensemble(),
+            pseudo_learner=self._ensemble(),
+            folds=folds,
+            scaler=OutcomeScaler.identity(),
+            g_bounds=BOUNDS,
+        )
+        return data, (fitted[0] if isinstance(fitted, tuple) else fitted)
+
+    def test_every_cell_and_node_carries_one_record_per_outer_fold(self) -> None:
+        folds = make_folds(N, n_folds=2, random_state=0)
+        data, result = self._fit(folds)
+        assert len(result.fits) == len(LABELS)
+        for fit in result.fits:
+            assert [step.time for step in fit.steps] == list(range(1, data.n_times + 1))
+            for step in fit.steps:
+                assert len(step.learner_diagnostics) == folds.n_folds
+                for record in step.learner_diagnostics:
+                    assert set(record.names) == {"mean", "glm"}
+
+    def test_one_fold_carries_one_record_so_the_fold_count_is_the_witness(self) -> None:
+        """The nonzero control: the count tracks the folds rather than being a constant."""
+        _, single = self._fit(Folds.single(N))
+        for fit in single.fits:
+            for step in fit.steps:
+                assert len(step.learner_diagnostics) == 1

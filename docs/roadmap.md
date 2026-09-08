@@ -136,6 +136,11 @@ Each row also retains calibration and learner-library details through the shared
 report contract. Additive field defaults let an older artifact explain which details it lacks.
 Changed cache generations reject a retained report that predates this contract.
 
+The legacy `mse` field keeps one meaning: the square loss of a node regression. A mechanism row
+reports `nan` there rather than borrowing the Brier value of its own model report. Two retained
+behaviours changed for a weighted fit. The value averages under the observation weights, and the
+frame admits an empty value in the regimen identity columns that a mechanism row cannot fill.
+
 `support` is the one presentation name for the longitudinal leverage report. `stagewise()` remains
 a direct compatibility alias, and its capability stays explicit. The alias is excluded from a
 combined run, so the aggregate retains one `support` payload and no `stagewise` row. The support

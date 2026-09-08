@@ -27,9 +27,15 @@ from cleverly import (
     PointTreatment,
     PositivityWarning,
     RegimeMean,
+    ValidationReport,
     load,
 )
-from cleverly.assessment import ASSESSMENT_CAPABILITIES, INTERPRETERS, SENSITIVITY_ROUTES
+from cleverly.assessment import (
+    ASSESSMENT_CAPABILITIES,
+    INTERPRETERS,
+    SENSITIVITY_ROUTES,
+    LongitudinalDiagnostics,
+)
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
@@ -724,12 +730,46 @@ def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
     )
     restored = load(result.save(tmp_path / "legacy-longitudinal-assessment-cache.joblib"))
 
-    assert restored.diagnostics.stagewise() != "legacy stagewise report"
+    # Compared against the value the support key was seeded with. The alias delegates to
+    # ``support`` and reads no key of its own, so an inequality against the stagewise
+    # sentinel holds however the support generation resolves. The positive assertions say
+    # the miss produced a recomputed report rather than any other object.
+    stagewise = restored.diagnostics.stagewise()
+    assert stagewise != "legacy cached report"
+    assert isinstance(stagewise, LongitudinalDiagnostics)
+    assert {row.regimen for row in stagewise.rows} == {"always", "never"}
+    assert {row.time for row in stagewise.rows} == {1, 2}
     combined = restored.diagnostics.run_all()
     assert combined != "legacy cached report"
     assert [item.name for item in combined.items].count("support") == 1
     assert "stagewise" not in {item.name for item in combined.items}
     assert stale <= set(restored.assessment_cache)
+
+
+def test_the_validation_report_ignores_its_immediately_previous_generation(
+    point_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    """A generation-four ``validate`` entry, which the seeds above cannot reach.
+
+    The unversioned and generation-one seeds miss whatever the current number is, so they
+    hold while it stays anything above one and say nothing about a bump. Seeding the
+    generation directly below the current one is what puts the bump itself under test.
+    """
+    result = dataclasses.replace(point_result)
+    result.validate()
+    keys = [key for key in result.assessment_cache if key.split(":", 1)[0] == "validate"]
+    assert len(keys) == 1
+
+    result.assessment_cache.clear()
+    stale = _with_cache_generation(keys[0], 4)
+    result.assessment_cache[stale] = "pre-generation validation report"
+    restored = load(result.save(tmp_path / "previous-generation-validate.joblib"))
+
+    report = restored.validate()
+    assert report != "pre-generation validation report"
+    assert isinstance(report, ValidationReport)
+    assert report.items
+    assert stale in restored.assessment_cache
 
 
 def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:

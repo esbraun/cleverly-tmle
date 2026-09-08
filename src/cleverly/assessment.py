@@ -1519,6 +1519,10 @@ class DiagnosticsFacade(_CapabilityFacade):
     def stagewise(self) -> LongitudinalDiagnostics:
         """Return support and targeting diagnostics by longitudinal stage.
 
+        This is a compatibility alias. :meth:`support` is the canonical name for the same
+        report, and the combined report presents it under that name alone. The alias keeps
+        its own capability, so it still refuses a point-treatment fit by name.
+
         Returns
         -------
         LongitudinalDiagnostics
@@ -1528,6 +1532,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         ------
         CapabilityError
             If the fitted result is not longitudinal.
+
+        See Also
+        --------
+        support : The canonical name for this report.
         """
         self._require("stagewise")
         return self.support()
@@ -2476,6 +2484,12 @@ def _stagewise_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     truncated, ess = _support_metrics(report)
+    # No report path reaches this. ``stagewise`` is ``include_in_combined=False`` on the
+    # longitudinal family and ``available=False`` on the point one, so the combined loop
+    # skips it and the point row renders as a refusal. It stays because ``INTERPRETERS`` and
+    # ``ASSESSMENT_CAPABILITIES`` are checked against each other in both directions, and a
+    # missing entry would read as a capability nobody can interpret rather than as an alias.
+    #
     # The same two numbers ``_support_item`` reports, so they carry the same presentation.
     # Interpolated raw they printed "0.8888888888888887" beside a sibling row reading
     # "88.9%", and "None" where the sibling says nothing at all.

@@ -105,6 +105,10 @@ weighted Brier loss for a binary target, or mean squared error otherwise. A pseu
 reports weighted mean squared error. `reported_loss` preserves the MSE from an older regression
 row.
 
+The legacy `mse` field answers about node regressions alone. A treatment row and a censoring row
+report `nan` there. On a weighted fit the value now averages under the observation weights, where
+an older release averaged without them.
+
 The nested `model` retains calibration and Super Learner details when the learner supplies them.
 `nuisance.omissions` retains typed reasons for unavailable mechanism rows. A complete-data fit records
 `LONGITUDINAL_CENSORING_NOT_FITTED`. An older artifact without observed-law predictions records
