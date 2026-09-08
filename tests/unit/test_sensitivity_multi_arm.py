@@ -480,14 +480,25 @@ class TestTheOverlapReportOnAWeightedFit:
         assert leverage.keys() == weighted_exact_fit.fluctuations.keys()
         assert set(leverage) == {"mean", "att", "atc"}
         for group, load in leverage.items():
-            assert load["n"] == float(weighted_exact_fit.data.n), group
-            assert np.isfinite(load["effective"]) and 0.0 < load["ess_ratio"] < 1.0, group
+            artifact = weighted_exact_fit.fluctuations[group].absolute_score_weights
+            assert artifact is not None
+            ratios = np.array(
+                [_kish(artifact[:, j]) / artifact.shape[0] for j in range(artifact.shape[1])]
+            )
+            selected = int(np.argmin(ratios))
+            assert load["equation"] == weighted_exact_fit.fluctuations[group].names[selected]
+            assert load["n_targeted"] == float(artifact.shape[0]), group
+            assert load["n_total"] == float(weighted_exact_fit.data.n), group
+            assert load["targeted_ratio"] == pytest.approx(ratios[selected], abs=0)
             assert 0.0 < load["top_1pct"] <= load["top_5pct"] <= 1.0, group
             assert np.isfinite(load["max_load"]), group
-        # The conditional groups are not the marginal one rescaled: they divide by
-        # ``P(A = a)`` and reweight the reference arm by the propensity odds.
-        assert leverage["att"]["ess_ratio"] < leverage["mean"]["ess_ratio"] - 0.1
-        assert leverage["atc"]["ess_ratio"] > leverage["mean"]["ess_ratio"] + 0.1
+        assert (leverage["mean"]["lower_bound"], leverage["mean"]["upper_bound"]) == (
+            weighted_exact_fit.config.g_bounds
+        )
+        for group in ("att", "atc"):
+            assert (leverage[group]["lower_bound"], leverage[group]["upper_bound"]) == (
+                weighted_exact_fit.config.g_bounds_conditional
+            )
 
 
 class TestTheRestOfTheFacade:

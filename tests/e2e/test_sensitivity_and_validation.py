@@ -374,55 +374,46 @@ class TestThePerGroupCovariateLeverageIsReported:
         against = (g[:, int(contrast)] / g[:, int(reference)]) / (share * pi[:, int(reference)])
         return np.where(at_contrast, own, -against)
 
-    def test_the_mean_row_is_the_covariate_the_fluctuation_weights_with(self, loaded_fit) -> None:
-        """The marginal-mean load, written out from the displayed formula.
+    def _selected_artifact(self, result, group: str) -> tuple[np.ndarray, int]:
+        """Exact score-load column selected by the report's concentration rule."""
+        artifact = result.fluctuations[group].absolute_score_weights
+        assert artifact is not None
+        loads = np.asarray(artifact)
+        ratios = np.array([_kish(loads[:, j]) / loads.shape[0] for j in range(loads.shape[1])])
+        selected = int(np.argmin(ratios))
+        return loads[:, selected], selected
 
-        Every key at once, because the seven of them are one description of one array and
-        a row that got ``n`` from the targeted set and its sums from somewhere else would
-        satisfy any of them taken alone.
-        """
+    def test_the_mean_row_uses_one_exact_fitted_score_equation(self, loaded_fit) -> None:
+        """Every row value comes from the most concentrated stored score column."""
         report = loaded_fit.diagnostics.support()
-        contributing, _, _ = self._pieces(loaded_fit)
-        load = (
-            loaded_fit.data.weights[contributing] * self._mean_covariate(loaded_fit)[contributing]
-        )
+        load, selected = self._selected_artifact(loaded_fit, "mean")
         row = report.group_leverage["mean"]
 
-        assert row["n"] == pytest.approx(float(contributing.sum()), abs=0)
+        assert row["equation"] == loaded_fit.fluctuations["mean"].names[selected]
+        assert row["n_targeted"] == float(load.size)
+        assert row["n_total"] == float(loaded_fit.data.n)
         assert row["effective"] == pytest.approx(_kish(load), abs=0)
-        assert row["ess_ratio"] == pytest.approx(_kish(load) / contributing.sum(), abs=0)
+        assert row["targeted_ratio"] == pytest.approx(_kish(load) / load.size, abs=0)
+        assert row["total_ratio"] == pytest.approx(_kish(load) / loaded_fit.data.n, abs=0)
         assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
         assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
         assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
-        # A binary arm covariate is strictly positive at every targeted row, so nothing
-        # here is unloaded.  ``tests/unit/test_regimes.py`` exercises a nonzero count on a
-        # regime fit, where a row the regime never assigns carries an exact zero.
-        assert row["zero_load"] == 0.0
+        assert row["zero_load"] == float(np.count_nonzero(load == 0.0))
 
-    def test_the_att_row_rebuilds_the_covariate_no_other_surface_reports(self, loaded_fit) -> None:
-        """The row this table exists for: a load measure for a conditional-arm fit.
-
-        The arm table's ``1 / g`` and the mechanism table's denominators both describe a
-        marginal mean.  This covariate divides by ``P(A = 1)``, reads ``pi`` at whichever
-        arm the row is in, and carries the propensity odds only on the reference arm, so
-        no other reported number is a function of it.
-        """
+    def test_the_att_row_uses_the_exact_fitted_score_artifact(self, loaded_fit) -> None:
+        """The diagnostic consumes fitted score rows instead of rebuilding a submodel."""
         report = loaded_fit.diagnostics.support()
-        contributing, _, _ = self._pieces(loaded_fit)
-        covariate = self._att_covariate(loaded_fit, reference=loaded_fit.config.reference_arm)
-        load = loaded_fit.data.weights[contributing] * np.abs(covariate)[contributing]
+        load, selected = self._selected_artifact(loaded_fit, "att")
         row = report.group_leverage["att"]
 
-        assert row["n"] == pytest.approx(float(contributing.sum()), abs=0)
+        assert row["equation"] == loaded_fit.fluctuations["att"].names[selected]
+        assert row["n_targeted"] == float(load.size)
         assert row["effective"] == pytest.approx(_kish(load), abs=0)
-        assert row["ess_ratio"] == pytest.approx(_kish(load) / contributing.sum(), abs=0)
+        assert row["targeted_ratio"] == pytest.approx(_kish(load) / load.size, abs=0)
         assert row["top_1pct"] == pytest.approx(_top_share(load, 0.01), abs=0)
         assert row["top_5pct"] == pytest.approx(_top_share(load, 0.05), abs=0)
         assert row["max_load"] == pytest.approx(float(load.max()), abs=0)
-        assert row["zero_load"] == 0.0
-        # And it is a different array from the marginal-mean one on the same fit, which
-        # is the claim the whole table rests on.
-        assert row["ess_ratio"] < report.group_leverage["mean"]["ess_ratio"] - 0.1
+        assert row["zero_load"] == float(np.count_nonzero(load == 0.0))
 
     def test_dropping_the_design_weights_reports_a_different_row(self, loaded_fit) -> None:
         """Control: the load without ``data.weights``.
@@ -469,34 +460,18 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert abs(float(arm_weight.max()) - row["max_load"]) > 1.0
 
     def test_the_att_row_is_built_at_the_conditional_bound(self, thin_overlap_fit) -> None:
-        """Control: the ``att`` covariate rebuilt at ``g_bounds`` instead of the conditional pair.
-
-        This can fail because the two bounds clip *different subsets* of the rows and
-        leave the rest untouched, so the difference is confined to part of the load.  A
-        rebuild that moved every row by one factor would be invisible to Kish's ratio.
-        The fixture is chosen so that the subsets differ: on a fit where neither bound
-        binds the two rebuilds are the same array and this control cannot fail.
-        """
+        """ATT reports the bound and clipped units that its fitted score actually used."""
         result = thin_overlap_fit
         assert result.config.g_bounds != result.config.g_bounds_conditional
-        contributing, _, _ = self._pieces(result)
-        reference = result.config.reference_arm
-
-        at_bound = {
-            label: result.data.weights[contributing]
-            * np.abs(self._att_covariate(result, bounds=bounds, reference=reference))[contributing]
-            for label, bounds in (
-                ("conditional", result.config.g_bounds_conditional),
-                ("mean", result.config.g_bounds),
-            )
-        }
         row = result.diagnostics.support().group_leverage["att"]
+        conditional = result.nuisance.propensity.truncate(result.config.g_bounds_conditional).units
+        marginal = result.nuisance.propensity.truncate(result.config.g_bounds).units
 
-        assert row["effective"] == pytest.approx(_kish(at_bound["conditional"]), abs=0)
-        # Measured: 42 effective rows at the conditional bound against 62 at the mean
-        # bound, and a top-5% share of 0.434 against 0.386.
-        assert abs(_kish(at_bound["mean"]) - row["effective"]) > 10.0
-        assert abs(_top_share(at_bound["mean"], 0.05) - row["top_5pct"]) > 0.02
+        assert (row["lower_bound"], row["upper_bound"]) == result.config.g_bounds_conditional
+        assert row["clipped_count"] == float(np.count_nonzero(conditional))
+        assert row["clipped_fraction"] == pytest.approx(float(np.mean(conditional)), abs=0)
+        assert np.count_nonzero(conditional) != np.count_nonzero(marginal)
+        assert row["clipped_count"] != float(np.count_nonzero(marginal))
 
     def test_the_att_row_is_built_against_the_fits_own_reference_arm(self, loaded_fit) -> None:
         """Control: the ``att`` covariate contrasted against arm 1 instead of arm 0.
@@ -563,30 +538,18 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert abs(float(at_default.max()) - row["max_load"]) > 5.0
 
     def test_the_rows_the_equation_never_weights_stay_out_of_the_ratio(self, loaded_fit) -> None:
-        """Control: the load taken over every row rather than over the targeted ones.
-
-        This can fail because the untargeted rows are not a rescaling of the targeted
-        ones: they carry their own covariate values and their own design weights, so both
-        Kish sums move and ``n`` moves with them.  ``ess_ratio`` alone would be a weak
-        gate here, since two different sets can land on a similar ratio, so the count and
-        the effective size are asserted beside it.
-        """
+        """The artifact's score mask defines n_targeted; n_total remains visible."""
         report = loaded_fit.diagnostics.support()
         contributing, _, _ = self._pieces(loaded_fit)
         assert not contributing.all(), "the fixture must carry rows the equation drops"
-        covariate = self._att_covariate(loaded_fit, reference=loaded_fit.config.reference_arm)
-
-        for group, values in (
-            ("mean", self._mean_covariate(loaded_fit)),
-            ("att", np.abs(covariate)),
-        ):
-            everywhere = loaded_fit.data.weights * values
+        for group in ("mean", "att"):
+            artifact = loaded_fit.fluctuations[group].absolute_score_weights
+            assert artifact is not None
             row = report.group_leverage[group]
-            assert row["n"] == pytest.approx(float(contributing.sum()), abs=0)
-            assert float(everywhere.size) != row["n"]
-            # Measured: 246 effective rows against 200 for the mean group and 185 against
-            # 144 for the att group.
-            assert abs(_kish(everywhere) - row["effective"]) > 20.0
+            assert row["n_targeted"] == float(artifact.shape[0]) == float(contributing.sum())
+            assert row["n_total"] == float(loaded_fit.data.n)
+            assert row["n_targeted"] < row["n_total"]
+            assert row["total_ratio"] == pytest.approx(row["effective"] / row["n_total"], abs=0)
 
     def test_a_group_can_retain_far_less_than_any_arm_does(self, loaded_fit) -> None:
         """The nonzero witness: every arm looks comfortable and the ``att`` group does not.
@@ -599,31 +562,20 @@ class TestThePerGroupCovariateLeverageIsReported:
         """
         report = loaded_fit.diagnostics.support()
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
-        conditional = report.group_leverage["att"]["ess_ratio"]
+        conditional = report.group_leverage["att"]["targeted_ratio"]
 
         assert report.truncated["fraction"] == 0.0
         assert narrowest_arm > 0.70
         assert conditional < 0.70
         assert narrowest_arm - conditional > 0.15
 
-    def test_the_derived_denominator_row_is_the_marginal_mean_case(self, loaded_fit) -> None:
-        """The general measure has to reproduce the special one exactly, not nearly.
-
-        ``P(A=a,Delta=1|W)`` divides the marginal-mean covariate and nothing else does, so
-        its effective-sample-size ratio and the ``mean`` group's are two readings of one
-        array. They are computed by different functions over the same rows, and an
-        inequality here would mean one of the two tables is describing something else.
-        """
+    def test_group_concentration_is_not_equated_with_mechanism_ess(self, loaded_fit) -> None:
+        """A selected score equation and a pooled denominator have different units."""
         report = loaded_fit.diagnostics.support()
-        assert report.group_leverage["mean"]["ess_ratio"] == pytest.approx(
-            report.mechanisms["P(A=a,Delta=1|W)"]["ess_ratio"], abs=0
-        )
-        # And the conditional group, which that row deliberately does not cover, is a
-        # different number on the same fit.
+        group_ratio = report.group_leverage["mean"]["targeted_ratio"]
+        mechanism_ratio = report.mechanisms["P(A=a,Delta=1|W)"]["ess_ratio"]
+        assert group_ratio != pytest.approx(mechanism_ratio, abs=1e-6)
         assert report.composed_excluded == ("att",)
-        assert report.group_leverage["att"]["ess_ratio"] != pytest.approx(
-            report.mechanisms["P(A=a,Delta=1|W)"]["ess_ratio"], abs=1e-6
-        )
 
     def test_the_keys_are_the_groups_the_fit_targeted(
         self, poor_overlap, good_overlap, loaded_fit
@@ -645,40 +597,26 @@ class TestThePerGroupCovariateLeverageIsReported:
             assert report.group_leverage.keys() == result.fluctuations.keys()
 
     def test_the_table_renders_beside_the_maxima_it_keeps(self, loaded_fit) -> None:
-        """The maximum is not lost: it becomes the ``max |h|`` column of the same table.
-
-        ``max load`` stands beside it and carries a different number. The two answer
-        different questions -- one is weighted and over the targeted rows, the other
-        unweighted and over every row -- so a single column under one caption would read
-        as though the second were the first. Both columns and the caption that separates
-        them are asserted here, on a fit where the two differ for each group.
-
-        The bound line is asserted too. It is what makes the ``att`` row a different
-        number from the ``mean`` row on one fit, and the summary names it nowhere else.
-        """
+        """The table names equations, denominators, exact bounds, and descriptive units."""
         report = loaded_fit.diagnostics.support()
         summary = report.summary()
         lines = summary.splitlines()
         header = next(line for line in lines if line.startswith("group "))
 
-        assert "group  n" in summary
-        assert header.index("max load") < header.index("max |h|") < header.index("unloaded")
-        assert "mean at g_bounds; att at g_bounds_conditional" in summary
-        assert (
-            "load over the targeted rows, design weights folded in; max load is that "
-            "weighted load, and max |h| is the unweighted covariate over every row" in summary
-        )
+        assert "equation" in header and "target rows" in header
+        assert header.index("Kish-equivalent rows") < header.index("max |w h|")
+        assert "g bound" in header and "clipped" in header
+        assert "residual-multiplier concentration, not residual contributions" in summary
         for group, load in report.group_leverage.items():
             row = next(line for line in lines if line.startswith(f"{group} "))
+            assert str(load["equation"]) in row
             assert f"{load['max_load']:.4g}" in row
-            assert f"{report.clever_covariate_max[group]:.4g}" in row
-            # The two columns are distinct numbers here, so neither is a copy of the other.
-            assert load["max_load"] != pytest.approx(report.clever_covariate_max[group])
+            assert f"{load['n_targeted']:.0f}/{load['n_total']:.0f}" in row
         # The composed note now says where the estimands it refuses to cover are covered.
         # The refusal is unchanged: this fit forms the product for its `ate` and never for
         # its `att`, so the derived row is present and does not describe the `att`.
         assert "P(A=a,Delta=1|W) does not describe att" in summary
-        assert "Their load is in the per-group leverage table above" in summary
+        assert "Their score-weight load is in the group table above" in summary
 
     def test_the_verdict_names_the_narrowest_group_and_keeps_the_arm_sentence(
         self, loaded_fit
@@ -691,14 +629,17 @@ class TestThePerGroupCovariateLeverageIsReported:
         """
         report = loaded_fit.diagnostics.support()
         verdict = report.verdict()
-        narrowest = min(load["ess_ratio"] for load in report.group_leverage.values())
+        group, narrow = min(
+            report.group_leverage.items(), key=lambda item: item[1]["targeted_ratio"]
+        )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 
-        assert f"narrowest targeted group retains an effective {narrowest:.0%}" in verdict
-        assert f"effective {narrowest_arm:.0%} of the rows in its narrowest arm" in verdict
-        assert "reported and not graded either" in verdict
+        assert f"group {group!r}, equation {narrow['equation']!r}" in verdict
+        assert f"{narrow['effective']:.1f} Kish-equivalent rows" in verdict
+        assert f"Kish-equivalent weight count of {narrowest_arm:.0%}" in verdict
+        assert "not estimator effective sample size" in verdict
         assert report.truncated["fraction"] == 0.0
-        assert narrowest < 0.5
+        assert narrow["targeted_ratio"] < 0.5
         assert report.severity == "adequate"
 
     def test_a_complete_outcome_fit_reports_no_mechanism_and_the_same_tier(
@@ -715,9 +656,12 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert report.composed_excluded == ()
         assert report.severity == "adequate"
         assert set(report.group_leverage) == {"mean", "att"}
-        for load in report.group_leverage.values():
-            assert np.isfinite(load["ess_ratio"])
-            assert load["zero_load"] == 0.0
+        for group, load in report.group_leverage.items():
+            assert np.isfinite(load["targeted_ratio"])
+            selected = good_overlap.fluctuations[group].names.index(str(load["equation"]))
+            artifact = good_overlap.fluctuations[group].absolute_score_weights
+            assert artifact is not None
+            assert load["zero_load"] == float(np.count_nonzero(artifact[:, selected] == 0.0))
 
     def test_the_table_survives_a_save_and_a_load(self, loaded_fit, tmp_path) -> None:
         """The report is recomputed from the restored result, so the rebuild has to travel.

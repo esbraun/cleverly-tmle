@@ -21,121 +21,122 @@ refitting a nuisance model.
 
 ### Positivity and overlap
 
-**Why.** Every clever covariate for an intervention on treatment divides by an estimated density.
-The observed-mean estimand is the exception, and it intervenes on nothing. A small denominator makes
-one row dominate the estimate, and targeting does not restore missing support.
+**Why.** Most treatment-intervention clever covariates divide by an estimated density. A small
+fitted denominator can create a large covariate. Targeting cannot create support that the data does
+not contain.
 
-**What it tells you.** How much of the estimate rests on how few rows, and how much of the
-mechanism the truncation bound replaced.
+**What it tells you.** The report describes fitted overlap, truncation, and concentration in
+inverse-probability weights. It also describes concentration in each fitted score equation's
+absolute clever-covariate load. These sample diagnostics do not prove population positivity.
 
 **How.** `result.diagnostics.support()` returns a `PositivityReport` from
 [`sensitivity/positivity.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/positivity.py).
 It reports six separate quantities, because they fail in different places.
 
-| quantity | how it is computed | what a bad value means |
+| quantity | how it is computed | what it describes |
 | --- | --- | --- |
-| effective sample size | Kish's $(\sum \omega)^2 / \sum \omega^2$ over the clever-covariate weights, folded with the observation weights | the interval is that of a much smaller study |
-| weight concentration | the share of the estimating equation carried by the top 1% of rows | a handful of rows decide the answer |
-| truncation load | the count of units the bound moves, and the most extreme value it leaves | the estimate is sensitive to finite-sample regularisation and extrapolation |
-| per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
-| maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
-| per-group leverage | the same effective sample size and concentration measures, over the load each reported group's own clever covariate forms | the estimand the fit targets rests on fewer rows than any arm does |
+| per-arm weight concentration | Kish-equivalent rows and top-load shares from inverse arm weights | how unevenly the fitted arm weights are distributed |
+| truncation | the units whose fitted mechanism values the bound changes | where the fit uses bounded rather than raw mechanism values |
+| per-arm overlap | fitted treatment probabilities, reported by arm | empirical regions with limited fitted overlap |
+| maximum clever covariate | the largest reconstructed absolute covariate value | the scale of the largest reported covariate |
+| per-equation load concentration | Kish-equivalent rows and top-load shares from $|w_i H_{ij}|$ | how concentrated one fitted score equation's absolute load is |
+| other mechanisms | fitted observation and intermediate probabilities when applicable | concentration outside the treatment mechanism |
 
 The report is per arm. A multi-arm fit reads its arms from the parameter's structured index rather
 than assuming two.
 
 Missing-outcome and controlled-direct-effect reports add a derived denominator row. Its raw
-quantiles describe the complete factor product. Its ESS and concentration use the factorwise
-bounded product, observation weights, and only residual-contributing rows. This order matches the
-targeting construction. The diagnostic never applies a separate bound to the product.
+quantiles describe the complete factor product. Its Kish summaries use the factorwise bounded
+product on residual-contributing rows. They also include observation weights. This order matches
+the targeting construction. The diagnostic never applies a separate bound to the product.
 
 Every mechanism row reads each unit at the arm the unit received. `Propensity` names that column.
 A fit with more than two arms therefore weights each unit by its own denominator.
 
-A derived row counts a clipped cell when any factor moves. Either bound can therefore produce that
-count. Its verdict names both truncation curves for that reason. The verdict reads truncation from
-the factor rows and from the propensity, and reads joint leverage from the derived row.
+A derived row counts a clipped cell when any factor moves. Either bound can produce that count.
+The verdict therefore names both truncation curves. It reads truncation from the factor rows and
+the propensity. It reports product-weight concentration separately.
 
 The derived row covers the marginal-mean groups. These are `mean`, `regime`, and `msm`, whose
 covariate divides by the product. A fit that targets only `att`, `atc`, or an incremental
 intervention gets no derived row. Those covariates divide by another quantity.
 
 The report states that exclusion rather than leaving the row out in silence. `composed_excluded`
-lists every targeted group the derived row does not describe, and the summary names what each group
-divides by instead. The list is empty when every targeted group forms the product. It is also empty
-when no fitted factor stands beside `g`, because then no derived row exists for a group to be
-outside of.
+lists every targeted group the derived row does not describe. The summary names the alternative
+denominator for each group. The list is empty when every targeted group forms the product. It is
+also empty when no fitted factor stands beside `g`.
 
-`group_leverage` reads each reported group's own clever covariate. The load of a row is the L1
-magnitude of that covariate, summed over the group's score equations, times the row's observation
-weight. The report reads the load over the rows that contribute to the targeted residual, which is
-the set the mechanism rows also read. The two tables therefore share a denominator.
+The fit retains exact absolute score weights for every reported group and equation.
+`group_leverage` reads that fitted artifact. The attribute name is retained for compatibility.
+Interpret its values as load concentration, not statistical leverage.
 
-`weighted_form` in
-[`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py)
-forms that same magnitude when the fit sets `target_weights=True`. The default fit sets it to
-`False`. The load equals a row's contribution to the solved equation where the group's columns have
-disjoint support. `att` on more than two arms, `regime`, and `msm` do not meet that condition.
+For score equation $j$, $w_i H_{ij}$ is row $i$'s multiplier on the targeted residual. The report
+summarizes its magnitude, $|w_i H_{ij}|$, for each equation separately. It does not include the
+residual itself. The group row reports the equation with the smallest `targeted_ratio`.
 
-The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
-group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
-`g_bounds`. An `att` row and a `mean` row therefore differ on one fit. The report folds the design
-weights into the load, exactly as it folds them into the per-arm rows.
+The calculation does not collapse several equations through an L1 norm. Kish ratios and top-load
+shares stay unchanged when a caller rescales one equation. The raw `max_load` retains that
+equation's units.
 
-The groups that reach this table through `diagnostics.support()` are `mean`, `att`, `atc`, and
-`msm`. That method sends a regime fit, a shift fit, and an incremental fit to its own support
-report, and none of those reports carries a per-group load table. A `regime` row and an `ipsi` row
-appear only under a direct `positivity_report(result)` call. An `mtp` row never appears, because
-`shifts=` needs a continuous treatment and this report refuses one.
+The report does not rebuild a clever covariate from nuisance predictions. Each row pairs the
+retained residual-multiplier load with the bound used by that fitted group. The `att` and `atc`
+groups record `g_bounds_conditional`. The `mean` and `msm` groups record `g_bounds`. An ordinary
+fit also records the bound's clipping count. If targeting changed the treatment mechanism and its
+exact clipping mask was not retained, the count is unavailable and `group_leverage_omissions`
+records why.
 
-An `msm` row sums terms across coefficients whose design columns carry different units. Rescaling
-one design column by ten therefore moves the reported effective sample size, and it leaves the
-projection where it was. Read an `msm` row against the design's scaling.
+The public `diagnostics.support()` route provides group rows as follows.
 
-Every group carries seven keys.
+| fitted group | support report | group row available |
+| --- | --- | --- |
+| `mean`, `att`, `atc`, or `msm` | `PositivityReport` | yes |
+| regime | intervention-specific regime report | no |
+| shift | intervention-specific shift report | no |
+| incremental | intervention-specific incremental report | no |
+
+The intervention-specific reports remain the public support workflow. They do not yet provide
+per-equation covariate-load concentration.
+
+An older fitted artifact might not retain exact absolute score weights. The report does not
+reconstruct an approximation. `group_leverage_omissions` names each omitted group and its reason.
+
+Each reported group carries these keys.
 
 | key | what it holds |
 | --- | --- |
-| `n` | the targeted rows |
-| `effective` | Kish's effective sample size of the load |
-| `ess_ratio` | `effective` divided by `n` |
+| `equation` | the score equation with the smallest `targeted_ratio` |
+| `n_total` | all rows in the fitted data |
+| `n_targeted` | rows in the fitted score mask, including structural zeros in the selected equation |
+| `effective` | Kish-equivalent rows for the selected equation's absolute load |
+| `targeted_ratio` | `effective` divided by `n_targeted` |
+| `total_ratio` | `effective` divided by `n_total` |
 | `top_1pct` | the share of the load the largest 1% of rows hold |
 | `top_5pct` | the share of the load the largest 5% of rows hold |
-| `max_load` | the largest weighted load among the targeted rows |
-| `zero_load` | the count of targeted rows the covariate does not load at all |
+| `max_load` | the selected equation's largest absolute residual multiplier |
+| `zero_load` | score-mask rows with a zero residual multiplier in the selected equation |
+| `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
+| `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
 
-`max_load` and the maximum clever covariate answer different questions. `max_load` is weighted and
-runs over the targeted rows. The maximum clever covariate is unweighted and runs over every row.
-The two need not agree. The printed summary gives them separate columns for that reason. `max load`
-holds the first, and `max |h|` holds the second.
+The per-equation tests recompute these fields from the fitted score artifacts. They also use
+multi-column controls with different equation scales and signs.
 
-A zero load leaves the Kish sums untouched and stays in `n`. `ess_ratio` therefore does not flatter
-a group that loads only part of what it targets. The ratio alone cannot separate those rows from an
-uneven spread, so `zero_load` counts them.
+`max_load` and the maximum clever covariate answer different questions. The first includes score
+weights and uses targeted rows. The second is unweighted and uses every row. The two need not agree.
 
-`zero_load` reads the covariate before the design weight multiplies it. It is the one key that
-leaves the design weight out. A zero observation weight is legal, and it says that the design
-excludes a row. That statement differs from the one this key makes.
-
-The report does not grade `ess_ratio` here, for the reason it does not grade the arm ratio. The
-combined `support` row reads the group table too, so its minimum effective-sample-size ratio
-matches the report it retains.
+Arm, mechanism, and group concentration are different descriptive quantities. The combined
+`support` row reports them separately. It does not pool them into one minimum.
 
 The truncation load counts units and not cells. A unit counts once when the bound moves any arm of
 its mechanism. `Propensity` owns the rule the count follows. It clips a two-arm mechanism through
 `g1` and takes arm 0 as the complement. It clips a mechanism with more arms column by column.
 
-**What it grades, and what it only reports.** The report grades the truncated fraction, and an
-intervention with estimated zero support. Both describe an action or a violation rather than a
-judgement: a clipped row contributes extrapolation instead of data, and a unit with zero estimated
-support breaks positivity outright. The report does not grade the effective-sample-size ratio. A
-Kish ratio is descriptive and no published result fixes a cutoff on it, so a threshold here would
-present a house convention as a finding. Every verdict states the narrowest arm's ratio and the
-narrowest group's ratio, and leaves the reading to the analyst.
+**What it grades, and what it only reports.** The report grades the truncated fraction and fitted
+zero support. These findings describe the fitted procedure. They do not establish a population
+positivity violation. The report does not grade any Kish ratio or top-load share. No published
+result supplies a universal cutoff for these descriptive quantities.
 
-For that reason the combined `support` row is `completed` rather than `passed` when nothing is
-graded. Read `passed` nowhere as a positivity clearance. Read the ratio, and judge it against the
-question the estimate answers.
+The combined `support` row is `completed` when no graded finding applies. Do not read that status
+as positivity clearance. Inspect the fitted probabilities, truncation, and concentration tables.
 
 ### Truncation stability
 

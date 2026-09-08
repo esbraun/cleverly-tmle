@@ -105,88 +105,18 @@ The example audit found gaps between combined summaries and their retained repor
 gaps before adding another assessment operation. Preserve every detailed payload and every
 machine-readable omission.
 
-Five gaps the audit found are fixed. Per-group leverage is part done. The table below carries the
-part that remains.
-
-The combined support row no longer contradicts the report it retains. One tiering decision now
-lives in `PositivityReport`, and the row reads it. That decision also changed. No support surface
-grades an effective-sample-size ratio any more, on any estimand, because no published result fixes
-a cutoff on a Kish ratio. Every surface grades the truncated fraction and estimated zero support,
-and reports the ratio for the analyst to judge. The row is therefore `completed` rather than
-`passed` when nothing is graded, so it cannot read as a positivity clearance.
-
-A guarded DR-TMLE truncation curve now declares `refit` rather than `retarget`, because its
-targeting alternation refits the reduced regressions at every bound.
-
-Truncation text now describes the bound as finite-sample regularisation. A moving curve reports
-extrapolation sensitivity through the remainder. It does not redefine the requested estimand as
-an overlap-population estimand.
-
-Truncation curves now retain both evaluated endpoints, each parameter's fitted pair and estimate,
-and signed movement from that estimate. Default curves mark the exact fitted configuration once per
-parameter, while explicit grids preserve the requested evaluations and record when the fitted
-configuration was not among them. Combined rows summarize each parameter or coefficient separately.
-
-The support report no longer stops at the separate factors. A derived row reports the complete
-denominator that each clever covariate uses. Missing-outcome fits report
-`P(A=a,Delta=1|W)`. Controlled-direct-effect fits report `P(A=a,Z=z|W)` on complete outcomes and
-`P(A=a,Delta=1,Z=z|W)` when outcomes are missing. Each row retains raw-product quantiles. It also
-reports the ESS and top-weight concentration from the bounded product on the rows that contribute
-to the targeted residual.
-
-The diagnostic bounds each fitted factor before multiplication, exactly as the estimator does.
-Its clipping count is the union of the factor-level clipping events. It does not apply an invented
-bound to the product. A complete-data fit without an intermediate keeps its current report and
-adds no derived row.
-
-The derived row describes the marginal-mean estimands. A fit that targets only a conditional-arm
-estimand reports its factor rows and no derived row, because that covariate divides by `P(A=a)`
-rather than by the treatment mechanism. The verdict reads joint leverage from the derived row and
-reads truncation from the factor rows and the propensity, so each sentence names the bound that
-moved it.
-
-The refusal explains itself. `composed_excluded` lists every targeted group the derived row does
-not describe, and the summary names what each group divides by instead. This keeps an absent row
-distinct from a healthy denominator, which otherwise read the same.
-
-Tests compute each derived field by hand for missing-outcome and controlled-direct-effect fits.
-A nonzero witness makes each factor look acceptable while their product concentrates weight. A
-mutation control drops each factor in turn. Backend parity, persistence replay, combined-report
-retention, targeted-row selection, and complete-data non-regression complete this slice.
-
-A conditional-arm group now reports the load of its own clever covariate. `group_leverage` holds
-one row per group that `PositivityReport` describes. Through `diagnostics.support()` those groups
-are `mean`, `att`, `atc`, and `msm`. The load of a row is the magnitude of that covariate, summed
-over the group's score equations and multiplied by the observation weight. The report reads the
-load over the rows that contribute to the targeted residual, which is the set the derived row also
-reads.
-
-The report rebuilds each group's covariate at the bound and the reference arm the fit used for that
-group. The `att` and `atc` groups read `g_bounds_conditional`, and every other group reads
-`g_bounds`. An `att` row and a `mean` row therefore differ on one fit.
-
-An `msm` row sums terms across coefficients whose covariates carry different units. Rescaling one
-design column therefore moves that row's effective sample size. Read the row against the design's
-scaling.
-
-No surface grades this ratio. The report states it for the analyst to judge, exactly as it states
-the arm ratio. The derived denominator row is the marginal-mean case of the same measure. The
-combined support row now reads the group table beside the arm and mechanism tables. Its minimum
-effective-sample-size ratio therefore cannot quote a larger share than the report it retains.
-
 The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| per-group leverage | report the same load measures for a regime, shift, or incremental fit. `diagnostics.support()` sends each of those fits to its own support report, and that report carries no per-group load table |
+| intervention load concentration | report per-equation covariate-load concentration for regime, shift, and incremental support reports |
 | method-aware diagnostics | report C-TMLE selection and repeated-split spread without interpreting a selected working model as the complete treatment law |
 | longitudinal nuisance coverage | report treatment, censoring, outcome, and pseudo-outcome learners by node and role. Remove the duplicate aggregate support and stagewise presentation |
 | status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-Use the documented example seeds as regression fixtures. Add a nonzero joint-denominator witness
-whose separate mechanisms pass while their product fails. Add method-specific mutations for every
-new diagnostic role.
+Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
+nonzero witness and a method-specific mutation for every new diagnostic role.
 
 Acceptance also requires pandas and Polars parity, persistence replay, and complete-data
 non-regression. Update the examples and assessment guide to state what each new row establishes.

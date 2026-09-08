@@ -21,7 +21,27 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 
-__all__ = ["quasi_loglik", "relative_score", "score_columns", "score_scale"]
+__all__ = [
+    "absolute_score_weights",
+    "quasi_loglik",
+    "relative_score",
+    "score_columns",
+    "score_scale",
+]
+
+
+def absolute_score_weights(h: FloatArray, weights: FloatArray, mask: BoolArray) -> FloatArray:
+    """Return ``abs(w_i * h_ij)`` on exactly the rows an outcome score uses.
+
+    Unlike :func:`score_scale`, this keeps the row axis.  A fitted fluctuation retains
+    the result so post-fit diagnostics can inspect the score that was actually solved,
+    including estimator-specific submodels and validation-risk weights that cannot be
+    reconstructed from the initial nuisance estimates alone.
+    """
+    selected = np.asarray(mask, dtype=bool)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    covariate = np.asarray(h, dtype=float)
+    return np.asarray(np.abs(w[selected])[:, None] * np.abs(covariate[selected]), dtype=float)
 
 
 def score_columns(

@@ -1432,8 +1432,9 @@ class TMLE:
         if outside > _TRUNCATION_WARN_FRACTION:
             warnings.warn(
                 f"{outside:.1%} of units have an estimated treatment probability outside the "
-                f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm, so those "
-                "units' contributions rest on extrapolation rather than data. Inspect "
+                f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
+                "units still contribute, but their contributions use bounded rather than fitted "
+                "mechanism values and are sensitive to this regularization. Inspect "
                 "res.diagnostics.support() and res.diagnostics.truncation_curve() before "
                 "trusting the estimate.",
                 PositivityWarning,
@@ -2239,6 +2240,7 @@ class TMLE:
         arms = {level: np.empty(n) for level in nuisance.outcome.arms}
         fold_records: list[FoldFluctuation] = []
         pieces: list[tuple[IntArray, Submodel]] = []
+        absolute_score_weight_parts: list[FloatArray] = []
         masses = []
         reasons: list[str] = []
         iterations = 0
@@ -2246,6 +2248,9 @@ class TMLE:
         for _, test in nuisance.folds:
             fold_submodel, fold_fluctuation = per_fold(test)
             pieces.append((test, fold_submodel))
+            if fold_fluctuation.absolute_score_weights is None:  # pragma: no cover - invariant
+                raise RuntimeError("a newly solved fold did not retain its absolute score weights")
+            absolute_score_weight_parts.append(fold_fluctuation.absolute_score_weights)
             observed[test] = fold_fluctuation.targeted.observed
             for level, values in fold_fluctuation.targeted.arms.items():
                 arms[level][test] = values
@@ -2315,6 +2320,13 @@ class TMLE:
             # covariate was built at; the per-fold ones live on the pieces that were
             # stitched, and the *reported* coefficients come from the stitched fit.
             projection=None,
+            # Keep each fold solver's own scoring weights.  In particular,
+            # ``cv_evaluation=True`` normalises observation-weight mass inside a fold;
+            # recomputing from ``data.weights`` here would restore the unequal masses the
+            # fitted validation-risk objective deliberately removed.  Row order is not
+            # needed by the concentration diagnostic, while column order is shared by the
+            # stitched submodels and checked above.
+            absolute_score_weights=np.vstack(absolute_score_weight_parts),
         )
 
     @staticmethod

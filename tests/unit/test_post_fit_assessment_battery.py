@@ -1622,20 +1622,27 @@ def test_the_verdict_prose_states_the_ratio_in_every_tier() -> None:
     """The reader-facing half of the contract: ungraded is not unreported."""
     for fraction in (0.0, 0.02, 0.06):
         verdict = _positivity(fraction, 0.25).verdict()
-        assert "effective 25%" in verdict
-        assert "No threshold is applied to that share" in verdict
+        assert "Kish-equivalent weight count of 25%" in verdict
+        assert "no threshold is applied because none is derived" in verdict
 
 
-def _load(ratio: float, **overrides: float) -> dict[str, float]:
-    """One ``group_leverage`` row, carrying the seven keys the table promises."""
+def _load(ratio: float, **overrides: float | str) -> dict[str, float | str]:
+    """One exact-equation absolute-load concentration row."""
     return {
-        "n": 100.0,
+        "equation": "mean[1]",
+        "n_total": 120.0,
+        "n_targeted": 100.0,
         "effective": 100.0 * ratio,
-        "ess_ratio": ratio,
+        "targeted_ratio": ratio,
+        "total_ratio": 100.0 * ratio / 120.0,
         "top_1pct": 0.3,
         "top_5pct": 0.5,
         "max_load": 9.0,
         "zero_load": 0.0,
+        "lower_bound": 0.05,
+        "upper_bound": 0.95,
+        "clipped_count": 0.0,
+        "clipped_fraction": 0.0,
         **overrides,
     }
 
@@ -1654,15 +1661,8 @@ _MECHANISM = {
 }
 
 
-def test_the_support_row_pools_the_group_ratios_with_the_arms_and_mechanisms() -> None:
-    """The combined row cannot quote a larger share than the report it retains.
-
-    Three tables report an effective-sample-size ratio, and the row states one number. A
-    group's own clever covariate can retain less than any arm or mechanism does, so the
-    pooled minimum has to see it. The control is the same report without the group table:
-    its minimum is the mechanism's, so the assertion below moves when the group rows are
-    dropped rather than passing on whichever table happened to be lowest.
-    """
+def test_the_support_row_does_not_pool_group_concentration_with_mechanism_ess() -> None:
+    """Unlike units stay separate: score-load concentration is not mechanism ESS."""
     groups = {"mean": _load(0.44), "att": _load(0.2)}
     pooled = _positivity(
         0.0,
@@ -1674,10 +1674,10 @@ def test_the_support_row_pools_the_group_ratios_with_the_arms_and_mechanisms() -
     without = replace(pooled, group_leverage={})
     fact = "minimum effective-sample-size ratio"
 
-    assert f"{fact} 20.0%" in INTERPRETERS["support"](pooled, None).detail
+    detail = INTERPRETERS["support"](pooled, None).detail
+    assert f"{fact} 70.0%" in detail
+    assert "group load: att:mean[1] 20.0/100 Kish-equivalent" in detail
     assert f"{fact} 70.0%" in INTERPRETERS["support"](without, None).detail
-    # And the number is the minimum over all three tables, not over the groups alone.
-    assert min([0.9, 0.7, *(row["ess_ratio"] for row in groups.values())]) == 0.2
 
 
 def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -> None:
@@ -1693,11 +1693,12 @@ def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -
 
     assert ample.severity == threadbare.severity == "adequate"
     assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
-    assert "narrowest targeted group retains an effective 99%" in ample.verdict()
-    assert "narrowest targeted group retains an effective 4%" in threadbare.verdict()
+    assert "Absolute-load concentration is greatest" in ample.verdict()
+    assert "99.0 Kish-equivalent rows out of 100 score-mask rows (99%" in ample.verdict()
+    assert "4.0 Kish-equivalent rows out of 100 score-mask rows (4%" in threadbare.verdict()
     for report in (ample, threadbare):
-        assert "effective 90% of the rows in its narrowest arm" in report.verdict()
-        assert "reported and not graded either" in report.verdict()
+        assert "Kish-equivalent weight count of 90%" in report.verdict()
+        assert "not estimator effective sample size" in report.verdict()
 
 
 def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
@@ -1708,17 +1709,16 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
     non-finite share instead of reporting it, which is the same rule the arm sentence
     follows.
     """
-    empty = {key: float("nan") for key in _load(0.0)}
+    empty = _load(float("nan"), equation="empty")
     report = _positivity(
         0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_leverage={"mean": empty}
     )
     summary = report.summary()
     header = next(line for line in summary.splitlines() if line.startswith("group "))
 
-    assert header.index("max load") < header.index("max |h|") < header.index("unloaded")
-    assert "mean   nan" in summary
-    assert "mean at g_bounds" in summary
-    assert "narrowest targeted group" not in report.verdict()
+    assert header.index("Kish-equivalent rows") < header.index("max |w h|")
+    assert "empty" in summary
+    assert "Absolute-load concentration" not in report.verdict()
 
 
 def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
@@ -1736,9 +1736,8 @@ def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None
     assert report.group_leverage == {}
     assert "max |clever covariate| (mean): 1" in report.summary()
     assert "max |clever covariate| (att): 4" in report.summary()
-    assert "max |h|" not in report.summary()
-    assert "max load" not in report.summary()
-    assert "narrowest targeted group" not in report.verdict()
+    assert "Kish-equivalent rows" not in report.summary()
+    assert "Absolute-load concentration" not in report.verdict()
 
 
 def _older_state(report: PositivityReport) -> dict[str, object]:
@@ -1750,6 +1749,7 @@ def _older_state(report: PositivityReport) -> dict[str, object]:
     """
     state = dict(report.__dict__)
     del state["group_leverage"]
+    del state["group_leverage_omissions"]
     return state
 
 
@@ -1785,14 +1785,15 @@ def test_a_report_pickled_before_the_group_table_existed_still_reads() -> None:
 
     assert "group_leverage" not in state
     assert restored.group_leverage == {}
+    assert restored.group_leverage_omissions == {}
     assert restored.n_repeats == 1 and restored.backend is None
     assert restored.severity == "adequate"
-    assert "narrowest targeted group" not in restored.verdict()
+    assert "Absolute-load concentration" not in restored.verdict()
     # And the summary takes the fallback branch: the table is gone, the maxima are not.
     summary = restored.summary()
     assert "max |clever covariate| (mean): 1" in summary
     assert "max |clever covariate| (att): 4" in summary
-    assert "max |h|" not in summary
+    assert "Kish-equivalent rows" not in summary
 
 
 def test_a_result_saved_before_the_group_table_existed_still_assesses(tmp_path) -> None:
@@ -1807,6 +1808,7 @@ def test_a_result_saved_before_the_group_table_existed_still_assesses(tmp_path) 
     """
     result = _fit(_study(), ATE())
     del result.diagnostics.support().__dict__["group_leverage"]
+    del result.diagnostics.support().__dict__["group_leverage_omissions"]
     key = next(name for name in result.assessment_cache if "support" in name)
     assert "group_leverage" not in result.assessment_cache[key].__dict__
 

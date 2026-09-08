@@ -207,15 +207,17 @@ class TestTheRegimesTravelWithTheFit:
         from cleverly.sensitivity import positivity_report
 
         report = positivity_report(result)
-        unloaded = np.sum(
-            (np.asarray(result.data.treatment) == 1.0) & (frame["W1"].to_numpy() <= 0.0)
-        )
         assert set(report.group_leverage) == {"regime"}
-        assert unloaded > 0, "the fixture must leave some row outside every regime"
-        assert report.group_leverage["regime"]["zero_load"] == float(unloaded)
-        # A zero leaves the Kish sums untouched but stays in ``n``, so the ratio it
-        # reports is over every targeted row rather than over the loaded ones alone.
-        assert report.group_leverage["regime"]["n"] == float(result.data.n)
+        row = report.group_leverage["regime"]
+        artifact = result.fluctuations["regime"].absolute_score_weights
+        assert artifact is not None
+        effective = np.square(artifact.sum(axis=0)) / np.square(artifact).sum(axis=0)
+        ratios = effective / artifact.shape[0]
+        selected = int(np.argmin(ratios))
+        assert row["equation"] == result.fluctuations["regime"].names[selected]
+        assert row["zero_load"] == float(np.count_nonzero(artifact[:, selected] == 0.0))
+        # Structural zeros remain in the score mask's denominator.
+        assert row["n_targeted"] == float(artifact.shape[0]) == float(result.data.n)
 
     def test_support_dispatches_to_arm_overlap_on_an_arm_fit(self, frame) -> None:
         report = fit(frame).diagnostics.support()

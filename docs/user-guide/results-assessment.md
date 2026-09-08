@@ -94,8 +94,8 @@ correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
 
 Missing-outcome and controlled-direct-effect support reports add a derived product row. This row
 is the complete denominator used by the clever covariate. Its quantiles describe the raw product.
-Its ESS and concentration use the bounded product on residual-contributing rows. The calculation
-also folds in observation weights.
+Its Kish summaries use the bounded product on residual-contributing rows. The calculation also
+includes observation weights.
 
 The estimator bounds each fitted factor before it multiplies them. The product row follows that
 order and counts a cell when any factor changes. It does not apply a separate product bound. The
@@ -107,29 +107,39 @@ the product.
 
 The product row describes the marginal-mean estimands. These are `ey` and its contrasts, a regime,
 and a marginal structural model. A fit that targets only `att` or `atc` reports its factor rows and
-no product row. That covariate divides by `P(A=a)` rather than by the treatment mechanism.
+no product row. Those covariates normalize by `P(A=a)` and reweight through propensity odds. The
+product row does not describe that construction.
 
 The report names each estimand the product row does not describe. It also names what that estimand
 divides by instead. `composed_excluded` carries the same list for a caller that must branch on it.
 Read that note before you read the absence of a row. An absent row and a healthy denominator look
 the same, and the note is what separates them.
 
-The support report also reads each reported group's own clever covariate. The `group_leverage`
-table gives that group the effective sample size and the weight concentration of the load the
-covariate forms. An `att` or `atc` fit therefore gets a load measure, which only a marginal-mean
-fit received before.
+The `group_leverage` table reads each fitted score equation separately. For row $i$ and equation
+$j$, $w_i H_{ij}$ multiplies the targeted residual. The table summarizes its magnitude, not the
+residual contribution. The group row selects the equation with the smallest Kish load ratio among
+score-mask rows. Its `equation` field identifies that equation.
 
-The groups the table covers are `mean`, `att`, `atc`, and `msm`. A regime fit, a shift fit, and an
-incremental fit get a different support report from `diagnostics.support()`, and that report has no
-per-group load table. Call `positivity_report(result)` directly to read a `regime` or `ipsi` row.
+```python
+mean_load = support.group_leverage["mean"]
+print("equation:", mean_load["equation"])
+print("Kish load ratio among targeted rows:", mean_load["targeted_ratio"])
+print("top 5% load share:", mean_load["top_5pct"])
+print("fitted bound:", (mean_load["lower_bound"], mean_load["upper_bound"]))
+```
 
-An `msm` row sums terms across coefficients whose design columns carry different units. Rescaling
-one design column moves the reported effective sample size for that row. Read the row against the
-design's scaling.
+Read this row as a concentration diagnostic. It is not an effective sample size for the estimate.
+It does not include the targeted residual, so it is not an influence contribution. `n_targeted`
+counts score-mask rows, including structural zeros in the selected equation. The row also does not
+prove or disprove population positivity.
 
-The product row is the marginal-mean case of that same measure. Read the group row for the estimand
-you targeted. Read the product row for the denominator behind it. The note on an excluded estimand
-now names this table, so an absent product row leaves you with a number rather than nothing.
+The public support workflow provides these group rows for `mean`, `att`, `atc`, and `msm` fits.
+Regime, shift, and incremental fits return intervention-specific support reports instead. Those
+reports do not yet include per-equation covariate-load concentration. Do not replace their support
+reports with the generic positivity function.
+
+Read the group row for the fitted clever covariate. Read the product row for a composed mechanism
+denominator. The report keeps these quantities separate because they answer different questions.
 
 Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`

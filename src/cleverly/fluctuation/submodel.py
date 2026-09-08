@@ -1304,8 +1304,18 @@ def weighted_form(submodel: Submodel, weights: FloatArray) -> tuple[Submodel, Fl
     design matrix, which no longer contains the extreme values that make the fit
     numerically fragile under weak overlap.  For the two-column ``mean`` submodel
     the columns have disjoint support (one per arm), so a single weight vector
-    serves both.
+    serves both.  The function refuses overlapping columns because no scalar weight
+    preserves their separate score contributions.
     """
+    active = np.count_nonzero(submodel.observed, axis=1)
+    if np.any(active > 1):
+        count = int(np.count_nonzero(active > 1))
+        raise ValueError(
+            "target_weights=True requires each row to load at most one clever-covariate "
+            f"column, but {count} row(s) load multiple score equations. Moving their "
+            "summed magnitude into one scalar observation weight changes the column-wise "
+            "scores; use target_weights=False."
+        )
     magnitude = np.abs(submodel.observed).sum(axis=1)
     return submodel.map_arms(np.sign), np.asarray(weights, dtype=float) * magnitude
 

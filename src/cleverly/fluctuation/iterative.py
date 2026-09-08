@@ -31,7 +31,13 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit, shrink_probabilities
-from ._score import quasi_loglik, relative_score, score_columns, score_scale
+from ._score import (
+    absolute_score_weights,
+    quasi_loglik,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from .submodel import Submodel, check_arms, weighted_form
 
 __all__ = [
@@ -358,6 +364,9 @@ class Fluctuation:
     reduction : object or None
         Equation (10)'s fluctuation and the reduced regressions it was solved against,
         for a :class:`~cleverly.DRTMLE` fit.
+    absolute_score_weights : ndarray or None
+        ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only for
+        a fluctuation restored from an artifact that predates this field.
 
     Attributes
     ----------
@@ -411,6 +420,13 @@ class Fluctuation:
     #: so ``result.nuisance`` keeps describing the models that were actually fitted.
     #: See :func:`~cleverly.estimators.targeting.solve_with_reduction`.
     reduction: Any | None = None
+    #: Absolute per-row score weights, ``abs(w_i * h_ij)``, on exactly the rows used by
+    #: this outcome-score solve.  Stored because stratified, fold-evaluated, fold-targeted,
+    #: linked-MSM, and doubly-robust fits can use a covariate or scoring measure that
+    #: cannot be reconstructed from ``result.nuisance``.  ``None`` keeps reports pickled
+    #: before this artifact was introduced readable, and the trailing position preserves
+    #: the former positional constructor.
+    absolute_score_weights: FloatArray | None = None
 
     @property
     def score_norm(self) -> float:
@@ -587,6 +603,7 @@ def solve_fluctuation(
         hessian_condition=detail.hessian_condition,
         epsilon_std_error=detail.epsilon_std_error,
         loglik=detail.loglik,
+        absolute_score_weights=absolute_score_weights(scoring_submodel.observed, w, mask),
     )
 
 
@@ -817,4 +834,5 @@ def _solve_linear(
         # One weighted least-squares solve: the only way it fails is a singular
         # normal-equations matrix, which _solve_step already fell back on.
         failure=None if converged else ("singular_hessian" if step is None else "max_iter_reached"),
+        absolute_score_weights=absolute_score_weights(submodel.observed, weights, mask),
     )

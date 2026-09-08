@@ -35,7 +35,13 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
-from ._score import quasi_loglik, relative_score, score_columns, score_scale
+from ._score import (
+    absolute_score_weights,
+    quasi_loglik,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from .iterative import (
     _SEPARATION_EPSILON as SEPARATION_EPSILON,
 )
@@ -145,6 +151,7 @@ def solve_one_step(
             else _classify_one_step(epsilon, current, alpha, steps, max_steps, mask)
         ),
         loglik=loglik,
+        absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
     )
 
 
