@@ -10,8 +10,16 @@ print(battery.summary())
 support = battery.report("support")
 ```
 
-The default call reads stored artifacts and runs the cheap E-value retarget when applicable. It does not refit nuisance models. `battery.attention` contains explicit failures and warnings. `battery.omissions`
-contains deferred, not-applicable, and unavailable analyses.
+The summary expands each completed analysis first, with its returned result. It then inventories
+checks and operations that did not run. Each compact row gives an exact status, a count, and
+surface-qualified operation names.
+
+Call `battery.to_frame()` for the complete row ledger. `battery.attention` contains failures and
+warnings. `battery.omissions` contains deferred, not-applicable, and unavailable analyses. Use
+`battery.report(...)` to retrieve the detailed payload from an operation that ran.
+
+The default call reads stored artifacts and runs the cheap E-value retarget when applicable. It
+does not refit nuisance models.
 
 Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
 

@@ -33,6 +33,8 @@ from cleverly.assessment import (
     SENSITIVITY_ROUTES,
     VALIDATION_OPERATIONS,
     AssessmentItem,
+    DiagnosticReport,
+    ValidationReport,
 )
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.estimators import DRTMLE, TMLE
@@ -1468,35 +1470,123 @@ def test_a_method_outside_the_correction_system_refuses_corrections_by_name(meth
     assert result.assess().diagnostics["corrections"].status is AssessmentStatus.NOT_APPLICABLE
 
 
-def test_the_battery_summary_prints_every_surface_and_both_verdict_lists():
-    """``summary`` is the reader-facing surface of the whole battery, and had no test.
+def test_the_battery_summary_expands_results_before_compact_checks_and_omissions():
+    """Every status is visible, while only completed analyses expand to full text.
 
-    A row that reaches ``attention`` or ``omissions`` must also be visible in its own
-    section, and the section must carry the operation, the status, the detail, and the
-    next step it recorded.
+    The duplicate ``shared`` name is a nonzero witness for surface qualification. The
+    long warning detail is a witness for compactness: it remains in the ledger but does
+    not push returned results below review prose.
     """
-    result = _fit(_study(), ATE())
-    battery = result.assess()
+
+    def item(name: str, status: AssessmentStatus, detail: str) -> AssessmentItem:
+        return AssessmentItem(name, status, detail, (f"act on {name}",))
+
+    battery = AssessmentReport(
+        validation=ValidationReport(
+            (
+                item("shared", AssessmentStatus.FAILED, "failed detail"),
+                item("score", AssessmentStatus.PASSED, "passed detail"),
+            )
+        ),
+        diagnostics=DiagnosticReport(
+            (
+                item("warning", AssessmentStatus.WARNING, "warning detail " * 20),
+                item("choose", AssessmentStatus.DEFERRED, "deferred detail " * 20),
+                item("missing", AssessmentStatus.UNAVAILABLE, "unavailable detail"),
+            )
+        ),
+        sensitivity=DiagnosticReport(
+            (
+                item("irrelevant", AssessmentStatus.NOT_APPLICABLE, "not applicable detail"),
+                item("estimate", AssessmentStatus.COMPLETED, "completed detail"),
+                item("shared", AssessmentStatus.UNAVAILABLE, "second unavailable detail"),
+            )
+        ),
+    )
+
+    text = battery.summary()
+    results, remainder = text.split("\n\nChecks\n", maxsplit=1)
+    checks, omissions = remainder.split("\n\nNot run\n", maxsplit=1)
+    assert text.startswith("Returned results\n----------------\n")
+    assert "surface" in results and "operation" in results and "result" in results
+    assert "sensitivity" in results and "completed detail" in results
+    assert "passed detail" not in text
+    assert "warning detail" not in text
+    assert "deferred detail" not in text
+
+    expected_checks = {
+        AssessmentStatus.FAILED: (1, "validation.shared"),
+        AssessmentStatus.WARNING: (1, "diagnostics.warning"),
+        AssessmentStatus.PASSED: (1, "validation.score"),
+    }
+    expected_omissions = {
+        AssessmentStatus.DEFERRED: (1, ("diagnostics.choose",)),
+        AssessmentStatus.UNAVAILABLE: (2, ("diagnostics.missing", "sensitivity.shared")),
+        AssessmentStatus.NOT_APPLICABLE: (1, ("sensitivity.irrelevant",)),
+    }
+    for status, (_, qualified_name) in expected_checks.items():
+        assert status.value in checks
+        assert qualified_name in checks
+    for status, (_, qualified_names) in expected_omissions.items():
+        assert status.value in omissions
+        for qualified_name in qualified_names:
+            assert qualified_name in omissions
+    assert "Full ledger: call to_frame(). Next steps: call next_steps()." in omissions
+    assert "Retained payloads: call report(...)." in omissions
+    expected_statuses = {status.value for status in (*expected_checks, *expected_omissions)}
+    inventory_counts = {
+        fields[0]: int(fields[1])
+        for line in (checks + omissions).splitlines()
+        if len(fields := line.split(maxsplit=2)) == 3 and fields[0] in expected_statuses
+    }
+    expected_counts = {
+        status.value: count
+        for status, (count, _) in {**expected_checks, **expected_omissions}.items()
+    }
+    assert inventory_counts == expected_counts
+    assert 1 + sum(inventory_counts.values()) == len(battery._presented())
+
+    frame = battery.to_frame()
+    warning = frame.loc[frame["check"] == "warning"].iloc[0]
+    assert warning["detail"] == "warning detail " * 20
+    assert warning["next_steps"] == "act on warning"
+    assert battery.omissions == (
+        battery.diagnostics["choose"],
+        battery.diagnostics["missing"],
+        battery.sensitivity["irrelevant"],
+        battery.sensitivity["shared"],
+    )
+
+
+def test_the_battery_summary_names_empty_result_check_and_omission_sections():
+    no_review = AssessmentReport(
+        ValidationReport(
+            (AssessmentItem("analysis", AssessmentStatus.COMPLETED, "returned result"),)
+        ),
+        DiagnosticReport(()),
+        DiagnosticReport(()),
+    )
+    no_results = AssessmentReport(
+        ValidationReport((AssessmentItem("score", AssessmentStatus.FAILED, "outside tolerance"),)),
+        DiagnosticReport(()),
+        DiagnosticReport(()),
+    )
+
+    assert "\nChecks\n------\nnone\n" in no_review.summary()
+    assert "\nNot run\n-------\nnone\n" in no_review.summary()
+    assert no_results.summary().startswith("Returned results\n----------------\nnone\n")
+
+
+def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventory():
+    battery = _fit(_study(), ATE()).assess()
     text = battery.summary()
 
-    for surface in ("Validation", "Diagnostics", "Sensitivity"):
-        assert surface in text
-    for column in ("operation", "status", "detail", "next step"):
-        assert column in text
-
-    presented = [item for _, item in battery._presented()]
-    assert presented
-    for item in presented:
-        assert item.name in text
-        assert item.status.value in text
-
-    # The two summary lists agree with the properties that build them, and the omission
-    # list is not empty here, so "none" would be a wrong answer rather than an untested
-    # one.
-    assert battery.omissions
-    assert f"Omissions: {', '.join(item.name for item in battery.omissions)}" in text
-    attention = ", ".join(item.name for item in battery.attention) or "none"
-    assert f"Attention: {attention}" in text
+    assert len(battery.to_frame()) == 16
+    assert text.index("bias-adjusted interval") < text.index("validation.nuisance_models")
+    assert "poorly calibrated" not in text
+    assert "not run by default because it retargets the fit" not in text
+    review = text.split("\n\nChecks\n", maxsplit=1)[1]
+    assert max(len(line) for line in review.splitlines()) < 80
 
 
 def test_next_steps_are_de_duplicated_and_keep_presentation_order():

@@ -455,6 +455,15 @@ presentation choice.
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
+`AssessmentReport.summary()` expands completed analyses before any other status. Each row gives
+its surface, operation, and returned result. The summary then groups checks and operations that
+did not run by exact status. Each compact group gives its count and surface-qualified operation
+names. An empty section states `none`.
+
+`AssessmentReport.to_frame()` remains the complete row ledger, including warning and refusal
+details. The three report surfaces retain the original rows. `next_steps()` retains follow-up
+actions. `report(...)` returns a retained payload from an operation that ran.
+
 Deferred rows retain the required argument or flag in their next step. They also retain the
 request the caller made, and the combined run's seed when the operation accepts one.
 

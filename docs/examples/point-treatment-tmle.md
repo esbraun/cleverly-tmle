@@ -318,7 +318,6 @@ It also identifies rows that need attention and operations that did not run.
 ```python
 assessment = result.assess()
 print(assessment.summary())
-print("needs attention:", tuple(item.name for item in assessment.attention))
 
 support = assessment.report("support")
 nuisance = assessment.report("nuisance_models")
@@ -328,8 +327,10 @@ print(nuisance.summary())
 print(scores.summary())
 ```
 
-The overview routes attention and follow-up work. The retained reports provide the tables needed to
-interpret each row. A `completed` sensitivity row means the calculation ran. It is not a pass.
+The overview puts returned results first. It summarizes checks and operations that did not run
+without repeating their details. Call `assessment.to_frame()` when you need the complete row
+ledger. The retained reports provide the tables needed to interpret each result. A `completed`
+sensitivity row means the calculation ran. It is not a pass.
 
 The support report describes fitted overlap. It gives propensity quantiles, arm-weight
 concentration, and the share of rows affected by truncation. It cannot verify population positivity.

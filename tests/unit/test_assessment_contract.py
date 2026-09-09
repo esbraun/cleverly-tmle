@@ -37,6 +37,8 @@ from cleverly.assessment import (
     _BLOCKING,
     _OMISSIONS,
     _SETTLED,
+    _SUMMARY_CHECK_ORDER,
+    _SUMMARY_OMISSION_ORDER,
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
     SENSITIVITY_ROUTES,
@@ -2290,6 +2292,11 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
     assert AssessmentStatus.WARNING in _ATTENTION - _BLOCKING
     assert AssessmentStatus.NOT_APPLICABLE in _OMISSIONS - _BLOCKING
     assert AssessmentStatus.DEFERRED in _OMISSIONS & _BLOCKING
+    assert set(_SUMMARY_CHECK_ORDER) == _ATTENTION | {AssessmentStatus.PASSED}
+    assert set(_SUMMARY_OMISSION_ORDER) == _OMISSIONS
+    summary_order = (*_SUMMARY_CHECK_ORDER, *_SUMMARY_OMISSION_ORDER)
+    assert len(summary_order) == len(set(summary_order))
+    assert set(AssessmentStatus) == {AssessmentStatus.COMPLETED, *summary_order}
 
 
 @pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])

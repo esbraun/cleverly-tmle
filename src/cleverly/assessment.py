@@ -159,6 +159,23 @@ _SETTLED: frozenset[AssessmentStatus] = frozenset(
     {AssessmentStatus.PASSED, AssessmentStatus.COMPLETED}
 )
 
+#: Compact check rows follow returned descriptive results.  A failed check comes first,
+#: then a warning and a passed check.  ``tests/unit/test_assessment_contract.py`` holds
+#: this order to every check status.
+_SUMMARY_CHECK_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.FAILED,
+    AssessmentStatus.WARNING,
+    AssessmentStatus.PASSED,
+)
+
+#: Compact omission rows follow checks.  Caller-deferred work comes first because the
+#: caller can resolve it.  A fit limitation follows, then a question that does not apply.
+_SUMMARY_OMISSION_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.DEFERRED,
+    AssessmentStatus.UNAVAILABLE,
+    AssessmentStatus.NOT_APPLICABLE,
+)
+
 #: What stops :attr:`ValidationReport.passed`.  This one cuts across the three above rather
 #: than refining one of them: a ``WARNING`` is actionable and still passes, a
 #: ``NOT_APPLICABLE`` is an omission and still passes, and a ``DEFERRED`` required check is
@@ -988,27 +1005,63 @@ class AssessmentReport:
         )
 
     def summary(self) -> str:
-        """Return the three report sections and their attention lists.
+        """Return completed analyses, then compact check and omission inventories.
 
         Returns
         -------
         str
-            Printable validation, diagnostics, sensitivity, attention, and omission sections.
+            Printable completed-analysis rows followed by every other status.
         """
-        sections = []
-        for surface in ("validation", "diagnostics", "sensitivity"):
-            rows = [item for owner, item in self._presented() if owner == surface]
-            sections.extend(
-                [
-                    surface.capitalize(),
-                    "-" * len(surface),
-                    format_table(["operation", "status", "detail", "next step"], _item_rows(rows)),
-                    "",
-                ]
-            )
-        sections.append("Attention: " + (", ".join(item.name for item in self.attention) or "none"))
-        sections.append("Omissions: " + (", ".join(item.name for item in self.omissions) or "none"))
-        return "\n".join(sections)
+        presented = self._presented()
+        completed = [
+            (surface, item)
+            for surface, item in presented
+            if item.status is AssessmentStatus.COMPLETED
+        ]
+        result_rows = [[surface, item.name, item.detail] for surface, item in completed]
+
+        def inventory(statuses: Sequence[AssessmentStatus]) -> list[list[str]]:
+            rows_by_status = []
+            for status in statuses:
+                rows = [(surface, item) for surface, item in presented if item.status is status]
+                for index, (surface, item) in enumerate(rows):
+                    rows_by_status.append(
+                        [
+                            status.value if index == 0 else "",
+                            str(len(rows)) if index == 0 else "",
+                            f"{surface}.{item.name}",
+                        ]
+                    )
+            return rows_by_status
+
+        checks = inventory(_SUMMARY_CHECK_ORDER)
+        omissions = inventory(_SUMMARY_OMISSION_ORDER)
+
+        results_body = (
+            format_table(["surface", "operation", "result"], result_rows) if result_rows else "none"
+        )
+        checks_body = format_table(["status", "count", "operations"], checks) if checks else "none"
+        omissions_body = (
+            format_table(["status", "count", "operations"], omissions) if omissions else "none"
+        )
+        return "\n".join(
+            [
+                "Returned results",
+                "----------------",
+                results_body,
+                "",
+                "Checks",
+                "------",
+                checks_body,
+                "",
+                "Not run",
+                "-------",
+                omissions_body,
+                "",
+                "Full ledger: call to_frame(). Next steps: call next_steps().",
+                "Retained payloads: call report(...).",
+            ]
+        )
 
 
 @dataclass(frozen=True)
