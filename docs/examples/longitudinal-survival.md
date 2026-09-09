@@ -1,6 +1,6 @@
 # Longitudinal TMLE for time-to-event outcomes
 
-A member who leaves the plan is not a member with a missing outcome. This page first makes plan exit
+A patient who leaves the plan is not a patient with a missing outcome. This page first makes plan exit
 the outcome. It then uses relapse and death to show a competing-risk outcome with two causes.
 
 Read [longitudinal TMLE](longitudinal-tmle.md) first. It declares the same program at two decision
@@ -10,14 +10,14 @@ the event-process recursion and the cause-specific construction.
 
 ## The applied question
 
-The plan first asks whether repeated transition navigation keeps members enrolled. A clinical team
+The plan first asks whether repeated transition navigation keeps patients enrolled. A clinical team
 then asks how the same repeated offer changes cumulative relapse and death after discharge.
 All-cause incidence answers the overall event-free question, but it cannot separate the two causes.
 
 ## Why this method
 
-An absorbing event needs the risk set to shrink as members leave it. A single end-of-study
-regression cannot do that, because a member who left in the first period is not available to have
+An absorbing event needs the risk set to shrink as patients leave it. A single end-of-study
+regression cannot do that, because a patient who left in the first period is not available to have
 the event again in the second.
 
 | your situation | what this method buys | what it costs |
@@ -25,6 +25,26 @@ the event again in the second.
 | the outcome is an event that can happen at more than one time | one cumulative risk per horizon, each on its own risk set | one regression per node per horizon, so the fit is longer than an end-of-study one |
 | patients can experience one of two competing events | a cause-specific incidence that leaves the competing cause in the history | cause-specific incidences sum to all-cause risk, not one. Renormalising them would break the score equation |
 | you want the retention scale rather than the risk scale | `curve(scale="survival")`, which mirrors the interval correctly | nothing. It is the same fit read the other way |
+
+## Design and identification
+
+Two roles look alike on an event process and do different jobs. The `outcome=` role carries the
+event. The `censoring=` role carries whether the plan could observe the patient in that period. A
+patient the plan lost track of is censored. A patient who left the plan had the event.
+
+The assumptions keep the sequential shape of
+[longitudinal TMLE](longitudinal-tmle.md#design-and-identification). Positivity now has one
+statement per horizon.
+
+| assumption | what it becomes here |
+| --- | --- |
+| exchangeability | sequential. It must hold at every node, given the recorded history at that node |
+| positivity | cumulative, and now per horizon. A later horizon is reached through every node before it, so its product carries more factors |
+| consistency | each period uses the declared protocol version, and the recorded event is the event under that protocol |
+| no interference | one patient's assignments do not change another patient's protocol or outcome |
+
+Each fit prints its own assumptions. `summary()` lists them under `assumptions:`, and
+`identification.assumptions` holds the same entries.
 
 ## The shared configuration
 
@@ -52,10 +72,10 @@ sequential = TMLEMethod(
 These compact learners keep the tutorial quick. The generator includes a nonlinear second-period
 hazard, so this configuration is not a claim that each nuisance regression is correctly specified.
 
-## Churn as the outcome: a retention curve
+## Plan exit as the outcome: a retention curve
 
 In [longitudinal TMLE](longitudinal-tmle.md), loss from outcome tracking was a nuisance. Plan
-exit is different. Here it is the question: does repeated transition navigation keep members in the
+exit is different. Here it is the question: does repeated transition navigation keep patients in the
 plan?
 
 This page uses two declared plan periods rather than the discharge and day-seven clock. Time zero
@@ -69,25 +89,25 @@ point** says the outcome is an absorbing event, and the fit reports cumulative r
 from cleverly import RegimeMean
 from cleverly.datasets import make_longitudinal_survival
 
-churn_frame, churn_truth = make_longitudinal_survival(n=4_000, seed=52, cluster_size=20)
-churn_frame = churn_frame.rename(
+exit_frame, exit_truth = make_longitudinal_survival(n=4_000, seed=52, cluster_size=20)
+exit_frame = exit_frame.rename(
     columns={
         "W1": "age",
         "W2": "baseline_readiness",
         "A1": "navigation_p1",
         "C1": "tracked_p2",
-        "Y1": "disenrolled_p1",
+        "Y1": "plan_exit_p1",
         "L2": "unresolved_transition_issues",
         "A2": "navigation_p2",
         "C2": "tracked_close",
-        "Y2": "disenrolled_p2",
+        "Y2": "plan_exit_p2",
         "id": "navigator_team",
     }
 )
-churn_study = CausalStudy(
-    churn_frame,
+exit_study = CausalStudy(
+    exit_frame,
     design=LongitudinalTreatment(
-        outcome=("disenrolled_p1", "disenrolled_p2"),
+        outcome=("plan_exit_p1", "plan_exit_p2"),
         treatment=("navigation_p1", "navigation_p2"),
         baseline=("age", "baseline_readiness"),
         time_varying=((), ("unresolved_transition_issues",)),
@@ -95,20 +115,18 @@ churn_study = CausalStudy(
         cluster="navigator_team",
     ),
 )
-churn_effect = churn_study.identify(RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)))
-print(churn_effect.summary())
-churn_result = churn_effect.estimate(method=sequential)
-print(churn_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+exit_effect = exit_study.identify(RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)))
+print(exit_effect.summary())
+exit_result = exit_effect.estimate(method=sequential)
+print(exit_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-Two roles that look alike are doing different jobs here. `disenrolled_*` is the **event**.
-`tracked_*` is the **censoring**: whether the plan could observe the member's status in that period.
-A member the plan lost track of is censored. A member who left the plan had the event.
+In this frame `plan_exit_*` fills the **event** role, and `tracked_*` fills the **censoring** role.
 
 Read the same fit on the retention scale.
 
 ```python
-survival_curve = churn_result.curve(scale="survival")
+survival_curve = exit_result.curve(scale="survival")
 print(survival_curve[["regimen", "time", "psi", "ci_lower", "ci_upper"]])
 ```
 
@@ -121,24 +139,24 @@ The current helper leaves `estimand` and `scale` labelled as risk and level afte
 transformation. This example omits those two incorrect label columns. The display defect is recorded
 in [RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
 
-At the documented sample size the retention curve separates. Members assigned navigation in both
+At the documented sample size the retention curve separates. Patients assigned navigation in both
 periods stay enrolled at a visibly higher rate by the second period.
 
 **Horizons are the fit's own time points, not days.** `horizons=(1, 2)` names the two declared plan
 periods. Asking for a horizon outside `1..T` is refused rather than interpolated.
 
 ```python
-churn_contrast = churn_study.identify(
+exit_contrast = exit_study.identify(
     RegimeContrast({"always": 1, "never": 0}, reference="never", horizons=(1, 2))
 ).estimate(method=sequential)
-print(churn_contrast.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-for name, value in churn_truth.items():
+print(exit_contrast.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+for name, value in exit_truth.items():
     if name.startswith("ate_"):
         print(f"{name:52s} {value:.4f}")
 ```
 
-The contrast is negative, because navigation reduces cumulative disenrollment. Its size grows between
-the two horizons.
+The contrast is negative, because navigation reduces the cumulative risk of plan exit. Its size
+grows between the two horizons.
 
 ## Two competing clinical events
 
@@ -209,15 +227,16 @@ than biasing it.
 The fold count drops to two here. Each cause needs a regression at each node, and the rarer cause is
 thin. A fold whose training rows happen to contain no event of one cause leaves its learner with a
 single class, and the fit stops. Fewer, larger folds is the fix. The number of **events of the
-rarest cause**, not the number of members, is what bounds the split.
+rarest cause**, not the number of patients, is what bounds the split.
 
 This section also runs without censoring, so the causes are the only way to leave the risk set. The
 censoring machinery is unchanged from the retention curve above. This generator ships no cluster
 variant, so navigator teams are not declared here.
 
-At the documented sample size the two causes behave differently. The relapse contrast changes
-direction by the second horizon and remains much smaller there. The death contrast is negative at
-both horizons.
+At the documented sample size the two causes behave differently. The estimated relapse contrast
+shrinks toward zero by the second horizon, and its interval covers zero there. The population
+relapse contrast crosses zero between the two horizons. The estimated death contrast is negative at
+both horizons, and it grows.
 
 The generator makes treatment affect both the all-cause hazard and the split between causes. The
 relapse result is therefore not a negative control. Its small second-horizon contrast is a feature
@@ -276,20 +295,22 @@ causal intervention and its own identification argument. This fit does not creat
 ## How far to trust this
 
 Inspect the retention and competing-risk fits separately. Their risk sets have different shapes.
+This page calls `.diagnostics.run_all()` rather than `.assess()`, because every sensitivity
+operation that `.assess()` adds is unavailable for a longitudinal fit.
 
 ```python
-churn_diagnostics = churn_result.diagnostics.run_all()
+exit_diagnostics = exit_result.diagnostics.run_all()
 event_diagnostics = event_result.diagnostics.run_all()
 
 print("Retention diagnostics")
-print(churn_diagnostics.summary())
+print(exit_diagnostics.summary())
 print("Competing-risk diagnostics")
 print(event_diagnostics.summary())
 
-print(churn_diagnostics.report("support").to_frame())
+print(exit_diagnostics.report("support").to_frame())
 print(event_diagnostics.report("support").to_frame())
-print(churn_diagnostics.report("score_equations").to_frame())
-print(churn_diagnostics.report("nuisance_models").to_frame())
+print(exit_diagnostics.report("score_equations").to_frame())
+print(exit_diagnostics.report("nuisance_models").to_frame())
 ```
 
 The support table is where cumulative positivity becomes visible on an event process. A horizon
@@ -297,8 +318,8 @@ is reached through every node before it, so `effective_n` falls faster here than
 end-of-study fit. [Longitudinal TMLE](longitudinal-tmle.md#how-far-to-trust-this) reads those three
 columns in full.
 
-The direct `stagewise()` method remains a compatibility alias for the same support report. A
-combined run keeps only the `support` name.
+The direct `stagewise()` method remains a compatibility alias for the same support report. The
+diagnostic report keeps only the `support` name.
 
 The retention report has six stage rows. The competing-risk report has twelve because it also
 separates causes. Its `cause` and `horizon` columns show which risk set each row describes.
@@ -315,13 +336,13 @@ Treatment and censoring rows report weighted negative log likelihood. An outcome
 weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
 reports weighted mean squared error. The `evaluation` column is `out_of_fold` for these fits.
 
-The combined reports also record that longitudinal truncation curves and refutations are
+Each diagnostic report also records that longitudinal truncation curves and refutations are
 unavailable. A `completed` nuisance row means the retained losses exist, not that the models are
 correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the support report | how many members were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
+| the support report | how many patients were still at risk at each node, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
 | the nuisance report | retained loss and calibration for each fitted nuisance role | that any nuisance model is correct, or that causal identification holds |
 | the registered event-process studies | ordinary and cross-fitted fits recover known two-horizon survival and competing-risk truths | MSMs, weights, clustering, eliminated competing events, or simultaneous bands |

@@ -42,20 +42,15 @@ proofs control that term with complexity conditions such as a Donsker condition.
 tuned learners need not satisfy those conditions, so in-sample nuisance evaluation does not provide
 the required argument.
 
-Cross-fitting avoids that empirical-process reliance under its remaining conditions. Every nuisance
-prediction used for a patient comes from a model that never saw that patient.
+Cross-fitting avoids that empirical-process reliance under its remaining conditions. Every initial
+nuisance prediction used for a patient comes from a model that never saw that patient.
 
-**Folds do not buy the rest of efficiency.** Four conditions stand behind a valid interval, and
-folds address one.
+**Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
+interval, and folds address one of them. The reference table
+[names each condition and what supplies it](../technical-reference/cv-tmle.md#what-this-solves).
+The study design and your learners supply the other three.
 
-| condition | what supplies it |
-| --- | --- |
-| the empirical-process term is negligible | cross-fitting |
-| the inverse mechanism stays controlled | support in the study design. Truncation only regularises the fitted denominator |
-| the estimated influence curve converges | your learners |
-| the second-order remainder vanishes fast enough, by a product rate on both nuisances | your learners, and nothing the fluctuation can do |
-
-The last condition is the one a variant can weaken. That variant is [DR-TMLE](dr-tmle.md).
+The product-rate condition is the one a variant can weaken. That variant is [DR-TMLE](dr-tmle.md).
 
 ## The data
 
@@ -81,13 +76,12 @@ print("population ATE:", truth["ate"])
 
 ## Design and identification
 
-The design and the estimand do not change. Cross-fitting is an estimation choice, and it must not
-touch the question.
+This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
+estimator. Cross-fitting is an estimation choice, and it must not touch the question.
 
-Clustering is not an interference adjustment. The program still needs reserved per-patient capacity
-and access controls so one offer does not change another patient's protocol. If patients compete for
-slots, potential outcomes can depend on other assignments. A cluster-robust standard error cannot
-repair that causal-design failure.
+Clustering is not an interference adjustment. If patients compete for slots, potential outcomes can
+depend on other assignments. A cluster-robust standard error cannot repair that causal-design
+failure.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -109,9 +103,10 @@ can see that only the method changed.
 
 ## Estimate
 
-Cross-fitting is configured as a named group. `n_folds` splits the sample for out-of-fold nuisance
-prediction. `learner_folds` applies only when a nuisance is a Super Learner library. The bare boosted
-learners below have no inner learner folds.
+Cross-fitting is configured as a named group. The `n_folds` count splits the sample for out-of-fold
+nuisance prediction. The `learner_folds` count reaches only the Super Learner that `cleverly` builds
+when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds`. The bare
+boosted learners below have no inner learner folds.
 
 ```python
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -248,6 +243,12 @@ Folds change too. Each team must land in one fold, and the number of teams bound
 | a team lands entirely in one fold | otherwise a patient's nuisance prediction comes from a model trained on their own team, which is leakage through the team effect |
 | generated outer folds keep teams intact | the nuisance prediction cannot use outcomes from the patient's own team |
 | with fewer teams than folds, the fold count is reduced and warns | the number of teams, not the number of patients, is what bounds the split |
+
+`tests/unit/test_crossfit_leakage.py` names the evidence for the second row. Its
+`test_a_clustered_fit_keeps_every_cluster_in_one_fold` case asserts that each declared cluster lands
+in exactly one generated fold. A companion case rigs a noiseless law. A nearest-neighbour learner
+there reproduces a held-out row exactly when a same-cluster row trained it, and never otherwise.
+Those assertions are array equality and array inequality, so leakage is not a matter of degree.
 
 `CrossFitting` currently generates folds from `random_state`. It does not yet accept a public
 prespecified fold plan. The [remediation roadmap](../roadmap.md#rm3-public-reusable-split-plans)

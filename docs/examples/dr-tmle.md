@@ -73,9 +73,9 @@ print("population ATE:", truth["ate"])
 
 Nothing changes in the question. DR-TMLE targets the same parameter under the same assumptions.
 
-The study therefore keeps the shared eligibility, time zero, protocol version, and reserved
-capacity. It also keeps every common cause in the adjustment set. The deliberate failure on this
-page is statistical misspecification of the recorded assignment mechanism. It is not an omitted
+This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
+assignment model. It also keeps every common cause in the adjustment set. The deliberate failure on
+this page is statistical misspecification of the recorded assignment mechanism. It is not an omitted
 common cause.
 
 ```python
@@ -95,9 +95,13 @@ for method in effect.available_methods():
     print(method.name, method.available)
 ```
 
-The availability check matters more here than elsewhere. DR-TMLE refuses continuous treatment, ATT
-and ATC, the intervention axes, MSM projections, and composition with C-TMLE. Each refusal names
-what a derivation would need. The list is in [the contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name).
+The availability check matters more here than elsewhere. It reports `drtmle` unavailable for ATT
+and ATC, for MSM projections, and for the intervention axes. A continuous treatment reaches
+DR-TMLE only through a shift axis, so the same check refuses it. Selecting a refused method raises
+before any nuisance is fitted.
+
+The remaining refusals wait for the data and raise at fit time. Each refusal names what a
+derivation would need. The list is in [the contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name).
 
 ## Estimate
 
@@ -167,7 +171,7 @@ def show(label, result):
     point = result["ate"]
     low, high = point.ci
     print(
-        f"{label:16s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  CI=({low:.3f}, {high:.3f})"
+        f"{label:22s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  CI=({low:.3f}, {high:.3f})"
     )
 
 
@@ -187,7 +191,9 @@ weaker conditions.
 
 A single fit cannot show a coverage rate. That requires a repeated-sampling study.
 
-What a single fit *can* show is the size of the corrections that were solved away.
+What a single fit *can* show is the size of the corrections that were solved away. This page runs
+the diagnostic report rather than the combined assessment, because the question is about the
+estimator, not the assumptions.
 
 ```python
 diagnostic_report = doubly_robust.diagnostics.run_all()
@@ -197,7 +203,7 @@ corrections = diagnostic_report.report("corrections")
 print(corrections.summary())
 ```
 
-The combined report triages the whole fit. It marks score equations and corrections as passed. It
+The diagnostic report triages the whole fit. It marks score equations and corrections as passed. It
 marks the nuisance report and the support report as completed, because neither defines a pass rule.
 The support row states 0.0% truncation and a 90.6% minimum effective sample size for you to read.
 Unrequested truncation work and refutation remain visible as omissions.
@@ -235,7 +241,7 @@ calls it the single most important thing on that page.
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | `guard=()` equality | the variant reduces exactly to the ordinary estimator when no equation is solved | anything about the guarded fit |
-| the combined diagnostic report | which fit-level checks passed, completed, or were omitted | any assumption that the fit cannot inspect |
+| the diagnostic report | which fit-level checks passed, completed, or were omitted | any assumption that the fit cannot inspect |
 | the corrections report | the extra equations were solved, and whether any truncation was active | that the reduced regressions are consistent |
 | the score report | the targeting converged on the corrected curve | the rate conditions behind the interval |
 | the theorem and its checks | the implementation computes what Theorem 1 derives, against exact laws, the Gateaux derivative, and the remainder identities | that your fitted nuisances satisfy the theorem's hypotheses |
@@ -252,5 +258,12 @@ conditions for this fit.
 
 If your question is which baseline variables belong in the assignment model, read
 [collaborative TMLE](collaborative-tmle.md). That differs from asking how well a fixed adjustment
-set can be fitted. The two methods do not compose in this release. The library has no derived and
-validated joint targeting or inference contract, so `available_methods()` refuses the combination.
+set can be fitted. The two methods do not compose, and DR-TMLE raises that refusal at fit time
+rather than in `available_methods()`.
+
+The reason is a derivation rather than plumbing. A reduced-dimension regression conditions on the
+fitted assignment mechanism *as a covariate*, and C-TMLE's mechanism is deliberately not an estimate
+of the true one. C-TMLE also scores its path by the cross-validated loss of the targeted outcome
+regression. That criterion therefore presupposes an informative outcome regression, which is the
+case DR-TMLE insures against. [The contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name)
+records the refusal.

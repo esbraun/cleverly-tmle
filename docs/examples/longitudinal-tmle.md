@@ -4,8 +4,8 @@ Navigation assigned twice is not one assignment with extra columns. This test of
 by running the two analyses side by side on the same data. The point-treatment analysis is wrong in
 both of the ways it can be wrong, and neither version can be fixed by adding or removing a term.
 
-Churn appears here only as loss from outcome tracking.
-[Retention and competing risks](longitudinal-survival.md) makes leaving the plan the outcome
+Loss from outcome tracking is a nuisance here, and this page models it as censoring.
+[Time-to-event outcomes](longitudinal-survival.md) makes leaving the plan the outcome
 instead.
 
 Read [Longitudinal TMLE](../technical-reference/longitudinal-tmle.md) for the sequential regression,
@@ -17,12 +17,12 @@ The plan makes two navigation decisions for each eligible discharge. The first o
 The second occurs on day seven. Between them, the program records unresolved medication,
 appointment, and equipment issues.
 
-Some members are lost from outcome tracking before day seven or day 30. The transition score still
+Some patients are lost from outcome tracking before day seven or day 30. The transition score still
 exists for them, but the plan cannot observe it. That is censoring, and this page treats it as a
 nuisance.
 
 The program question is about a *plan*, not one offer. What share would report a top-box transition
-score if every member received navigation at discharge and day seven? Compare that with the share
+score if every patient received navigation at discharge and day seven? Compare that with the share
 if nobody received navigation at either decision.
 
 ## Why this method
@@ -32,7 +32,7 @@ The unresolved transition issues are the problem, and they are the whole problem
 | unresolved transition issues | what they do |
 | --- | --- |
 | respond to discharge navigation | the first contact resolves some problems. This puts unresolved issues on the causal path from the first decision to the score |
-| drive day-seven navigation | a member with unresolved issues is more likely to receive the second contact. This makes the issues a confounder of the second decision |
+| drive day-seven navigation | a patient with unresolved issues is more likely to receive the second contact. This makes the issues a confounder of the second decision |
 
 Those two facts are incompatible with a single regression.
 
@@ -57,8 +57,8 @@ history under the plan.
 
 ## The data
 
-The generator is `make_longitudinal`. It produces a wide frame with one row per member and one
-column per node, in time order. `cluster_size` puts members into navigator teams. The team effect is
+The generator is `make_longitudinal`. It produces a wide frame with one row per patient and one
+column per node, in time order. `cluster_size` puts patients into navigator teams. The team effect is
 genuine rather than decorative.
 
 ```python
@@ -87,14 +87,14 @@ for name, value in truth.items():
 | --- | --- | --- |
 | `age`, `baseline_readiness` | before discharge | baseline covariates |
 | `navigation_discharge` | discharge | the first navigation assignment |
-| `tracked_day7` | after discharge | 1 if the member remains observable at day seven |
+| `tracked_day7` | after discharge | 1 if the patient remains observable at day seven |
 | `unresolved_transition_issues` | between decisions | responds to `navigation_discharge`, and drives `navigation_day7` |
 | `navigation_day7` | day seven | the second navigation assignment |
 | `tracked_day30` | after day seven | 1 if the transition outcome remains observable |
 | `transition_top_box` | day 30 | the survey outcome |
 | `navigator_team` | fixed | the cluster |
 
-Nodes after a member is lost from tracking are missing. That is the shape the estimator expects, and it is
+Nodes after a patient is lost from tracking are missing. That is the shape the estimator expects, and it is
 why a complete-case frame would already have thrown information away.
 
 ## Design and identification
@@ -137,9 +137,9 @@ The assumptions change shape from the point-treatment case.
 | assumption | what it becomes here |
 | --- | --- |
 | exchangeability | sequential. It must hold at every node, given the recorded history at that node |
-| positivity | cumulative. Every member needs a positive probability of following the plan **and** remaining observable, through both nodes |
+| positivity | cumulative. Every patient needs a positive probability of following the plan **and** remaining observable, through both nodes |
 | consistency | each decision uses the declared protocol version, and later treatment remains defined under maintained follow-up |
-| no interference | one member's assignments do not change another member's protocol or outcome |
+| no interference | one patient's assignments do not change another patient's protocol or outcome |
 
 Cumulative positivity is the one that bites. Two navigation nodes and two observation nodes
 multiply into one probability, and that product can be small even when no single factor is.
@@ -181,18 +181,18 @@ the alias is built from it.
 
 ## The failure mode: a point-treatment analysis of the same data
 
-Now do it the wrong way, twice. Keep members observed through day 30, keep those whose two
+Now do it the wrong way, twice. Keep patients observed through day 30, keep those whose two
 assignments agreed, and treat "received navigation at both decisions" as one exposure.
 
 ```python
 observed = frame[(frame["tracked_day7"] == 1) & (frame["tracked_day30"] == 1)]
 consistent = observed[observed["navigation_discharge"] == observed["navigation_day7"]].copy()
 consistent = consistent.rename(columns={"navigation_discharge": "navigation_throughout"})
-print("members kept:", len(consistent), "of", len(frame))
+print("patients kept:", len(consistent), "of", len(frame))
 ```
 
-That subsetting is already a loss. Members with missing follow-up are discarded rather than modeled.
-Members whose assignments differed are discarded because a point-treatment analysis has nowhere to
+That subsetting is already a loss. Patients with missing follow-up are discarded rather than modeled.
+Patients whose assignments differed are discarded because a point-treatment analysis has nowhere to
 put them.
 
 ```python
@@ -250,14 +250,14 @@ The shortcut also conditions on agreement between the two assignments. Agreement
 time-varying history, so this selected sample is not the original target population. The two point
 fits therefore do not isolate a pure mediator-adjustment bias from a pure confounding bias.
 
-The shortcut then drops members lost from follow-up. Dropping them is harmless only under
+The shortcut then drops patients lost from follow-up. Dropping them is harmless only under
 restrictive observation conditions. The longitudinal fit keeps the target population, models
 observation at each node, and includes observation in the cumulative product.
 
 ## A rule instead of a plan
 
 A dynamic rule reads the history available at its node. This one assigns navigation at discharge,
-then assigns day-seven navigation only to members with unresolved issues.
+then assigns day-seven navigation only to patients with unresolved issues.
 
 A plan is one entry per node. An entry is either an arm for everybody, or a callable handed that
 node's history frame. Mixing them is the ordinary case.
@@ -283,7 +283,7 @@ print(rule_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print("population contrast:", truth[f"ate_regimen[{RULE_LABEL} vs never]"])
 ```
 
-The first node is the constant `1`, so every member receives discharge navigation. The second node
+The first node is the constant `1`, so every patient receives discharge navigation. The second node
 is a rule, so the issue count decides who receives day-seven navigation. `RULE_LABEL` is the name
 the generator publishes a truth under. That is why it is imported rather than typed.
 
@@ -293,8 +293,9 @@ its value. The rule is part of the estimand, and two rules are two parameters.
 
 ## How far to trust this
 
-Start with the combined report. It records completed checks and the diagnostics that this fitted
-family cannot run.
+Start with the diagnostic report. It records completed checks and the diagnostics that this fitted
+family cannot run. This page calls `.diagnostics.run_all()` rather than `.assess()`, because every
+sensitivity operation that `.assess()` adds is unavailable for a longitudinal fit.
 
 ```python
 diagnostics = result.diagnostics.run_all()
@@ -318,11 +319,11 @@ together.
 
 | column | what it says |
 | --- | --- |
-| `n_followed` | how many members were still following the plan at that node |
+| `n_followed` | how many patients were still following the plan at that node |
 | `effective_n` | the sample size the weights actually deliver, after the cumulative product |
 | `share_truncated` | how much of the clever covariate the bound had to hold back |
 
-An `effective_n` far below `n_followed` says the estimate rests on few members, whatever the row
+An `effective_n` far below `n_followed` says the estimate rests on few patients, whatever the row
 count is. That is the longitudinal form of a positivity problem, and it grows with the number of
 nodes. The direct `stagewise()` method remains an alias for this support report.
 
@@ -343,7 +344,7 @@ nuisance model is correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the support report | how many members followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
+| the support report | how many patients followed each plan, and how hard the weights worked | that sequential exchangeability holds at every node |
 | the score-equation report | each fold solved its equation, and the stitched residual is compatible with sampling | that the node regressions are correctly specified |
 | the nuisance report | retained loss and calibration for each fitted nuisance role | that any nuisance model is correct, or that causal identification holds |
 | the registered studies | end-of-study fits recover known two-node truths and witness targeting, recursion, and held-out prediction | MSM, weights, clustering, simultaneous bands, or broad learner-library selection |
@@ -362,7 +363,8 @@ design, and `available_methods()` says so before any model is fitted.
 
 ## Where to go next
 
-This page reported one parameter per plan, with the transition score as the outcome and plan exit
-as a nuisance. Reverse those two and the outcome becomes an event that can happen at more than one
-time. That is [retention and competing risks](longitudinal-survival.md), which reports a cumulative
-risk per horizon and then splits it by cause.
+This page reported one parameter per plan, with the transition score as the outcome and loss to
+tracking as a nuisance. Make leaving the plan the outcome instead, and the outcome becomes an event
+that can happen at more than one time. That is
+[time-to-event outcomes](longitudinal-survival.md), which reports a cumulative risk per horizon and
+then splits it by cause.
