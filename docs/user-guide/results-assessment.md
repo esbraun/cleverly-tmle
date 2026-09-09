@@ -11,7 +11,7 @@ support = battery.report("support")
 ```
 
 The default call reads stored artifacts and runs the cheap E-value retarget when applicable. It does not refit nuisance models. `battery.attention` contains explicit failures and warnings. `battery.omissions`
-contains analyses that were not applicable or were unavailable.
+contains deferred, not-applicable, and unavailable analyses.
 
 Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
 
@@ -224,11 +224,17 @@ intervention-specific report with the generic positivity function.
 Read the group row for the fitted clever covariate. Read the product row for a composed mechanism
 denominator. The report keeps these quantities separate because they answer different questions.
 
-Combined reports distinguish six states. `passed` and `failed` belong to checks with an explicit
+Combined reports distinguish seven states. `passed` and `failed` belong to checks with an explicit
 verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
-uses an existing diagnostic rule. An expected refusal becomes `unavailable`.
-The aggregate run then continues with other accepted diagnostics. Direct calls still raise the
-precise refusal. `not_applicable` and `unavailable` appear in `omissions`.
+uses an existing diagnostic rule.
+
+`deferred` means that the same operation can run after the caller supplies a required choice or
+cost opt-in. An ambiguous default E-value is deferred when an explicit estimand can run. These
+rows keep their next step and remain in `omissions`.
+
+An expected refusal after invocation becomes `unavailable`. The aggregate run then continues with
+other accepted diagnostics. Direct calls still raise the precise refusal. `not_applicable` and
+`unavailable` also appear in `omissions`.
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
 contrast and a missingness analysis without missing outcomes. An operation can also refuse after
@@ -236,10 +242,11 @@ invocation, such as omitted-confounding sensitivity on median-combined repeats. 
 an `unavailable` omission, retains its invocation arguments, and names the direct call. Other accepted
 diagnostics still run. Structural errors, such as invalid argument names, still stop the report.
 
-A combined report runs summaries and cheap retargets by default. The two costlier
-classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
-nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
-ones. These moderate retargets require `include_retargets=True`. The E-value retarget is cheap and runs by default.
+A combined report runs summaries and cheap retargets by default. The two costlier classes are
+named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
+`truncation_curve()`, `missingness()`, and `tipping_gamma()` retarget cached ones. The report marks
+these rows as deferred until the caller passes the matching flag. The E-value retarget is cheap
+and runs by default.
 
 One row moves between those classes. A guarded DR-TMLE fit refits its reduced regressions at every
 bound, so its `truncation_curve()` row is a refit and asks for `include_refits=True`. Read the class

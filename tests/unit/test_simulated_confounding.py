@@ -4260,7 +4260,7 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
     binary_means_result: Any,
     continuous_gaussian_result: Any,
 ) -> None:
-    """Pin the rendered refusal, which ``requires_arguments`` alone does not cover.
+    """Pin the rendered deferral, which ``requires_arguments`` alone does not cover.
 
     ``simulated_confounding`` on a continuous fit is the first row in the package that
     declares two arguments, and a bare ``", ".join`` rendered "an explicit grid, estimand
@@ -4273,7 +4273,7 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
         return next(item for item in report.items if item.name == "simulated_confounding")
 
     binary = rendered(gaussian_result)
-    assert binary.status is AssessmentStatus.UNAVAILABLE
+    assert binary.status is AssessmentStatus.DEFERRED
     assert binary.detail == (
         "needs an explicit grid argument, which a combined report has no basis to choose"
     )
@@ -4282,10 +4282,12 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
     )
 
     sole_mean = rendered(binary_mean_result)
+    assert sole_mean.status is AssessmentStatus.DEFERRED
     assert sole_mean.detail == binary.detail
     assert sole_mean.next_steps == binary.next_steps
 
     several_means = rendered(binary_means_result)
+    assert several_means.status is AssessmentStatus.DEFERRED
     assert several_means.detail == (
         "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
     )
@@ -4294,7 +4296,7 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
     )
 
     continuous = rendered(continuous_gaussian_result)
-    assert continuous.status is AssessmentStatus.UNAVAILABLE
+    assert continuous.status is AssessmentStatus.DEFERRED
     assert continuous.detail == (
         "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
     )

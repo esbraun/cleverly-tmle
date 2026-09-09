@@ -1033,7 +1033,7 @@ class TestMissingnessTilt:
         """
         default = missing_fit.sensitivity.run_all()
         for operation in ("missingness", "tipping_gamma"):
-            assert default[operation].status is AssessmentStatus.UNAVAILABLE
+            assert default[operation].status is AssessmentStatus.DEFERRED
             assert "pass include_retargets=True" in default[operation].detail
 
         asked = missing_fit.sensitivity.run_all(include_retargets=True)

@@ -247,7 +247,7 @@ def _default_estimand(result: TMLEResult, keys: dict[str, Any]) -> str:
         ]
         if len(candidates) > 1:
             raise _EValueRefusal(
-                "unavailable",
+                "deferred",
                 f"an E-value needs one contrast; choose an explicit estimand from {candidates}",
             )
         if candidates:

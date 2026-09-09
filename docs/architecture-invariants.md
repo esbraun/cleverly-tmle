@@ -135,8 +135,9 @@ artifacts and reports. Scientific formulas that differ by method stay separate; 
 algebra must not be copied into another result class.
 
 Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
-aliases. Every public result family has an explicit supported, `not_applicable`, or `unavailable`
-answer for every public diagnostic; sensitivity selects parameters through `ParameterKey`.
+aliases. Every public result family has an explicit fit-wide supported, `not_applicable`, or
+`unavailable` answer for every public diagnostic. Caller-controlled deferral is request state,
+not a fourth fit-wide capability answer. Sensitivity selects parameters through `ParameterKey`.
 `validate()` summarizes only stored state and never refits, while refutation and benchmarking are
 explicit expensive operations. Assessment caching is keyed by operation plus normalized arguments,
 is persisted separately from estimates, and may not mutate the headline estimate or its summary.
@@ -176,6 +177,10 @@ declaring the class beside the method rather than patching the row.
 `run_all` applies its gates in one order: availability, then required arguments, then cost. Every
 gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
 told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.
+
+A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
+run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
+An invoked operation that raises a capability refusal is also unavailable.
 
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not

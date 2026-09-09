@@ -442,7 +442,7 @@ reports the weighted effective sample size and warns when the weights concentrat
 
 ### The status contract
 
-Every assessment row returns one of six states, and the states are part of the contract rather than a
+Every assessment row returns one of seven states, and the states are part of the contract rather than a
 presentation choice.
 
 | status | what it means |
@@ -451,12 +451,14 @@ presentation choice.
 | `failed` | the check ran and its condition does not hold |
 | `warning` | the check ran and an explicit diagnostic rule requires qualification |
 | `completed` | a descriptive analysis ran and defines no pass or fail rule |
+| `deferred` | the operation can run after the caller supplies a required choice or cost opt-in |
 | `not_applicable` | no such analysis exists for this scientific question |
-| `unavailable` | the analysis is meaningful, and a derivation or a fitted artifact is missing |
+| `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
-Known omissions carry the capability's reason and remain `unavailable` or `not_applicable`.
-An expected refusal after invocation becomes `unavailable` and retains the bound invocation
-arguments. The report continues with other accepted operations. Structural errors still propagate.
+Deferred rows retain the required argument or flag in their next step. Known unsupported omissions
+carry the capability's reason and remain `unavailable` or `not_applicable`. An expected refusal
+after invocation becomes `unavailable` and retains the bound invocation arguments. The report
+continues with other accepted operations. Structural errors still propagate.
 
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
@@ -466,7 +468,7 @@ and the execution class. The two costly classes are disjoint and are named separ
 A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
 cached ones. `run_all` includes cheap retargets, such as an E-value derivation, by default.
-It excludes refits and moderate retargets. Each skipped row names the flag that runs it.
+It excludes refits and moderate retargets. Each deferred row names the flag that runs it.
 The `arguments` mapping supplies required analyst choices for named operations.
 
 An operation can decline caller-supplied arguments after its capability precheck. The combined

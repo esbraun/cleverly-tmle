@@ -109,27 +109,25 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-Complete the status taxonomy before the compact presentation. Add `deferred` for an operation
-that can run after the caller supplies a required choice or opts into its cost. An ambiguous
-default parameter choice is also deferred when an explicit parameter makes the same operation
-run.
+The assessment taxonomy now includes `deferred`. It identifies an operation that can run after the
+caller supplies a required choice or opts into its cost. An ambiguous default parameter choice is
+also deferred when an explicit parameter makes the same operation run.
 
-Keep `not_applicable` for a scientific question that has no matching analysis. Keep `unavailable`
-for an operation that its method, derivation, stored artifact, or requested variant cannot run.
-An operation that raises an expected capability refusal after invocation remains unavailable.
+`not_applicable` identifies a scientific question that has no matching analysis. `unavailable`
+identifies an operation that its method, derivation, stored artifact, or requested variant cannot
+run. An operation that raises an expected capability refusal after invocation remains unavailable.
 
-Keep deferred rows in `AssessmentReport.omissions`, beside unavailable and not-applicable rows.
+Deferred rows remain in `AssessmentReport.omissions`, beside unavailable and not-applicable rows.
 Their distinct status gives callers a machine-readable partition without changing the report
-presentation in this pull request. Retain each row's invocation arguments and next step.
+presentation. Each row retains its invocation arguments and next step.
 
-Invalidate cached diagnostic and sensitivity aggregates whose rows predate the new status. Tests
-must move the same operation from deferred to completed after the caller acts. A paired artifact
-or method limitation must remain unavailable. Cover an ambiguous E-value choice, both cost classes,
-required arguments, pandas and Polars frames, persistence replay, and complete-data fits. No
-registered study artifact changes because the classification reads post-fit state only.
+Changed cache generations reject diagnostic and sensitivity aggregates that predate the new
+status. The contract tests move the same operation from deferred to completed after the caller
+acts. Paired artifact and method limitations remain unavailable. The tests cover an ambiguous
+E-value choice, both cost classes, required arguments, pandas and Polars frames, persistence
+replay, and complete-data fits. The pull-request diff contains no registered study artifact change.
 
 The longitudinal nuisance report now covers only fits that the estimator made. Treatment and censoring
 models appear once per node because one shared model serves every regimen. Outcome and

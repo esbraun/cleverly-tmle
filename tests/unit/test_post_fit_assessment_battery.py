@@ -168,7 +168,7 @@ def test_bare_assess_runs_only_the_cheap_cached_nuisance_retarget(
     assert calls == ["retarget"]
     assert bare.sensitivity["evalue"].status is AssessmentStatus.COMPLETED
     assert bare.sensitivity["evalue"].arguments == {"estimand": "ate"}
-    assert bare.diagnostics["truncation_curve"].status is AssessmentStatus.UNAVAILABLE
+    assert bare.diagnostics["truncation_curve"].status is AssessmentStatus.DEFERRED
     assert result.assess().report("evalue") == bare.report("evalue")
     assert calls == ["retarget"]
     opted_in = result.assess(include_retargets=True)
@@ -186,15 +186,20 @@ def typed_multi_arm_result():
     return _fit(study, ATE(reference="low"))
 
 
-def test_multi_arm_evalue_refuses_an_ambiguous_default(typed_multi_arm_result) -> None:
+def test_multi_arm_evalue_defers_an_ambiguous_default(typed_multi_arm_result) -> None:
     result = typed_multi_arm_result
     aliases = tuple(result.estimates)
     assert len(aliases) == 2
+    capability = result.sensitivity.capability("evalue")
+    assert capability.available
+    assert capability.requires_arguments == ("estimand",)
     with pytest.raises(CapabilityError, match="choose an explicit estimand") as caught:
         result.sensitivity.evalue()
     assert all(alias in str(caught.value) for alias in aliases)
     row = result.sensitivity.run_all(include_retargets=True)["evalue"]
-    assert row.status is AssessmentStatus.UNAVAILABLE
+    assert row.status is AssessmentStatus.DEFERRED
+    assert row.arguments == {}
+    assert row.next_steps == ("call result.sensitivity.evalue() directly with estimand",)
     assert all(alias in row.detail for alias in aliases)
 
 
@@ -297,6 +302,21 @@ def test_assessment_item_equality_does_not_compare_numpy_arguments() -> None:
         arguments={"negative_control_outcome": np.array([1.0, 0.0])},
     )
     assert first == second
+
+
+@pytest.mark.parametrize(("backend", "module"), [("pandas", "pandas"), ("polars", "polars")])
+def test_deferred_status_has_backend_parity(backend: str, module: str) -> None:
+    """Both combined frame backends retain the new machine-readable status."""
+    from cleverly.assessment import DiagnosticReport
+
+    report = DiagnosticReport(
+        (AssessmentItem("benchmark", AssessmentStatus.DEFERRED, "needs covariates"),),
+        backend=backend,
+    )
+    frame = report.to_frame()
+
+    assert type(frame).__module__.startswith(module)
+    assert list(frame["status"]) == ["deferred"]
 
 
 def test_interpreters_and_capabilities_cover_each_other() -> None:
@@ -2004,7 +2024,7 @@ def test_a_guarded_drtmle_truncation_curve_is_declared_a_refit() -> None:
 def test_a_guarded_drtmle_truncation_curve_asks_for_the_refit_flag() -> None:
     """The gate reads the execution class, so the corrected label must reroute the caller."""
     guarded = _drtmle().diagnostics.run_all(include_retargets=True)["truncation_curve"]
-    assert guarded.status is AssessmentStatus.UNAVAILABLE
+    assert guarded.status is AssessmentStatus.DEFERRED
     assert "refits nuisance models" in guarded.detail
     assert "include_refits=True" in guarded.detail
 

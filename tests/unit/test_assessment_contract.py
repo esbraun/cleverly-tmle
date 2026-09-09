@@ -280,10 +280,10 @@ def test_default_validation_is_immutable_cache_only_and_never_refits(
     assert {name: estimate.psi for name, estimate in result.estimates.items()} == before
 
 
-def test_combined_reports_distinguish_inapplicable_from_unavailable(point_result) -> None:  # type: ignore[no-untyped-def]
+def test_combined_reports_distinguish_inapplicable_from_deferred(point_result) -> None:  # type: ignore[no-untyped-def]
     report = point_result.sensitivity.run_all()
     assert report["missingness"].status is AssessmentStatus.NOT_APPLICABLE
-    assert report["benchmark"].status is AssessmentStatus.UNAVAILABLE
+    assert report["benchmark"].status is AssessmentStatus.DEFERRED
 
 
 def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
@@ -661,6 +661,7 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     result.diagnostics.support()
     result.diagnostics.nuisance_models()
     result.diagnostics.run_all()
+    result.sensitivity.run_all()
     result.validate()
     versioned = {
         key: value
@@ -670,6 +671,7 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
             "diagnostics.support",
             "diagnostics.nuisance_models",
             "diagnostics.run_all",
+            "sensitivity.run_all",
             "validate",
         }
     }
@@ -677,21 +679,33 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
         "diagnostics.support",
         "diagnostics.nuisance_models",
         "diagnostics.run_all",
+        "sensitivity.run_all",
         "validate",
     }
 
     result.assessment_cache.clear()
     legacy_keys = {_without_cache_generation(key) for key in versioned}
-    generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
-    stale_keys = legacy_keys | generation_one_keys
+    generation_one_keys = {
+        _with_cache_generation(key, 1)
+        for key in versioned
+        if not key.startswith("sensitivity.run_all:")
+    }
+    previous_diagnostic_aggregate = {
+        _with_cache_generation(key, 5)
+        for key in versioned
+        if key.startswith("diagnostics.run_all:")
+    }
+    stale_keys = legacy_keys | generation_one_keys | previous_diagnostic_aggregate
     result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
     restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
 
     assert restored.diagnostics.support().group_leverage
     assert restored.diagnostics.nuisance_models() != "legacy cached report"
     assert restored.diagnostics.run_all() != "legacy cached report"
+    assert restored.sensitivity.run_all() != "legacy cached report"
     assert restored.validate() != "legacy cached report"
     assert restored.assess().diagnostics != "legacy cached report"
+    assert restored.assess().sensitivity != "legacy cached report"
     assert stale_keys <= set(restored.assessment_cache)
     assert any(
         "cache_generation" in key and key.startswith("diagnostics.support:")
@@ -701,6 +715,22 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
         "cache_generation" in key and key.startswith("diagnostics.nuisance_models:")
         for key in restored.assessment_cache
     )
+    assert any(
+        "cache_generation" in key and key.startswith("sensitivity.run_all:")
+        for key in restored.assessment_cache
+    )
+
+
+def test_a_deferred_required_validation_does_not_pass() -> None:
+    """A required check the caller deferred is not evidence that validation passed."""
+    from cleverly.assessment import AssessmentItem
+
+    report = ValidationReport(
+        (AssessmentItem("required", AssessmentStatus.DEFERRED, "waiting for a choice"),)
+    )
+
+    assert not report.passed
+    assert not bool(report)
 
 
 def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
@@ -866,7 +896,7 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         for operation, row in rows.items():
             if row.execution == "summarize":
                 continue
-            assert report[operation].status is AssessmentStatus.UNAVAILABLE
+            assert report[operation].status is AssessmentStatus.DEFERRED
             if row.requires_arguments:
                 assert "has no basis to choose" in report[operation].detail
                 continue
@@ -880,9 +910,13 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
                 )
 
     def test_benchmark_says_it_needs_covariates_rather_than_crashing(self, point_result) -> None:  # type: ignore[no-untyped-def]
-        report = point_result.sensitivity.run_all(include_refits=True)
+        report = point_result.sensitivity.run_all(
+            include_refits=True,
+            arguments={"benchmark": {"random_state": 91}},
+        )
         item = report["benchmark"]
-        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.status is AssessmentStatus.DEFERRED
+        assert item.arguments == {"random_state": 91}
         assert "covariates" in item.detail
         assert any("benchmark" in step for step in item.next_steps)
 
@@ -896,7 +930,7 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
     def test_simulated_surface_is_never_launched_implicitly(self, point_result) -> None:  # type: ignore[no-untyped-def]
         report = point_result.sensitivity.run_all(include_refits=True)
         item = report["simulated_confounding"]
-        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.status is AssessmentStatus.DEFERRED
         assert "grid" in item.detail
         assert any("simulated_confounding" in step for step in item.next_steps)
 
@@ -1062,7 +1096,7 @@ def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> 
     for flags in ({}, {"include_refits": True, "include_retargets": True}):
         for surface, row in demanding:
             item = surface.run_all(**flags)[row.operation]
-            assert item.status is AssessmentStatus.UNAVAILABLE
+            assert item.status is AssessmentStatus.DEFERRED
             assert row.requires_arguments[0] in item.detail
             assert "include_refits" not in item.detail
             assert "include_retargets" not in item.detail
@@ -1079,6 +1113,21 @@ def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> 
     for surface, row in priced:
         flag = "include_refits" if row.execution == "refit" else "include_retargets"
         assert f"pass {flag}=True" in surface.run_all()[row.operation].detail
+
+
+def test_a_cost_deferral_retains_the_arguments_it_did_not_run(point_result) -> None:  # type: ignore[no-untyped-def]
+    """A cost gate preserves the exact request for later replay."""
+    arguments = {"truncation_curve": {"bounds": (0.02, 0.05)}}
+
+    deferred = point_result.diagnostics.run_all(arguments=arguments)["truncation_curve"]
+    completed = point_result.diagnostics.run_all(include_retargets=True, arguments=arguments)[
+        "truncation_curve"
+    ]
+
+    assert deferred.status is AssessmentStatus.DEFERRED
+    assert deferred.arguments == arguments["truncation_curve"]
+    assert deferred.next_steps
+    assert completed.status is AssessmentStatus.COMPLETED
 
 
 @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
@@ -1586,6 +1635,8 @@ def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_resu
     assert "support" in [item.name for item in battery.attention]
     assert "omitted_confounding" not in [item.name for item in battery.attention]
     assert "omitted_confounding" in [item.name for item in battery.omissions]
+    assert "benchmark" in [item.name for item in battery.omissions]
+    assert sensitivity["benchmark"].status is AssessmentStatus.DEFERRED
 
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])

@@ -96,9 +96,10 @@ VALIDATION_OPERATIONS: tuple[str, ...] = ("score_equations", "support", "nuisanc
 class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
     """Status returned by a diagnostic or validation operation.
 
-    ``NOT_APPLICABLE`` means that the operation does not apply to the fitted
-    estimand. ``UNAVAILABLE`` means that the operation applies, but the result
-    does not contain the artifacts needed to run it.
+    ``DEFERRED`` means that the operation can run after the caller supplies a
+    required choice or cost opt-in. ``NOT_APPLICABLE`` means that the operation
+    does not apply to the fitted estimand. ``UNAVAILABLE`` means that the
+    operation applies, but its method, derivation, or stored artifacts cannot run it.
 
     Reach a status by name, as ``AssessmentStatus.PASSED``.
 
@@ -116,6 +117,7 @@ class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
     FAILED = "failed"
     WARNING = "warning"
     COMPLETED = "completed"
+    DEFERRED = "deferred"
     NOT_APPLICABLE = "not_applicable"
     UNAVAILABLE = "unavailable"
 
@@ -591,9 +593,9 @@ class DiagnosticReport:
 
     Notes
     -----
-    A skipped or refused item remains in the report. A capability known to be unsupported
-    is an omission. A refusal raised during an aggregate run remains unavailable,
-    and later operations still run.
+    A skipped or refused item remains in the report. Caller-deferred work has its own
+    status. A capability known to be unsupported is an omission. A refusal raised during
+    an aggregate run remains unavailable, and later operations still run.
 
     Examples
     --------
@@ -758,7 +760,12 @@ class ValidationReport:
     def passed(self) -> bool:
         """Return whether every required check passed."""
         return all(
-            item.status not in {AssessmentStatus.FAILED, AssessmentStatus.UNAVAILABLE}
+            item.status
+            not in {
+                AssessmentStatus.FAILED,
+                AssessmentStatus.DEFERRED,
+                AssessmentStatus.UNAVAILABLE,
+            }
             for item in self.items
         )
 
@@ -863,8 +870,12 @@ class AssessmentReport:
 
     @property
     def omissions(self) -> tuple[AssessmentItem, ...]:
-        """Return rows that were not applicable or unavailable."""
-        statuses = {AssessmentStatus.NOT_APPLICABLE, AssessmentStatus.UNAVAILABLE}
+        """Return rows that were deferred, not applicable, or unavailable."""
+        statuses = {
+            AssessmentStatus.DEFERRED,
+            AssessmentStatus.NOT_APPLICABLE,
+            AssessmentStatus.UNAVAILABLE,
+        }
         return tuple(item for _, item in self._presented() if item.status in statuses)
 
     def next_steps(self) -> tuple[str, ...]:
@@ -1171,8 +1182,14 @@ class _CapabilityFacade:
             return _item_from_capability(capability)
         missing = tuple(name for name in capability.requires_arguments if name not in arguments)
         if missing:
-            return _missing_argument_item(capability, self._attribute, missing)
-        return _cost_refusal(capability, self._attribute, include_refits, include_retargets)
+            return _missing_argument_item(capability, self._attribute, missing, arguments)
+        return _cost_refusal(
+            capability,
+            self._attribute,
+            include_refits,
+            include_retargets,
+            arguments,
+        )
 
     def _run_all(
         self,
@@ -1408,13 +1425,16 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
 
 
 def _missing_argument_item(
-    capability: AssessmentCapability, attribute: str, missing: tuple[str, ...]
+    capability: AssessmentCapability,
+    attribute: str,
+    missing: tuple[str, ...],
+    arguments: Mapping[str, Any],
 ) -> AssessmentItem:
     """The skip a combined report owes an operation whose argument it cannot choose.
 
-    A combined report runs every operation argument-free, so one with a required argument
-    and no default cannot appear in it.  Choosing a value here -- which covariates to
-    benchmark against -- would be a scientific choice made silently on the caller's behalf.
+    A combined report cannot run an operation until every required argument is present.
+    Choosing a value here -- which covariates to benchmark against -- would be a scientific
+    choice made silently on the caller's behalf.
 
     A row may declare more than one argument, so the sentence has to agree in number.
     ``", ".join`` alone rendered "an explicit grid, estimand argument", which reads as one
@@ -1426,9 +1446,10 @@ def _missing_argument_item(
     )
     return AssessmentItem(
         capability.operation,
-        AssessmentStatus.UNAVAILABLE,
-        f"needs {phrase}, which a combined report has no basis to choose",
+        AssessmentStatus.DEFERRED,
+        capability.reason or f"needs {phrase}, which a combined report has no basis to choose",
         (f"call result.{attribute}.{capability.operation}() directly with {needed}",),
+        arguments=dict(arguments),
     )
 
 
@@ -1437,6 +1458,7 @@ def _cost_refusal(
     attribute: str,
     include_refits: bool,
     include_retargets: bool,
+    arguments: Mapping[str, Any],
 ) -> AssessmentItem | None:
     """The skip a combined report owes an operation the caller has not paid for.
 
@@ -1461,9 +1483,10 @@ def _cost_refusal(
     flag = "include_refits" if capability.execution == "refit" else "include_retargets"
     return AssessmentItem(
         capability.operation,
-        AssessmentStatus.UNAVAILABLE,
+        AssessmentStatus.DEFERRED,
         f"not run by default because it {work}; pass {flag}=True",
         (f"call result.{attribute}.{capability.operation}() directly, or pass {flag}=True",),
+        arguments=dict(arguments),
     )
 
 
@@ -2943,16 +2966,20 @@ class SensitivityFacade(_CapabilityFacade):
         else:
             available, status, reason = True, None, None
             execution = "retarget" if selected.branch == _DERIVED_RR else "summarize"
+        deferred = status == AssessmentStatus.DEFERRED.value
         return _capability(
             "evalue",
             _family(self._result),
             artifacts=("structured arm contrast", "ratio or derivation artifacts"),
             interpretation="minimum risk-ratio association needed to explain away an effect",
-            available=available,
-            status=AssessmentStatus.PASSED if status is None else AssessmentStatus(status),
+            available=available or deferred,
+            status=(
+                AssessmentStatus.PASSED if status is None or deferred else AssessmentStatus(status)
+            ),
             reason=reason,
             execution=execution,
             cost="cheap",
+            requires_arguments=("estimand",) if deferred else (),
         )
 
     def _capability_for_arguments(
