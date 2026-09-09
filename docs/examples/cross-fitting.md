@@ -4,7 +4,8 @@ This is the same navigation question as the [first test of change](point-treatme
 network scale. Two things change. The plan now has rich electronic-record features, so the analyst
 wants a flexible learner. Patients also share navigator teams, so their outcomes are not independent.
 
-Each change breaks the interval in its own way, and folds are the answer to both.
+Each change can invalidate the usual interval in a different way. Out-of-fold prediction and
+cluster-aware splitting and inference address the two problems separately.
 
 Read [CV-TMLE and cross-fitting](../technical-reference/cv-tmle.md) for the two constructions and
 their fold arithmetic.
@@ -21,7 +22,9 @@ The second objection is about the rows. Patients assigned through the same navig
 staff, workflow, and local practice. Treating three thousand patients from two hundred teams as three
 thousand independent observations claims more information than the network holds.
 
-The analyst is right about the point estimate and wrong about the interval, twice over.
+The two objections require different checks. Flexible learners can reduce nuisance-model bias, but
+they do not guarantee a better point estimate. Cross-fitting and cluster-aware inference address
+different parts of the interval calculation.
 
 ## Why this method
 
@@ -34,13 +37,13 @@ The analyst is right about the point estimate and wrong about the interval, twic
 The reason for the first row is not overfitting in the ordinary sense. A boosted model that predicts
 held-out patients well can still break the interval.
 
-The interval comes from an asymptotic argument with an empirical-process term in it. That term is
-negligible when the nuisance estimators live in a class that is not too rich. A gradient-boosted
-model does not satisfy that condition. The term stops vanishing, the variance estimate loses a
-piece, and the interval shrinks below its nominal width.
+The interval comes from an asymptotic argument with an empirical-process term in it. Classical
+proofs control that term with complexity conditions such as a Donsker condition. Rich, adaptively
+tuned learners need not satisfy those conditions, so in-sample nuisance evaluation does not provide
+the required argument.
 
-Cross-fitting removes the assumption instead of hoping it holds. Every nuisance prediction used for
-a patient comes from a model that never saw that patient.
+Cross-fitting avoids that empirical-process reliance under its remaining conditions. Every nuisance
+prediction used for a patient comes from a model that never saw that patient.
 
 **Folds do not buy the rest of efficiency.** Four conditions stand behind a valid interval, and
 folds address one.
@@ -48,7 +51,7 @@ folds address one.
 | condition | what supplies it |
 | --- | --- |
 | the empirical-process term is negligible | cross-fitting |
-| positivity bounds the clever covariate | the truncation, and your design |
+| the inverse mechanism stays controlled | support in the study design. Truncation only regularises the fitted denominator |
 | the estimated influence curve converges | your learners |
 | the second-order remainder vanishes fast enough, by a product rate on both nuisances | your learners, and nothing the fluctuation can do |
 
@@ -135,8 +138,8 @@ and the targeting scheme.
 
 ## The failure mode: an interval that is too narrow
 
-Now fit the same learners with the splitting turned off. `cross_fit=False` is not a tuning knob. It
-is a different estimator, and it is the ordinary TMLE of the first test of change.
+Now fit the same learners with the splitting turned off. `CrossFitting(enabled=False)` is not a
+tuning knob. It selects ordinary TMLE rather than CV-TMLE.
 
 ```python
 in_sample = effect.estimate(
@@ -162,18 +165,16 @@ show("cross-fitted", cross_fitted, truth["ate"])
 print("population ATE:", truth["ate"])
 ```
 
-At the documented sample size the two point estimates are close. The standard errors are not. The
-in-sample fit reports a much smaller standard error, and its interval excludes the population value.
-The cross-fitted interval covers it.
+At the documented sample size the two point estimates are close. The standard errors are not. In
+this fixed draw, the in-sample fit reports a smaller standard error and excludes the population
+value. The cross-fitted interval contains it.
 
-Read the direction of the error carefully. The in-sample fit is not merely imprecise. It is
-confident and wrong. Its nuisance models were partly fitted to the patients they are being evaluated
-on, so the residual variation those patients contribute is too small. The variance estimate inherits
-the optimism.
+Read this as a failure demonstration, not a universal ordering. Here the nuisance models reuse the
+rows on which their influence values are evaluated. The smaller standard error is compatible with
+overfit nuisance residuals, but one draw does not establish its cause or coverage rate.
 
-This is the failure that no amount of held-out predictive accuracy will warn you about. The boosted
-model may score well on a validation set and still produce this interval, because the problem is in
-the influence curve rather than in the prediction.
+Predictive accuracy alone does not establish the product-rate and influence-curve conditions. A
+learner can predict well and still leave those inferential conditions unsupported.
 
 ## The second failure mode: patients are not independent
 
@@ -245,8 +246,12 @@ Folds change too. Each team must land in one fold, and the number of teams bound
 | what happens | why it matters |
 | --- | --- |
 | a team lands entirely in one fold | otherwise a patient's nuisance prediction comes from a model trained on their own team, which is leakage through the team effect |
-| an externally supplied fold assignment that splits a team is refused | buying more folds that way shrinks the standard error in exactly the direction the cluster role was declared to prevent |
+| generated outer and learner folds keep teams intact | the nuisance prediction cannot use outcomes from the patient's own team |
 | with fewer teams than folds, the fold count is reduced and warns | the number of teams, not the number of patients, is what bounds the split |
+
+`CrossFitting` currently generates folds from `random_state`. It does not yet accept a public
+prespecified fold plan. The [remediation roadmap](../roadmap.md#rm3-public-reusable-split-plans)
+records that API gap.
 
 ## A second construction over the same folds
 
@@ -255,7 +260,7 @@ Folds change too. Each team must land in one fold, and the number of teams bound
 | construction | how it is selected | what it does |
 | --- | --- | --- |
 | stacked CV-TMLE | `targeting_scheme="pooled"`, the default | stacks all out-of-fold predictions, fits one targeting regression, evaluates the plug-in on the whole sample |
-| fold-evaluated CV-TMLE | `cv_evaluation=True` | averages the fold plug-ins, with a cross-validated variance |
+| fold-evaluated CV-TMLE | `CrossFitting(fold_evaluation=True)` | averages the fold plug-ins, with a cross-validated variance |
 
 ```python
 fold_evaluated = effect.estimate(
@@ -273,9 +278,9 @@ At equal fold sizes the two variance formulas nearly coincide, so the numbers si
 here. They are still different estimators with different registered evidence, and neither row
 inherits the other's result.
 
-Two refusals apply to fold evaluation. A nonlinear fold aggregate has a fold-varying gradient, so
-risk ratios, odds ratios, and MSM coefficients are refused rather than given an interval whose
-reported curve has a nonzero score.
+Two refusals apply to fold evaluation. A nonlinear fold aggregate has a fold-varying gradient.
+Risk ratios, odds ratios, and MSM coefficients are therefore refused instead of receiving an
+interval whose reported curve has a nonzero score.
 
 ## How far to trust this
 
@@ -331,12 +336,9 @@ ratio. The ratio therefore divides two like quantities. The report defines no th
 Two things follow from the median rule. The report is coordinatewise, so this call sets
 `simultaneous=False`. A repeated fit reports no simultaneous band.
 
-The registered study validates the median report at three draws. Its `repeat_stability` cells also
-measure less point-estimate spread than the paired first-draw control. That measurement uses one
-fixed binary-law sample at one versus three fold draws.
-
-The study declares that condition as its own limit. It establishes nothing for another sample, law,
-or repeat count. Read the retained ratio descriptively rather than as a pass threshold.
+Read the retained ratio descriptively rather than as a pass threshold. The registered study covers
+the three-draw reporting rule on its declared laws. It does not guarantee that another repeat count
+will reduce split sensitivity in a new sample.
 
 Three things constrain what this page establishes.
 
@@ -350,18 +352,12 @@ Three things constrain what this page establishes.
 | the two construction studies | that stacked CV-TMLE matches R `tmle3` on identical realized folds, and that both constructions recover known truths | that folds fix a product-rate failure. They do not |
 | the repeated cross-fitting study | that the three-draw median reduced fold-seed spread against the paired first-draw control, on one fixed binary-law sample | the same reduction on another sample, law, or repeat count. The study declares that limit |
 
-Leakage is checked separately, and without a tolerance. A test rigs a law where a nearest-neighbour
-learner reproduces a held-out row exactly if and only if a same-cluster row was in its training set.
-The assertions are array equality and array inequality, so leakage is not a matter of degree.
-
 The evidence rows are
 [stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md),
 [fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md),
 and
 [repeated point-treatment cross-fitted TMLE](../technical-reference/method-evidence/repeated-cross-fitting.md).
-The second has no canonical comparator, and its study says so in its own cell rather than borrowing
-a surrogate. The third covers the `repeats=3` call above, and it publishes under the reporting
-policy.
+Each page states the construction and limits its evidence to the folds and reporting rule it tested.
 
 ## Where to go next
 

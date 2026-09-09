@@ -97,19 +97,19 @@ method = TMLEMethod(
 )
 regime_result = regimes.estimate(method=method)
 print(regime_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-regime_diagnostics = regime_result.diagnostics.run_all()
+regime_assessment = regime_result.assess()
 ```
 
-The screening contrast is smaller than the offer-to-all contrast, because the rule reaches only part
-of the eligible population. That is the number the office needs when it budgets navigator hours. No
-rescaling of the average treatment effect produces it.
+In this law, the screening contrast is smaller than the offer-to-all contrast. Its size depends on
+who the rule assigns and how treatment effects vary. That is the number the office needs when it
+budgets navigator hours. No rescaling of the average treatment effect produces it.
 
 A rule needs positivity only where it assigns. Lower-risk patients are never assigned navigation
 under this plan, so the fit never divides by their probability of receiving an offer. A rule can
 therefore be estimable where "offer to all" is not.
 
 ```python
-regime_support = regime_diagnostics.report("support")
+regime_support = regime_assessment.report("support")
 print(regime_support.summary())
 print(regime_support.regimes["screen on risk"].score_load)
 ```
@@ -173,8 +173,8 @@ policies = (
     Shift(0.5, cap=None, name="+0.5 uncapped"),
     Shift(1.0, cap=None, name="+1.0 uncapped"),
 )
-shift_result = dose_study.estimate(
-    ModifiedTreatmentPolicyEffect(policies),
+shift_effect = dose_study.identify(ModifiedTreatmentPolicyEffect(policies))
+shift_result = shift_effect.estimate(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
     density_bins=40,
@@ -183,7 +183,7 @@ shift_result = dose_study.estimate(
     random_state=32,
 )
 print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-shift_diagnostics = shift_result.diagnostics.run_all()
+shift_assessment = shift_result.assess()
 ```
 
 ## The failure mode: the cap is part of the question
@@ -206,7 +206,7 @@ states what is achievable, because that is a question about the world.
 Now read the support report, which is published per policy rather than once for the fit.
 
 ```python
-for policy, report in shift_diagnostics.report("support").items():
+for policy, report in shift_assessment.report("support").items():
     print(report.summary())
     print(report.score_load)
     print()
@@ -225,8 +225,8 @@ used by the fit. Read both quantities, because either one can be the more concen
 | `+1.0 uncapped` | the effective sample size collapses to a small fraction of the rows | the ratio is now concentrated on a few patients, and the estimate rests on them |
 
 Every uncapped shift also raises a positivity warning during the fit. The warning names the share of
-rows assigned an intensity above the largest one observed, because the outcome regression
-extrapolates for those rows and identification needs the shifted intensity to be supported.
+rows assigned an intensity above the observed maximum. The outcome regression extrapolates for
+those rows, while identification requires the shifted intensity to be supported.
 
 The last row of the table is the important one. The fit returns a number for `+1.0 uncapped`, and at
 the documented sample size that number sits further from its population value than the others do.
@@ -243,8 +243,8 @@ intervention. No separate workflow change provides another path to the outcome.
 from cleverly import IncrementalEffect
 from cleverly.interventions import Incremental
 
-incremental_result = study.estimate(
-    IncrementalEffect((Incremental(0.5), Incremental(2.0))),
+incremental_effect = study.identify(IncrementalEffect((Incremental(0.5), Incremental(2.0))))
+incremental_result = incremental_effect.estimate(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
@@ -252,11 +252,11 @@ incremental_result = study.estimate(
     random_state=31,
 )
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-incremental_diagnostics = incremental_result.diagnostics.run_all()
+incremental_assessment = incremental_result.assess()
 ```
 
 ```python
-for policy, report in incremental_diagnostics.report("support").items():
+for policy, report in incremental_assessment.report("support").items():
     print(policy, report.score_load)
 ```
 
@@ -275,42 +275,10 @@ The incremental target does not require ordinary treatment positivity. Its weigh
 when the observed probability approaches zero or one. That protection does not make the assignment
 mechanism optional, because the mechanism defines the estimand itself.
 
-That is the opposite of the point-treatment situation, where the outcome regression is the safer of
-the two nuisances to lean on. It is also the opposite of the [DR-TMLE](dr-tmle.md) situation, where
-the mechanism was the one nobody could model. Read the
+That differs from the ordinary point-treatment target, which remains identified without defining an
+intervention through the observed mechanism. Read the
 [incremental section](../technical-reference/point-treatment-tmle.md#incremental-propensity-score-interventions)
 before reporting one.
-
-## Stress the incremental assignment rule
-
-The office can inspect qualitative movement under a simulated common cause.
-Each cell keeps the odds multiplier fixed and rebuilds the intervention from its refitted assignment model.
-Movement includes this change in probabilities. It supplies no sensitivity-adjusted interval or robustness verdict.
-
-```python
-from cleverly.sensitivity import ConfounderStrengthGrid
-
-incremental_sensitivity = incremental_result.sensitivity.run_all(
-    include_refits=True,
-    random_state=31,
-    arguments={
-        "simulated_confounding": {
-            "estimand": "ate_ipsi[odds x2 vs odds x0.5]",
-            "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
-        }
-    },
-)
-print(incremental_sensitivity.summary())
-incremental_surface = incremental_sensitivity.report("simulated_confounding")
-print(incremental_surface.to_frame())
-```
-
-The combined sensitivity report records the requested grid, alias, and common seed. It also keeps
-the returned surface for detailed inspection. Select the full reported alias for a multi-parameter
-result. The surface refuses the natural-course mean at multiplier one. A contrast against that
-reference remains eligible.
-The [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
-names the supported populations and replay checks.
 
 ## The three numbers side by side
 
@@ -329,46 +297,35 @@ Three tables, three column headings that read the same, three different paramete
 name in the first column is what distinguishes them, and it is the part to carry into the program
 report.
 
-One composition is refused rather than approximated. A fit cannot combine axes, because one
-fluctuation solves one set of score equations. A result reporting parameters from two axes would put
-two of them under one heading.
+The current library fits one intervention axis at a time. It refuses a request that combines these
+axes because no registered implementation covers their joint targeting and covariance. Fit each
+declared policy question separately.
 
 ## How far to trust this
 
 ```python
 for axis, report in (
-    ("known regime", regime_diagnostics),
-    ("modified treatment policy", shift_diagnostics),
-    ("incremental intervention", incremental_diagnostics),
+    ("known regime", regime_assessment),
+    ("modified treatment policy", shift_assessment),
+    ("incremental intervention", incremental_assessment),
 ):
     print(axis)
     print(report.summary())
     print()
 ```
 
-The combined reports make the comparison explicit. The support rows for the known regime and the
-incremental intervention complete without a warning. The shift row warns and names `+1.0
-uncapped`. Every axis passes its own score equations. The reports also keep unrequested retargets
-and refits visible as omissions rather than silently skipping them.
+The combined assessments keep the three policy questions separate. Read the support report for
+each axis before comparing its estimates. An assessment records an omitted operation instead of
+silently skipping it.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the combined diagnostic reports | which checks passed, warned, completed, or were omitted for each axis | that one axis answers another axis's policy question |
+| the combined assessments | which checks passed, warned, completed, or were omitted for each axis | that one axis answers another axis's policy question |
 | the per-policy support reports | which declared policies the program data can carry | that a well-supported policy is worth adopting |
 | the score-equation checks | each axis solved its own score equation | that the axis you chose matches the decision the office faces |
-| the evidence manifest | each axis has its own exact-law, Gateaux, remainder, and registered repeated-sampling checks, with nonzero controls | that a result on these declared laws transfers to missing outcomes, weights, clusters, cross-fitting, or longitudinal treatment |
 
-The evidence for these axes is in the
-[evidence manifest](../technical-reference/evidence.md#the-table), under `ey_regime`, `ate_regime`,
-`ey_shift`, `ate_shift`, `ey_ipsi`, and `ate_ipsi`. The incremental rows carry nonzero
-treatment-score and one-sided remainder witnesses, which exist because a check at the truth alone
-would be blind to a term that vanishes there.
+The [point-treatment technical entry](../technical-reference/point-treatment-tmle.md#variations)
+links the evidence for each axis and states the supported compositions.
 
-The repeated-sampling results are reported separately for
-[deterministic regimes](../technical-reference/method-evidence/deterministic-point-treatment-regimes.md),
-[known stochastic regimes](../technical-reference/method-evidence/stochastic-point-treatment-regimes.md),
-[continuous policies](../technical-reference/method-evidence/continuous-modified-treatment-policies.md),
-and [incremental interventions](../technical-reference/method-evidence/incremental-propensity-interventions.md).
-
-The choice among the three axes is not a statistical question. It is a question about which change
-the program office can actually make.
+Choose the axis that represents a change the program can implement. Then use its support report to
+decide whether these data can estimate that policy well enough to report.

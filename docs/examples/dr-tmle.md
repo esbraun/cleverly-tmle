@@ -42,14 +42,15 @@ converge fast enough. The
 remainder term and the rate conditions, and tabulates what the variant buys and what it costs.
 
 Read that table before you choose this method. Most of its rows are reasons not to. With both
-nuisances consistent the corrections converge to zero, so the extra cost buys nothing. The
-corrected interval is also not narrower than the ordinary one.
+nuisances consistent the corrections converge to zero, so they add no first-order inferential gain.
+The corrected interval is not designed or guaranteed to be narrower than the ordinary one.
 
 ## The data
 
-The law is `make_nonlinear_ate` again. A gradient-boosted learner is approximately right for the
-outcome regression on this law. A logistic regression is wrong for the assignment mechanism, by
-construction. That pairing is the analyst's situation.
+The law is `make_nonlinear_ate` again. A gradient-boosted learner can approximate the nonlinear
+outcome regression on this law. A main-effects logistic regression cannot represent the assignment
+mechanism. That pairing represents the analyst's concern, but one fit cannot establish either
+learner's convergence rate.
 
 ```python
 from cleverly.datasets import make_nonlinear_ate
@@ -175,14 +176,14 @@ show("DR-TMLE", doubly_robust)
 print("population ATE:", truth["ate"])
 ```
 
-The point estimates are close, and the intervals are similar in width. **That is the expected
-result, and it is the hardest thing about this variant to teach.**
+The point estimates are close, and the intervals are similar in width. This resemblance is not
+evidence that either interval has its claimed repeated-sampling coverage.
 
-The difference DR-TMLE makes is not visible in one sample. Both estimators are consistent here,
-because the outcome regression is good. What differs is the repeated-sampling behaviour of the
-interval as the program collects more discharges. The ordinary interval's coverage decays, because
-its remainder is first order in the outcome regression's error. The corrected interval is entitled
-to be believed under the weaker condition.
+The difference DR-TMLE is designed to make is not established by one sample. If the outcome and
+reduced regressions meet the required rates while the assignment model converges to the wrong
+limit, both point estimators can remain consistent. The ordinary remainder is then first order in
+the outcome-regression error, while the corrected interval can remain valid under the contract's
+weaker conditions.
 
 A single fit cannot show a decaying coverage rate. Anyone who claims otherwise is reading noise.
 
@@ -201,11 +202,8 @@ marks the nuisance report and the support report as completed, because neither d
 The support row states 0.0% truncation and a 90.6% minimum effective sample size for you to read.
 Unrequested truncation work and refutation remain visible as omissions.
 
-Both omissions ask for `include_refits` on this page. A truncation curve is a retarget on an
-ordinary fit, because it re-solves the targeting step against cached nuisances. On a guarded
-DR-TMLE fit it also refits every reduced regression at every bound, so the report declares it a
-refit and prices it accordingly. An unguarded DR-TMLE fit solves no correction and keeps the
-ordinary retarget label.
+Both omissions ask for `include_refits` on this page. A guarded truncation curve must refit the
+reduced regressions at every bound, so the assessment leaves that costly operation off by default.
 
 The retained correction report keeps the detail that the triage row compresses. Each row is one
 correction equation, per arm, with its solved score and residual. The report also states whether
@@ -245,18 +243,14 @@ calls it the single most important thing on that page.
 DR-TMLE ships under **conditional validity**. The interval is valid conditional on the practitioner
 obtaining adequate primary and reduced-regression fits. The registered
 [canonical complete-outcome study](../technical-reference/method-evidence/canonical-dr-tmle.md)
-reports rather than gates, so it publishes its red cells. Its three-size results show bias
-contraction. Both one-correct bias-equivalence cells are red at n = 1,500. Treatment-correct
-coverage also misses its floor there, while both bias-contraction slopes exclude zero.
-
-The [validation grid](../technical-reference/method-evidence/validation-grid.md) limits that evidence
-to a binary complete-outcome law with declared GLMs. It does not establish the flexible-learner
+publishes both passing and failing cells. The
+[validation grid](../technical-reference/method-evidence/validation-grid.md) limits that evidence to
+a binary complete-outcome law with declared GLMs. It does not establish the flexible-learner
 conditions for this fit.
 
 ## Where to go next
 
-If your worry is which baseline variables belong in the assignment model rather than how well any of
-them can be fitted, the entry for that is [collaborative TMLE](collaborative-tmle.md). The two do
-not compose, and the refusal is by construction rather than a gap. A reduced regression conditions
-on the fitted assignment probability as a covariate, and a collaborative one is deliberately not an
-estimate of the true probability.
+If your question is which baseline variables belong in the assignment model, read
+[collaborative TMLE](collaborative-tmle.md). That differs from asking how well a fixed adjustment
+set can be fitted. The two methods do not compose in this release. The library has no derived and
+validated joint targeting or inference contract, so `available_methods()` refuses the combination.

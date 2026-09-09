@@ -41,17 +41,17 @@ covariate as the exposure.
 | --- | --- | --- |
 | outcomes missing for reasons you recorded | the full-population estimand, identified under missingness at random given the recorded variables and the arm | a response model on top of the assignment model |
 | response depends on the exposure | the two mechanisms compose into one factor, so the arm-dependence is handled rather than assumed away | positivity is now needed for the **product** of the two mechanisms, not for either alone |
-| you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the assignment model and the response model are both right" |
+| you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the product of the assignment and response mechanisms is right" |
 
 That last row is the one to read twice. Double robustness in the complete-data case gives you two
-independent chances. Here the second chance requires two models to be right together, so it is a
-weaker guarantee than it looks.
+independent chances. Here the second chance requires the joint mechanism product. Consistency of
+both models is a sufficient route, although their errors can cancel in special cases.
 
-The alternative that fails is the obvious one. Dropping the non-respondents and fitting the usual
-analysis is consistent only when a correctly specified outcome regression can extrapolate from
-respondents to everyone. When the outcome surface has curvature the model cannot reach, and
-respondents carry a shifted covariate distribution, the extrapolation is wrong in a direction
-nothing in the fit reveals.
+Dropping non-respondents changes the population over which the outcome regression is averaged. A
+correct conditional regression on respondent rows does not recover the eligible-population ATE
+when response shifts the effect-modifier distribution. Special effect structures can make the two
+population averages coincide. This generator also adds outcome curvature that the main-effects
+complete-case regression cannot represent.
 
 ## The data
 
@@ -115,7 +115,9 @@ for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
 
-The assumptions gain one, and one of the old ones changes shape.
+The printed summary currently uses the complete-outcome functional and assumptions. It does not
+show the response mechanism introduced by `missingness=`. This omission is a reporting gap in the
+current identification object. Record the two additional assumptions in the study protocol.
 
 | assumption | what it means here |
 | --- | --- |
@@ -227,10 +229,10 @@ print(f"mild law, complete cases: psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f
 print("population ATE:", mild_truth["ate"])
 ```
 
-At `strength=1.0` the complete-case fit lands on the truth because this law has special linear and
-effect structures. Do not generalize that result. Even under MAR, averaging a correct conditional
-outcome model over respondents can target their covariate distribution instead of the eligible
-population when effects vary.
+At `strength=1.0` the complete-case estimate is close to the truth in this fixed draw. This law has
+special linear and effect structures at that setting. Do not generalize the result. Even under MAR,
+averaging a correct conditional outcome model over respondents can target their covariate
+distribution instead of the eligible population when effects vary.
 
 A full-population plug-in fit can learn from respondents and predict for every eligible patient's
 baseline record. The complete-case code above discards those records. Declaring the response
@@ -287,8 +289,8 @@ for estimand, key in (
 
 Three readings of one comparison. The difference is in percentage points of top-box. The risk ratio
 is the multiplicative version a program scorecard uses. The odds ratio is larger than the risk ratio
-here, as it always is when the outcome is common, and reporting it as though it were a rate ratio
-would overstate the change.
+here. The effect increases a common outcome, so the odds ratio lies farther above one. Reporting it
+as though it were a rate ratio would overstate the change.
 
 The ratio parameters are built on the log scale, so their intervals are asymmetric around the point
 estimate. That is correct rather than a display artefact.
@@ -363,7 +365,7 @@ one fit.
 | the nuisance report | held-out fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
 | the score-equation report | the targeting solved the composed score | that missingness at random holds |
 | the MNAR tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |
-| the mild-law comparison | that the bias needs curvature plus a sharpening mechanism, not merely missingness | which of the two cases your own data is in |
+| the mild-law comparison | the complete-case contrast is close to the eligible-population effect at one setting of this synthetic law | whether the same coincidence holds in another population |
 | the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control | that missingness at random holds in this survey |
 | the [randomized missing-outcome DR-TMLE study](../technical-reference/method-evidence/randomized-missing-outcome-dr-tmle.md) | corrected inference under two drift directions and a direct five-reduction score-reduction mutation | observational-treatment DR-TMLE or internal parity with R's joint mechanism |
 | the evidence manifest | exact-law, Gateaux, remainder, and mutation checks for the randomized missing-outcome construction | empirical support for missingness at random |

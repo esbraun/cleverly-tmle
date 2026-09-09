@@ -4,12 +4,12 @@
 
 You want to fit the nuisances with a flexible learner. A gradient-boosted outcome regression and a
 random-forest propensity fit the data well, and an ordinary TMLE built on them can report an
-interval that is too narrow. The reason is not overfitting in the usual sense. It is that the
-theory behind the interval assumes the nuisance estimators come from a class that is not too rich,
-and a modern learner does not satisfy that assumption.
+interval that is too narrow. The reason is not overfitting in the usual sense. Classical theory
+controls an empirical-process term with complexity conditions such as a Donsker condition. Rich,
+adaptively tuned learners need not satisfy those conditions.
 
-Cross-fitting removes that assumption. Every nuisance prediction used for an observation is
-produced by a model that never saw the observation.
+Cross-fitting avoids that empirical-process reliance under its remaining conditions. Every initial
+nuisance prediction used for an observation comes from a model that never saw the observation.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |

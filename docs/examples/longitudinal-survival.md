@@ -1,8 +1,8 @@
 # Longitudinal TMLE for members who leave: retention and competing risks
 
 A member who leaves the plan is not a member with a missing outcome. This test of change makes
-leaving the question rather than the nuisance, and then splits it by cause. One cause the program
-can move. The other it cannot, and asking the fit to remove it is refused by name.
+leaving the question rather than the nuisance, and then splits it by cause. The two exit routes can
+respond differently to navigation. Asking the fit to remove either route is refused by name.
 
 Read [longitudinal TMLE](longitudinal-tmle.md) first. It declares the same program at two decision
 points, and this page reuses its design vocabulary. Read
@@ -11,12 +11,11 @@ the event-process recursion and the cause-specific construction.
 
 ## The applied question
 
-The plan wants to know whether repeated transition navigation keeps members enrolled. Members leave
-for two reasons. Some choose another plan in the annual open-enrollment window. Others lose
-eligibility because their employer group terminated.
-
-Only the first reason is something the navigation program can affect. The program still needs a
-number for both, because a cumulative incidence that pools them answers neither question.
+The plan wants to know whether repeated transition navigation keeps members enrolled. Members can
+choose another plan during annual open enrollment or after a qualifying life event. Navigation can
+affect either choice, but the two routes can respond differently. The program needs a number for
+both. All-cause incidence answers the overall retention question, but it cannot separate the two
+routes.
 
 ## Why this method
 
@@ -27,12 +26,13 @@ the event again in the second.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | the outcome is an event that can happen at more than one time | one cumulative risk per horizon, each on its own risk set | one regression per node per horizon, so the fit is longer than an end-of-study one |
-| members can leave for reasons you cannot intervene on | a cause-specific incidence that leaves the competing cause in the history | the causes do not sum to one, and renormalising them would break the score equation |
+| members can leave through competing routes | a cause-specific incidence that leaves the competing cause in the history | cause-specific incidences sum to all-cause risk, not one. Renormalising them would break the score equation |
 | you want the retention scale rather than the risk scale | `curve(scale="survival")`, which mirrors the interval correctly | nothing. It is the same fit read the other way |
 
 ## The shared configuration
 
-Every fit below uses the same parametric method, so the estimand is the only thing that changes.
+The fits use the same parametric learner families where their nuisance roles match. The
+competing-risk fit later uses fewer folds because one cause has few events.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -51,6 +51,9 @@ sequential = TMLEMethod(
     runtime=Runtime(random_state=41, n_jobs=1),
 )
 ```
+
+These compact learners keep the tutorial quick. The generator includes a nonlinear second-period
+hazard, so this configuration is not a claim that each nuisance regression is correctly specified.
 
 ## Churn as the outcome: a retention curve
 
@@ -95,15 +98,15 @@ churn_study = CausalStudy(
         cluster="navigator_team",
     ),
 )
-churn_result = churn_study.identify(
-    RegimeMean({"always": 1, "never": 0}, horizons=(1, 2))
-).estimate(method=sequential)
+churn_effect = churn_study.identify(RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)))
+print(churn_effect.summary())
+churn_result = churn_effect.estimate(method=sequential)
 print(churn_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-Two roles that look alike are doing different jobs here. `disenrolled_*` is the **event**, and
-`tracked_*` is the **censoring**: whether the plan could observe the member's status in that period
-at all. A member the plan lost track of is censored. A member who left the plan had the event.
+Two roles that look alike are doing different jobs here. `disenrolled_*` is the **event**.
+`tracked_*` is the **censoring**: whether the plan could observe the member's status in that period.
+A member the plan lost track of is censored. A member who left the plan had the event.
 
 Read the same fit on the retention scale.
 
@@ -135,15 +138,14 @@ for name, value in churn_truth.items():
 The contrast is negative, because navigation reduces cumulative disenrollment. Its size grows between
 the two horizons.
 
-## Two ways to leave, and one of them the program cannot touch
+## Two ways to leave
 
-A member leaves through one of two events, and the event type decides what the program can
-claim.
+A member leaves through one of two events. The event type decides what the program can claim.
 
 | cause | what it is | can the program move it? |
 | --- | --- | --- |
 | open enrollment | the member chose another plan in the annual window | yes. This is the exit that patient experience is supposed to affect |
-| other | the employer group terminated, or a qualifying life event ended eligibility | no. It is administrative, and it removes the member before they could ever choose |
+| special enrollment | the member chose another plan after a qualifying life event | yes. The choice occurs on a different route and can respond differently |
 
 The two are mutually exclusive and absorbing, which is what the container requires. Competing risks
 are declared by the **shape** of `outcome=`: a mapping of cause to its indicator columns, one per
@@ -162,8 +164,8 @@ exit_frame = exit_frame.rename(
         "A2": "navigation_p2",
         "D1": "open_enrollment_exit_p1",
         "D2": "open_enrollment_exit_p2",
-        "R1": "other_exit_p1",
-        "R2": "other_exit_p2",
+        "R1": "special_enrollment_exit_p1",
+        "R2": "special_enrollment_exit_p2",
     }
 )
 exit_study = CausalStudy(
@@ -171,7 +173,10 @@ exit_study = CausalStudy(
     design=LongitudinalTreatment(
         outcome={
             "open enrollment": ("open_enrollment_exit_p1", "open_enrollment_exit_p2"),
-            "other": ("other_exit_p1", "other_exit_p2"),
+            "special enrollment": (
+                "special_enrollment_exit_p1",
+                "special_enrollment_exit_p2",
+            ),
         },
         treatment=("navigation_p1", "navigation_p2"),
         baseline=("age", "baseline_readiness"),
@@ -192,6 +197,10 @@ exit_result = exit_study.identify(
     )
 )
 print(exit_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+for label, source in (("open enrollment", "death"), ("special enrollment", "relapse")):
+    for horizon in (1, 2):
+        key = f"ate_regimen[always vs never, {source} @ t={horizon}]"
+        print(f"population {label} contrast at t={horizon}: {exit_truth[key]:.4f}")
 ```
 
 Two operational notes, because both are the kind of thing that stops a competing-risks fit rather
@@ -206,15 +215,13 @@ This section also runs without censoring, so the causes are the only way to leav
 censoring machinery is unchanged from the retention curve above. This generator ships no cluster
 variant, so navigator teams are not declared here.
 
-At the documented sample size the two causes behave differently, and the contrast is the point.
-Navigation in both periods cuts the cumulative incidence of **open-enrollment** exits at both
-horizons, and both intervals exclude zero. For **other** exits the effect is small, and by the
-second horizon its interval contains zero.
+At the documented sample size the two causes behave differently. Navigation in both periods cuts
+open-enrollment exits at both horizons. The special-enrollment contrast changes direction by the
+second horizon and remains much smaller there.
 
-The administrative exit can serve as a negative-control outcome only under further design
-conditions. Navigation must have no path to employer eligibility, the outcome must share relevant
-confounding with voluntary exit, and selection must not create a new path. A large estimate would
-flag possible bias. A small estimate cannot prove exchangeability.
+The generator makes treatment affect both the all-cause hazard and the split between causes. The
+special-enrollment result is therefore not a negative control. Its small second-horizon contrast is
+a feature of this law, not evidence that navigation has no path to that cause.
 
 The contrast fit reports differences. To see the levels the differences are built from, and to add
 them up, ask for the means.
@@ -240,29 +247,27 @@ print(exit_levels.incidence_total())
 simplex, because that would move each cause off the score equation the fit just solved. The `excess`
 column is what a renormalisation would have hidden.
 
-## The failure mode: asking the fit to remove a cause the program cannot intervene on
+## The failure mode: asking the fit to remove a competing cause
 
-The tempting next question is what the open-enrollment loss would be if nobody's group had
-terminated. That is not a setting on this estimand. It is a different estimand, and it is refused by
+The tempting next question is what open-enrollment loss would be if special-enrollment exits were
+prevented. That is not a setting on this estimand. It is a different estimand, and it is refused by
 name.
 
 ```python
 from cleverly.longitudinal import LTMLE
 
 try:
-    LTMLE({"always": 1, "never": 0}, eliminate="other")
+    LTMLE({"always": 1, "never": 0}, eliminate="special enrollment")
 except TypeError as error:
     print(error)
 ```
 
-The refusal explains itself. What this fit reports is the cause-specific cumulative incidence with
-the competing causes left alone, so an administrative exit is part of the history and enters the
-clever covariate's indicator. Removing it would make it an intervened node, with a further factor
-per node in the denominator, and its own exchangeability and positivity assumptions to state.
+The refusal explains itself. This fit reports cause-specific cumulative incidence with the competing
+causes left alone. Removing a cause would make it an intervened node, with a further factor per node
+in the denominator and its own exchangeability and positivity assumptions.
 
-The refusal is also the scientifically right answer. A group termination is not something a navigation
-program intervenes on, so a counterfactual world without them is not a world the program could
-create.
+The refusal is also the scientifically cautious answer. Eliminating a competing event needs a new
+causal intervention and its own identification argument. This fit does not create either one.
 
 ## How far to trust this
 

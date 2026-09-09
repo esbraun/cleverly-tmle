@@ -37,12 +37,13 @@ navigator teams.
 | the nuisance functions are not linear | flexible learners fit both nuisances, and the estimate stays a plug-in | a valid interval needs a product rate on the two nuisances |
 | you want an interval you can report | the interval comes from the targeted influence curve | positivity must hold, and a support report cannot verify it |
 
-Two familiar alternatives fail here, for different reasons.
+Two familiar alternatives have different limitations here.
 
-A regression of the transition score on navigation and the four covariates reports a coefficient. That
-coefficient equals the average treatment effect only if the outcome model is correct and the effect
-is constant. Neither holds here. The number changes when you add an interaction term, and nothing in
-the output tells you which version answers the question.
+A regression of the transition score on navigation and the four covariates reports a coefficient.
+That coefficient does not generally equal the average treatment effect. A correct additive outcome
+model with a constant effect is one condition that makes them equal, but neither feature holds here.
+The number changes when you add an interaction term, and the output does not define the target
+population average.
 
 Inverse-probability weighting avoids the outcome model. A small fitted propensity can give one row
 a large weight. That row can then have a large effect on the estimate.
@@ -159,12 +160,13 @@ print("95% CI:", estimate.ci)
 print("population ATE:", truth["ate"])
 ```
 
-Both nuisances use a gradient-boosted learner, because the law is nonlinear. Cross-fitting is on,
-because a flexible learner needs it. The [cross-fitting tutorial](cross-fitting.md) shows what
-happens when you leave it off.
+Both nuisances use a gradient-boosted learner because the law is nonlinear. Cross-fitting separates
+each nuisance prediction from the row used to evaluate it. The
+[cross-fitting tutorial](cross-fitting.md) shows why that separation matters for flexible learners.
 
 The interval is built from the targeted influence curve. It is not the outcome model's own standard
-error. It already accounts for the fact that both nuisances were estimated.
+error. Its validity remains conditional on support, nuisance convergence, the product-rate
+condition, and the declared dependence structure.
 
 ## Which population is the number about?
 
@@ -386,9 +388,9 @@ refitted = result.assess(include_refits=True)
 print(refitted.report("refute").summary())
 ```
 
-A placebo exposure should give roughly zero. A random common cause should change nothing. A subset
-refit should scatter around the original estimate. A test that fails is evidence of a problem. A
-test that passes is not evidence of correctness.
+A placebo exposure should give roughly zero. A random common cause should cause limited movement.
+A subset refit should scatter around the original estimate. Unexpected movement calls for review,
+but a stable result is not evidence of correctness.
 
 This fit sets `random_state=21`, so the refuter inherits that seed and repeats the same report.
 
@@ -416,9 +418,9 @@ check = CoverageStudy(
 print(check.run().summary())
 ```
 
-This runs on `linear_dgp`, where a GLM is correctly specified for both nuisances. It reports a bias
-near zero and a coverage near 0.95. That is the baseline. With correct nuisances the estimator
-recovers the truth, and its interval means what it says.
+This runs on `linear_dgp`, where a GLM is correctly specified for both nuisances. The expected
+large-sample pattern is small bias and coverage near 0.95. This short run shows the workflow, not a
+coverage guarantee.
 
 Forty replications is a demonstration rather than evidence. The registered study behind this method
 runs 1,600 replications on two laws. It is published test by test in the

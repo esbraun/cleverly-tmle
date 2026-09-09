@@ -44,23 +44,24 @@ them can weaken consistency or no interference.
 
 | tutorial | the test of change | method entry | the failure mode it demonstrates |
 | --- | --- | --- | --- |
-| [Point-treatment TMLE](point-treatment-tmle.md) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one wrong nuisance is survivable, and two are not |
+| [Point-treatment TMLE](point-treatment-tmle.md) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance is sufficient; two inconsistent nuisances have no general guarantee |
 | [CV-TMLE](cross-fitting.md) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | an in-sample interval and an undeclared team are each too narrow |
 | [Collaborative TMLE](collaborative-tmle.md) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery predicts assignment and confounds nothing |
 | [DR-TMLE](dr-tmle.md) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle/index.md) | nuisance misspecification is not unmeasured confounding |
 | [Intervention axes](interventions.md) | target by risk, add navigation hours, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | three policies define three estimands whose result tables look alike |
 | [Survey non-response](survey-nonresponse.md) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | respondent selection does not define a common causal population |
 | [Longitudinal TMLE](longitudinal-tmle.md) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
-| [Retention and competing risks](longitudinal-survival.md) | plan exit as the outcome, split by whether the program can move it | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | a fit cannot remove a competing cause the program cannot intervene on |
+| [Retention and competing risks](longitudinal-survival.md) | plan exit as the outcome, split by whether the program can move it | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | competing-event elimination is outside the current supported estimands |
 | [MSM projections](msm-projections.md) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a working model that does not fit still defines the parameter it reports |
 
-Every page states an applied question, builds a synthetic population, declares the design and
-estimand, fits the method, and demonstrates its failure mode. Each page also separates diagnostics
-from causal assumptions that data cannot verify.
+Every page follows the same path. It states an applied question, specifies and identifies the
+causal effect, estimates it, and assesses the fitted result. The final section says what the
+analysis can support and what the study design must support.
 
-Each page starts its post-fit review with a combined report. It then retrieves the detailed report
-for a question that the summary cannot answer. A page keeps a method-specific diagnostic when no
-combined row represents it.
+Use the combined assessment for a full post-fit review. A method-focused page can open its
+diagnostics directly when sensitivity analysis does not answer its question. Open one detailed
+report when the summary identifies a concern. Use the linked technical entry for derivations,
+implementation evidence, and method-specific limits.
 
 ## Three outcome families
 

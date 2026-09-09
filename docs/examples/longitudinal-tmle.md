@@ -38,11 +38,12 @@ Those two facts are incompatible with a single regression.
 
 | what you do with the issue count | what goes wrong |
 | --- | --- |
-| adjust for it | you block part of the discharge intervention's effect. The estimate is biased toward the null |
-| leave it out | day-seven navigation stays confounded. The estimate is biased the other way |
+| adjust for it | you condition on a consequence of discharge navigation and can block part of its effect |
+| leave it out | day-seven navigation remains confounded by the issue count |
 
 This is time-varying confounding. No choice of covariate set in one regression resolves it, because
-the same variable must be conditioned on for one decision and not for the other.
+the same variable must be handled differently at the two decisions. The direction of either bias
+depends on the data-generating law.
 
 Sequential regression resolves it by working backward through the nodes. Each node's regression
 conditions on the history available *at that node*, and the result is averaged back over the earlier
@@ -57,8 +58,8 @@ history under the plan.
 ## The data
 
 The generator is `make_longitudinal`. It produces a wide frame with one row per member and one
-column per node, in time order. `cluster_size` puts members into navigator teams, and the team effect
-is genuine rather than decorative.
+column per node, in time order. `cluster_size` puts members into navigator teams. The team effect is
+genuine rather than decorative.
 
 ```python
 from cleverly.datasets import make_longitudinal
@@ -136,7 +137,7 @@ The assumptions change shape from the point-treatment case.
 | assumption | what it becomes here |
 | --- | --- |
 | exchangeability | sequential. It must hold at every node, given the recorded history at that node |
-| positivity | cumulative. Every member needs a positive probability of following the plan **and** staying enrolled, through both nodes |
+| positivity | cumulative. Every member needs a positive probability of following the plan **and** remaining observable, through both nodes |
 | consistency | each decision uses the declared protocol version, and later treatment remains defined under maintained follow-up |
 | no interference | one member's assignments do not change another member's protocol or outcome |
 
@@ -237,21 +238,22 @@ print(
 print("population contrast:", target)
 ```
 
-At the documented sample size the two naive analyses miss the population value in opposite
-directions, and neither interval covers it.
+At the documented sample size the two shortcuts miss the population value in opposite directions.
+Neither interval covers it.
 
-| analysis | direction of the error | why |
+| analysis | result on this draw | structural problem |
 | --- | --- | --- |
-| adjusting for open issues | too small | the issue count is on the path from discharge navigation to the score, so conditioning on it removes part of the effect |
-| baseline only | too large | day-seven navigation stays confounded by the issue count |
-| sequential regression | covers the population value | each node conditions on its own history, and the earlier history is averaged over under the plan |
+| adjusting for open issues | too small | the regression conditions on a post-discharge variable and cannot represent both treatment decisions |
+| baseline only | too large | the regression omits a cause of day-seven navigation and cannot represent both treatment decisions |
+| sequential regression | covers the population value | each node conditions on its own history, and earlier history is averaged under the plan |
 
-Neither naive analysis can be repaired by moving a term. That is the claim the method rests on, and
-this is what it looks like on data.
+The shortcut also conditions on agreement between the two assignments. Agreement depends on the
+time-varying history, so this selected sample is not the original target population. The two point
+fits therefore do not isolate a pure mediator-adjustment bias from a pure confounding bias.
 
-The subsetting contributes a third error the table does not separate. Members lost from follow-up
-were dropped. Dropping them is harmless only under restrictive observation conditions. The
-longitudinal fit models observation at each node and includes it in the cumulative product.
+The shortcut then drops members lost from follow-up. Dropping them is harmless only under
+restrictive observation conditions. The longitudinal fit keeps the target population, models
+observation at each node, and includes observation in the cumulative product.
 
 ## A rule instead of a plan
 
