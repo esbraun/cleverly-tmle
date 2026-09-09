@@ -33,6 +33,8 @@ from cleverly.assessment import (
     SENSITIVITY_ROUTES,
     VALIDATION_OPERATIONS,
     AssessmentItem,
+    DiagnosticReport,
+    ValidationReport,
 )
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.estimators import DRTMLE, TMLE
@@ -323,8 +325,6 @@ def test_every_status_reaches_both_combined_frame_backends(
     covered on the day it is added. The second axis was ``module``, which never differed
     from ``backend``, so the backend name is read once.
     """
-    from cleverly.assessment import DiagnosticReport
-
     report = DiagnosticReport(
         (AssessmentItem("benchmark", status, "a detail this test does not read"),),
         backend=backend,
@@ -1468,35 +1468,238 @@ def test_a_method_outside_the_correction_system_refuses_corrections_by_name(meth
     assert result.assess().diagnostics["corrections"].status is AssessmentStatus.NOT_APPLICABLE
 
 
-def test_the_battery_summary_prints_every_surface_and_both_verdict_lists():
-    """``summary`` is the reader-facing surface of the whole battery, and had no test.
+_SUMMARY_FOOTER = (
+    "Full ledger: call to_frame(). Next steps: call next_steps()."
+    "\nRetained payloads: call report(...)."
+)
 
-    A row that reaches ``attention`` or ``omissions`` must also be visible in its own
-    section, and the section must carry the operation, the status, the detail, and the
-    next step it recorded.
+
+def _summary_sections(text: str) -> dict[str, str]:
+    """Map each title in ``AssessmentReport.summary`` to its body, in printed order.
+
+    Three tests below read one section each. Each split the text its own way on a
+    hand-typed title and underline, so a renamed section failed only the test that
+    retyped the same bytes. A section here is a block whose second line underlines the
+    first, and its body is every line below that underline.
+
+    Parameters
+    ----------
+    text : str
+        The output of :meth:`AssessmentReport.summary`.
+
+    Returns
+    -------
+    dict of str to str
+        Section title to section body, in the order the summary prints them.
     """
-    result = _fit(_study(), ATE())
-    battery = result.assess()
+    sections: dict[str, str] = {}
+    for block in text.split("\n\n"):
+        title, _, remainder = block.partition("\n")
+        underline, _, body = remainder.partition("\n")
+        if underline == "-" * len(title):
+            sections[title] = body
+    return sections
+
+
+def test_the_battery_summary_expands_results_before_compact_checks_and_omissions():
+    """Every status is visible, while only completed analyses expand to full text.
+
+    The duplicate ``shared`` name is a nonzero witness for surface qualification. The
+    long warning detail is a witness for compactness: it remains in the ledger but does
+    not push returned results below review prose.
+    """
+
+    def item(name: str, status: AssessmentStatus, detail: str) -> AssessmentItem:
+        return AssessmentItem(name, status, detail, (f"act on {name}",))
+
+    battery = AssessmentReport(
+        validation=ValidationReport(
+            (
+                item("shared", AssessmentStatus.FAILED, "failed detail"),
+                item("score", AssessmentStatus.PASSED, "passed detail"),
+            )
+        ),
+        diagnostics=DiagnosticReport(
+            (
+                item("warning", AssessmentStatus.WARNING, "warning detail " * 20),
+                item("choose", AssessmentStatus.DEFERRED, "deferred detail " * 20),
+                item("missing", AssessmentStatus.UNAVAILABLE, "unavailable detail"),
+            )
+        ),
+        sensitivity=DiagnosticReport(
+            (
+                item("irrelevant", AssessmentStatus.NOT_APPLICABLE, "not applicable detail"),
+                item("estimate", AssessmentStatus.COMPLETED, "completed detail"),
+                item("shared", AssessmentStatus.UNAVAILABLE, "second unavailable detail"),
+            )
+        ),
+    )
+
     text = battery.summary()
+    sections = _summary_sections(text)
+    results, checks, omissions = (
+        sections["Returned results"],
+        sections["Checks"],
+        sections["Not run"],
+    )
+    assert list(sections) == ["Returned results", "Checks", "Not run"]
+    # ``_summary_sections`` skips any block that carries no rule, so section order alone
+    # would admit a preamble printed above the first section.  The two anchors below pin
+    # the text to its first and last byte, and the width check pins the rule itself.
+    assert text.startswith("Returned results\n")
+    assert results.splitlines()[0].split() == ["surface", "operation", "result"]
+    assert "sensitivity" in results and "completed detail" in results
+    # The operation column is the name a reader passes back to ``report(...)``, so the
+    # one completed row has to print its own name and not only its surface and detail.
+    assert "estimate" in results
+    assert "passed detail" not in text
+    assert "warning detail" not in text
+    assert "deferred detail" not in text
 
-    for surface in ("Validation", "Diagnostics", "Sensitivity"):
-        assert surface in text
-    for column in ("operation", "status", "detail", "next step"):
-        assert column in text
+    expected_checks: dict[AssessmentStatus, tuple[str, ...]] = {
+        AssessmentStatus.FAILED: ("validation.shared",),
+        AssessmentStatus.WARNING: ("diagnostics.warning",),
+        AssessmentStatus.PASSED: ("validation.score",),
+    }
+    expected_omissions: dict[AssessmentStatus, tuple[str, ...]] = {
+        AssessmentStatus.DEFERRED: ("diagnostics.choose",),
+        AssessmentStatus.UNAVAILABLE: ("diagnostics.missing", "sensitivity.shared"),
+        AssessmentStatus.NOT_APPLICABLE: ("sensitivity.irrelevant",),
+    }
+    for body, expected in ((checks, expected_checks), (omissions, expected_omissions)):
+        for status, qualified_names in expected.items():
+            assert status.value in body
+            for qualified_name in qualified_names:
+                assert qualified_name in body
 
-    presented = [item for _, item in battery._presented()]
-    assert presented
-    for item in presented:
-        assert item.name in text
-        assert item.status.value in text
+    # The declared order of the two status tuples, as rendered. Membership alone holds
+    # for either tuple reversed, and the order carries the meaning: the check a reader
+    # must act on comes first, and the omission a reader can resolve comes first.
+    assert checks.index("failed") < checks.index("warning") < checks.index("passed")
+    assert (
+        omissions.index("deferred")
+        < omissions.index("unavailable")
+        < omissions.index("not_applicable")
+    )
 
-    # The two summary lists agree with the properties that build them, and the omission
-    # list is not empty here, so "none" would be a wrong answer rather than an untested
-    # one.
-    assert battery.omissions
-    assert f"Omissions: {', '.join(item.name for item in battery.omissions)}" in text
-    attention = ", ".join(item.name for item in battery.attention) or "none"
-    assert f"Attention: {attention}" in text
+    # The compact rendering itself. Only the first row of a status group carries the
+    # status and the count. The second row of the two-member group leaves both fields
+    # blank, keeps the column positions, and carries its operation name alone.
+    lines = omissions.splitlines()
+    first = next(line for line in lines if line.startswith(AssessmentStatus.UNAVAILABLE.value))
+    second = lines[lines.index(first) + 1]
+    assert first.split() == ["unavailable", "2", "diagnostics.missing"]
+    assert second.split() == ["sensitivity.shared"]
+    assert second.index("sensitivity.shared") == first.index("diagnostics.missing")
+
+    assert text.endswith(f"\n\n{_SUMMARY_FOOTER}")
+    expected_counts = {
+        status.value: len(qualified_names)
+        for status, qualified_names in {**expected_checks, **expected_omissions}.items()
+    }
+    inventory_counts = {
+        fields[0]: int(fields[1])
+        for line in (checks + omissions).splitlines()
+        if len(fields := line.split(maxsplit=2)) == 3 and fields[0] in expected_counts
+    }
+    assert inventory_counts == expected_counts
+    completed_rows = sum(
+        1 for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
+    )
+    assert completed_rows == 1
+    assert completed_rows + sum(inventory_counts.values()) == len(battery._presented())
+
+    frame = battery.to_frame()
+    warning = frame.loc[frame["check"] == "warning"].iloc[0]
+    assert warning["detail"] == "warning detail " * 20
+    assert warning["next_steps"] == "act on warning"
+    assert battery.omissions == (
+        battery.diagnostics["choose"],
+        battery.diagnostics["missing"],
+        battery.sensitivity["irrelevant"],
+        battery.sensitivity["shared"],
+    )
+
+
+def test_the_battery_summary_names_empty_result_check_and_omission_sections():
+    """An empty section keeps its title and says ``none``, rather than disappearing.
+
+    The witness is a report at each extreme: one that only returned results, and one that
+    only ran a check. A dropped section reads as a summary that was never asked the
+    question, which is the reading the three fixed titles exist to prevent.
+    """
+    no_review = AssessmentReport(
+        ValidationReport(
+            (AssessmentItem("analysis", AssessmentStatus.COMPLETED, "returned result"),)
+        ),
+        DiagnosticReport(()),
+        DiagnosticReport(()),
+    )
+    no_results = AssessmentReport(
+        ValidationReport((AssessmentItem("score", AssessmentStatus.FAILED, "outside tolerance"),)),
+        DiagnosticReport(()),
+        DiagnosticReport(()),
+    )
+
+    reviewed = _summary_sections(no_review.summary())
+    assert list(reviewed) == ["Returned results", "Checks", "Not run"]
+    assert reviewed["Checks"] == "none"
+    assert reviewed["Not run"] == "none"
+    assert "returned result" in reviewed["Returned results"]
+
+    returned = _summary_sections(no_results.summary())
+    assert list(returned) == ["Returned results", "Checks", "Not run"]
+    assert returned["Returned results"] == "none"
+    assert "validation.score" in returned["Checks"]
+
+
+def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventory():
+    """A real fit presents every row it ran: results in full, and the rest by name.
+
+    Size is the witness a synthetic report cannot give. Two of this fit's status groups
+    hold four rows, so a summary that renders only the head of a group drops rows here
+    and stays self-consistent, because the count column reports what it printed. The
+    inventory is therefore checked against every presented row rather than against the
+    count printed beside it.
+    """
+    battery = _fit(_study(), ATE()).assess()
+    text = battery.summary()
+    sections = _summary_sections(text)
+    results, checks, omissions = (
+        sections["Returned results"],
+        sections["Checks"],
+        sections["Not run"],
+    )
+    assert list(sections) == ["Returned results", "Checks", "Not run"]
+
+    assert len(battery.to_frame()) == 16
+    assert text.index("bias-adjusted interval") < text.index("validation.nuisance_models")
+    assert "poorly calibrated" not in text
+    assert "not run by default because it retargets the fit" not in text
+
+    # The nonzero witness for completeness: two groups are larger than a head of two.
+    statuses = [item.status for _, item in battery._presented()]
+    assert statuses.count(AssessmentStatus.DEFERRED) == 4
+    assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 4
+
+    review = "\n".join((checks, omissions, _SUMMARY_FOOTER))
+    inventoried = {
+        f"{surface}.{item.name}"
+        for surface, item in battery._presented()
+        if item.status is not AssessmentStatus.COMPLETED
+    }
+    assert len(inventoried) == 10
+    assert {name for name in inventoried if name in review} == inventoried
+
+    # Every returned result names the operation ``report(...)`` takes. No detail on this
+    # fit repeats its own operation name, so the results block is the only source.
+    completed = {
+        item.name for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
+    }
+    assert {"support", "omitted_confounding"} <= completed
+    assert {name for name in completed if name in results} == completed
+
+    assert max(len(line) for line in review.splitlines()) < 80
 
 
 def test_next_steps_are_de_duplicated_and_keep_presentation_order():
@@ -1521,8 +1724,6 @@ def test_next_steps_are_de_duplicated_and_keep_presentation_order():
     # The nonzero witness. This fit happens to record no step twice, so the equality above
     # holds for a report whose de-duplication never fires. Build one where it must: three
     # surfaces that repeat one another, which is the case the property exists for.
-    from cleverly.assessment import DiagnosticReport, ValidationReport
-
     def item(name: str, *steps: str) -> AssessmentItem:
         return AssessmentItem(name, AssessmentStatus.WARNING, "detail", steps)
 

@@ -455,8 +455,43 @@ presentation choice.
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
-Deferred rows retain the required argument or flag in their next step. They also retain the
-request the caller made, and the combined run's seed when the operation accepts one.
+`AssessmentReport.summary()` prints three sections under these headings, in this order.
+
+| section | the rows it holds | its shape |
+| --- | --- | --- |
+| `Returned results` | every `completed` row | one row per operation, which gives the surface, the operation, and the returned result in full text |
+| `Checks` | `failed`, then `warning`, then `passed` | the first row of a status group states the status and the count. Each row names one surface-qualified operation |
+| `Not run` | `deferred`, then `unavailable`, then `not_applicable` | the same compact shape as `Checks` |
+
+An empty section states `none`. The summary ends with two footer lines. They name `to_frame()`,
+`next_steps()`, and `report(...)`.
+
+`_SUMMARY_CHECK_ORDER` and `_SUMMARY_OMISSION_ORDER` in `src/cleverly/assessment.py` pin the two
+status orders above. The test
+`test_the_battery_summary_expands_results_before_compact_checks_and_omissions` in
+`tests/unit/test_post_fit_assessment_battery.py` builds one report that carries all seven
+statuses. It reads the three section headings, the status order, and the count on each group. It
+also reads the surface qualification of a duplicated name, and it asserts that the long check
+detail stays out of the summary.
+
+**The summary leads with returned results, and that order is a recorded decision.** A completed
+analysis carries the numbers a reader interprets, so it expands first. A `failed` check therefore
+prints below several full-width result rows.
+[Pull request 198](https://github.com/esbraun/cleverly-tmle/pull/198) records the decision. Two
+independent reviews found that its first draft over-prioritized warnings, and the result-first
+revision resolved their findings.
+
+The reader still finds every actionable row in the `Checks` section. That section gives one line to
+each failure and each warning. Read `AssessmentReport.attention` for those rows as objects. Call
+`next_steps()` for the follow-up action on each row that carries one.
+
+`AssessmentReport.to_frame()` remains the complete row ledger, including warning and refusal
+details. The three report surfaces retain the original rows. `next_steps()` retains follow-up
+actions. `report(...)` returns a retained payload from an operation that ran.
+
+The summary prints no next step for any row, and `next_steps()` returns them. Deferred rows retain
+the required argument or flag in their next step. They also retain the request the caller made, and
+the combined run's seed when the operation accepts one.
 
 Known unsupported omissions carry the capability's reason and remain `unavailable` or
 `not_applicable`. Such a row retains no arguments, because this fit refuses it before any request

@@ -159,6 +159,42 @@ _SETTLED: frozenset[AssessmentStatus] = frozenset(
     {AssessmentStatus.PASSED, AssessmentStatus.COMPLETED}
 )
 
+#: Compact check rows follow returned descriptive results.  A failed check comes first,
+#: then a warning and a passed check.  ``test_every_status_is_presented_by_exactly_one_grouping``
+#: in ``tests/unit/test_assessment_contract.py`` pins two separate claims about this tuple
+#: and ``_SUMMARY_OMISSION_ORDER``: every status other than ``COMPLETED`` belongs to exactly
+#: one of them, and each tuple equals the literal sequence written here.  Membership alone
+#: would leave the reading order free, and the order is what a reader sees first.
+_SUMMARY_CHECK_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.FAILED,
+    AssessmentStatus.WARNING,
+    AssessmentStatus.PASSED,
+)
+
+#: Compact omission rows follow checks.  Caller-deferred work comes first because the
+#: caller can resolve it.  A fit limitation follows, then a question that does not apply.
+#: The test named above pins this membership and this literal order too.
+_SUMMARY_OMISSION_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.DEFERRED,
+    AssessmentStatus.UNAVAILABLE,
+    AssessmentStatus.NOT_APPLICABLE,
+)
+
+#: The columns both compact inventories carry.  A check row and an omission row differ in
+#: which statuses they can hold, not in shape.
+_INVENTORY_HEADERS: tuple[str, ...] = ("status", "count", "operations")
+
+#: How the compact summary closes.  Both sentences name the surface that carries the detail
+#: the summary drops, so the wording is a contract rather than decoration:
+#: ``docs/technical-reference/validation-methods.md`` describes these lines, and
+#: ``tests/unit/test_post_fit_assessment_battery.py`` re-types them to assert the summary
+#: ends in exactly this text.  That test spells the literal out on purpose, so importing
+#: this name there would make the assertion agree with itself.
+_SUMMARY_FOOTER: str = (
+    "Full ledger: call to_frame(). Next steps: call next_steps().\n"
+    "Retained payloads: call report(...)."
+)
+
 #: What stops :attr:`ValidationReport.passed`.  This one cuts across the three above rather
 #: than refining one of them: a ``WARNING`` is actionable and still passes, a
 #: ``NOT_APPLICABLE`` is an omission and still passes, and a ``DEFERRED`` required check is
@@ -632,6 +668,51 @@ def _distinct_steps(items: Sequence[AssessmentItem]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(step for item in items for step in item.next_steps))
 
 
+def _grouped_by_status(
+    presented: Sequence[tuple[str, AssessmentItem]],
+) -> dict[AssessmentStatus, list[tuple[str, AssessmentItem]]]:
+    """Presented rows by status, each group in presentation order.
+
+    One pass reads as one statement about the rows.  The alternative filters ``presented``
+    once per status and once more for the returned results, which reads as several
+    independent selections that happen to agree.  A report holds about sixteen rows, so
+    this is a readability choice and not a speed one.
+    """
+    grouped: dict[AssessmentStatus, list[tuple[str, AssessmentItem]]] = {}
+    for surface, item in presented:
+        grouped.setdefault(item.status, []).append((surface, item))
+    return grouped
+
+
+def _inventory_rows(
+    grouped: Mapping[AssessmentStatus, Sequence[tuple[str, AssessmentItem]]],
+    statuses: Sequence[AssessmentStatus],
+) -> list[list[str]]:
+    """Compact rows for ``statuses``: a status and its count once, then its operations.
+
+    A status with no row contributes nothing.  The second and later rows of a status leave
+    the status and count cells empty, so the count reads as one claim about the group.
+    """
+    rows: list[list[str]] = []
+    for status in statuses:
+        group = grouped.get(status, ())
+        for index, (surface, item) in enumerate(group):
+            rows.append(
+                [
+                    status.value if index == 0 else "",
+                    str(len(group)) if index == 0 else "",
+                    f"{surface}.{item.name}",
+                ]
+            )
+    return rows
+
+
+def _summary_section(title: str, headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    """One titled and underlined section, or ``none`` when it holds no row."""
+    body = format_table(headers, rows) if rows else "none"
+    return f"{title}\n{'-' * len(title)}\n{body}"
+
+
 @dataclass(frozen=True)
 class DiagnosticReport:
     """Collect statuses from a combined diagnostic or sensitivity run.
@@ -988,27 +1069,30 @@ class AssessmentReport:
         )
 
     def summary(self) -> str:
-        """Return the three report sections and their attention lists.
+        """Return completed analyses, then compact check and omission inventories.
 
         Returns
         -------
         str
-            Printable validation, diagnostics, sensitivity, attention, and omission sections.
+            Printable completed-analysis rows followed by every other status.
         """
-        sections = []
-        for surface in ("validation", "diagnostics", "sensitivity"):
-            rows = [item for owner, item in self._presented() if owner == surface]
-            sections.extend(
-                [
-                    surface.capitalize(),
-                    "-" * len(surface),
-                    format_table(["operation", "status", "detail", "next step"], _item_rows(rows)),
-                    "",
-                ]
-            )
-        sections.append("Attention: " + (", ".join(item.name for item in self.attention) or "none"))
-        sections.append("Omissions: " + (", ".join(item.name for item in self.omissions) or "none"))
-        return "\n".join(sections)
+        grouped = _grouped_by_status(self._presented())
+        result_rows = [
+            [surface, item.name, item.detail]
+            for surface, item in grouped.get(AssessmentStatus.COMPLETED, ())
+        ]
+        check_rows = _inventory_rows(grouped, _SUMMARY_CHECK_ORDER)
+        omission_rows = _inventory_rows(grouped, _SUMMARY_OMISSION_ORDER)
+        return "\n\n".join(
+            [
+                _summary_section(
+                    "Returned results", ("surface", "operation", "result"), result_rows
+                ),
+                _summary_section("Checks", _INVENTORY_HEADERS, check_rows),
+                _summary_section("Not run", _INVENTORY_HEADERS, omission_rows),
+                _SUMMARY_FOOTER,
+            ]
+        )
 
 
 @dataclass(frozen=True)
