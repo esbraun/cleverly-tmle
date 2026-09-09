@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +16,7 @@ from tests import discrete_law_longitudinal_multivalue as law
 from tests.studies import canonical_categorical_ltmle as ordinary
 from tests.studies import canonical_categorical_ltmle_crossfit as crossfit
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies import categorical_longitudinal_properties as shared
 from tests.studies.evidence.registry import ROOT
 
 #: The R file both registered rows run their comparator from.
@@ -129,6 +132,100 @@ def test_scrambled_raw_codes_do_not_match_the_semantic_arm_order() -> None:
     assert tuple(sorted(law.ARM_LABELS)) != law.ARM_LABELS
     assert tuple(law.ARM_LABELS[index] for index in range(3)) == ("standard", "high", "low")
     assert common.LEVELS == ("high", "low", "standard")
+
+
+def _regimen_mean(second_node: Sequence[int]) -> float:
+    """The exact mean under the ``respond`` plan's first node and a given second-node rule."""
+    probe = (law.ARM_LABELS.index("standard"), np.asarray(second_node, dtype=int))
+    with patch.dict(law.REGIMEN_ARMS, {"_probe": probe}):
+        return float(law.functional(law.PROBS, "ey_regimen[_probe]"))
+
+
+def _second_node_arms(specification: tuple[str, Any]) -> tuple[int, ...]:
+    """The arm a plan's second node assigns at ``L2 == 0`` and at ``L2 == 1``.
+
+    A declared plan writes its second node as a callable over the history, and
+    :func:`_regimen_mean` reads a second node as one arm index per ``L2`` level.  This
+    evaluates the callable at both levels, so the caller measures the shipped rule object
+    rather than a transcription of it.
+    """
+    labels = np.asarray(specification[1](pd.DataFrame({"L2": [0, 1]})))
+    return tuple(law.ARM_LABELS.index(str(label)) for label in labels)
+
+
+def test_each_rule_mutation_has_large_exact_law_separation() -> None:
+    """The shipped mutation is larger, but each alternative has a large oracle separation.
+
+    ``rule_necessity``'s control has to establish that its bias lands *outside* the equivalence
+    margin, so a larger mutation is an easier bar.  The shipped control exchanges both of the
+    dynamic rule's history-specific arms, which is a bigger perturbation than changing one
+    stratum, and a control chosen for being easy to discriminate would be a control that says
+    less than it appears to.
+
+    The answer about the target separation is arithmetic and needs no fitting.  Each candidate
+    mutation's displacement is its shift in the exact regimen mean over the positive cell's
+    committed empirical spread.  Every candidate clears the declared floor by more than an order
+    of magnitude in both studies.  This does not establish an unregistered alternative's fitted
+    displacement or bias-discrimination verdict.
+
+    Both rules are read off the modules that ship them rather than restated here.  A restated
+    ``shipped`` tuple would leave this test passing while ``MUTATED_REGIMENS`` said something
+    else, and that is the failure the closing assertion claims to catch.
+    """
+    arm = {label: law.ARM_LABELS.index(label) for label in law.ARM_LABELS}
+    for name, specification in (
+        ("declared", common.REGIMENS["respond"]),
+        ("mutated", common.MUTATED_REGIMENS["respond"]),
+    ):
+        assert specification[0] == "standard", (
+            f"the {name} respond plan starts at {specification[0]}, so _regimen_mean measures a "
+            f"first node neither rule assigns"
+        )
+
+    declared = _second_node_arms(common.REGIMENS["respond"])
+    assert _regimen_mean(declared) == pytest.approx(law.TRUTH["ey_regimen[respond]"], abs=1e-12)
+
+    shipped = _second_node_arms(common.MUTATED_REGIMENS["respond"])
+    assert shipped != declared, (
+        "MUTATED_REGIMENS leaves the respond plan's second node alone, so the rule_necessity "
+        "control mutates nothing"
+    )
+    alternatives = {
+        "L2=0 low->standard": (arm["standard"], arm["high"]),
+        "L2=0 low->high": (arm["high"], arm["high"]),
+        "L2=1 high->standard": (arm["low"], arm["standard"]),
+        "L2=1 high->low": (arm["low"], arm["low"]),
+    }
+
+    base = _regimen_mean(declared)
+    for study in (ordinary.STUDY, crossfit.STUDY):
+        published = pd.read_csv(study.artifact("properties.csv"))
+        positive = published.loc[
+            (published["property"] == "rule_necessity")
+            & (published["cell"] == "dynamic__declared_rule")
+        ]
+        assert len(positive) == 1, (
+            f"{study.slug} does not have the committed positive rule_necessity cell"
+        )
+        spread = float(positive["empirical_se"].iloc[0])
+        displacement = {
+            name: abs(_regimen_mean(rule) - base) / spread
+            for name, rule in {"shipped": shipped, **alternatives}.items()
+        }
+        for name, value in displacement.items():
+            assert value > 10.0 * shared.RULE_DISPLACEMENT, (
+                f"{study.slug}'s {name} mutation has exact-law displacement {value:.2f}, close "
+                f"to the {shared.RULE_DISPLACEMENT} floor"
+            )
+        assert displacement["shipped"] == max(displacement.values()), (
+            "the shipped mutation is no longer the largest, so the shared comment describes a "
+            "different control"
+        )
+        if study is ordinary.STUDY:
+            assert displacement["shipped"] == pytest.approx(6.8764, abs=5e-5), (
+                "the ordinary study's shipped exact-law displacement moved from the value "
+                "quoted beside MUTATED_REGIMENS"
+            )
 
 
 def _mechanism_design(

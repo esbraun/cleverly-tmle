@@ -32,11 +32,22 @@ extensions = [
 root_doc = "index"
 templates_path = ["_templates"]
 source_suffix = {".rst": "restructuredtext", ".md": "myst-nb", ".ipynb": "myst-nb"}
-exclude_patterns = ["_build", "api/generated/*.md", "Thumbs.db", ".DS_Store"]
+# Sphinx's own default excludes do not cover a dot-directory, and `source_suffix` reads
+# `.ipynb`.  Without the last entry, opening a published notebook in Jupyter leaves an autosave
+# copy that Sphinx treats as a source document, reports as missing from every toctree, and
+# turns into a build failure under `-W`.  `tests/documents.py` drops the same directory.
+exclude_patterns = [
+    "_build",
+    "api/generated/*.md",
+    "Thumbs.db",
+    ".DS_Store",
+    "**/.ipynb_checkpoints",
+]
 
-# Notebooks are executed deliberately before review and commit their outputs.  Documentation
-# builds remain deterministic, offline, and quick: they render those stored outputs without
-# downloading data or refitting estimators.
+# The notebook executor stamps each committed code and output payload, and records the repository
+# context of the run. The fast tier detects edits made after stamping. It does not infer that one
+# payload produced the other. Documentation builds stay deterministic, offline, and quick because
+# they render stored outputs without downloading data or refitting estimators.
 nb_execution_mode = "off"
 
 myst_enable_extensions = [

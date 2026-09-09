@@ -34,12 +34,31 @@ DYNAMIC_NAME = "ate_regimen[respond vs low]"
 CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 
 #: The ``rule_necessity`` control: the declared dynamic rule with its two history-specific arms
-#: exchanged.  It disagrees with the declared rule on *both* strata rather than on one, which is
-#: the deliberate choice and not an approximation to a narrower control.  A rule the estimator
-#: reads off the wrong stratum is exactly this mutation, and the committed cell measures it at a
-#: displacement of 6.86 against a declared floor of 0.10, with the control's bias interval at
-#: -0.3159 to -0.3084 outside a margin of 0.0125.  A one-stratum variant would be a second
-#: control with a smaller displacement, not a correction to this one.
+#: exchanged.  It disagrees with the declared rule on *both* strata rather than on one, and the
+#: honest reading of that is that a larger mutation is an *easier* bar, because the cell has to
+#: establish that the bias lands outside the margin rather than inside it.
+#:
+#: It is still the right control, and the reason is arithmetic rather than judgement.  Every
+#: one-stratum alternative clears the same floor off the exact law.  The weakest of them shifts
+#: the regimen mean by 0.0625.  That shift is an *exact-law* displacement of 1.38 against the
+#: declared floor of 0.10, and roughly five times the control cell's ``bias_margin``.  The
+#: shipped mutation's exact-law displacement is 6.8764.  Each exact-law displacement divides an
+#: exact shift in the regimen mean by the positive cell's committed ``empirical_se``.
+#:
+#: The artifact publishes a second displacement under a similar name.  ``properties.csv``
+#: separates the two cells' *fitted* means in its ``rule_displacement`` column, which is a
+#: *Monte Carlo* displacement of 6.859632.  A search of that artifact for 6.8764 returns
+#: nothing, so each figure above names the quantity it measures.  No candidate sits near the
+#: boundary on this law.  This does not predict each alternative control's finite-sample verdict,
+#: which would require fitting and registering those controls.  A one-stratum variant would be a
+#: second control rather than a correction to this one.
+#: ``test_each_rule_mutation_has_large_exact_law_separation`` reads ``MUTATED_REGIMENS`` and
+#: recomputes the exact-law table, so the narrower claim is checked rather than recorded.
+#:
+#: What pins the rule *evaluation* is not this family at all.  The exact-law fold test holds the
+#: dynamic contrast to its g-formula truth and its Gateaux curve at 1e-12, which is a sharper
+#: statement than any repeated-sampling control can make.  This family establishes that the
+#: repeated-sampling instrument discriminates a changed rule.
 MUTATED_REGIMENS = {
     **REGIMENS,
     "respond": (

@@ -33,25 +33,44 @@ else.  Learners, fold counts, seeds, estimands and interventions run exactly as 
 them, because those are what the example is *about* -- a rewrite that reached them would leave
 this module checking a configuration nobody is shown.
 
-**Documents are registered rather than discovered, because most of them need a prelude.**  A
-guide page picks up ``study`` or ``result`` from the surrounding prose rather than building it,
-so :data:`PRELUDES` gives each one the names its fences assume.  Registering is not optional:
-:func:`test_every_documented_example_is_registered` fails when a page with Python appears in the
-reader-facing set and is not listed, since the alternative is a new guide quietly escaping the
-check -- which is the same failure :mod:`tests.documents` exists to prevent.
+**Documents are discovered, then executable Markdown is registered because it needs a prelude.**
+A guide page picks up ``study`` or ``result`` from the surrounding prose rather than building it,
+so :data:`PRELUDES` gives each one the names its fences assume. Every reader-facing Python fence
+must have an entry. A new example therefore enters one of the two runtime gates through the
+shared document set rather than through somebody remembering a directory or the current
+notebook's name.
+
+**A reader-facing notebook carries an execution stamp instead, and half of that stamp is
+gated.** ``tests/notebooks.py`` says which half and why. The gated half covers the notebook's
+own code cells and stored outputs, so this module asserts it equal. The recorded half names the
+repository context, so this module asserts it present and well formed and never asserts it equal.
+The stamp is not provenance-complete, and this module does not claim that it
+is: it reaches no markdown cell, no cell metadata such as the ``tags`` ``myst-nb`` reads, and no
+notebook metadata such as ``kernelspec``.
+``python scripts/execute_notebook.py <path> --check`` covers what a digest comparison cannot: a
+library change that moves a published number while every cell keeps its bytes.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
+import re
 from pathlib import Path
 from typing import Any
 
+import nbformat
 import pytest
 
-from tests.documents import ROOT, python_blocks
+from tests.documents import NOTEBOOKS, READER_FACING, ROOT, python_blocks
+from tests.notebooks import (
+    GATED_DIGESTS,
+    GENERATOR_MODULES,
+    RECORDED_DIGESTS,
+    RECORDED_IDENTITY,
+    UNKNOWN,
+    code_cells,
+    notebook_execution_stamp,
+)
 
 #: Small enough that the whole module is a fast-tier cost, large enough that a fit converges.
 SMALL_N = 200
@@ -59,6 +78,15 @@ SMALL_N = 200
 #: Conditional-density bins.  The documented value is tuned for a readable support report on a
 #: few thousand rows; at :data:`SMALL_N` it is only a cost.
 SMALL_BINS = 8
+
+#: MyST forms that render Python but :func:`tests.documents.python_blocks` does not execute.
+#: The runtime gate supports one house form, so a new alias must fail rather than bypass it.
+ALTERNATE_PYTHON_BLOCK = re.compile(
+    r"^(?:```(?:py|python3|ipython3)[ \t]*$|~~~(?:py|python)[ \t]*$|"
+    r"```\{(?:code-block|code-cell)\}[ \t]+(?:python|ipython3)[ \t]*$|"
+    r"\.\. code-block:: python[ \t]*$)",
+    re.MULTILINE,
+)
 
 
 class Shrink(ast.NodeTransformer):
@@ -169,6 +197,7 @@ data = frame.rename(
 #: Document -> the code its fences assume was already run.  An empty string means the document
 #: builds everything it uses, which is the standard the examples section is held to.
 PRELUDES: dict[str, str] = {
+    "README.md": "",
     "docs/examples/point-treatment-tmle.md": "",
     "docs/examples/cross-fitting.md": "",
     "docs/examples/collaborative-tmle.md": "",
@@ -180,6 +209,8 @@ PRELUDES: dict[str, str] = {
     "docs/examples/msm-projections.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
+    "docs/technical-reference/dr-tmle/supported-estimands.md": "",
+    "docs/technical-reference/validation-methods.md": "",
     "docs/user-guide/longitudinal.md": "",
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,
@@ -188,60 +219,78 @@ PRELUDES: dict[str, str] = {
     "docs/workflow.md": _WORKFLOW,
 }
 
-#: The reader-facing set this module is responsible for.  ``docs/development/`` and the design
-#: documents are excluded by not being here: they argue about work that is proposed or historical,
-#: and several show an API on purpose that no longer exists.
-REACHED = ("docs/examples", "docs/getting-started", "docs/user-guide", "docs/workflow.md")
-
-#: Declared, not silent.  The TWINS notebook downloads a pinned external dataset and deliberately
-#: runs the estimator comparison at publication time; Sphinx renders its stored outputs with
-#: execution disabled.  It is left out rather than half-covered, and remains an explicit gap in
-#: this smoke module rather than a property of the document.
-EXCLUDED = frozenset({"docs/examples/twins-causal-inference.ipynb"})
-
 TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
 
 
 def documented() -> set[str]:
     """Every reader-facing document that carries Python, as repository-relative posix paths."""
-    found = set()
-    for reached in REACHED:
-        target = ROOT / reached
-        paths = (
-            [target]
-            if target.is_file()
-            else sorted((*target.glob("*.md"), *target.glob("*.ipynb")))
-        )
-        for path in paths:
-            # Notebooks carry code in JSON rather than Markdown fences.  Their presence is enough
-            # to require an explicit PRELUDES or EXCLUDED decision.
-            if path.suffix == ".ipynb" or python_blocks(path):
-                found.add(path.relative_to(ROOT).as_posix())
-    return found
+    return {path.relative_to(ROOT).as_posix() for path in READER_FACING if python_blocks(path)}
 
 
 def test_every_documented_example_is_registered() -> None:
-    """A new guide is covered by existing, not by being remembered."""
-    unregistered = documented() - set(PRELUDES) - EXCLUDED
+    """A new example is covered by discovery, not by being remembered.
+
+    A notebook stores its Python in cells rather than in a fence, so it never enters
+    :func:`documented` and needs no exemption here.  Its own gate is
+    :func:`test_every_notebook_has_an_internally_consistent_execution_artifact`, parametrized over
+    the same document set.
+    """
+    unregistered = documented() - set(PRELUDES)
     assert not unregistered, (
-        f"reader-facing document(s) with python fences and no entry in PRELUDES: "
-        f"{sorted(unregistered)}. Add a prelude (or an empty one, if the document builds "
-        f"everything it uses), or list it in EXCLUDED with the reason"
+        f"reader-facing document(s) with Python and no runtime gate: {sorted(unregistered)}. "
+        f"Add a PRELUDES entry for Markdown, or commit a stamped notebook artifact"
     )
+
+
+def test_every_python_example_uses_the_executable_house_fence() -> None:
+    """A MyST Python alias must not render while bypassing the runtime gate."""
+    unsupported = [
+        path.relative_to(ROOT).as_posix()
+        for path in READER_FACING
+        if path.suffix in {".md", ".rst"}
+        and ALTERNATE_PYTHON_BLOCK.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not unsupported, (
+        f"Python blocks in {unsupported} bypass tests.documents.python_blocks; use ```python"
+    )
+
+
+@pytest.mark.parametrize(
+    "opening",
+    (
+        "```py",
+        "```python3",
+        "```ipython3",
+        "~~~python",
+        "```{code-block} python",
+        "```{code-cell} ipython3",
+        ".. code-block:: python",
+    ),
+)
+def test_each_rendered_python_alias_is_recognized_as_unsupported(opening: str) -> None:
+    """The house-syntax guard needs a witness for every alias it refuses."""
+    assert ALTERNATE_PYTHON_BLOCK.search(f"# Example\n{opening}\nprint(1)\n```")
 
 
 def test_the_registry_names_real_documents() -> None:
     """The negative control: a rename would otherwise empty this module silently."""
     assert len(PRELUDES) >= 10
-    for relative in [*PRELUDES, *EXCLUDED]:
+    assert NOTEBOOKS, "the reader-facing notebook set is unexpectedly empty"
+    for relative in PRELUDES:
         assert (ROOT / relative).is_file(), f"{relative} is registered but does not exist"
 
 
-def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
-    """The expensive external-data example is stored complete rather than trusted implicitly."""
-    notebook = json.loads(TWINS_NOTEBOOK.read_text(encoding="utf-8"))
-    code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
-    assert code, "the TWINS notebook has no code cells"
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_every_notebook_has_an_internally_consistent_execution_artifact(path: Path) -> None:
+    """Every notebook's stamp still matches its successful stored code and output payload."""
+    notebook = nbformat.read(path, as_version=4)
+    code = code_cells(notebook)
+    relative = path.relative_to(ROOT).as_posix()
+    assert code, f"{relative} has no code cells"
 
     unexecuted = [cell["id"] for cell in code if cell.get("execution_count") is None]
     errors = [
@@ -250,6 +299,110 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         for output in cell.get("outputs", ())
         if output.get("output_type") == "error"
     ]
+    counts = [cell.get("execution_count") for cell in code]
+    execution = notebook.get("metadata", {}).get("cleverly_execution", {})
+    expected = notebook_execution_stamp(notebook, path)
+
+    assert not unexecuted, f"unexecuted cell(s) in {relative}: {unexecuted}"
+    assert not errors, f"error output(s) in {relative}: {errors}"
+    assert counts == list(range(1, len(code) + 1)), (
+        f"execution counts in {relative} are not contiguous: {counts}"
+    )
+    assert execution.get("schema_version") == expected["schema_version"], (
+        f"{relative} carries stamp schema {execution.get('schema_version')!r} and this checkout "
+        f"writes {expected['schema_version']}; restamp the notebook"
+    )
+    assert execution.get("command") == expected["command"], (
+        f"{relative} records the command {execution.get('command')!r} and now sits at a path "
+        f"whose command is {expected['command']!r}; restamp the notebook"
+    )
+    assert execution.get("gated") == expected["gated"], (
+        f"{relative} changed after its execution stamp was written. Both digests here are "
+        f"computed from the notebook alone, so this gate detects internal edits rather than "
+        f"proving which process produced them. Run the command arguments {expected['command']}"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_every_notebook_records_its_repository_context(path: Path) -> None:
+    """The recorded half fingerprints the run's repository context.
+
+    Asserted present and well formed, and deliberately not asserted equal.  An equality gate
+    over the shipped source tree and the dependency lock fails the default handoff gate on any
+    one-character library edit, and the only repair is a networked re-execution that refits
+    every estimator.  ``tests/studies/evidence/manifest.py`` takes the same position for a study
+    manifest, and ``docs/development/method-benchmarking.md`` states the rule: re-execution is
+    what keeps an artifact honest, and a hash comparison is not re-execution.
+
+    These three digests fingerprint the run rather than the current working tree.  A stamp
+    rewritten without a re-execution carries them forward unchanged.  Recomputing them would
+    attach the current context to outputs that it did not produce.
+
+    ``generator_files`` is the exception, and it is checked against the current definition
+    rather than carried.  A digest is only recomputable by whoever still has the formula behind
+    it, so a changed file set strands the value it produced: the stamp's first
+    ``generator_sha256`` folded one file, the generator became two, and the stored digest then
+    matched no checkout in history.  Nothing saw it, because a stranded digest and a live one
+    are the same 64 characters.  Comparing the recorded set to :data:`GENERATOR_MODULES` turns
+    that silence into an instruction.
+    """
+    notebook = nbformat.read(path, as_version=4)
+    relative = path.relative_to(ROOT).as_posix()
+    recorded = notebook.get("metadata", {}).get("cleverly_execution", {}).get("recorded", {})
+
+    assert set(recorded) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY), (
+        f"{relative} records {sorted(recorded)} and the stamp defines "
+        f"{sorted(set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY))}; restamp the notebook"
+    )
+    malformed = sorted(
+        field
+        for field, digest in recorded.items()
+        if field in RECORDED_DIGESTS and not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+    )
+    assert not malformed, (
+        f"{relative} records {malformed} as something other than a SHA-256 digest, so the "
+        f"stamp no longer carries a valid repository-context fingerprint"
+    )
+
+    assert recorded["generator_files"] == list(GENERATOR_MODULES), (
+        f"{relative} folded {recorded['generator_files']} into its generator digest and this "
+        f"checkout defines {list(GENERATOR_MODULES)}. The current schema cannot interpret that "
+        f"stored generator digest. Re-execute the notebook rather than carrying the value forward"
+    )
+    assert str(recorded["cleverly_commit"]) == UNKNOWN or re.fullmatch(
+        r"[0-9a-f]{40}", str(recorded["cleverly_commit"])
+    ), f"{relative} records a commit that is neither a revision nor {UNKNOWN!r}"
+    assert isinstance(recorded["cleverly_version"], str) and recorded["cleverly_version"]
+    if recorded["cleverly_commit"] == UNKNOWN:
+        assert recorded["cleverly_worktree_clean"] is None
+    else:
+        assert isinstance(recorded["cleverly_worktree_clean"], bool)
+
+
+def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
+    """The two halves are disjoint, and every digest belongs to exactly one of them.
+
+    Without this, a digest moved from ``recorded`` to ``gated`` would keep passing:
+    :func:`test_every_notebook_identifies_the_checkout_that_ran_it` would stop seeing it and
+    report nothing missing.
+    """
+    stamp = notebook_execution_stamp(nbformat.read(TWINS_NOTEBOOK, as_version=4), TWINS_NOTEBOOK)
+
+    assert not GATED_DIGESTS & RECORDED_DIGESTS
+    assert not GATED_DIGESTS & RECORDED_IDENTITY
+    assert not RECORDED_DIGESTS & RECORDED_IDENTITY
+    assert set(stamp["gated"]) == set(GATED_DIGESTS)
+    assert set(stamp["recorded"]) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY)
+
+
+def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
+    """The TWINS artifact retains the figures and ordinary TMLE interval its prose interprets."""
+    notebook = nbformat.read(TWINS_NOTEBOOK, as_version=4)
+    code = code_cells(notebook)
     figures = [
         output
         for cell in code
@@ -266,26 +419,47 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         line for line in comparison_text.splitlines() if "ordinary package TMLE" in line
     )
 
-    counts = [cell.get("execution_count") for cell in code]
-    source_payload = "\n\n# --- notebook cell ---\n\n".join(
-        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
-        for cell in code
-    ).encode()
-    expected_digest = hashlib.sha256(source_payload).hexdigest()
-    execution = notebook.get("metadata", {}).get("cleverly_execution", {})
-
-    assert not unexecuted, f"unexecuted TWINS notebook cell(s): {unexecuted}"
-    assert not errors, f"TWINS notebook error output(s): {errors}"
-    assert counts == list(range(1, len(code) + 1)), (
-        f"TWINS execution counts are not contiguous: {counts}"
-    )
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
     assert "NaN" not in ordinary_tmle_row, (
         "the ordinary package TMLE lost its confidence interval in the comparison figure"
     )
-    assert execution.get("code_source_sha256") == expected_digest, (
-        "TWINS code changed without re-executing stored outputs; run "
-        "python scripts/execute_notebook.py docs/examples/twins-causal-inference.ipynb"
+
+
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_every_published_figure_has_a_non_image_companion(path: Path) -> None:
+    """An image-only result cannot participate in the deterministic ``--check`` comparison."""
+    notebook = nbformat.read(path, as_version=4)
+    unsupported = []
+    for cell in code_cells(notebook):
+        has_image = any(
+            mime.startswith("image/")
+            for output in cell.get("outputs", ())
+            for mime in output.get("data", {})
+        )
+        if not has_image:
+            continue
+        has_companion = any(
+            str(output.get("text", "")).strip()
+            or any(
+                not mime.startswith("image/")
+                and (
+                    mime != "text/plain"
+                    or not str(payload).lstrip().startswith(("<Figure", "Figure("))
+                )
+                for mime, payload in output.get("data", {}).items()
+            )
+            for output in cell.get("outputs", ())
+        )
+        if not has_companion:
+            unsupported.append(cell["id"])
+
+    assert not unsupported, (
+        f"{path.relative_to(ROOT).as_posix()} has image-only cell(s) {unsupported}; publish the "
+        "plotted values as text, HTML, or JSON so --check can compare them"
     )
 
 

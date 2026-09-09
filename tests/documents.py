@@ -28,44 +28,83 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["DOCUMENTS", "READER_FACING", "ROOT", "pipe_table", "python_blocks"]
+__all__ = [
+    "DOCUMENTS",
+    "EXCLUDED_DIRECTORIES",
+    "NOTEBOOKS",
+    "READER_FACING",
+    "ROOT",
+    "pipe_table",
+    "python_blocks",
+    "reader_facing",
+]
 
 ROOT = Path(__file__).resolve().parents[1]
 
+#: Directory names that hold generated or autosaved copies rather than source.  Matched against
+#: every path component, so the depth of the directory does not matter.
+EXCLUDED_DIRECTORIES = frozenset({"_build", "generated", ".ipynb_checkpoints"})
+
 #: Every markdown file the documentation set is made of.  ``docs/`` is the bulk; the
 #: root-level files are linked from it and link back into it, so leaving them out would
-#: check one direction of a two-way relationship.
+#: check one direction of a two-way relationship.  :data:`EXCLUDED_DIRECTORIES` applies here
+#: for the same reason it applies below: a build directory and an autosave directory are
+#: copies, and checking a copy checks nothing.
 DOCUMENTS = sorted(
     {
         *ROOT.glob("*.md"),
-        *ROOT.glob("docs/**/*.md"),
-    }
-)
-
-#: The prose scope ``CLAUDE.md`` declares: the root ``README.md`` and every reader-facing
-#: source under ``docs/``.  Three ways this differs from :data:`DOCUMENTS`, each deliberate.
-#:
-#: It **excludes** ``CLAUDE.md`` and ``AGENTS.md``, which :data:`DOCUMENTS` picks up from the
-#: root glob.  Those are instructions to a contributor rather than documentation, and
-#: ``CLAUDE.md`` states the dash rule by quoting the characters it bans.
-#:
-#: It **adds** ``.rst`` and ``.ipynb``.  The notebook is the one that matters: it is in the
-#: ``docs/examples`` toctree and reader-facing by every other measure, and an em dash survived a
-#: whole sweep inside it because the checker of the day could not read a notebook at all.
-#:
-#: It **excludes** ``docs/api/generated/`` and ``docs/_build/``.  Both are build output, both
-#: are gitignored, and ``CLAUDE.md`` says in as many words that they are not source.
-READER_FACING = sorted(
-    {
-        ROOT / "README.md",
         *(
             path
-            for suffix in ("md", "rst", "ipynb")
-            for path in ROOT.glob(f"docs/**/*.{suffix}")
-            if "_build" not in path.parts and "generated" not in path.parts
+            for path in ROOT.glob("docs/**/*.md")
+            if not EXCLUDED_DIRECTORIES.intersection(path.relative_to(ROOT).parts)
         ),
     }
 )
+
+
+def reader_facing(root: Path) -> list[Path]:
+    """Every reader-facing source below ``root``, sorted, with the generated copies dropped.
+
+    Three ways this differs from :data:`DOCUMENTS`, each deliberate.
+
+    It **excludes** ``CLAUDE.md`` and ``AGENTS.md``, which :data:`DOCUMENTS` picks up from the
+    root glob.  Those are instructions to a contributor rather than documentation, and
+    ``CLAUDE.md`` states the dash rule by quoting the characters it bans.
+
+    It **adds** ``.rst`` and ``.ipynb``.  The notebook is the one that matters: it is in the
+    ``docs/examples`` toctree and reader-facing by every other measure, and an em dash survived
+    a whole sweep inside it because the checker of the day could not read a notebook at all.
+
+    It **excludes** ``docs/api/generated/``, ``docs/_build/`` and ``.ipynb_checkpoints/``.  The
+    first two are build output, and ``CLAUDE.md`` says in as many words that they are not
+    source.  The third is Jupyter's autosave copy.  ``Path.glob`` walks a dot-directory like
+    any other, so opening the published notebook once would otherwise put an untracked copy of
+    it in this set and fail the fast tier on a file nobody wrote.
+
+    The root is a parameter so a test can run this selection over a scratch tree and check what
+    it drops.  :data:`READER_FACING` is the one call the repository itself makes.
+    """
+    return sorted(
+        {
+            root / "README.md",
+            *(
+                path
+                for suffix in ("md", "rst", "ipynb")
+                for path in root.glob(f"docs/**/*.{suffix}")
+                if not EXCLUDED_DIRECTORIES.intersection(path.relative_to(root).parts)
+            ),
+        }
+    )
+
+
+#: The prose scope ``CLAUDE.md`` declares: the root ``README.md`` and every reader-facing
+#: source under ``docs/``.  :func:`reader_facing` says what it keeps and what it drops.
+READER_FACING = reader_facing(ROOT)
+
+#: Every committed notebook that Sphinx can publish. Keeping this selection beside
+#: :data:`READER_FACING` makes prose, runtime, and artifact checks discover future notebooks
+#: from one definition instead of naming the current notebook in each consumer.
+NOTEBOOKS = tuple(path for path in READER_FACING if path.suffix == ".ipynb")
 
 #: A fenced ``python`` block.  Non-greedy to the closing fence, and anchored at line starts
 #: so a fence quoted inside another block's body cannot open a match.

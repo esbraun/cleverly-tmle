@@ -70,6 +70,23 @@ hash difference. Regenerate a result-determining reference edit. Record a result
 Read [method benchmarking](method-benchmarking.md#what-makes-a-study-stale) for the complete
 provenance contract.
 
+## Notebook artifacts
+
+A committed notebook stores the outputs of a run rather than recomputing them. The fast suite
+checks that its stamp still matches its code cells and stored outputs. This detects an edit after
+stamping, but the unkeyed hashes do not prove that one payload produced the other. Re-execute with
+`python scripts/execute_notebook.py <path>`. The command needs network access.
+
+The stamp it writes has two halves. The gated half covers the notebook alone, and the fast suite
+asserts it equal. The recorded half fingerprints the repository context of the run. The fast suite
+asserts only that it is present and well formed. A library edit therefore fails no notebook check.
+`tests/notebooks.py` gives the reason, and it is the reason a study manifest does not gate its
+Python module hashes either.
+
+A hash comparison cannot see a library change that moved a published number while every cell kept
+its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
+re-executes the notebook, reports each cell whose printed text moved, and writes nothing.
+
 ## Add a validation study
 
 Follow [method benchmarking](method-benchmarking.md) to register a new study. Pair each positive

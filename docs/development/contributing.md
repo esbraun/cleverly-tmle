@@ -74,9 +74,29 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
 | library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
+| a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
 
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
+
+The notebook command executes every cell and replaces the stored outputs. It needs network
+access, because the TWINS notebook downloads a pinned dataset. It then writes a stamp with two
+halves, and only one half can fail the fast suite.
+
+| stamp half | covers | the fast suite |
+| --- | --- | --- |
+| gated | the notebook's own code cells and stored outputs, its schema, and the repair command | asserts it equal |
+| recorded | the shipped package source, the dependency lock, and the generator | asserts it present and well formed |
+| recorded | the commit, the version, and the generator's file list | asserts the file list matches this checkout |
+
+Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
+the recorded command fails for the same reason. Edit library code and no notebook gate fails. The
+recorded half fingerprints the run's repository context. It does not reconstruct a dirty tree or
+constrain the tree you work in. `tests/notebooks.py` gives the reason for the split.
+
+A hash comparison cannot see a library change that moved a published number while every cell kept
+its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
+re-executes the notebook and reports each cell whose printed text moved. It writes nothing.
 
 Regenerate every registered study that evaluates a result-determining implementation change. Read
 [fast tests and validation studies](testing-strategy.md) to select the affected rows.

@@ -211,6 +211,32 @@ a reader cannot re-derive from this repository. Declare a result-neutral differe
 Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
 hash makes the manifest claim that bytes which did not exist produced the result.
 
+A committed notebook follows the same rule under a different name. `scripts/execute_notebook.py`
+stamps it, and `tests/notebooks.py` splits the stamp in two.
+
+| stamp half | holds | behaves like |
+| --- | --- | --- |
+| gated | the notebook's code cells and stored outputs | the published artifacts. Any difference fails |
+| recorded | the package source, the dependency lock, and the generator | the module hashes. Nothing is asserted equal |
+
+The recorded half needs no declared exception, because no edit to your tree can fail it. Carry it
+forward when you restamp a notebook you did not re-execute. Recomputing it would name a checkout
+that never produced those outputs, which is the error the paragraph above describes.
+
+Carry a value forward only while the digest that produced it is unchanged. A carried value that
+predates a change to `tests/notebooks.py` matches no checkout at all, because no commit ever
+computed it that way. Re-execute the notebook instead when a digest definition moves.
+
+The recorded half names its generator file set. `generator_files` lists the files the generator
+digest folded, and the fast tier compares that list against the current `GENERATOR_MODULES`. A
+file-set change therefore fails with an instruction. A semantic digest change still needs a
+schema-version change and review.
+
+`cleverly_commit` and `cleverly_version` place the run in repository history. A digest reports
+that two trees differ and never reports where. Read `cleverly_worktree_clean` before you interpret
+the commit. A notebook runs before the commit that lands it, so the recorded commit is the parent.
+A `false` value means that the commit does not reconstruct the executed tree.
+
 ## Adding a method row
 
 A row is not written, it is earned by registering a study. The machinery in

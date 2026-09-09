@@ -283,9 +283,13 @@ have. Five shipped examples were broken that way at once: two on a renamed attri
 `.summary()` on reports that expose `to_frame()`, and one passing a float where an assignment
 density is required. Every one of them rendered as ordinary, copyable code.
 
-What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
-rather than behind a dispatch. Links resolve, including links that name a repository path. Every
-`python` fence parses.
+A reader-facing notebook stores outputs, so its fast check is necessarily narrower. The stamp
+detects a code, output, or stamp-field edit after stamping. It does not prove that the code produced
+the output, because the hashes and payload share one mutable file. The executor disables skipped
+cells and tolerated errors. A result-determining change requires its manual `--check` re-execution.
+
+All other documentation checks are static and belong in the ordinary fast tier. Links resolve,
+including links that name a repository path. Every `python` fence parses.
 
 There is deliberately no manual documentation job. These properties are cheap enough to run on
 every change, and a dispatch that re-ran them would read as a gate while adding no coverage. That

@@ -6,9 +6,9 @@ import re
 from importlib.metadata import metadata, version
 
 import pytest
-from scripts.check_release import validate_tag
 
 import cleverly
+from scripts.check_release import validate_tag
 
 
 def test_runtime_version_matches_distribution_metadata() -> None:

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
 from tests.canonical.regenerate import Reference
 from tests.parallel import available_cores
 from tests.studies.evidence.comparison import equivalence
