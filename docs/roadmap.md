@@ -9,6 +9,26 @@ capabilities belong in the [user guide](user-guide/index.md), scientific contrac
 The main grid is one binding sequence. Complete lower numbers before higher numbers. Items with no
 published theory do not enter this sequence.
 
+## Remediation
+
+The examples are executable, but their review exposed gaps in the public study record and in
+post-fit coverage. Fix the defect row before work on a new method. A new capability still needs its
+own contract and evidence, even when it appears in this top-priority queue.
+
+| priority | item | readiness | problem exposed by the examples | details |
+| ---: | --- | --- | --- | --- |
+| 0.1 | Identification contracts and semantic example gates | implementation defects | missing-outcome summaries omit MAR and response positivity; multi-arm summaries state binary positivity; the runtime gate cannot check claims about printed results | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
+| 0.2 | First-class causal study protocol record | design contract | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
+| 0.3 | Public reusable split plans | design contract | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.4 | Longitudinal truncation retargets | source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.5 | Selection-aware C-TMLE inference | published support; source audit required | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+
+Four additional gaps already have full line items. Keep them there instead of creating duplicate
+contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
+multi-arm stress surface in [F8](#f8-multi-arm-simulated-confounding-stress-surface), longitudinal
+refutation replay in [F13](#f13-longitudinal-simulated-confounding-replay), and longitudinal
+sensitivity bounds in [F16](#f16-longitudinal-sensitivity-bound-estimation).
+
 ## Main roadmap
 
 | priority | item | readiness | dependency | details |
@@ -96,6 +116,79 @@ estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
+
+### RM1. Identification contracts and semantic example gates
+
+Make identification depend on the estimand and the declared design roles. A point-treatment
+summary must name every supported treatment level. With `missingness=`, it must add MAR, response
+positivity, and the response nuisance. With `intermediate=`, it must add the level-specific
+intermediate and observation conditions that the fitted score uses.
+
+Add tests at the public `CausalStudy.identify()` boundary for binary, multi-arm, missing-outcome,
+and controlled-direct-effect designs. Each test must compare the printed assumptions and required
+nuisances with the fitted mechanism factors. Add semantic assertions for sample-specific tutorial
+claims that remain after the documentation review. Fence execution alone is not evidence for a
+reported direction, diagnostic value, or equality.
+
+This row changes no fitted result. Acceptance requires byte-identical estimates and influence
+curves for the existing example seeds, plus the documentation gate and fast suite.
+
+### RM2. First-class causal study protocol record
+
+Add an immutable protocol object to `CausalStudy`. It records the target population, eligibility,
+time zero, treatment strategies and versions, outcome and horizon, intercurrent-event handling,
+interference unit, and the analyst's assumption rationale. Column roles stay in `PointTreatment`
+and `LongitudinalTreatment`; the protocol explains the causal question those roles encode.
+
+Carry the protocol through identification, result provenance, summaries, and trusted persistence.
+Fingerprint it so two fits that use different treatment versions cannot share one study identity.
+Do not let descriptive metadata change an estimand or an estimator configuration.
+
+Acceptance needs round-trip and backward-compatibility tests, a stable normalized form, and one
+point and one longitudinal tutorial that render the saved protocol. Existing results without a
+protocol must still load and state that the record is absent.
+
+### RM3. Public reusable split plans
+
+Add a public immutable split-plan object and accept it through `CrossFitting`. It records one fold
+label per independent unit and per repeat. It validates row count, repeat count, treatment support,
+stratification claims, and whole-cluster assignment before nuisance fitting.
+
+Persist the realized plan and its fingerprint with the result. Equivalent generated and supplied
+plans must produce identical nuisance predictions, estimates, and influence curves. Their
+diagnostic fold labels must also agree. Refuse a plan that splits a declared cluster or leaves a
+required training arm empty.
+
+This capability changes no fold arithmetic. Acceptance needs exact generated-versus-supplied
+identity tests for point, multi-arm, and clustered fits, plus serialization and parallel-invariance
+checks.
+
+### RM4. Longitudinal truncation retargets
+
+Add a longitudinal truncation curve that reuses fitted nuisance predictions and repeats the full
+backward targeting recursion at each declared cumulative-mechanism bound. The curve must preserve
+regimen, horizon, cause, observation-weight, cluster, and parameter-key structure.
+
+Define which quantities stay fixed before implementation. The nuisance learners and realized folds
+stay fixed; only the bound and every targeting step that reads it change. Refuse any composition
+whose recursion or influence curve is not represented by the retarget.
+
+Acceptance needs a zero-movement anchor at the fitted bound. It also needs exact agreement with a
+fresh fit that uses cached nuisances. Add nonzero movement controls under active truncation and
+pointwise score checks for each supported longitudinal target. Register repeated-sampling evidence
+only if the curve later makes an inferential claim.
+
+### RM5. Selection-aware C-TMLE inference
+
+Audit the published C-TMLE theory against the exact greedy and outcome-adaptive selectors that the
+package ships. Implement no correction until a source covers the selected candidate, its nested
+fold use, and the reported influence curve. If no source covers a selector, keep its present
+conditional interval and move that selector's correction to the future grid.
+
+A supported construction must propagate selection through pointwise and simultaneous inference.
+It must retain the selected path and state when post-selection uncertainty is negligible.
+Acceptance needs a nonzero selection witness and repeated-sampling coverage where selection changes
+the chosen candidate. A fixed-candidate control must reduce to the current interval.
 
 ### P1. EP learner
 
