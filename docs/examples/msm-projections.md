@@ -28,8 +28,10 @@ A slope is a summary, and it must be defined before it is estimated. The questio
 really asking is this. Among all straight lines in assigned contacts, which one comes closest to the
 true counterfactual response surface? That line is the estimand.
 
-Each cadence uses the same script, contact window, and access rules. Only the number of assigned
-contacts changes. This restriction supports consistency. Reserved capacity supports no interference.
+This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
+treatment, which is now one of three cadences. Each cadence uses the same script, contact window,
+and access rules, and only the number of assigned contacts changes. That restriction supports
+consistency.
 
 ## Why this method
 
@@ -100,6 +102,11 @@ study = CausalStudy(
 arms = study.identify(CounterfactualMean())
 print(arms.summary())
 ```
+
+The printed identification record states positivity in its binary form. It reads
+`0 < P(A = 1 | W) < 1`, and it says that both counterfactual means are supported. This law has
+three arms, so read the line as a positive probability of every cadence at every covariate value.
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) tracks the fix.
 
 Start with the per-arm report, because the projection is a summary *of it*. A board that cannot
 interpret the arm means cannot interpret their projection either.
@@ -272,7 +279,10 @@ Positivity is a three-arm statement here. Every patient needs a positive probabi
 the working model reads. A support report showing a near-empty cell means the trend is being carried
 by extrapolation into a cadence that kind of patient never received.
 
-Inspect the arm-specific weight concentration and truncation share. Read the slope's truncation
+The aggregate support row warns here, and truncation is the trigger. It counts 37 clipped units,
+which is 1.23% of the sample and above the 1% that moves the verdict from adequate to strain. The
+`high` arm carries the narrowest Kish-equivalent weight count, at 0.448 of its nominal rows. The
+support row states that share as concentration and grades nothing. Read the slope's truncation
 curve separately because the two coefficients have different meanings.
 
 | layer | establishes | does not establish |
@@ -285,9 +295,11 @@ curve separately because the two coefficients have different meanings.
 The [MSM projections technical entry](../technical-reference/msm-projections.md) links the
 registered studies and states their evidence limits.
 
-The current point-treatment library fits one parameter axis at a time. It refuses combining an MSM
-projection with a separate intervention policy or shift because no registered implementation
-covers joint targeting and covariance.
+The current point-treatment library fits one parameter axis at a time. A working model summarizes
+the counterfactual means with one score equation per term. A separate intervention policy or shift
+replaces what those means are, so one fluctuation cannot solve both sets of score equations.
+[F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) waits for a published joint
+targeting and inference result.
 
 ## Where to go next
 
@@ -295,5 +307,5 @@ The same projection works over regimens and horizons in a longitudinal fit. Its 
 receives the horizon as well as the label. `MSM.linear` is refused there too. A regimen is a
 sequence of decisions, and no arithmetic on its name summarizes it. Read
 [longitudinal TMLE](longitudinal-tmle.md) and
-[retention and competing risks](longitudinal-survival.md) first. The projection summarizes the
+[time-to-event outcomes](longitudinal-survival.md) first. The projection summarizes the
 parameters those pages estimate one at a time.

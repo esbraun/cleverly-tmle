@@ -73,7 +73,7 @@ implementation evidence, and method-specific limits.
 | --- | --- | --- |
 | transition experience | a 30-day patient-reported score | most point-treatment pages and the survey non-response tutorial |
 | unresolved transition issues | medication, appointment, or equipment problems that remain open | the time-varying confounder in longitudinal TMLE |
-| time-to-event outcomes | health-plan exit, relapse, or death | [time-to-event outcomes](longitudinal-survival.md) |
+| time-to-event outcomes | plan exit, relapse, or death | [time-to-event outcomes](longitudinal-survival.md) |
 
 ## Real data
 

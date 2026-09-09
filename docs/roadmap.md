@@ -14,24 +14,32 @@ published theory do not enter this sequence.
 The examples are executable, but their review exposed gaps in the public study record and in
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue. The
-"next action" column describes remediation work; it does not replace the readiness labels below.
+"next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7, and
+RM8 carry an open source audit, and the other rows raise no published-method question.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Identification contracts and semantic example gates | implement and test defects | missing-outcome identification omits its functional, MAR, and response positivity; multi-arm summaries state binary positivity; survival outputs carry incorrect labels or standard errors; the runtime gate cannot check printed claims | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
+| 0.1 | Identification contracts and semantic example gates | implement and test defects | missing-outcome identification omits its functional, MAR, and response positivity; multi-arm summaries state binary positivity; survival outputs carry incorrect labels or standard errors; the collaborative selection footer reads omitted candidates as a causal bias-variance trade; the runtime gate cannot check printed claims | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
 | 0.2 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
 | 0.3 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
 | 0.4 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
 | 0.5 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.6 | Joint point-treatment parameter axes | locate published support | MSM projections, regimes, shifts, and incremental policies cannot share one fitted target or covariance report | [RM6](#rm6-joint-point-treatment-parameter-axes) |
-| 0.7 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.8 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.6 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.7 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
 multi-arm stress surface in [F8](#f8-multi-arm-simulated-confounding-stress-surface), longitudinal
 refutation replay in [F13](#f13-longitudinal-simulated-confounding-replay), and longitudinal
 sensitivity bounds in [F16](#f16-longitudinal-sensitivity-bound-estimation).
+
+[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) is a neighbour rather than a duplicate. It
+tracks the joint observed-mean curve and covariance for the collaborative and doubly robust
+families. RM8 covers the same two parameters for ordinary TMLE under `missingness=`.
+
+The examples also expose the joint point-treatment parameter axes. No published targeting and
+inference result covers that composition, so it is a hard stop in
+[F17](#f17-joint-point-treatment-parameter-axes) rather than a row in this queue.
 
 ## Main roadmap
 
@@ -68,6 +76,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
+| Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 
 ## Eligibility
@@ -112,7 +121,8 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. Replicate-weight designs are the next source-audit item. Implement them
+records completed studies. The remediation rows RM4, RM5, RM7, and RM8 hold the first source
+audits. Replicate-weight designs are the next source-audit item in the main grid. Implement them
 only after that audit supports the planned variance construction. Longitudinal sensitivity-bound
 estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
@@ -122,6 +132,19 @@ The sections below group contracts by subsystem. Their physical order does not o
 grid.
 
 ### RM1. Identification contracts and semantic example gates
+
+Four tutorials defer five defects to this row. The table names each one and the page it is
+deferred from.
+
+| defect | where a reader meets it |
+| --- | --- |
+| a missing-outcome identification record omits its observed-data functional, MAR, and response positivity | [survey non-response](examples/survey-nonresponse.md) |
+| a multi-arm summary states binary positivity | [MSM projections](examples/msm-projections.md) |
+| `curve(scale="survival")` returns risk-labelled rows with transformed values | [time-to-event outcomes](examples/longitudinal-survival.md) |
+| `incidence_total()` divides the already mean-scaled influence covariance by the sample size again | [time-to-event outcomes](examples/longitudinal-survival.md) |
+| the collaborative selection footer reads omitted candidates as a causal bias-variance trade | [collaborative TMLE](examples/collaborative-tmle.md) |
+
+The row also adds the semantic gates that would have caught each defect.
 
 Make identification depend on the estimand and the declared design roles. A point-treatment
 summary must name every supported treatment level. With `missingness=`, it must print the
@@ -188,6 +211,11 @@ Define which quantities stay fixed before implementation. The nuisance learners 
 stay fixed; only the bound and every targeting step that reads it change. Refuse any composition
 whose recursion or influence curve is not represented by the retarget.
 
+No candidate source is identified for the longitudinal retarget yet. The audit's first task is to
+name one, or to record that the point-treatment truncation curve in
+[Truncation stability](technical-reference/validation-methods.md#truncation-stability) carries
+over without new theory.
+
 Acceptance needs a zero-movement anchor at the fitted bound. It also needs exact agreement with a
 fresh fit that uses cached nuisances. Add nonzero movement controls under active truncation and
 pointwise score checks for each supported longitudinal target. Register repeated-sampling evidence
@@ -196,26 +224,18 @@ only if the curve later makes an inferential claim.
 ### RM5. Selection-aware C-TMLE inference
 
 Audit the published C-TMLE theory against the exact greedy and outcome-adaptive selectors that the
-package ships. Implement no correction until a source covers the selected candidate, its nested
-fold use, and the reported influence curve. If no source covers a selector, keep its present
-conditional interval and move that selector's correction to the future grid.
+package ships. The candidate source is van der Laan and Gruber (2010), listed under
+[collaborative TMLE](references.md#collaborative-tmle). The
+[collaborative TMLE entry](technical-reference/collaborative-tmle.md) records that its
+adaptive-mechanism influence contribution has no validated selected-multinomial counterpart here.
+Implement no correction until a source covers the selected candidate, its nested fold use, and the
+reported influence curve. If no source covers a selector, keep its present conditional interval
+and move that selector's correction to the future grid.
 
 A supported construction must propagate selection through pointwise and simultaneous inference.
 It must retain the selected path and state when post-selection uncertainty is negligible.
 Acceptance needs a nonzero selection witness and repeated-sampling coverage where selection changes
 the chosen candidate. A fixed-candidate control must reduce to the current interval.
-
-### RM6. Joint point-treatment parameter axes
-
-Define whether one ordinary point-treatment fit may target an MSM projection together with a known
-regime, modified treatment policy, or incremental intervention. Do not infer the construction from
-the existing single-axis implementations. First locate a published targeting and inference result
-for each proposed composition, including its joint score and covariance.
-
-Keep the current pre-fit refusals until that contract exists. Acceptance requires the joint
-parameter to reduce exactly to each standalone fit, preserve parameter names and policy definitions,
-and expose the full cross-axis influence covariance. Register nonzero controls for every cross-axis
-block and repeated-sampling evidence for simultaneous inference if it is claimed.
 
 ### RM7. Missing-outcome natural-course mean
 
@@ -223,6 +243,12 @@ Derive and implement the observed-law mean when the outcome is missing at random
 response process. The contract must state the target population, observed-data functional, response
 score, positivity condition, nuisance-rate conditions, and whether the treatment mechanism enters
 the parameter or only estimation.
+
+Two candidate sources start the audit. Hubbard and van der Laan (2008) define the complete-outcome
+population-intervention parameters that this mean feeds. Díaz and van der Laan (2017) define the
+missing-outcome observed-data model and influence function for a randomized treatment. Neither is
+recorded in [references](references.md) as covering this composition, so the audit must find the
+result or refuse the parameter.
 
 Acceptance requires exact-law, Gateaux, remainder, and deliberate response-score mutation checks.
 The complete-outcome limit must agree exactly with the existing natural-course mean. Add
@@ -234,6 +260,14 @@ Add population attributable risk and population attributable fraction with missi
 their own observed-law targets. Audit each influence curve rather than composing the current ATE and
 observed-mean results algebraically. The fraction must define its zero-denominator behavior and the
 joint covariance of its numerator and denominator.
+
+This row depends on RM7. Its complete-outcome reduction reads the observed-law mean that RM7
+derives, so RM7 must land first. Hubbard and van der Laan (2008) govern the complete-outcome PAR
+and PAF, and the audit must carry them to a declared response process.
+
+[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) states the same joint-curve requirement
+for the collaborative and doubly robust families. This row covers ordinary TMLE under
+`missingness=` only.
 
 Acceptance requires exact reduction to the complete-outcome PAR and PAF, a nonzero response-score
 witness, denominator-boundary refusals, and repeated-sampling evidence for both difference and ratio
@@ -586,6 +620,20 @@ inference gap is separate from F11, which tracks weight-model replay after a per
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
+
+### F17. Joint point-treatment parameter axes
+
+One ordinary point-treatment fit carries one parameter axis. A working model summarises the
+counterfactual means with one score equation per term. A known regime, a modified treatment policy,
+or an incremental intervention replaces what those means are. One fluctuation cannot solve both
+sets of score equations. The refusal comes from `TMLEMethod`, before any model is fitted.
+
+Wait for a published targeting and inference result for each proposed composition, including its
+joint score and covariance. Do not infer the construction from the existing single-axis
+implementations. An accepted composition must reduce exactly to each standalone fit, preserve
+parameter names and policy definitions, and expose the full cross-axis influence covariance.
+Register nonzero controls for every cross-axis block, and repeated-sampling evidence for
+simultaneous inference if it is claimed.
 
 ### F6. MNAR and incremental-intermediate compositions
 

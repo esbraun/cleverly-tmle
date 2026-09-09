@@ -181,15 +181,18 @@ complete_case = (
 )
 
 
-def show(label, result):
+def show(label, result, target):
     point = result["ate"]
     low, high = point.ci
-    covered = low <= truth["ate"] <= high
-    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covered}")
+    covered = low <= target <= high
+    print(
+        f"{label:22s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  "
+        f"CI=({low:.3f}, {high:.3f})  covers={covered}"
+    )
 
 
-show("complete cases only", complete_case)
-show("missingness declared", full)
+show("complete cases only", complete_case, truth["ate"])
+show("missingness declared", full, truth["ate"])
 print("population ATE:", truth["ate"])
 print("rows used:", len(respondents), "of", len(frame))
 ```
@@ -333,8 +336,8 @@ print(missingness_curve)
 print("tipping gamma:", tipping_gamma)
 ```
 
-The assessment collects validation, diagnostics, and sensitivity in one report. It also retains
-the detailed reports, so the support table remains available without another computation.
+The combined assessment collects validation, diagnostics, and sensitivity in one object. It also
+retains the detailed reports, so the support table remains available without another computation.
 
 Positivity is now a statement about the product of two mechanisms. A patient with a middling
 chance of navigation and response can still have a small product. The clever covariate divides by
@@ -386,6 +389,6 @@ conditional on an argument about the mailing process, not on the fit alone.
 
 ## Where to go next
 
-Non-response is one mechanism removing patients from view. Disenrollment is another, and it acts
-over time rather than once. Read [retention and competing risks](longitudinal-survival.md) for the
-version where leaving the plan is the outcome.
+Non-response is one mechanism removing patients from view. Plan exit is another, and it acts over
+time rather than once. Read [time-to-event outcomes](longitudinal-survival.md) for the version
+where plan exit is the outcome.

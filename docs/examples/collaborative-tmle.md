@@ -264,7 +264,7 @@ entry records this limit, and no diagnostic on the fit can repair it.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the diagnostic overview | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
+| the combined assessment | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
 | the support report | how far the propensity reached into the tails, before and after selection | that the selected model is the right one |
 | the nuisance report | selected-model metrics, model role, and the retained selection | whether low AUC means limited confounding after collaborative selection |
 | the retained selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |

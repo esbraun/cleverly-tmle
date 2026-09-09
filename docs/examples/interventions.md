@@ -302,9 +302,10 @@ Three tables, three column headings that read the same, three different paramete
 name in the first column is what distinguishes them, and it is the part to carry into the program
 report.
 
-The current library fits one intervention axis at a time. It refuses a request that combines these
-axes because no registered implementation covers their joint targeting and covariance. Fit each
-declared policy question separately.
+The current library fits one intervention axis at a time. Each axis declares what the fit's
+counterfactuals are, and one fluctuation cannot solve their score equations at once, so a combined
+request is refused before fitting. Fit each declared policy question separately. The roadmap tracks
+the joint construction in [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes).
 
 ## How far to trust this
 
