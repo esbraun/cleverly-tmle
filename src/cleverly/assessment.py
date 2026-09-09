@@ -31,6 +31,7 @@ from ._assessment_cache import (
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
+from .utils.memos import without_memos
 from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
@@ -1197,15 +1198,6 @@ def _default_estimand_candidates(result: Any, eligible: Container[str]) -> tuple
     return tuple(name for name in result.estimates if name in eligible)
 
 
-def _without_memos(owner: type, state: Mapping[str, Any]) -> dict[str, Any]:
-    """Instance state without the entries a ``cached_property`` on ``owner`` owns."""
-    return {
-        name: value
-        for name, value in state.items()
-        if not isinstance(getattr(owner, name, None), cached_property)
-    }
-
-
 class _CapabilityFacade:
     """Lookup, refusal, and combined-report machinery shared by both public facades.
 
@@ -1262,7 +1254,7 @@ class _CapabilityFacade:
         dict of str to Any
             The instance state, without the entries a ``cached_property`` owns.
         """
-        return _without_memos(type(self), self.__dict__)
+        return without_memos(type(self), self.__dict__)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a facade, and discard any memo the artifact already carries.
@@ -1276,7 +1268,7 @@ class _CapabilityFacade:
         state : dict of str to Any
             The pickled instance state.
         """
-        self.__dict__.update(_without_memos(type(self), state))
+        self.__dict__.update(without_memos(type(self), state))
 
     @property
     def _declared(self) -> tuple[AssessmentCapability, ...]:

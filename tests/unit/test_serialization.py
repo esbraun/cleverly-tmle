@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
+import importlib
+import inspect
 import io
 import math
+import pkgutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -17,6 +21,7 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import FunctionTransformer
 
+import cleverly
 from cleverly import (
     ATE,
     CapabilityError,
@@ -44,6 +49,7 @@ from cleverly.validation import (
     GaussianIndependentOutcome,
     RelativeGaussianNoise,
 )
+from cleverly.validation.score import DEFAULT_TOLERANCE
 
 
 def _assert_same_graph(left: Any, right: Any, *, path: str = "result") -> None:
@@ -569,3 +575,216 @@ def test_non_picklable_components_fail_at_save(point_result) -> None:  # type: i
     point_result.estimator.outcome_learner = FunctionTransformer(lambda values: values)
     with pytest.raises(TypeError, match="not joblib-serializable"):
         dumps(point_result)
+
+
+# ------------------------------------------------------------ derived values
+
+
+#: Every class in the package that owns a ``cached_property`` and that no artifact can
+#: reach, with the reason it cannot.  A class named here needs no memo filter. A class
+#: that becomes reachable needs the filter rather than an entry.
+_UNREACHABLE_MEMO_OWNERS = {
+    "cleverly.targets.base.TargetContext": (
+        "built inside the estimator's per-group estimate loop, read by the target "
+        "builders, and dropped when that loop ends. Each estimate keeps the arrays it "
+        "computed and not the context that computed them, which "
+        "`test_no_saved_result_carries_a_value_it_derived` witnesses on a real fit."
+    ),
+}
+
+
+def _memo_names(owner: type) -> tuple[str, ...]:
+    """The attribute names a ``cached_property`` declared on ``owner`` writes."""
+    return tuple(
+        name
+        for name, attribute in vars(owner).items()
+        if isinstance(attribute, functools.cached_property)
+    )
+
+
+def _memo_owners() -> dict[str, type]:
+    """Every shipped class that declares a ``cached_property``, keyed by import path.
+
+    Walking the package rather than naming the classes, because a list of names passes
+    the day a new one is added, which is the day the artifact written by that version is
+    already wrong.
+    """
+    modules = [cleverly]
+    for found in pkgutil.walk_packages(cleverly.__path__, "cleverly."):
+        modules.append(importlib.import_module(found.name))
+    owners: dict[str, type] = {}
+    for module in modules:
+        for obj in vars(module).values():
+            if not inspect.isclass(obj) or not obj.__module__.startswith("cleverly"):
+                continue
+            if _memo_names(obj):
+                owners[f"{obj.__module__}.{obj.__qualname__}"] = obj
+    return owners
+
+
+def _memos_in_graph(root: Any) -> list[str]:
+    """Every ``cached_property`` memo a shipped object still holds under ``root``.
+
+    Reads the descriptors on each visited object's own class, so the answer stays true
+    for a memo added after this walk was written. Only a class this package ships can
+    report one, because a dependency's memo is that dependency's business and pandas
+    declares several.
+    """
+    found: list[str] = []
+    seen: set[int] = set()
+    stack: list[tuple[Any, str]] = [(root, "result")]
+    while stack:
+        value, path = stack.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if value is None or isinstance(value, (str, bytes, bytearray, int, float, complex)):
+            continue
+        # Neither carries a fitted result, and both are deep enough to dominate the walk.
+        if type(value).__module__.split(".")[0] in {"numpy", "pandas", "polars"}:
+            continue
+        state = getattr(value, "__dict__", None)
+        if isinstance(state, dict):
+            for name, item in state.items():
+                if type(value).__module__.startswith("cleverly") and isinstance(
+                    getattr(type(value), name, None), functools.cached_property
+                ):
+                    found.append(f"{path}.{name}")
+                stack.append((item, f"{path}.{name}"))
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                stack.append((item, f"{path}[{key!r}]"))
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            for index, item in enumerate(value):
+                stack.append((item, f"{path}[{index}]"))
+    return found
+
+
+def test_every_memo_owner_either_drops_its_memos_or_reaches_no_artifact() -> None:
+    """A ``cached_property`` on a persisted class is a stale verdict waiting to be written.
+
+    ``save`` pickles the result whole and the default protocol writes the instance
+    dictionary out verbatim, so every memo a caller warmed becomes part of the file. The
+    sweep is the point: naming the three properties that were wrong would pass on the day
+    a fourth is added, and the artifact written that day already carries it.
+
+    A class reaches this assertion unless ``_UNREACHABLE_MEMO_OWNERS`` says why no
+    artifact can hold it. Each exemption is checked against the walk, so a renamed class
+    cannot leave a silent one behind.
+    """
+    owners = _memo_owners()
+
+    assert "cleverly.estimators.base.TMLEResult" in owners, "check the package walk"
+    assert set(_UNREACHABLE_MEMO_OWNERS) <= set(owners), (
+        "an exemption names no shipped memo owner; rename it with the class, or delete it"
+    )
+
+    for path, owner in sorted(owners.items()):
+        if path in _UNREACHABLE_MEMO_OWNERS:
+            continue
+        names = _memo_names(owner)
+        poisoned = dict.fromkeys(names, "a verdict from a version that is not this one")
+
+        written = owner.__new__(owner)
+        written.__dict__.update(poisoned)
+        assert not set(names) & set(written.__getstate__()), (
+            f"{path} writes a memo into every artifact it is saved in"
+        )
+
+        read = owner.__new__(owner)
+        read.__setstate__(poisoned)  # type: ignore[attr-defined]
+        assert not set(names) & set(read.__dict__), (
+            f"{path} restores whatever memo an older artifact already carries"
+        )
+
+
+def test_no_saved_result_carries_a_value_it_derived(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The whole result graph, warmed as a caller warms it, then round-tripped.
+
+    ``fit``, ``summary()``, ``save()`` is the ordinary order, and it wrote
+    ``score_verdict`` into the file. The facades warmed here reach the memos ff5559e
+    filtered, and the walk reaches every other object the artifact holds, including the
+    one ``_UNREACHABLE_MEMO_OWNERS`` claims no artifact can reach.
+
+    The warmed count is asserted first, because a walk that finds nothing before the
+    round trip would find nothing after it for the wrong reason.
+    """
+    point_result.summary()
+    point_result.sensitivity.run_all()
+    assert point_result.diagnostics.capabilities
+
+    warmed = _memos_in_graph(point_result)
+    assert "result.score_verdict" in warmed
+    assert "result.sensitivity" in warmed
+    assert "result.diagnostics" in warmed
+    assert any(name.endswith("._capability_map") for name in warmed)
+
+    assert _memos_in_graph(loads(dumps(point_result))) == []
+
+
+def test_a_loaded_result_recomputes_the_score_verdict_an_artifact_carried(point_result) -> None:  # type: ignore[no-untyped-def]
+    """A stale verdict inside the file is the migration case, and it is not diagnosable.
+
+    Nothing invalidates a memo. There is no generation counter to compare, because a memo
+    records no question, so whatever the artifact carries is restored and reported. A
+    ``ScoreCheck`` saved at one tolerance answers at that tolerance for ever, and an
+    object of the wrong type surfaces as an ``AttributeError`` from ``summary()`` rather
+    than as anything a reader can act on.
+
+    A same-version round trip pins the write side. The revived states below pin the read
+    side, and need no committed binary artifact.
+    """
+    fresh = point_result.score_verdict
+    assert fresh.tolerance == pytest.approx(DEFAULT_TOLERANCE)
+    assert "score_verdict" in point_result.__dict__
+
+    state = point_result.__getstate__()
+    assert "score_verdict" not in state
+    assert state["estimates"] is point_result.estimates
+
+    restored = loads(dumps(point_result))
+    assert "score_verdict" not in restored.__dict__
+    assert restored.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
+    assert restored.score_verdict.rows == fresh.rows
+
+    # A verdict this version does not reach, at a tolerance no caller asked for.
+    stale = dict(state)
+    stale["score_verdict"] = dataclasses.replace(
+        fresh, tolerance=1e-12, corrected=not fresh.corrected
+    )
+    revived = type(point_result).__new__(type(point_result))
+    revived.__setstate__(stale)
+    assert "score_verdict" not in revived.__dict__
+    assert revived.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
+    assert revived.score_verdict.corrected == fresh.corrected
+
+    # Not merely stale: an artifact restores whatever it holds, of whatever type.
+    poisoned = dict(state)
+    poisoned["score_verdict"] = "a verdict from a version that is not this one"
+    healed = type(point_result).__new__(type(point_result))
+    healed.__setstate__(poisoned)
+    assert healed.score_verdict.passed == fresh.passed
+    assert healed.summary() == point_result.summary()
+
+
+def test_a_loaded_result_rebuilds_the_facades_it_was_saved_with(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The two facades are memos as well, and a saved one is this version's object graph.
+
+    Each facade already drops its own verdicts, so what an artifact pinned here is a
+    derived object rather than a stale answer. It is dropped for the same reason and at
+    the same cost: one constructor call, against a class whose shape the file cannot
+    check.
+    """
+    assert point_result.sensitivity is point_result.sensitivity
+    assert point_result.diagnostics is point_result.diagnostics
+
+    state = point_result.__getstate__()
+    assert "sensitivity" not in state
+    assert "diagnostics" not in state
+
+    restored = loads(dumps(point_result))
+    assert "sensitivity" not in restored.__dict__
+    assert "diagnostics" not in restored.__dict__
+    assert restored.sensitivity._result is restored
+    assert restored.diagnostics._result is restored
+    assert restored.sensitivity.capabilities == point_result.sensitivity.capabilities

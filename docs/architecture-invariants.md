@@ -128,6 +128,14 @@ Loading therefore has pickle's arbitrary-code-execution risk and is restricted t
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
+A saved object round-trips the records it holds, and never a value it derived from them. Both
+`TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.
+The shared filter reads the `cached_property` descriptors on the owning class, and it runs on both
+sides of the pickle. A stored memo outlives the code that derived it, so the artifact reports a
+conclusion this version does not reach. No cache generation invalidates a memo, because a memo
+records no question. *Reconsider when* a derived value costs more to recompute than a load may
+spend, and needs a stored generation instead.
+
 Scalar result algebra is composed once in `inference.results`: sole-estimate selection, ordered
 name validation, influence-curve extraction, joint covariance, and smooth delta-method contrasts.
 Point and longitudinal result types delegate those operations and retain only method-specific
@@ -144,8 +152,8 @@ request state, because it changes no capability answer. Sensitivity selects para
 `validate()` summarizes only stored state and never refits, while refutation and benchmarking are
 explicit expensive operations. Assessment caching is keyed by operation plus normalized arguments,
 is persisted separately from estimates, and may not mutate the headline estimate or its summary.
-A facade drops its memoized capability verdicts before persistence. A persisted verdict outlives
-the code that derived it, and the artifact then reports a conclusion this version does not reach.
+A facade drops its memoized capability verdicts before it enters an artifact. The persistence
+invariant above states that rule for every saved object.
 *Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
