@@ -191,7 +191,12 @@ def test_multi_arm_evalue_defers_an_ambiguous_default(typed_multi_arm_result) ->
     aliases = tuple(result.estimates)
     assert len(aliases) == 2
     capability = result.sensitivity.capability("evalue")
-    assert capability.available
+    # The row says what the caller will meet. It cannot run as asked, it says why, and it
+    # names the argument that makes it run. Advertising ``available=True`` beside the
+    # refusal sentence invited the bare call the next line shows raising.
+    assert not capability.available
+    assert capability.status is AssessmentStatus.DEFERRED
+    assert capability.reason and "choose an explicit estimand" in capability.reason
     assert capability.requires_arguments == ("estimand",)
     with pytest.raises(CapabilityError, match="choose an explicit estimand") as caught:
         result.sensitivity.evalue()

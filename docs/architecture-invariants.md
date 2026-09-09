@@ -135,12 +135,17 @@ artifacts and reports. Scientific formulas that differ by method stay separate; 
 algebra must not be copied into another result class.
 
 Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
-aliases. Every public result family has an explicit fit-wide supported, `not_applicable`, or
-`unavailable` answer for every public diagnostic. Caller-controlled deferral is request state,
-not a fourth fit-wide capability answer. Sensitivity selects parameters through `ParameterKey`.
+aliases. Every public result family has an explicit fit-wide supported, `deferred`,
+`not_applicable`, or `unavailable` answer for every public diagnostic. A `deferred` capability
+reports `available: False` and names the argument that makes the operation run. A cost opt-in stays
+request state, because it changes no capability answer. Sensitivity selects parameters through
+`ParameterKey`.
+
 `validate()` summarizes only stored state and never refits, while refutation and benchmarking are
 explicit expensive operations. Assessment caching is keyed by operation plus normalized arguments,
 is persisted separately from estimates, and may not mutate the headline estimate or its summary.
+A facade drops its memoized capability verdicts before persistence. A persisted verdict outlives
+the code that derived it, and the artifact then reports a conclusion this version does not reach.
 *Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
@@ -174,13 +179,18 @@ family still declares each operation exactly once, and the contract test enforce
 reopens if a second operation becomes method-dependent in the same way, which would argue for
 declaring the class beside the method rather than patching the row.
 
-`run_all` applies its gates in one order: availability, then required arguments, then cost. Every
-gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
-told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.
+`run_all` applies its gates in one order: caller deferral, then availability, then required
+arguments, then cost. Every gate above the cost gate refuses for a reason no flag pays off. A
+report that named the cost first told the caller to pass `include_refits=True` for a row that also
+needs explicit `covariates`.
 
 A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
 run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
 An invoked operation that raises a capability refusal is also unavailable.
+
+The deferral gate reads the capability status, not the supplied argument names. An argument that is
+present with a refused value defers the same operation as an absent argument. The E-value defers on
+`estimand=None`, which is its public default.
 
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not

@@ -345,6 +345,98 @@ def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # t
     assert str(direct_refusal.value) == reason
 
 
+def test_an_ambiguous_evalue_row_says_it_is_deferred_rather_than_passed(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+) -> None:
+    """The row a caller reads must describe the call the caller then makes.
+
+    A multi-arm fit reports two contrasts, so the bare E-value default is ambiguous. The
+    row published ``available: True | status: passed`` beside the refusal sentence that
+    says why it cannot run, and ``result.sensitivity.evalue()`` raised straight after. An
+    explicit estimand still runs, because ``_dispatch`` skips the availability gate for it.
+    """
+    capability = multi_arm_result.sensitivity.capability("evalue")
+
+    assert not capability.available
+    assert capability.status is AssessmentStatus.DEFERRED
+    assert capability.reason is not None
+    assert "choose an explicit estimand" in capability.reason
+    assert capability.requires_arguments == ("estimand",)
+    with pytest.raises(CapabilityError, match="is deferred"):
+        multi_arm_result.sensitivity.evalue()
+    chosen = next(iter(multi_arm_result.estimates))
+    assert multi_arm_result.sensitivity.evalue(estimand=chosen) is not None
+
+
+def test_the_public_default_estimand_defers_exactly_as_the_bare_request_does(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+) -> None:
+    """One request, spelled two ways, may not reach two statuses.
+
+    ``estimand=None`` is the documented public default, so ``arguments={"evalue":
+    {"estimand": None}}`` asks for what a bare run asks for. The skip gate tested for a
+    missing argument *key* while the E-value defers on the argument *value*, so this
+    spelling passed both gates, invoked the operation, and returned through the generic
+    post-invocation handler as ``unavailable`` with "call ... directly for the refusal in
+    full". The status disagreed with the bare run and the next step named no argument.
+    """
+    bare = multi_arm_result.sensitivity.run_all()["evalue"]
+    explicit = multi_arm_result.sensitivity.run_all(arguments={"evalue": {"estimand": None}})[
+        "evalue"
+    ]
+
+    assert bare.status is AssessmentStatus.DEFERRED
+    assert explicit.status is bare.status
+    assert explicit.detail == bare.detail
+    assert explicit.next_steps == bare.next_steps
+    assert explicit.next_steps == ("call result.sensitivity.evalue() directly with estimand",)
+    assert "choose an explicit estimand" in explicit.detail
+    # The deferral is the caller's to lift, which is what separates it from unavailable.
+    chosen = next(iter(multi_arm_result.estimates))
+    completed = multi_arm_result.sensitivity.run_all(arguments={"evalue": {"estimand": chosen}})
+    assert completed["evalue"].status is AssessmentStatus.COMPLETED
+
+
+def test_a_saved_facade_carries_no_verdict_it_memoized(multi_arm_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """A memo is derived state, and an artifact that keeps one pins a stale verdict.
+
+    ``result.sensitivity`` is cached on the result and ``save`` pickles the result whole,
+    so a facade the caller has touched wrote ``_evalue_selections`` into the artifact. A
+    multi-arm result saved before ``deferred`` existed reloaded with
+    ``{None: ("unavailable", ...)}`` inside it, and the row read that tuple instead of
+    recomputing. The loaded result reported an unavailable E-value with no next step, past
+    the ``sensitivity.run_all`` cache generation that exists to force the recompute.
+
+    A same-version round trip pins the write side. The revived state below pins the read
+    side, which is the migration case, and needs no committed binary artifact.
+    """
+    facade = multi_arm_result.sensitivity
+    fresh = facade.run_all()["evalue"]
+    assert fresh.status is AssessmentStatus.DEFERRED
+    assert "_evalue_selections" in facade.__dict__
+    assert "_capability_map" in facade.__dict__
+
+    state = facade.__getstate__()
+    assert "_evalue_selections" not in state
+    assert "_capability_map" not in state
+    assert "_declared" not in state
+    assert state["_result"] is multi_arm_result
+
+    restored = load(multi_arm_result.save(tmp_path / "warmed-evalue.joblib"))
+    assert "_evalue_selections" not in restored.sensitivity.__dict__
+    assert restored.sensitivity.capability("evalue").status is AssessmentStatus.DEFERRED
+    assert restored.sensitivity.run_all()["evalue"] == fresh
+
+    stale = dict(state)
+    stale["_evalue_selections"] = {None: ("unavailable", "an older verdict for this fit")}
+    revived = type(facade).__new__(type(facade))
+    revived.__setstate__(stale)
+
+    assert "_evalue_selections" not in revived.__dict__
+    assert revived.capability("evalue").status is AssessmentStatus.DEFERRED
+    assert revived.run_all()["evalue"] == fresh
+
+
 @dataclasses.dataclass(frozen=True)
 class _DelegatingBackdoorProvider:
     """A custom ``IdentificationProvider`` that reuses the built-in backdoor derivation.
@@ -1384,6 +1476,11 @@ class TestCapabilityRowsDoNotContradictThemselves:
     fit with a fitted missingness mechanism published ``available: True | status:
     unavailable | reason: no longitudinal missingness-tilt adapter is implemented`` for an
     operation that works.
+
+    The fixtures are the witnesses. None of the first three reaches an ambiguous E-value
+    default, so the row that published ``available: True | status: passed | reason: an
+    E-value needs one contrast`` broke the second invariant below while this class passed.
+    ``multi_arm_result`` reports two contrasts, which is the case the E-value row turns on.
     """
 
     @pytest.fixture(scope="class")
@@ -1413,7 +1510,8 @@ class TestCapabilityRowsDoNotContradictThemselves:
         )
 
     @pytest.mark.parametrize(
-        "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
+        "fixture_name",
+        ["point_result", "longitudinal_result", "missing_outcome_result", "multi_arm_result"],
     )
     def test_an_available_operation_is_never_reported_unavailable(
         self, fixture_name, request
@@ -1428,7 +1526,8 @@ class TestCapabilityRowsDoNotContradictThemselves:
             }, f"{row.operation} is available but reports {row.status}"
 
     @pytest.mark.parametrize(
-        "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
+        "fixture_name",
+        ["point_result", "longitudinal_result", "missing_outcome_result", "multi_arm_result"],
     )
     def test_only_an_unrunnable_operation_carries_a_reason(self, fixture_name, request) -> None:  # type: ignore[no-untyped-def]
         """Both facades, because the invariant is about the field and not about one surface.

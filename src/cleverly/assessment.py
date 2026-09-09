@@ -137,7 +137,8 @@ class AssessmentCapability:
     available : bool
         Whether the operation can run on the result family.
     status : AssessmentStatus
-        Status to report when the operation cannot run.
+        Status to report when the operation cannot run. ``DEFERRED`` means that the caller
+        lifts the refusal by passing every name in ``requires_arguments``.
     required_artifacts : tuple of str
         Fitted artifacts that the operation reads.
     execution : {"summarize", "retarget", "refit"}
@@ -1076,6 +1077,15 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     )
 
 
+def _without_memos(owner: type, state: Mapping[str, Any]) -> dict[str, Any]:
+    """Instance state without the entries a ``cached_property`` on ``owner`` owns."""
+    return {
+        name: value
+        for name, value in state.items()
+        if not isinstance(getattr(owner, name, None), cached_property)
+    }
+
+
 class _CapabilityFacade:
     """Lookup, refusal, and combined-report machinery shared by both public facades.
 
@@ -1102,6 +1112,44 @@ class _CapabilityFacade:
 
     def __init__(self, result: Any) -> None:
         self._result = result
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Persist the facade without the verdicts it memoized.
+
+        A result carries its facades in ``__dict__``, and ``save`` pickles the whole result,
+        so every :func:`~functools.cached_property` on a facade the caller has touched is
+        written into the artifact.  Those memos are derived state: ``_declared``,
+        ``_capability_map`` and ``_evalue_selections`` all restate what this version of the
+        package concludes from the stored artifacts.  Persisting one pins the conclusion of
+        the version that saved it.  A multi-arm result saved before ``DEFERRED`` existed
+        carried ``{None: ("unavailable", ...)}``, and the loaded result kept reporting an
+        unavailable E-value with no next step, past the cache generation that exists to
+        force exactly that recompute.
+
+        Dropping every memo rather than the three by name, because the next one added is
+        stale in an artifact the moment it is written, and recomputing costs one pass over
+        the declarations.
+
+        Returns
+        -------
+        dict of str to Any
+            The instance state, without the entries a ``cached_property`` owns.
+        """
+        return _without_memos(type(self), self.__dict__)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a facade, and discard any memo the artifact already carries.
+
+        :meth:`__getstate__` keeps a memo out of every artifact this version writes. It
+        cannot reach one an older version wrote, and that artifact is the migration case:
+        the stale verdict is inside the file. Filtering on the way in heals it.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The pickled instance state.
+        """
+        self.__dict__.update(_without_memos(type(self), state))
 
     @property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
@@ -1156,11 +1204,11 @@ class _CapabilityFacade:
     ) -> AssessmentItem | None:
         """The row a combined report owes an operation, or ``None`` to run it.
 
-        Availability first, then the missing argument, and the cost last. Every gate above
-        the cost gate refuses for a reason no flag can pay off, and a report that named the
-        cost first sent the caller to ``include_refits=True`` and then, on the very next
-        call, to the argument it never mentioned. A refusal has to name the first thing
-        that is wrong.
+        A deferred row first, then availability, then the missing argument, and the cost
+        last. Every gate above the cost gate refuses for a reason no flag can pay off, and a
+        report that named the cost first sent the caller to ``include_refits=True`` and
+        then, on the very next call, to the argument it never mentioned. A refusal has to
+        name the first thing that is wrong.
 
         Parameters
         ----------
@@ -1178,6 +1226,21 @@ class _CapabilityFacade:
         AssessmentItem or None
             The omission to report, or ``None`` when the operation may run.
         """
+        if capability.status is AssessmentStatus.DEFERRED and capability.requires_arguments:
+            # A deferred row is refused by this request, not by the fit: the operation runs
+            # once the caller names the argument the row declares.  Routed by status rather
+            # than by key membership, because the E-value defers on the *value* -- an
+            # explicit ``estimand=None`` is the documented public default and stays
+            # ambiguous.  Testing membership alone let that spelling past both gates, into
+            # the invocation, and out through the generic refusal handler as ``unavailable``
+            # with no argument to act on, while the bare call reported ``deferred``.
+            return _missing_argument_item(
+                capability,
+                self._attribute,
+                capability.requires_arguments,
+                arguments,
+                reason=capability.reason,
+            )
         if not capability.available:
             return _item_from_capability(capability)
         missing = tuple(name for name in capability.requires_arguments if name not in arguments)
@@ -1429,6 +1492,8 @@ def _missing_argument_item(
     attribute: str,
     missing: tuple[str, ...],
     arguments: Mapping[str, Any],
+    *,
+    reason: str | None = None,
 ) -> AssessmentItem:
     """The skip a combined report owes an operation whose argument it cannot choose.
 
@@ -1439,6 +1504,13 @@ def _missing_argument_item(
     A row may declare more than one argument, so the sentence has to agree in number.
     ``", ".join`` alone rendered "an explicit grid, estimand argument", which reads as one
     argument named "grid, estimand".
+
+    ``reason`` is the sentence *this* deferral prints, and the gate passes it in rather than
+    this builder reading ``capability.reason``, which means something else: the explanation
+    a refused row owes its caller.  The two coincide on the one row that carries both, and
+    the printed sentence must not depend on that coincidence.  ``None`` keeps the generic
+    sentence, which is what a row with a declared but unsupplied argument -- ``benchmark``
+    without ``covariates`` -- has to say.
     """
     needed = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
     phrase = (
@@ -1447,7 +1519,7 @@ def _missing_argument_item(
     return AssessmentItem(
         capability.operation,
         AssessmentStatus.DEFERRED,
-        capability.reason or f"needs {phrase}, which a combined report has no basis to choose",
+        reason or f"needs {phrase}, which a combined report has no basis to choose",
         (f"call result.{attribute}.{capability.operation}() directly with {needed}",),
         arguments=dict(arguments),
     )
@@ -2956,30 +3028,40 @@ class SensitivityFacade(_CapabilityFacade):
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
         from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
 
-        status: str | None
+        status: AssessmentStatus
         reason: str | None
         execution: Literal["summarize", "retarget"]
+        requires_arguments: tuple[str, ...]
         try:
             selected = self._evalue_selection(estimand)
         except _EValueRefusal as error:
-            available, status, reason, execution = False, error.status, str(error), "summarize"
+            # A refused row is refused, whichever status it carries.  Reporting
+            # ``available=True`` beside a deferral published ``available: True | status:
+            # passed | reason: an E-value needs one contrast`` on a multi-arm fit, and the
+            # bare call the row invited then raised.  ``_dispatch`` skips ``_require`` for
+            # an explicit ``estimand``, so a caller who supplies one still runs.
+            available = False
+            status = AssessmentStatus(error.status)
+            reason = str(error)
+            execution = "summarize"
+            # The argument that lifts the deferral. Only a deferral has one: an
+            # unsupported contrast is not a choice the caller can make.
+            requires_arguments = ("estimand",) if status is AssessmentStatus.DEFERRED else ()
         else:
-            available, status, reason = True, None, None
+            available, status, reason = True, AssessmentStatus.PASSED, None
             execution = "retarget" if selected.branch == _DERIVED_RR else "summarize"
-        deferred = status == AssessmentStatus.DEFERRED.value
+            requires_arguments = ()
         return _capability(
             "evalue",
             _family(self._result),
             artifacts=("structured arm contrast", "ratio or derivation artifacts"),
             interpretation="minimum risk-ratio association needed to explain away an effect",
-            available=available or deferred,
-            status=(
-                AssessmentStatus.PASSED if status is None or deferred else AssessmentStatus(status)
-            ),
+            available=available,
+            status=status,
             reason=reason,
             execution=execution,
             cost="cheap",
-            requires_arguments=("estimand",) if deferred else (),
+            requires_arguments=requires_arguments,
         )
 
     def _capability_for_arguments(
