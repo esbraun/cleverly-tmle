@@ -111,6 +111,21 @@ The rows below remain.
 | --- | --- |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
+Show each completed analysis first. Keep its surface, operation, and returned result in that view.
+These rows contain the post-fit values that an analyst uses to interpret the study.
+
+Group checks by exact status after the results. Group deferred, unavailable, and not-applicable
+operations in a final section. Each group gives its row count and every surface-qualified
+operation name. Use one operation per line so a large group remains readable in a terminal.
+
+`AssessmentReport.to_frame()` remains the complete row ledger. The per-surface reports,
+`attention`, `omissions`, `next_steps()`, retained payloads, invocation arguments, and omission
+reasons remain unchanged. Contract tests cover all seven statuses, empty sections, equal names
+across surfaces, exact row accounting, bounded inventory width, and a documented-seed point fit.
+
+This presentation reads retained post-fit rows and changes no cached aggregate. No registered
+study applies because fitting, estimands, inference, and every fitted array remain unchanged.
+
 `deferred` closes the taxonomy gap. It separates a caller's outstanding choice from a limitation
 of the fit. [The status contract](technical-reference/validation-methods.md#the-status-contract)
 states what each status means, and which rows carry which one.
