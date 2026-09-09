@@ -1,115 +1,36 @@
 """Execute and provenance-stamp a committed notebook artifact.
 
-The stamp binds stored execution payloads to every input this repository controls: the ordered
-code cells, the notebook generator, the shipped ``cleverly`` source tree, and the dependency
-lock. Documentation builds stay offline and render the committed outputs. The fast tier checks
-the same stamp for every reader-facing notebook.
+Running this needs a network connection, a ``python3`` kernel, and the time it takes to refit
+every estimator the notebook fits. Documentation builds stay offline and render the committed
+outputs.
+
+The stamp itself is built by :mod:`tests.notebooks`, which also says which half of it the fast
+tier asserts equal. Keeping the digests there keeps :mod:`nbclient` out of every fast-tier run:
+verification needs the digests, and only this entry point needs a kernel.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
-from collections.abc import Iterable
+import sys
 from pathlib import Path
-from typing import Any
 
 import nbformat
 from nbclient import NotebookClient
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-STAMP_SCHEMA_VERSION = 2
-
-
-def _sha256(payload: bytes) -> str:
-    """Return the hexadecimal SHA-256 digest of ``payload``."""
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _canonical_json_digest(value: Any) -> str:
-    """Digest JSON data independently of mapping insertion order and display whitespace."""
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
-    return _sha256(payload)
-
-
-def code_source_digest(notebook: Any) -> str:
-    """Return a stable digest of the ordered code-cell sources."""
-    sources = [
-        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
-        for cell in notebook["cells"]
-        if cell["cell_type"] == "code"
-    ]
-    return _canonical_json_digest(sources)
-
-
-def execution_payload_digest(notebook: Any) -> str:
-    """Digest the ordered identities, counts, and stored outputs of every code cell."""
-    execution = [
-        {
-            "id": cell.get("id"),
-            "execution_count": cell.get("execution_count"),
-            "outputs": cell.get("outputs", []),
-        }
-        for cell in notebook["cells"]
-        if cell["cell_type"] == "code"
-    ]
-    return _canonical_json_digest(execution)
-
-
-def file_digest(path: Path) -> str:
-    """Digest one repository input byte for byte."""
-    return _sha256(path.read_bytes())
-
-
-def file_set_digest(paths: Iterable[Path], *, root: Path) -> str:
-    """Digest a sorted file set, including each repository-relative path and its bytes."""
-    records = [
-        {
-            "path": path.resolve().relative_to(root.resolve()).as_posix(),
-            "sha256": file_digest(path),
-        }
-        for path in sorted(paths)
-    ]
-    return _canonical_json_digest(records)
-
-
-def package_source_digest(repository_root: Path = REPOSITORY_ROOT) -> str:
-    """Digest every shipped source file below ``src/cleverly``."""
-    package_root = repository_root / "src" / "cleverly"
-    sources = (
-        path
-        for path in package_root.rglob("*")
-        if path.is_file() and (path.suffix == ".py" or path.name == "py.typed")
-    )
-    return file_set_digest(sources, root=repository_root)
-
-
-def notebook_execution_stamp(
-    notebook: Any,
-    notebook_path: Path,
-    *,
-    repository_root: Path = REPOSITORY_ROOT,
-) -> dict[str, Any]:
-    """Build the complete reproducibility stamp for one executed notebook."""
-    relative = notebook_path.resolve().relative_to(repository_root.resolve()).as_posix()
-    return {
-        "schema_version": STAMP_SCHEMA_VERSION,
-        "code_source_sha256": code_source_digest(notebook),
-        "execution_payload_sha256": execution_payload_digest(notebook),
-        "generator_sha256": file_digest(repository_root / "scripts" / "execute_notebook.py"),
-        "package_source_sha256": package_source_digest(repository_root),
-        "dependency_lock_sha256": file_digest(repository_root / "uv.lock"),
-        "command": f"python scripts/execute_notebook.py {relative}",
-    }
-
 
 def main() -> None:
+    """Execute the notebook named on the command line, then write its stamp back.
+
+    ``python scripts/execute_notebook.py <path>`` puts ``scripts/`` on the import path and not
+    the repository root, so the stamp module is importable only after the first line here.
+    That command is the one the stamp records and the one the contributor documentation gives,
+    so the path repair belongs in the script rather than in an instruction to export
+    ``PYTHONPATH``.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tests.notebooks import REPOSITORY_ROOT, notebook_execution_stamp
+
     parser = argparse.ArgumentParser()
     parser.add_argument("notebook", type=Path)
     parser.add_argument("--timeout", type=int, default=900)

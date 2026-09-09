@@ -16,5 +16,9 @@ target/
 docs/_build/
 docs/api/generated/
 
+# Jupyter's autosave copy of a notebook it opened.  `tests/documents.py` also drops this
+# directory, because an untracked copy of the published notebook is not a document.
+.ipynb_checkpoints/
+
 # Where every canonical study's README sends a disposable regeneration.
 .tmp/

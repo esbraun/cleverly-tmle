@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -140,6 +141,18 @@ def _regimen_mean(second_node: Sequence[int]) -> float:
         return float(law.functional(law.PROBS, "ey_regimen[_probe]"))
 
 
+def _second_node_arms(specification: tuple[str, Any]) -> tuple[int, ...]:
+    """The arm a plan's second node assigns at ``L2 == 0`` and at ``L2 == 1``.
+
+    A declared plan writes its second node as a callable over the history, and
+    :func:`_regimen_mean` reads a second node as one arm index per ``L2`` level.  This
+    evaluates the callable at both levels, so the caller measures the shipped rule object
+    rather than a transcription of it.
+    """
+    labels = np.asarray(specification[1](pd.DataFrame({"L2": [0, 1]})))
+    return tuple(law.ARM_LABELS.index(str(label)) for label in labels)
+
+
 def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     """The shipped mutation is larger than the alternatives, and that cannot be why it passes.
 
@@ -153,6 +166,10 @@ def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     its shift in the exact regimen mean over the positive cell's committed empirical spread, and
     every one of them clears the declared floor by more than an order of magnitude.  Nothing sits
     near the boundary, so no verdict in this family turns on which mutation was chosen.
+
+    Both rules are read off the modules that ship them rather than restated here.  A restated
+    ``shipped`` tuple would leave this test passing while ``MUTATED_REGIMENS`` said something
+    else, and that is the failure the closing assertion claims to catch.
     """
     published = pd.read_csv(ordinary.STUDY.artifact("properties.csv"))
     positive = published.loc[
@@ -163,10 +180,23 @@ def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     spread = float(positive["empirical_se"].iloc[0])
 
     arm = {label: law.ARM_LABELS.index(label) for label in law.ARM_LABELS}
-    declared = (arm["low"], arm["high"])
+    for name, specification in (
+        ("declared", common.REGIMENS["respond"]),
+        ("mutated", common.MUTATED_REGIMENS["respond"]),
+    ):
+        assert specification[0] == "standard", (
+            f"the {name} respond plan starts at {specification[0]}, so _regimen_mean measures a "
+            f"first node neither rule assigns"
+        )
+
+    declared = _second_node_arms(common.REGIMENS["respond"])
     assert _regimen_mean(declared) == pytest.approx(law.TRUTH["ey_regimen[respond]"], abs=1e-12)
 
-    shipped = (arm["high"], arm["low"])
+    shipped = _second_node_arms(common.MUTATED_REGIMENS["respond"])
+    assert shipped != declared, (
+        "MUTATED_REGIMENS leaves the respond plan's second node alone, so the rule_necessity "
+        "control mutates nothing"
+    )
     alternatives = {
         "L2=0 low->standard": (arm["standard"], arm["high"]),
         "L2=0 low->high": (arm["high"], arm["high"]),
@@ -188,6 +218,10 @@ def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     assert displacement["shipped"] == max(displacement.values()), (
         "the shipped mutation is no longer the largest, so the comment beside MUTATED_REGIMENS "
         "describes a different control"
+    )
+    assert displacement["shipped"] == pytest.approx(6.8764, abs=5e-5), (
+        f"the shipped mutation's exact-law displacement is {displacement['shipped']:.4f}, and "
+        f"the comment beside MUTATED_REGIMENS quotes 6.8764"
     )
 
 

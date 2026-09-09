@@ -83,7 +83,15 @@ test whose subject *is* flexible learning.
 
 Documentation examples are not statistical evidence. Cover behaviour in the ordinary fast tier or
 in a named statistical study. The documentation gates check that an example parses, resolves its
-links, and does not raise. They do not check that its numbers mean anything.
+links, and does not raise. A committed notebook carries a fourth gate. Its stored outputs must
+match its code cells, so an edited cell cannot keep the results of an older run. The gates do not
+check that any number means anything.
+
+Re-execute a notebook with `python scripts/execute_notebook.py <path>`. The command needs network
+access. It stamps the notebook with a gated half and a recorded half, and only the gated half can
+fail this tier. `tests/notebooks.py` gives the reason. The slow tier re-executes each notebook and
+compares the text its cells print, which is how a library change that moved a published number is
+found.
 
 ## When to run a slow test
 

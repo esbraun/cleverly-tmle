@@ -77,9 +77,23 @@ behind the commands.
 The fast tier is the handoff gate for every one of those rows. The registered validation studies
 run inside it, so the statistical evidence is checked in minutes rather than hours.
 
-The notebook command executes every cell and replaces the stored outputs. It also records hashes
-for the cells, outputs, generator, package source, and dependency lock. The fast tier discovers
-every reader-facing notebook and rejects a stale stamp.
+The notebook command executes every cell and replaces the stored outputs. It needs network
+access, because the TWINS notebook downloads a pinned dataset. It then writes a stamp with two
+halves, and only one half can fail the fast tier.
+
+| stamp half | covers | the fast tier |
+| --- | --- | --- |
+| gated | the notebook's own code cells and stored outputs, its schema, and the repair command | asserts it equal |
+| recorded | the shipped package source, the dependency lock, and the generator | asserts it present and well formed |
+
+Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
+the recorded command fails for the same reason. Edit library code and no notebook gate fails. The
+recorded half names the checkout that ran the notebook. It does not constrain the tree you work
+in. `tests/notebooks.py` gives the reason for the split.
+
+`pytest -m slow` re-executes each notebook and compares the text its cells print. Images are left
+out, because a figure re-renders to different bytes for reasons no estimate explains.
+Re-execution finds a library change that moved a published number. A hash comparison does not.
 
 The repeated-sampling studies that predate the registered rows are deprecated, and pytest skips
 each one. Do not re-enable one to justify a change. Read

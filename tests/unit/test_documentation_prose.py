@@ -30,7 +30,8 @@ from pathlib import Path
 import pytest
 
 from tests import prose
-from tests.documents import READER_FACING, ROOT
+from tests.documents import NOTEBOOKS, READER_FACING, ROOT, reader_facing
+from tests.notebooks import code_cells
 
 #: A floor on the set, so a glob that stopped matching cannot report success over nothing.  Well
 #: under the count at the time of writing, because this is a guard and not a census.
@@ -46,6 +47,31 @@ def test_the_scan_reaches_something() -> None:
     assert suffixes == {".md", ".rst", ".ipynb"}, (
         f"the scan reaches {sorted(suffixes)}; a format dropped here is a format nothing reads"
     )
+    assert NOTEBOOKS, "no notebook in the reader-facing set; check documents.reader_facing"
+
+
+def test_the_scan_drops_a_generated_or_autosaved_copy(tmp_path: Path) -> None:
+    """Jupyter's checkpoint of the published notebook is not a second published notebook.
+
+    ``.ipynb_checkpoints`` is a dot-directory, and ``Path.glob`` walks one like any other.  An
+    unfiltered scan therefore grew a second notebook the moment somebody opened the first, and
+    failed the fast tier on an untracked file.  The copies are checked beside the build output
+    because a build directory reaches this set the same way.
+    """
+    (tmp_path / "README.md").write_text("# root\n", encoding="utf-8")
+    published = tmp_path / "docs" / "examples"
+    published.mkdir(parents=True)
+    (published / "notebook.ipynb").write_text("{}\n", encoding="utf-8")
+    (published / "guide.md").write_text("# guide\n", encoding="utf-8")
+    for directory in ("_build", "generated", ".ipynb_checkpoints"):
+        copy = published / directory
+        copy.mkdir()
+        (copy / "notebook.ipynb").write_text("{}\n", encoding="utf-8")
+        (copy / "guide.md").write_text("# guide\n", encoding="utf-8")
+
+    found = {path.relative_to(tmp_path).as_posix() for path in reader_facing(tmp_path)}
+
+    assert found == {"README.md", "docs/examples/notebook.ipynb", "docs/examples/guide.md"}
 
 
 def test_the_scanner_sees_what_it_should_and_ignores_what_it_should_not() -> None:
@@ -73,12 +99,10 @@ def test_the_notebook_reader_skips_code_and_output() -> None:
     A rendered dataframe draws its rules with hyphens, and ``----------  --  ---`` in the TWINS
     notebook contains the spaced double hyphen this scanner looks for.
     """
-    notebooks = [path for path in READER_FACING if path.suffix == ".ipynb"]
-    assert notebooks, "no notebook in the reader-facing set; check documents.READER_FACING"
-    for notebook in notebooks:
-        cells = json.loads(notebook.read_text(encoding="utf-8"))["cells"]
-        assert any(cell.get("cell_type") == "code" for cell in cells), notebook
-        assert any(cell.get("outputs") for cell in cells), notebook
+    for notebook in NOTEBOOKS:
+        code = code_cells(json.loads(notebook.read_text(encoding="utf-8")))
+        assert code, notebook
+        assert any(cell.get("outputs") for cell in code), notebook
         text = prose.markdown_cells(notebook)
         assert "import " not in text, "a code cell reached the markdown-only text"
 

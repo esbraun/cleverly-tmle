@@ -39,13 +39,20 @@ CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 #: establish that the bias lands outside the margin rather than inside it.
 #:
 #: It is still the right control, and the reason is arithmetic rather than judgement.  Every
-#: one-stratum alternative clears the same floor off the exact law: the weakest of them shifts
-#: the regimen mean by 0.0625, which is a displacement of 1.38 against a declared floor of 0.10
-#: and roughly five times the bias margin.  The shipped mutation measures 6.88.  No candidate
-#: sits near the boundary, so the choice cannot decide the verdict, and a one-stratum variant
-#: would be a second control rather than a correction to this one.
-#: ``test_no_rule_mutation_choice_decides_the_necessity_verdict`` computes that table so the
-#: claim is checked rather than recorded.
+#: one-stratum alternative clears the same floor off the exact law.  The weakest of them shifts
+#: the regimen mean by 0.0625.  That shift is an *exact-law* displacement of 1.38 against the
+#: declared floor of 0.10, and roughly five times the control cell's ``bias_margin``.  The
+#: shipped mutation's exact-law displacement is 6.8764.  Each exact-law displacement divides an
+#: exact shift in the regimen mean by the positive cell's committed ``empirical_se``.
+#:
+#: The artifact publishes a second displacement under a similar name.  ``properties.csv``
+#: separates the two cells' *fitted* means in its ``rule_displacement`` column, which is a
+#: *Monte Carlo* displacement of 6.859632.  A search of that artifact for 6.8764 returns
+#: nothing, so each figure above names the quantity it measures.  No candidate sits near the
+#: boundary, so the choice of mutation cannot decide the verdict.  A one-stratum variant would
+#: be a second control rather than a correction to this one.
+#: ``test_no_rule_mutation_choice_decides_the_necessity_verdict`` reads ``MUTATED_REGIMENS``
+#: and recomputes the exact-law table, so the claim is checked rather than recorded.
 #:
 #: What pins the rule *evaluation* is not this family at all.  The exact-law fold test holds the
 #: dynamic contrast to its g-formula truth and its Gateaux curve at 1e-12, which is a sharper

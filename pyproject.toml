@@ -58,6 +58,11 @@ docs = [
 ]
 dev = [
     "cleverly[all]",
+    # `nbclient` runs `scripts/execute_notebook.py` and `ipykernel` provides the `python3`
+    # kernel it names, so the documented notebook repair works from `pip install -e .[dev]`.
+    # No upper bound: nothing here calls an `ipykernel` API, and a cap would hold the `docs`
+    # extra below the version `myst-nb` already resolves.
+    "ipykernel>=6.29",
     "nbclient>=0.10,<1",
     "nbformat>=5.10,<6",
     "numpydoc>=1.10,<2",
@@ -97,7 +102,10 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+# `.` is what makes `tests` and `scripts` first-party from a file outside a package. Without
+# it, `scripts/execute_notebook.py` has no `__init__.py` above it, so isort resolves its own
+# repository root and sorts `from tests.notebooks import ...` into the third-party block.
+src = [".", "src", "scripts", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -142,9 +150,12 @@ ignore = [
 # stubs ever stop needing 3.12. The `mypy==` pin itself has not moved; it lives once in the
 # `dev` extra above, which `noxfile.py` and `ci.yml` install rather than restate.
 python_version = "3.12"
-# `scripts/` is in scope deliberately.  Nothing under it is imported by a test, so the
-# type checker is the only gate it has -- and the one that catches a script still calling
-# a result method the package has removed.
+# `scripts/` is in scope deliberately.  It is not on the fast tier's import path: the digest
+# helpers live in `tests/notebooks.py`, and what stays here is the `nbclient` entry point that
+# only a networked re-execution runs.  So the type checker is the closest thing to a gate it
+# has, and the one that catches a script still calling a result method the package has removed.
+# `tests/` is not in `files`, but mypy follows this import into `tests/notebooks.py` and checks
+# that module too.
 files = ["src/cleverly", "scripts"]
 strict = false
 warn_unused_ignores = true
