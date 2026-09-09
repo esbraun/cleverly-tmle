@@ -185,8 +185,11 @@ _SUMMARY_OMISSION_ORDER: tuple[AssessmentStatus, ...] = (
 _INVENTORY_HEADERS: tuple[str, ...] = ("status", "count", "operations")
 
 #: How the compact summary closes.  Both sentences name the surface that carries the detail
-#: the summary drops.  Tests assert this wording, and two documents restate it, so it is
-#: written once here.
+#: the summary drops, so the wording is a contract rather than decoration:
+#: ``docs/technical-reference/validation-methods.md`` describes these lines, and
+#: ``tests/unit/test_post_fit_assessment_battery.py`` re-types them to assert the summary
+#: ends in exactly this text.  That test spells the literal out on purpose, so importing
+#: this name there would make the assertion agree with itself.
 _SUMMARY_FOOTER: str = (
     "Full ledger: call to_frame(). Next steps: call next_steps().\n"
     "Retained payloads: call report(...)."

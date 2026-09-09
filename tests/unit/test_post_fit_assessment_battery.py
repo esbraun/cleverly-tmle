@@ -1543,6 +1543,10 @@ def test_the_battery_summary_expands_results_before_compact_checks_and_omissions
         sections["Not run"],
     )
     assert list(sections) == ["Returned results", "Checks", "Not run"]
+    # ``_summary_sections`` skips any block that carries no rule, so section order alone
+    # would admit a preamble printed above the first section.  The two anchors below pin
+    # the text to its first and last byte, and the width check pins the rule itself.
+    assert text.startswith("Returned results\n")
     assert results.splitlines()[0].split() == ["surface", "operation", "result"]
     assert "sensitivity" in results and "completed detail" in results
     # The operation column is the name a reader passes back to ``report(...)``, so the
