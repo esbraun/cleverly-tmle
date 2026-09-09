@@ -1,8 +1,7 @@
-# Longitudinal TMLE for members who leave: retention and competing risks
+# Longitudinal TMLE for time-to-event outcomes
 
-A member who leaves the plan is not a member with a missing outcome. This test of change makes
-leaving the question rather than the nuisance, and then splits it by cause. The two exit routes can
-respond differently to navigation. Asking the fit to remove either route is refused by name.
+A member who leaves the plan is not a member with a missing outcome. This page first makes plan exit
+the outcome. It then uses relapse and death to show a competing-risk outcome with two causes.
 
 Read [longitudinal TMLE](longitudinal-tmle.md) first. It declares the same program at two decision
 points, and this page reuses its design vocabulary. Read
@@ -11,11 +10,9 @@ the event-process recursion and the cause-specific construction.
 
 ## The applied question
 
-The plan wants to know whether repeated transition navigation keeps members enrolled. Members can
-choose another plan during annual open enrollment or after a qualifying life event. Navigation can
-affect either choice, but the two routes can respond differently. The program needs a number for
-both. All-cause incidence answers the overall retention question, but it cannot separate the two
-routes.
+The plan first asks whether repeated transition navigation keeps members enrolled. A clinical team
+then asks how the same repeated offer changes cumulative relapse and death after discharge.
+All-cause incidence answers the overall event-free question, but it cannot separate the two causes.
 
 ## Why this method
 
@@ -26,7 +23,7 @@ the event again in the second.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | the outcome is an event that can happen at more than one time | one cumulative risk per horizon, each on its own risk set | one regression per node per horizon, so the fit is longer than an end-of-study one |
-| members can leave through competing routes | a cause-specific incidence that leaves the competing cause in the history | cause-specific incidences sum to all-cause risk, not one. Renormalising them would break the score equation |
+| patients can experience one of two competing events | a cause-specific incidence that leaves the competing cause in the history | cause-specific incidences sum to all-cause risk, not one. Renormalising them would break the score equation |
 | you want the retention scale rather than the risk scale | `curve(scale="survival")`, which mirrors the interval correctly | nothing. It is the same fit read the other way |
 
 ## The shared configuration
@@ -47,7 +44,7 @@ sequential = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=3, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=3),
     runtime=Runtime(random_state=41, n_jobs=1),
 )
 ```
@@ -111,13 +108,18 @@ A member the plan lost track of is censored. A member who left the plan had the 
 Read the same fit on the retention scale.
 
 ```python
-print(churn_result.curve(scale="survival"))
+survival_curve = churn_result.curve(scale="survival")
+print(survival_curve[["regimen", "time", "psi", "ci_lower", "ci_upper"]])
 ```
 
 `curve()` returns one row per regimen per horizon, with a `time` column that `to_frame()` does not
 carry. The survival scale is not a relabelling. For a level it reports $1 - F$, mirroring the
 estimate and the interval. For a contrast it negates the estimate, and it negates **and swaps** the
 interval bounds. The standard error is the same either way.
+
+The current helper leaves `estimand` and `scale` labelled as risk and level after this
+transformation. This example omits those two incorrect label columns. The display defect is recorded
+in [RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
 
 At the documented sample size the retention curve separates. Members assigned navigation in both
 periods stay enrolled at a visibly higher rate by the second period.
@@ -138,14 +140,15 @@ for name, value in churn_truth.items():
 The contrast is negative, because navigation reduces cumulative disenrollment. Its size grows between
 the two horizons.
 
-## Two ways to leave
+## Two competing clinical events
 
-A member leaves through one of two events. The event type decides what the program can claim.
+A patient can experience relapse or die before relapse. Either event removes the patient from the
+risk set for the other.
 
 | cause | what it is | can the program move it? |
 | --- | --- | --- |
-| open enrollment | the member chose another plan in the annual window | yes. This is the exit that patient experience is supposed to affect |
-| special enrollment | the member chose another plan after a qualifying life event | yes. The choice occurs on a different route and can respond differently |
+| relapse | the first recorded recurrence after discharge | possibly. Navigation can change access and adherence pathways |
+| death | death before a recorded relapse | possibly. Any claim needs a plausible pathway and the same identification review |
 
 The two are mutually exclusive and absorbing, which is what the container requires. Competing risks
 are declared by the **shape** of `outcome=`: a mapping of cause to its indicator columns, one per
@@ -154,36 +157,33 @@ time point.
 ```python
 from cleverly.datasets import make_longitudinal_competing
 
-exit_frame, exit_truth = make_longitudinal_competing(n=4_000, seed=53, censoring=False)
-exit_frame = exit_frame.rename(
+event_frame, event_truth = make_longitudinal_competing(n=4_000, seed=53, censoring=False)
+event_frame = event_frame.rename(
     columns={
         "W1": "age",
         "W2": "baseline_readiness",
         "A1": "navigation_p1",
         "L2": "unresolved_transition_issues",
         "A2": "navigation_p2",
-        "D1": "open_enrollment_exit_p1",
-        "D2": "open_enrollment_exit_p2",
-        "R1": "special_enrollment_exit_p1",
-        "R2": "special_enrollment_exit_p2",
+        "D1": "death_p1",
+        "D2": "death_p2",
+        "R1": "relapse_p1",
+        "R2": "relapse_p2",
     }
 )
-exit_study = CausalStudy(
-    exit_frame,
+event_study = CausalStudy(
+    event_frame,
     design=LongitudinalTreatment(
         outcome={
-            "open enrollment": ("open_enrollment_exit_p1", "open_enrollment_exit_p2"),
-            "special enrollment": (
-                "special_enrollment_exit_p1",
-                "special_enrollment_exit_p2",
-            ),
+            "relapse": ("relapse_p1", "relapse_p2"),
+            "death": ("death_p1", "death_p2"),
         },
         treatment=("navigation_p1", "navigation_p2"),
         baseline=("age", "baseline_readiness"),
         time_varying=((), ("unresolved_transition_issues",)),
     ),
 )
-exit_result = exit_study.identify(
+event_result = event_study.identify(
     RegimeContrast({"always": 1, "never": 0}, reference="never", horizons=(1, 2))
 ).estimate(
     method=TMLEMethod(
@@ -192,15 +192,15 @@ exit_result = exit_study.identify(
             pseudo_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
         ),
-        cross_fitting=CrossFitting(n_folds=2, learner_folds=2),
+        cross_fitting=CrossFitting(n_folds=2),
         runtime=Runtime(random_state=53, n_jobs=1),
     )
 )
-print(exit_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-for label, source in (("open enrollment", "death"), ("special enrollment", "relapse")):
+print(event_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+for cause in ("relapse", "death"):
     for horizon in (1, 2):
-        key = f"ate_regimen[always vs never, {source} @ t={horizon}]"
-        print(f"population {label} contrast at t={horizon}: {exit_truth[key]:.4f}")
+        key = f"ate_regimen[always vs never, {cause} @ t={horizon}]"
+        print(f"population {cause} contrast at t={horizon}: {event_truth[key]:.4f}")
 ```
 
 Two operational notes, because both are the kind of thing that stops a competing-risks fit rather
@@ -215,49 +215,53 @@ This section also runs without censoring, so the causes are the only way to leav
 censoring machinery is unchanged from the retention curve above. This generator ships no cluster
 variant, so navigator teams are not declared here.
 
-At the documented sample size the two causes behave differently. Navigation in both periods cuts
-open-enrollment exits at both horizons. The special-enrollment contrast changes direction by the
-second horizon and remains much smaller there.
+At the documented sample size the two causes behave differently. The relapse contrast changes
+direction by the second horizon and remains much smaller there. The death contrast is negative at
+both horizons.
 
 The generator makes treatment affect both the all-cause hazard and the split between causes. The
-special-enrollment result is therefore not a negative control. Its small second-horizon contrast is
-a feature of this law, not evidence that navigation has no path to that cause.
+relapse result is therefore not a negative control. Its small second-horizon contrast is a feature
+of this law, not evidence that navigation has no path to that cause.
 
 The contrast fit reports differences. To see the levels the differences are built from, and to add
 them up, ask for the means.
 
 ```python
-exit_method = TMLEMethod(
+event_method = TMLEMethod(
     models=ModelSpec(
         outcome_learner=LogisticRegression(max_iter=1000),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=2, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=2),
     runtime=Runtime(random_state=53, n_jobs=1),
 )
-exit_levels = exit_study.identify(RegimeMean({"always": 1, "never": 0}, horizons=(1, 2))).estimate(
-    method=exit_method
-)
-print(exit_levels.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
-print(exit_levels.incidence_total())
+event_levels = event_study.identify(
+    RegimeMean({"always": 1, "never": 0}, horizons=(1, 2))
+).estimate(method=event_method)
+print(event_levels.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+incidence_totals = event_levels.incidence_total()
+print(incidence_totals[["regimen", "time", "total", "excess"]])
 ```
 
 `incidence_total()` sums the causes per regimen per horizon. It does not renormalise them onto a
 simplex, because that would move each cause off the score equation the fit just solved. The `excess`
 column is what a renormalisation would have hidden.
 
+The helper's current `std_err` divides an already mean-scaled covariance by the sample size a second
+time. This example omits that invalid column. The formula and its missing test are recorded in
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+
 ## The failure mode: asking the fit to remove a competing cause
 
-The tempting next question is what open-enrollment loss would be if special-enrollment exits were
-prevented. That is not a setting on this estimand. It is a different estimand, and it is refused by
-name.
+The tempting next question is what relapse risk would be if death were prevented. That is not a
+setting on this estimand. It is a different estimand, and it is refused by name.
 
 ```python
 from cleverly.longitudinal import LTMLE
 
 try:
-    LTMLE({"always": 1, "never": 0}, eliminate="special enrollment")
+    LTMLE({"always": 1, "never": 0}, eliminate="death")
 except TypeError as error:
     print(error)
 ```
@@ -275,15 +279,15 @@ Inspect the retention and competing-risk fits separately. Their risk sets have d
 
 ```python
 churn_diagnostics = churn_result.diagnostics.run_all()
-exit_diagnostics = exit_result.diagnostics.run_all()
+event_diagnostics = event_result.diagnostics.run_all()
 
 print("Retention diagnostics")
 print(churn_diagnostics.summary())
 print("Competing-risk diagnostics")
-print(exit_diagnostics.summary())
+print(event_diagnostics.summary())
 
 print(churn_diagnostics.report("support").to_frame())
-print(exit_diagnostics.report("support").to_frame())
+print(event_diagnostics.report("support").to_frame())
 print(churn_diagnostics.report("score_equations").to_frame())
 print(churn_diagnostics.report("nuisance_models").to_frame())
 ```

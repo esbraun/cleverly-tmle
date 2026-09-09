@@ -45,13 +45,13 @@ them can weaken consistency or no interference.
 | tutorial | the test of change | method entry | the failure mode it demonstrates |
 | --- | --- | --- | --- |
 | [Point-treatment TMLE](point-treatment-tmle.md) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance is sufficient; two inconsistent nuisances have no general guarantee |
-| [CV-TMLE](cross-fitting.md) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | an in-sample interval and an undeclared team are each too narrow |
+| [CV-TMLE](cross-fitting.md) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | in-sample nuisance evaluation and ignored teams can understate uncertainty |
 | [Collaborative TMLE](collaborative-tmle.md) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery predicts assignment and confounds nothing |
 | [DR-TMLE](dr-tmle.md) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle/index.md) | nuisance misspecification is not unmeasured confounding |
 | [Intervention axes](interventions.md) | target by risk, add navigation hours, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | three policies define three estimands whose result tables look alike |
 | [Survey non-response](survey-nonresponse.md) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | respondent selection does not define a common causal population |
 | [Longitudinal TMLE](longitudinal-tmle.md) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
-| [Retention and competing risks](longitudinal-survival.md) | plan exit as the outcome, split by whether the program can move it | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | competing-event elimination is outside the current supported estimands |
+| [Time-to-event outcomes](longitudinal-survival.md) | plan exit, then relapse and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | competing-event elimination is outside the current supported estimands |
 | [MSM projections](msm-projections.md) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a working model that does not fit still defines the parameter it reports |
 
 Every page follows the same path. It states an applied question, specifies and identifies the
@@ -69,7 +69,7 @@ implementation evidence, and method-specific limits.
 | --- | --- | --- |
 | transition experience | a 30-day patient-reported score | most point-treatment pages and the survey non-response tutorial |
 | unresolved transition issues | medication, appointment, or equipment problems that remain open | the time-varying confounder in longitudinal TMLE |
-| health plan exit | voluntary plan switching or administrative eligibility loss | [retention and competing risks](longitudinal-survival.md) |
+| time-to-event outcomes | health-plan exit, relapse, or death | [time-to-event outcomes](longitudinal-survival.md) |
 
 ## Real data
 

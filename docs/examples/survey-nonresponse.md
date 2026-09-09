@@ -87,14 +87,19 @@ refuses a missing outcome that carries no indicator.
 | response also depends on the arm | navigation changes who answers, so the respondent pool differs between realized arms |
 | the outcome surface has curvature a main-effects model cannot reach | a linear regression fitted to respondents extrapolates the wrong shape to everyone else |
 
-The response rate in this law is higher than many real transition surveys. What drives the bias is the
-mechanism rather than the rate, so the demonstration holds at a realistic rate too and is only
-noisier.
+The response rate in this law is higher than many real transition surveys. Response rate alone does
+not determine selection bias. Changing the response mechanism can alter its direction and size, not
+only its noise.
 
 ## Design and identification
 
 The response indicator is a **design role**, like the outcome and the exposure. Declaring it is what
 tells the estimator that the missing rows are part of the population.
+
+The current identification object omits the response mechanism, MAR, and response positivity from
+its printed summary. Treat that as a reporting gap, not permission to omit them. Until
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) closes it, put the
+missing-outcome assumptions beside the generated identification record.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -110,14 +115,17 @@ study = CausalStudy(
 )
 effect = study.identify(ATE(reference=0))
 
+missing_outcome_assumptions = (
+    "Missing at random given the arm and recorded response predictors",
+    "Positive probability of the arm-response mechanism throughout the target population",
+)
 print(effect.summary())
 for assumption in effect.identification.assumptions:
     print("-", assumption)
+print("required missing-outcome addendum:")
+for assumption in missing_outcome_assumptions:
+    print("-", assumption)
 ```
-
-The printed summary currently uses the complete-outcome functional and assumptions. It does not
-show the response mechanism introduced by `missingness=`. This omission is a reporting gap in the
-current identification object. Record the two additional assumptions in the study protocol.
 
 | assumption | what it means here |
 | --- | --- |
@@ -144,7 +152,7 @@ method = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         missingness_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=71, n_jobs=1),
 )
 full = effect.estimate(method=method)
@@ -274,7 +282,7 @@ box_method = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         missingness_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=72, n_jobs=1),
 )
 for estimand, key in (

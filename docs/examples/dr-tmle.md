@@ -22,9 +22,9 @@ but its operational rule contains thresholds, interactions, and rotating capacit
 simple logistic model of assignment is therefore misspecified even though the causal adjustment set
 is measured.
 
-The analyst can live with a crude assignment model. Double robustness says the estimate stays
-consistent as long as the outcome regression is good. The question is whether the *interval* stays
-valid too.
+The analyst can live with a crude assignment model. Double robustness can keep the estimate
+consistent when the outcome regression converges under the stated rate conditions. The question is
+whether the *interval* stays valid too.
 
 This distinction is essential. If an unrecorded discharge-team judgement affects both assignment
 and recovery, exchangeability fails. DR-TMLE does not repair that design failure.
@@ -114,7 +114,7 @@ models = ModelSpec(
     outcome_learner=HistGradientBoostingRegressor(random_state=55),
     treatment_learner=LogisticRegression(max_iter=1000),
 )
-folds = CrossFitting(n_folds=3, learner_folds=2)
+folds = CrossFitting(n_folds=3)
 runtime = Runtime(random_state=55, n_jobs=1)
 
 doubly_robust = effect.estimate(
@@ -185,7 +185,7 @@ limit, both point estimators can remain consistent. The ordinary remainder is th
 the outcome-regression error, while the corrected interval can remain valid under the contract's
 weaker conditions.
 
-A single fit cannot show a decaying coverage rate. Anyone who claims otherwise is reading noise.
+A single fit cannot show a coverage rate. That requires a repeated-sampling study.
 
 What a single fit *can* show is the size of the corrections that were solved away.
 

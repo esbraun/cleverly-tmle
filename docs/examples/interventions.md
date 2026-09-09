@@ -19,7 +19,7 @@ The program office is planning next year's navigation standard. Three proposals 
 | --- | --- | --- |
 | offer navigation only when a baseline discharge-risk screen flags | who gets the standard offer, as a function of recorded baseline information | a known regime |
 | add assigned navigation hours, but never exceed a declared capacity per patient | how much of a continuous exposure each patient receives | a modified treatment policy |
-| change the scheduling lottery so the conditional odds of an offer double | the assignment mechanism itself, not one fixed assignment | an incremental propensity-score intervention |
+| change the scheduling lottery from its current odds to twice those odds | the assignment mechanism itself, not one fixed assignment | an incremental propensity-score intervention |
 
 Each proposal is a different question about the world. None of them is the average treatment effect,
 and a fourth number answering "offer to all versus offer to none" would not decide any of them.
@@ -83,16 +83,16 @@ print(regimes.summary())
 ```
 
 ```python
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
 from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
 
 method = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LinearRegression(),
-        treatment_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=HistGradientBoostingRegressor(random_state=31),
+        treatment_learner=HistGradientBoostingClassifier(random_state=31),
     ),
-    cross_fitting=CrossFitting(n_folds=3, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=3),
     runtime=Runtime(random_state=31, n_jobs=1),
 )
 regime_result = regimes.estimate(method=method)
@@ -175,11 +175,10 @@ policies = (
 )
 shift_effect = dose_study.identify(ModifiedTreatmentPolicyEffect(policies))
 shift_result = shift_effect.estimate(
-    outcome_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
+    outcome_learner=HistGradientBoostingRegressor(random_state=32),
+    treatment_learner=HistGradientBoostingClassifier(random_state=32),
     density_bins=40,
     n_folds=3,
-    learner_folds=2,
     random_state=32,
 )
 print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
@@ -236,19 +235,25 @@ toward the edge of what the program has staffed is not made estimable by an esti
 ## An incremental intervention: change the scheduling lottery
 
 The third proposal is not one fixed assignment. The program changes its documented scheduling
-lottery so each patient's conditional odds of an offer double. This stochastic policy is the
+lottery from the current conditional odds to twice those odds. This stochastic policy is the
 intervention. No separate workflow change provides another path to the outcome.
 
 ```python
 from cleverly import IncrementalEffect
 from cleverly.interventions import Incremental
 
-incremental_effect = study.identify(IncrementalEffect((Incremental(0.5), Incremental(2.0))))
+incremental_effect = study.identify(
+    IncrementalEffect(
+        (
+            Incremental(1.0, name="current odds"),
+            Incremental(2.0, name="double odds"),
+        )
+    )
+)
 incremental_result = incremental_effect.estimate(
-    outcome_learner=LinearRegression(),
-    treatment_learner=LogisticRegression(max_iter=1000),
+    outcome_learner=HistGradientBoostingRegressor(random_state=31),
+    treatment_learner=HistGradientBoostingClassifier(random_state=31),
     n_folds=3,
-    learner_folds=2,
     random_state=31,
 )
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
@@ -268,8 +273,9 @@ that the other two do not.
 
 An incremental target is defined *through* the observed assignment mechanism. Doubling the odds of
 an offer means doubling odds the data has to supply. This axis therefore has a one-sided robustness
-property rather than the usual two-sided one. Its inference leans on estimating the mechanism
-consistently, and a good outcome regression does not rescue it.
+property rather than the usual two-sided one. Its inference requires a sufficiently accurate
+mechanism estimate; a good outcome regression does not rescue an inconsistent mechanism. Flexible
+learners make the tutorial less structurally misspecified, but do not prove that condition.
 
 The incremental target does not require ordinary treatment positivity. Its weights remain bounded
 when the observed probability approaches zero or one. That protection does not make the assignment
@@ -289,7 +295,7 @@ print()
 print("more navigation hours vs current practice:")
 print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print()
-print("doubled assignment odds:")
+print("double vs current assignment odds:")
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 

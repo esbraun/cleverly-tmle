@@ -146,7 +146,7 @@ flexible = TMLEMethod(
         outcome_learner=HistGradientBoostingRegressor(random_state=21),
         treatment_learner=HistGradientBoostingClassifier(random_state=21),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     inference=Inference(alpha=0.05),
     runtime=Runtime(random_state=21, n_jobs=1),
 )
@@ -211,7 +211,7 @@ simple = TMLEMethod(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=23, n_jobs=1),
 )
 spread_results = {}
@@ -270,7 +270,7 @@ those features by construction. Three more fits show the resulting finite-sample
 def fit(outcome_learner, treatment_learner, label):
     method = TMLEMethod(
         models=ModelSpec(outcome_learner=outcome_learner, treatment_learner=treatment_learner),
-        cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+        cross_fitting=CrossFitting(n_folds=5),
         runtime=Runtime(random_state=21, n_jobs=1),
     )
     point = effect.estimate(method=method)["ate"]

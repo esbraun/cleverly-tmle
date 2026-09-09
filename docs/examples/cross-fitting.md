@@ -30,8 +30,8 @@ different parts of the interval calculation.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| a flexible learner for either nuisance | the empirical-process term is controlled without a Donsker condition on the nuisance estimators | one nuisance fit per fold, times the learner library |
-| you want the package default | cross-fitting is on by default, at ten outer folds and five learner folds | the two fold layers multiply |
+| a flexible learner for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
+| you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise |
 | patients nested in navigator teams | teams stay intact in every split, and the variance is computed on team totals | fewer effective folds than the row count suggests |
 
 The reason for the first row is not overfitting in the ordinary sense. A boosted model that predicts
@@ -109,9 +109,9 @@ can see that only the method changed.
 
 ## Estimate
 
-Cross-fitting is configured as a named group. `n_folds` splits the sample. `learner_folds` tunes a
-model inside one outer training set. The two layers are separate, and neither borrows the other's
-count.
+Cross-fitting is configured as a named group. `n_folds` splits the sample for out-of-fold nuisance
+prediction. `learner_folds` applies only when a nuisance is a Super Learner library. The bare boosted
+learners below have no inner learner folds.
 
 ```python
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -125,7 +125,7 @@ boosted = ModelSpec(
 cross_fitted = effect.estimate(
     method=TMLEMethod(
         models=boosted,
-        cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+        cross_fitting=CrossFitting(n_folds=5),
         runtime=Runtime(random_state=34, n_jobs=1),
     )
 )
@@ -207,7 +207,7 @@ simple = TMLEMethod(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=34, n_jobs=1),
 )
 
@@ -246,7 +246,7 @@ Folds change too. Each team must land in one fold, and the number of teams bound
 | what happens | why it matters |
 | --- | --- |
 | a team lands entirely in one fold | otherwise a patient's nuisance prediction comes from a model trained on their own team, which is leakage through the team effect |
-| generated outer and learner folds keep teams intact | the nuisance prediction cannot use outcomes from the patient's own team |
+| generated outer folds keep teams intact | the nuisance prediction cannot use outcomes from the patient's own team |
 | with fewer teams than folds, the fold count is reduced and warns | the number of teams, not the number of patients, is what bounds the split |
 
 `CrossFitting` currently generates folds from `random_state`. It does not yet accept a public
@@ -266,7 +266,7 @@ records that API gap.
 fold_evaluated = effect.estimate(
     method=TMLEMethod(
         models=boosted,
-        cross_fitting=CrossFitting(n_folds=5, learner_folds=3, fold_evaluation=True),
+        cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True),
         runtime=Runtime(random_state=34, n_jobs=1),
     )
 )
@@ -315,7 +315,7 @@ Then the fold draw itself. One split is one draw. A nervous analyst can take the
 repeated = effect.estimate(
     method=TMLEMethod(
         models=boosted,
-        cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=3),
+        cross_fitting=CrossFitting(n_folds=5, repeats=3),
         inference=Inference(simultaneous=False),
         runtime=Runtime(random_state=34, n_jobs=1),
     )

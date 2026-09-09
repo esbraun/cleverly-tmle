@@ -34,7 +34,7 @@ collaborative selector chooses.
 
 | role | predicts assignment? | affects the score? | how to handle it |
 | --- | --- | --- | --- |
-| confounder | yes | yes | include it in the study design. A collaborative denominator can omit it only when the outcome regression handles the residual bias |
+| confounder | yes | yes | include it in the study design. The standard guarantee for omitting it from a collaborative denominator requires the outcome regression to handle the residual bias |
 | instrument | yes, strongly | no | do not include it for confounding control. It can reduce precision |
 | outcome predictor | no | yes | use it in the outcome regression. It need not enter the assignment model |
 
@@ -127,7 +127,7 @@ models = ModelSpec(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
 )
-folds = CrossFitting(n_folds=3, learner_folds=2)
+folds = CrossFitting(n_folds=3)
 runtime = Runtime(random_state=44, n_jobs=1)
 
 collaborative = effect.estimate(
@@ -243,13 +243,18 @@ print(assessment.report("support").summary())
 nuisance = assessment.report("nuisance_models")
 print("treatment role:", nuisance.treatment_role)
 print(nuisance.summary())
-print(nuisance.selection.summary())
+print("selected covariates:", nuisance.selection.selected_covariates)
 ```
 
 The role prints as `collaborative_working_model`. The AUC and calibration values describe the
 selected working denominator, not assignment given the complete adjustment set. Read them with the
 selection path and support report. [Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality)
 defines the retained findings.
+
+The current `selection.summary()` footer describes omitted variables as a bias-variance trade. The
+selector only observes targeted cross-validated loss, so this example does not print that causal
+interpretation. Its replacement is tracked in
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
 
 One limitation is structural and belongs in every report of a collaborative fit.
 

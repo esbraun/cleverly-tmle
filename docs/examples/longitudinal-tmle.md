@@ -161,7 +161,7 @@ sequential = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=3, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=3),
     runtime=Runtime(random_state=41, n_jobs=1),
 )
 result = effect.estimate(method=sequential)
@@ -216,7 +216,6 @@ def naive(adjustment, label):
         outcome_learner=LogisticRegression(max_iter=1000),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
-        learner_folds=2,
         random_state=41,
     )["ate"]
     low, high = point.ci

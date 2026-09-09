@@ -12,16 +12,20 @@ published theory do not enter this sequence.
 ## Remediation
 
 The examples are executable, but their review exposed gaps in the public study record and in
-post-fit coverage. Fix the defect row before work on a new method. A new capability still needs its
-own contract and evidence, even when it appears in this top-priority queue.
+post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
+still needs its own contract and evidence, even when it appears in this top-priority queue. The
+"next action" column describes remediation work; it does not replace the readiness labels below.
 
-| priority | item | readiness | problem exposed by the examples | details |
+| priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Identification contracts and semantic example gates | implementation defects | missing-outcome summaries omit MAR and response positivity; multi-arm summaries state binary positivity; the runtime gate cannot check claims about printed results | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
-| 0.2 | First-class causal study protocol record | design contract | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
-| 0.3 | Public reusable split plans | design contract | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.4 | Longitudinal truncation retargets | source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.5 | Selection-aware C-TMLE inference | published support; source audit required | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.1 | Identification contracts and semantic example gates | implement and test defects | missing-outcome identification omits its functional, MAR, and response positivity; multi-arm summaries state binary positivity; survival outputs carry incorrect labels or standard errors; the runtime gate cannot check printed claims | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
+| 0.2 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
+| 0.3 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.4 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.5 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.6 | Joint point-treatment parameter axes | locate published support | MSM projections, regimes, shifts, and incremental policies cannot share one fitted target or covariance report | [RM6](#rm6-joint-point-treatment-parameter-axes) |
+| 0.7 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.8 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -120,15 +124,26 @@ grid.
 ### RM1. Identification contracts and semantic example gates
 
 Make identification depend on the estimand and the declared design roles. A point-treatment
-summary must name every supported treatment level. With `missingness=`, it must add MAR, response
-positivity, and the response nuisance. With `intermediate=`, it must add the level-specific
-intermediate and observation conditions that the fitted score uses.
+summary must name every supported treatment level. With `missingness=`, it must print the
+observed-data functional and add MAR, response positivity, and the response nuisance. With
+`intermediate=`, it must add the level-specific intermediate and observation conditions that the
+fitted score uses.
+
+Correct the longitudinal display helpers. `curve(scale="survival")` must return survival-labelled
+rows, not risk-labelled rows with transformed values. `incidence_total()` must take the square root
+of the already mean-scaled influence covariance without dividing by the sample size again. Add exact
+transformation, covariance, and machine-readable label tests.
+
+Replace the collaborative-selection summary's causal bias-variance footer with a description of the
+quantity the selector observes: targeted cross-validated loss. Test the public summary under a law
+where omitted candidates have different causal roles, so presentation cannot imply a decomposition
+the selector did not estimate.
 
 Add tests at the public `CausalStudy.identify()` boundary for binary, multi-arm, missing-outcome,
-and controlled-direct-effect designs. Each test must compare the printed assumptions and required
-nuisances with the fitted mechanism factors. Add semantic assertions for sample-specific tutorial
-claims that remain after the documentation review. Fence execution alone is not evidence for a
-reported direction, diagnostic value, or equality.
+and controlled-direct-effect designs. Each test must compare the printed functional, assumptions,
+and required nuisances with the fitted mechanism factors. Add semantic assertions for
+sample-specific tutorial claims that remain after the documentation review. Fence execution alone
+is not evidence for a reported direction, diagnostic value, or equality.
 
 This row changes no fitted result. Acceptance requires byte-identical estimates and influence
 curves for the existing example seeds, plus the documentation gate and fast suite.
@@ -189,6 +204,40 @@ A supported construction must propagate selection through pointwise and simultan
 It must retain the selected path and state when post-selection uncertainty is negligible.
 Acceptance needs a nonzero selection witness and repeated-sampling coverage where selection changes
 the chosen candidate. A fixed-candidate control must reduce to the current interval.
+
+### RM6. Joint point-treatment parameter axes
+
+Define whether one ordinary point-treatment fit may target an MSM projection together with a known
+regime, modified treatment policy, or incremental intervention. Do not infer the construction from
+the existing single-axis implementations. First locate a published targeting and inference result
+for each proposed composition, including its joint score and covariance.
+
+Keep the current pre-fit refusals until that contract exists. Acceptance requires the joint
+parameter to reduce exactly to each standalone fit, preserve parameter names and policy definitions,
+and expose the full cross-axis influence covariance. Register nonzero controls for every cross-axis
+block and repeated-sampling evidence for simultaneous inference if it is claimed.
+
+### RM7. Missing-outcome natural-course mean
+
+Derive and implement the observed-law mean when the outcome is missing at random under the declared
+response process. The contract must state the target population, observed-data functional, response
+score, positivity condition, nuisance-rate conditions, and whether the treatment mechanism enters
+the parameter or only estimation.
+
+Acceptance requires exact-law, Gateaux, remainder, and deliberate response-score mutation checks.
+The complete-outcome limit must agree exactly with the existing natural-course mean. Add
+repeated-sampling evidence before exposing an interval.
+
+### RM8. Missing-outcome attributable effects
+
+Add population attributable risk and population attributable fraction with missing outcomes as
+their own observed-law targets. Audit each influence curve rather than composing the current ATE and
+observed-mean results algebraically. The fraction must define its zero-denominator behavior and the
+joint covariance of its numerator and denominator.
+
+Acceptance requires exact reduction to the complete-outcome PAR and PAF, a nonzero response-score
+witness, denominator-boundary refusals, and repeated-sampling evidence for both difference and ratio
+scales. Keep the public pre-fit refusal until all pieces are registered.
 
 ### P1. EP learner
 

@@ -114,7 +114,7 @@ method = TMLEMethod(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=3, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=3),
     runtime=Runtime(random_state=61, n_jobs=1),
 )
 arm_result = arms.estimate(method=method)
