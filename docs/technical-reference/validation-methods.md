@@ -456,28 +456,35 @@ presentation choice.
 | `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
 Deferred rows retain the required argument or flag in their next step. They also retain the
-request the caller made, and the combined run's seed when the operation accepts one. Known
-unsupported omissions
-carry the capability's reason and remain `unavailable` or `not_applicable`. An expected refusal
-after invocation becomes `unavailable` and retains the bound invocation arguments. The report
-continues with other accepted operations. Structural errors still propagate.
+request the caller made, and the combined run's seed when the operation accepts one.
+
+Known unsupported omissions carry the capability's reason and remain `unavailable` or
+`not_applicable`. Such a row retains no arguments, because this fit refuses it before any request
+is considered. An expected refusal after invocation becomes `unavailable` and retains the bound
+invocation arguments. The report continues with other accepted operations. Structural errors still
+propagate.
 
 #### The ambiguous default estimand
 
-The operations below declare `estimand="ate"` and answer for one parameter. A fit that reports a
-bare `ate` settles that default. A multi-arm fit reports `ate[high vs low]` and `ate[medium vs
-low]`, so it settles nothing. The caller then owns the choice. The row reports `deferred`, and its
-next step names `estimand`.
+Each operation below answers for one parameter, and takes that parameter from a default. A fit that
+reports a bare `ate` settles the `"ate"` default. A multi-arm fit reports `ate[high vs low]` and
+`ate[medium vs low]`, so it settles nothing. The caller then owns the choice. The row reports
+`deferred`, and its next step names `estimand`.
 
-| operation | facade |
-| --- | --- |
-| `evalue` | sensitivity |
-| `omitted_confounding` | sensitivity |
-| `robustness_value` | sensitivity |
-| `elements` | sensitivity |
-| `contour` | sensitivity |
-| `tipping_gamma` | sensitivity |
-| `refute` | diagnostics |
+| operation | facade | default estimand |
+| --- | --- | --- |
+| `omitted_confounding` | sensitivity | `"ate"` |
+| `robustness_value` | sensitivity | `"ate"` |
+| `elements` | sensitivity | `"ate"` |
+| `benchmark` | sensitivity | `"ate"` |
+| `contour` | sensitivity | `"ate"` |
+| `tipping_gamma` | sensitivity | `"ate"` |
+| `refute` | diagnostics | `"ate"` |
+| `evalue` | sensitivity | `None` |
+
+The library reads that default from the routed signature. `benchmark` takes `covariates` first and
+`estimand` by keyword, and the keyword default is as ambiguous as a positional one. `evalue`
+selects its own contrast from a `None` default, and defers when two contrasts qualify.
 
 The count of eligible reported parameters selects the answer.
 
@@ -485,11 +492,13 @@ The count of eligible reported parameters selects the answer.
 | --- | --- |
 | the fit reports a bare `ate` | runs the operation |
 | exactly one, on a sensitivity route | supplies that name, then runs the operation |
+| exactly one, on `refute` | reports `deferred` and names `estimand` |
 | two or more | reports `deferred` and names `estimand` |
 | none | keeps the fit's own refusal, which is `not_applicable` or `unavailable` |
 
-`refute` accepts no supplied name. A fit that reports one eligible alias and no bare `ate` gives
-`refute` an `unavailable` row.
+The sensitivity facade fills in a sole eligible name. `refute` fills in nothing, because it refits
+under the name it is given. Its row therefore defers for one eligible alias, and the caller names
+that alias to run it.
 
 `simulated_confounding` shares the same default and is not in the table. It declares `estimand` in
 `requires_arguments` beside `grid`, so the required-argument gate defers its row and names both.

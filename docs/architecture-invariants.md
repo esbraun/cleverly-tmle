@@ -154,9 +154,12 @@ Both assessment facades route through one base. Lookup, refusal, and the combine
 written once. A refusal therefore always carries the reason its own capability row declares, and a
 combined report reads that declaration the same way on both facades. Sensitivity
 implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
-takes an estimand; that table and the declared capabilities are checked against each other in
-both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
-the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
+takes an estimand as its second positional argument; that table and the declared capabilities are
+checked against each other in both directions. Whether an operation takes an estimand at all is
+read from the routed signature, not from that flag, because an operation can take the same
+ambiguous default by keyword. A facade may not fill in an estimand a fit leaves ambiguous:
+substitution is for the case where exactly one reported parameter fits, and otherwise the analysis
+refuses by name.
 
 `run_all` sorts each included capability row into one of three execution classes. A direct alias
 can remain explicit while its canonical row alone enters the combined report. Longitudinal
@@ -186,7 +189,8 @@ needs explicit `covariates`.
 
 A combined run injects its top-level seed before those gates, not after them. A deferred row is a
 request the caller can replay. A non-deterministic operation replays only with the seed the run
-would have used.
+would have used. A row this fit refuses outright records no arguments, and that is the one
+exception. It describes no invocation, so a seed on it names a draw that nothing ever took.
 
 A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
 run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
@@ -200,6 +204,10 @@ An ambiguous default estimand is a deferral on both facades. Several operations 
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
 no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
 `unavailable`, because no argument makes a missing derivation run.
+
+One eligible parameter is the case each facade answers for itself. A facade that substitutes that
+name runs the row under it. A facade that substitutes nothing defers the row, because the
+operation would otherwise run on the ambiguous default and refuse.
 
 One predicate decides that ambiguity. Both the request-level capability resolution and the facade's
 own parameter substitution read it. Written twice, the two disagreed: the substitution declined to

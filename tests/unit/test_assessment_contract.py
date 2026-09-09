@@ -16,6 +16,7 @@ import sklearn.linear_model
 
 from cleverly import (
     ATE,
+    ATT,
     AssessmentReport,
     AssessmentStatus,
     CapabilityError,
@@ -42,6 +43,7 @@ from cleverly.assessment import (
     AssessmentItem,
     DiagnosticReport,
     LongitudinalDiagnostics,
+    _defaults_to_ambiguous_estimand,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
@@ -124,6 +126,37 @@ def multi_arm_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=13,
         simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def att_result():  # type: ignore[no-untyped-def]
+    """A fit whose one reported parameter is eligible and is not the bare ``"ate"``.
+
+    This is the length-one case, which the multi-arm fixture cannot reach: it reports two
+    contrasts, and a fit reporting a bare ``"ate"`` reports none. Every operation that
+    defaults to ``estimand="ate"`` therefore faces exactly one eligible name here, and the
+    two facades owe the caller different answers for it.
+    """
+    frame, _ = make_linear_ate(n=350, seed=11)
+    return (
+        CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=["W1", "W2", "W3", "W4"],
+            ),
+        )
+        .identify(ATT())
+        .estimate(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=3,
+            learner_folds=2,
+            random_state=4,
+            simultaneous=False,
+        )
     )
 
 
@@ -615,7 +648,7 @@ def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) ->
     assert len(candidates) > 1
     assert set(candidates) == set(multi_arm_result.estimates)
     # Ambiguous, so nothing is substituted and the row defers.
-    assert facade._with_default_parameter("omitted_confounding", (), {}) == ()
+    assert facade._with_default_parameter("omitted_confounding", (), {}) == ((), {})
     assert facade._capability_for_arguments("omitted_confounding", {}).status is (
         AssessmentStatus.DEFERRED
     )
@@ -624,6 +657,242 @@ def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) ->
     resolved = facade._capability_for_arguments("omitted_confounding", {"estimand": chosen})
     assert resolved == facade.capability("omitted_confounding")
     assert resolved.available and resolved.requires_arguments == ()
+
+
+def test_a_keyword_only_ambiguous_default_is_gated_like_a_positional_one(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+) -> None:
+    """``benchmark`` declares the same default, so it owes the same answer.
+
+    The gate read ``SENSITIVITY_ROUTES[...].needs_estimand``, which says where the estimand
+    goes rather than whether there is one. ``benchmark`` takes ``covariates`` positionally
+    and ``estimand="ate"`` by keyword, so that flag is False and the row was never gated:
+    one report published six ``deferred`` rows and one ``unavailable`` row for one missing
+    choice. The predicate is the signature now, and the two facts are asserted together so
+    that reading the flag again fails here rather than in a report.
+    """
+    facade = multi_arm_result.sensitivity
+    function, _ = facade._routed_callable("benchmark")
+    assert not SENSITIVITY_ROUTES["benchmark"].needs_estimand
+    assert _defaults_to_ambiguous_estimand(function)
+    parameter = inspect.signature(function).parameters["estimand"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+    covariates = {"benchmark": {"covariates": ["W1"]}}
+    item = facade.run_all(**_PAID, arguments=covariates)["benchmark"]
+
+    assert item.status is AssessmentStatus.DEFERRED
+    assert facade._estimand_candidates("benchmark") == tuple(multi_arm_result.estimates)
+    assert all(name in item.detail for name in multi_arm_result.estimates)
+    assert item.next_steps == (
+        "call result.sensitivity.benchmark() directly with covariates and estimand",
+    )
+    multi_arm_result.assessment_cache.clear()
+
+    chosen = next(iter(multi_arm_result.estimates))
+    named = {"benchmark": {"covariates": ["W1"], "estimand": chosen}}
+    ran = facade.run_all(**_PAID, arguments=named)["benchmark"]
+
+    assert ran.status is AssessmentStatus.COMPLETED
+    assert ran.arguments["estimand"] == chosen
+    multi_arm_result.assessment_cache.clear()
+
+
+def test_the_ambiguous_default_is_read_from_every_routed_signature(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The set the predicate finds is the set three documents describe.
+
+    ``_default_estimand_candidates`` names eight operations, the user guide tables seven
+    of them beside ``evalue``, and the technical reference tables the same. A ninth
+    operation is gated by the predicate on the day it is written, and this fails until
+    the three counts are corrected with it.
+    """
+    surfaces = {
+        "sensitivity": set(SENSITIVITY_ROUTES),
+        "diagnostics": {row.operation for row in point_result.diagnostics.capabilities},
+    }
+    found = {
+        name: {
+            operation
+            for operation in operations
+            if _defaults_to_ambiguous_estimand(
+                getattr(point_result, name)._routed_callable(operation)[0]
+            )
+        }
+        for name, operations in surfaces.items()
+    }
+
+    assert found["sensitivity"] == {
+        "omitted_confounding",
+        "robustness_value",
+        "elements",
+        "benchmark",
+        "contour",
+        "tipping_gamma",
+        "simulated_confounding",
+    }
+    assert found["diagnostics"] == {"refute"}
+    assert len(found["sensitivity"] | found["diagnostics"]) == 8
+    # ``evalue`` declares an ``estimand`` and selects for itself from a ``None`` default,
+    # which is why the predicate reads the default rather than the parameter's name.
+    assert "evalue" in surfaces["sensitivity"] - found["sensitivity"]
+
+
+def test_a_sole_eligible_name_reaches_a_keyword_only_estimand_too(att_result) -> None:  # type: ignore[no-untyped-def]
+    """The substitution half of the same defect, on the fit that shows it.
+
+    This fit leaves one eligible parameter, and the sensitivity facade fills it in. It
+    filled in a positional estimand alone, so ``omitted_confounding`` reported
+    ``completed`` while ``benchmark`` reported ``unavailable`` beside it: two taxonomies,
+    one fit, one cause. Both rows now run, and ``benchmark`` records the name that ran.
+    """
+    facade = att_result.sensitivity
+    assert facade._estimand_candidates("benchmark") == ("att",)
+    args, kwargs = facade._with_default_parameter("benchmark", (), {"covariates": ["W1"]})
+    assert args == ()
+    assert kwargs["estimand"] == "att"
+
+    report = facade.run_all(**_PAID, arguments={"benchmark": {"covariates": ["W1"]}})
+
+    assert report["benchmark"].status is AssessmentStatus.COMPLETED
+    assert report["omitted_confounding"].status is AssessmentStatus.COMPLETED
+    assert report["benchmark"].arguments["estimand"] == "att"
+    # A caller who writes the covariates positionally reaches the same substitution. The
+    # positional argument is not an estimand, so it settles no choice.
+    assert facade.benchmark(["W1"]).estimand == "att"
+    att_result.assessment_cache.clear()
+
+
+def test_a_facade_that_substitutes_nothing_defers_a_sole_eligible_name(att_result) -> None:  # type: ignore[no-untyped-def]
+    """One candidate is a substitution here and a deferral there, by facade.
+
+    ``refute`` has no name to fall back on, so nothing fills the gap: the row fell past a
+    gate that defers at two candidates, ``refute`` ran on its ambiguous ``"ate"``, and the
+    generic handler published ``unavailable`` with a next step that named no argument.
+    ``unavailable`` means this fit cannot run the operation, and naming the one reported
+    alias runs it. The sensitivity half of the same fit is the paired witness: identical
+    count, and a row that runs because that facade supplies the name.
+    """
+    diagnostics, sensitivity = att_result.diagnostics, att_result.sensitivity
+    assert not diagnostics._substitutes_estimand
+    assert sensitivity._substitutes_estimand
+    assert diagnostics._estimand_candidates("refute") == ("att",)
+    assert sensitivity._estimand_candidates("omitted_confounding") == ("att",)
+
+    item = diagnostics.run_all(**_PAID, random_state=3)["refute"]
+
+    assert item.status is AssessmentStatus.DEFERRED
+    assert "choose an explicit estimand from ['att']" in item.detail
+    assert item.next_steps == ("call result.diagnostics.refute() directly with estimand",)
+    assert dict(item.arguments) == {"random_state": 3}
+    att_result.assessment_cache.clear()
+
+    named = diagnostics.run_all(**_PAID, random_state=3, arguments={"refute": {"estimand": "att"}})[
+        "refute"
+    ]
+
+    assert named.status not in _OMISSIONS
+    assert named.arguments["estimand"] == "att"
+    assert sensitivity.run_all(**_PAID)["omitted_confounding"].status is (
+        AssessmentStatus.COMPLETED
+    )
+    att_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize(
+    "fixture_name,operation",
+    [
+        ("longitudinal_result", "benchmark"),
+        ("longitudinal_result", "simulated_confounding"),
+        ("multi_arm_result", "simulated_confounding"),
+    ],
+)
+def test_a_row_this_fit_refuses_outright_records_no_invocation(  # type: ignore[no-untyped-def]
+    request, point_result, fixture_name: str, operation: str
+) -> None:
+    """A fit-wide refusal describes no call, so it carries no arguments to replay.
+
+    The combined run injects its seed before the gates, which is what a deferred row
+    needs. It reached this row too, and "no longitudinal benchmarking derivation is
+    registered" arrived carrying ``{'random_state': 7}``: an invocation that never
+    happened and that no argument can produce. ``benchmark`` on a point fit is the paired
+    witness. Same operation, same seed, and a row that answers a request the caller can
+    complete, so it keeps the request.
+    """
+    result = request.getfixturevalue(fixture_name)
+    surface = result.sensitivity
+    assert surface.capability(operation).accepts_random_state
+
+    refused = surface.run_all(**_PAID, random_state=7)[operation]
+    deferred = point_result.sensitivity.run_all(**_PAID, random_state=7)["benchmark"]
+
+    assert refused.status is AssessmentStatus.UNAVAILABLE
+    assert dict(refused.arguments) == {}
+    assert deferred.status is AssessmentStatus.DEFERRED
+    assert dict(deferred.arguments) == {"random_state": 7}
+    result.assessment_cache.clear()
+    point_result.assessment_cache.clear()
+
+
+def _deferred_argument_values(result) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    """A value for every argument a deferred capability can declare on this fit.
+
+    The test below supplies the request that lifts a deferral rather than guessing at one.
+    A new required argument raises ``KeyError`` here, which is the point: nobody can add
+    one without saying what supplying it looks like.
+    """
+    return {
+        "estimand": next(iter(result.estimates)),
+        "grid": ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        # Every fixture in this module adjusts for ``W1``.
+        "covariates": ["W1"],
+    }
+
+
+@pytest.mark.parametrize(
+    "fixture_name,facade,defers",
+    [
+        ("point_result", "diagnostics", False),
+        ("point_result", "sensitivity", False),
+        ("multi_arm_result", "diagnostics", True),
+        ("multi_arm_result", "sensitivity", True),
+        ("att_result", "diagnostics", True),
+        ("att_result", "sensitivity", False),
+        ("longitudinal_result", "diagnostics", False),
+        ("longitudinal_result", "sensitivity", False),
+    ],
+)
+def test_a_deferred_capability_is_never_deferred_once_its_arguments_arrive(  # type: ignore[no-untyped-def]
+    request, fixture_name: str, facade: str, defers: bool
+) -> None:
+    """The constraint ``_skipped``'s first gate depends on, asserted over real producers.
+
+    That gate defers on the status and the declared arguments alone. It does not check
+    whether the caller already supplied them, because no producer can reach it in that
+    state. Nothing said so in a test, so a future declaration carrying a static
+    ``DEFERRED`` row with ``requires_arguments`` would be unrunnable through ``run_all``
+    for ever, and would look like an ordinary deferral while it was.
+
+    Every capability each facade resolves for a request is read here, rather than a
+    hand-built row, so a new producer is covered on the day it is written. The ``defers``
+    column is the nonzero witness: without it a change that deferred nothing would pass
+    this loop by never entering it.
+    """
+    result = request.getfixturevalue(fixture_name)
+    surface = getattr(result, facade)
+    values = _deferred_argument_values(result)
+
+    deferred = []
+    for declared in surface.capabilities:
+        capability = surface._capability_for_arguments(declared.operation, {})
+        if capability.status is not AssessmentStatus.DEFERRED:
+            continue
+        deferred.append(capability.operation)
+        assert capability.requires_arguments, f"{capability.operation} names no argument"
+        supplied = {name: values[name] for name in capability.requires_arguments}
+        resolved = surface._capability_for_arguments(capability.operation, supplied)
+        assert resolved.status is not AssessmentStatus.DEFERRED, capability.operation
+
+    assert bool(deferred) is defers, deferred
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1397,22 +1666,59 @@ def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> 
         assert f"pass {flag}=True" in surface.run_all()[row.operation].detail
 
 
-#: One deferral per gate and per surface, with the seed each row is owed. ``benchmark``
-#: is held by the required-argument gate on sensitivity and accepts the combined run's
-#: seed. ``truncation_curve`` is held by the cost gate on diagnostics and accepts none.
-#: The second row is the paired witness: an injection that reached every row, or no row,
-#: fails on one of the two.
+#: Every gate that defers a row, on both surfaces, with and without a seed. The three
+#: gates are the required argument, the cost flag, and the ambiguous estimand, and each
+#: appears once with a seed and once without. An injection that reached every row, or no
+#: row, fails on one of the pairs. ``refute`` under no flags is the case the seed defect
+#: was first reported on: a diagnostics cost deferral that accepts a seed.
 _DEFERRED_REQUESTS = [
-    pytest.param("sensitivity", "benchmark", {"include_refits": True}, {}, {"random_state": 91}),
-    pytest.param("diagnostics", "truncation_curve", {}, {"bounds": (0.02, 0.05)}, {}),
+    pytest.param(
+        "point_result",
+        "sensitivity",
+        "benchmark",
+        {"include_refits": True},
+        {},
+        {"random_state": 91},
+        id="argument-seed",
+    ),
+    pytest.param(
+        "point_result",
+        "diagnostics",
+        "truncation_curve",
+        {},
+        {"bounds": (0.02, 0.05)},
+        {},
+        id="cost-no-seed",
+    ),
+    pytest.param(
+        "point_result", "diagnostics", "refute", {}, {}, {"random_state": 91}, id="cost-seed"
+    ),
+    pytest.param(
+        "multi_arm_result",
+        "sensitivity",
+        "omitted_confounding",
+        _PAID,
+        {},
+        {},
+        id="estimand-no-seed",
+    ),
+    pytest.param(
+        "multi_arm_result",
+        "diagnostics",
+        "refute",
+        _PAID,
+        {},
+        {"random_state": 91},
+        id="estimand-seed",
+    ),
 ]
 
 
-@pytest.mark.parametrize("facade,operation,flags,supplied,seed", _DEFERRED_REQUESTS)
+@pytest.mark.parametrize("fixture_name,facade,operation,flags,supplied,seed", _DEFERRED_REQUESTS)
 def test_a_deferred_row_retains_the_request_it_did_not_run(  # type: ignore[no-untyped-def]
-    point_result, facade: str, operation: str, flags: dict, supplied: dict, seed: dict
+    request, fixture_name: str, facade: str, operation: str, flags: dict, supplied: dict, seed: dict
 ) -> None:
-    """One property, both gates, both surfaces: the row carries what a replay needs.
+    """One property, three gates, both surfaces: the row carries what a replay needs.
 
     The seed is the half that was structurally absent. ``run_all`` injected
     ``random_state`` after the gates rather than before them, so a deferred row reported
@@ -1420,7 +1726,8 @@ def test_a_deferred_row_retains_the_request_it_did_not_run(  # type: ignore[no-u
     ``item.arguments`` then drew a different sample from the one the report would have
     taken, which is exactly what a non-deterministic operation must not do.
     """
-    surface = getattr(point_result, facade)
+    result = request.getfixturevalue(fixture_name)
+    surface = getattr(result, facade)
     assert surface.capability(operation).accepts_random_state == bool(seed)
 
     item = surface.run_all(**flags, arguments={operation: dict(supplied)}, random_state=91)[
@@ -1430,7 +1737,7 @@ def test_a_deferred_row_retains_the_request_it_did_not_run(  # type: ignore[no-u
     assert item.status is AssessmentStatus.DEFERRED
     assert item.next_steps
     assert dict(item.arguments) == {**supplied, **seed}
-    point_result.assessment_cache.clear()
+    result.assessment_cache.clear()
 
 
 def test_paying_the_cost_lifts_the_deferral_and_keeps_the_request(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -1985,7 +2292,10 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
     assert AssessmentStatus.DEFERRED in _OMISSIONS & _BLOCKING
 
 
-def test_every_cached_item_bearing_report_declares_a_cache_generation(point_result) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_every_cached_item_bearing_report_declares_a_cache_generation(  # type: ignore[no-untyped-def]
+    request, fixture_name: str
+) -> None:
     """A new aggregate cannot enter the cache without a row in the generation table.
 
     A cached report that carries assessment items carries an interpretation, and an
@@ -1993,8 +2303,13 @@ def test_every_cached_item_bearing_report_declares_a_cache_generation(point_resu
     before the change replays the old verdict for ever. The table is read from the cache a
     real fit writes rather than from a list, so a fourth aggregate is covered on the day it
     is added.
+
+    One family cannot discover an aggregate another family alone writes. A point fit and a
+    longitudinal fit are read here because the two declare different capabilities and reach
+    different report builders, so an aggregate that only a sequential fit produces is
+    covered too.
     """
-    result = dataclasses.replace(point_result)
+    result = dataclasses.replace(request.getfixturevalue(fixture_name))
     result.validate()
     result.diagnostics.run_all()
     result.sensitivity.run_all()

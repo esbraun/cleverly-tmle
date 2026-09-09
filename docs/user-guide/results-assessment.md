@@ -235,23 +235,26 @@ cost opt-in. These rows keep their next step and remain in `omissions`. They als
 you made, with the seed a combined run supplies to the operations that accept one. Pass that
 mapping back to the direct call to run the row you deferred.
 
-An ambiguous default estimand is one such choice. The operations below answer for one parameter
-and default to `estimand="ate"`. A multi-arm fit reports no bare `ate`, so the caller owns the
-choice. The report defers each of these rows and names `estimand` in the next step.
+An ambiguous default estimand is one such choice. Each operation below answers for one parameter.
+Seven of them default to `estimand="ate"`, and a multi-arm fit reports no bare `ate`. `evalue()`
+defaults to `None` and selects the contrast itself, and a multi-arm fit gives it two. The caller
+then owns the choice. The report defers each of these rows and names `estimand` in the next step.
 
-| operation | facade |
-| --- | --- |
-| `evalue()` | `sensitivity` |
-| `omitted_confounding()` | `sensitivity` |
-| `robustness_value()` | `sensitivity` |
-| `elements()` | `sensitivity` |
-| `contour()` | `sensitivity` |
-| `tipping_gamma()` | `sensitivity` |
-| `refute()` | `diagnostics` |
+| operation | facade | default estimand |
+| --- | --- | --- |
+| `omitted_confounding()` | `sensitivity` | `"ate"` |
+| `robustness_value()` | `sensitivity` | `"ate"` |
+| `elements()` | `sensitivity` | `"ate"` |
+| `benchmark()` | `sensitivity` | `"ate"` |
+| `contour()` | `sensitivity` | `"ate"` |
+| `tipping_gamma()` | `sensitivity` | `"ate"` |
+| `refute()` | `diagnostics` | `"ate"` |
+| `evalue()` | `sensitivity` | `None` |
 
 Pass the parameter through `arguments=` to run the row. The row is available again for that
-request. A fit that reports exactly one eligible parameter needs no argument. A sensitivity analysis
-supplies that name for you. `refute()` is the exception, and it accepts no supplied name.
+request. A sensitivity analysis needs no argument when the fit reports exactly one eligible
+parameter, because it supplies that name for you. `refute()` supplies no name, so its row defers
+for one eligible parameter as well.
 
 An expected refusal after invocation becomes `unavailable`. An estimand you name that the fit never
 reported is such a refusal. The aggregate run then continues with other accepted diagnostics.
@@ -259,10 +262,13 @@ Direct calls still raise the precise refusal. `not_applicable` and `unavailable`
 `omissions`.
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
-contrast and a missingness analysis without missing outcomes. An operation can also refuse after
-invocation, such as omitted-confounding sensitivity on median-combined repeats. That row becomes
-an `unavailable` omission, retains its invocation arguments, and names the direct call. Other accepted
-diagnostics still run. Structural errors, such as invalid argument names, still stop the report.
+contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
+because the fit refuses it before the report considers your request.
+
+An operation can also refuse after invocation, such as omitted-confounding sensitivity on
+median-combined repeats. That row becomes an `unavailable` omission, retains its invocation
+arguments, and names the direct call. Other accepted diagnostics still run. Structural errors, such
+as invalid argument names, still stop the report.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.

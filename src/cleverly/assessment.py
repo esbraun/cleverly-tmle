@@ -425,12 +425,16 @@ class SensitivityRoute:
     """Where one sensitivity operation is implemented, and how its estimand is supplied.
 
     ``needs_estimand`` is a property of the target's *signature*, not of the operation's
-    name: the four omitted-variable analyses and :func:`tipping_gamma` all take
-    ``estimand`` as their second positional argument, so the facade can fill it in for a
-    fit that reports no bare ``"ate"``.  ``benchmark`` and ``missingness`` take
-    ``covariates`` and ``gamma`` there, and ``evalue`` selects for itself from a ``None``
-    sentinel -- injecting a name into any of those would silently pass it as something
-    else.
+    name: four omitted-variable analyses and :func:`tipping_gamma` all take ``estimand``
+    as their second positional argument, so the facade can fill that position in for a fit
+    that reports no bare ``"ate"``.  ``benchmark`` and ``missingness`` take ``covariates``
+    and ``gamma`` there, and ``evalue`` selects for itself from a ``None`` sentinel --
+    injecting a name into any of those positions would silently pass it as something else.
+
+    It does not say whether the operation takes an estimand at all.  ``benchmark`` takes
+    one as a keyword-only argument with the same ambiguous ``"ate"`` default, and the
+    facade fills that in by keyword.  :func:`_defaults_to_ambiguous_estimand` answers that
+    second question from the signature, and it is the one the deferral reads.
     """
 
     module: str
@@ -571,14 +575,15 @@ class AssessmentItem:
         Retained payload, including a legitimate None, or the private absence sentinel.
         Excluded from equality. Dataframes use immutable cached storage.
     arguments : mapping of str to Any
-        The invocation this row describes. A row whose operation ran, and a row whose
-        operation refused after it was invoked, carry the effective arguments, which
-        include the signature defaults and the resolved seed. A deferred row carries the
-        request as supplied, plus the combined run's seed when the operation accepts one.
-        It binds no signature default, because the default is what such a row refuses:
-        an ambiguous ``estimand="ate"`` recorded as effective would name an argument the
-        operation declines. Excluded from equality because argument values can contain
-        arrays.
+        The invocation this row describes, and empty when there is none. A row whose
+        operation ran, and a row whose operation refused after it was invoked, carry the
+        effective arguments, which include the signature defaults and the resolved seed.
+        A deferred row carries the request as supplied, plus the combined run's seed when
+        the operation accepts one. It binds no signature default, because the default is
+        what such a row refuses: an ambiguous ``estimand="ate"`` recorded as effective
+        would name an argument the operation declines. A row this fit refuses outright
+        carries nothing, because no request was considered and none can make it run.
+        Excluded from equality because argument values can contain arrays.
     """
 
     name: str
@@ -1118,11 +1123,40 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     )
 
 
+#: The estimand default that a fit reporting no bare ``"ate"`` leaves ambiguous.
+_AMBIGUOUS_ESTIMAND = "ate"
+
+
+def _defaults_to_ambiguous_estimand(function: Callable[..., Any]) -> bool:
+    """Whether calling ``function`` without an estimand asks for the bare ``"ate"``.
+
+    Read from the signature rather than from a list of operation names, so the next
+    operation that ships this default is gated the day it is written.  It is a different
+    question from :attr:`SensitivityRoute.needs_estimand`, which says *where* the estimand
+    goes: ``benchmark`` takes ``covariates`` positionally and ``estimand="ate"`` by
+    keyword, so the positional flag is ``False`` while the default is as ambiguous as any
+    other.  Gating on that flag left ``benchmark`` reporting ``unavailable`` beside six
+    rows that reported ``deferred`` for the identical missing choice.
+
+    Parameters
+    ----------
+    function : callable
+        The routed implementation an operation dispatches to.
+
+    Returns
+    -------
+    bool
+        True when the target declares an ``estimand`` parameter defaulting to ``"ate"``.
+    """
+    parameter = inspect.signature(function).parameters.get("estimand")
+    return parameter is not None and parameter.default == _AMBIGUOUS_ESTIMAND
+
+
 def _default_estimand_candidates(result: Any, eligible: Container[str]) -> tuple[str, ...]:
     """Reported parameters an operation defaulting to ``"ate"`` is left to choose between.
 
-    Seven operations across the two facades declare ``estimand="ate"`` and answer for one
-    parameter: the four omitted-variable analyses, ``tipping_gamma``,
+    Eight operations across the two facades declare ``estimand="ate"`` and answer for one
+    parameter: the five omitted-variable analyses, ``tipping_gamma``,
     ``simulated_confounding`` and ``refute``.  A fit that reports a bare ``"ate"`` settles
     the choice, and this returns nothing.  A fit that reports none has to be asked which
     one, and the answer separates three cases a combined report has to tell apart:
@@ -1131,9 +1165,13 @@ def _default_estimand_candidates(result: Any, eligible: Container[str]) -> tuple
     length       what the caller is owed
     ============ =============================================================
     ``0``        nothing the operation applies to, so no argument makes it run
-    ``1``        the sole eligible parameter, which a facade may substitute
+    ``1``        one facade fills this name in, another defers on it
     ``2`` upward the ambiguity only the caller can settle, which is a deferral
     ============ =============================================================
+
+    Length one is therefore not one answer.  ``_CapabilityFacade._substitutes_estimand``
+    says which facade this fit is asking, because a facade that supplies nothing leaves
+    the operation to run on its ambiguous default and refuse.
 
     The length-zero and the length-two answers are the two the report used to give one
     status.  A multi-arm fit reports ``ate[high vs low]`` and ``ate[medium vs low]``, and
@@ -1191,6 +1229,13 @@ class _CapabilityFacade:
     _kind: str
     #: The attribute a caller reaches it through, for the ``next_steps`` of a skipped row.
     _attribute: str
+    #: Whether this facade supplies the sole eligible estimand on the caller's behalf.
+    #: It settles what one candidate means. A facade that substitutes runs the row under
+    #: that name and defers only at two, and a facade that substitutes nothing has to
+    #: defer at one: nothing else fills the gap, so the operation would be invoked on its
+    #: ambiguous default and refuse. ``refute`` did exactly that and reported
+    #: ``unavailable`` on a fit where naming its one reported alias runs it.
+    _substitutes_estimand: bool = False
 
     def __init__(self, result: Any) -> None:
         self._result = result
@@ -1336,7 +1381,9 @@ class _CapabilityFacade:
             # default, so that spelling has to defer exactly as the bare request does.
             return capability
         candidates = self._estimand_candidates(capability.operation)
-        if len(candidates) < 2:
+        if len(candidates) < (2 if self._substitutes_estimand else 1):
+            # One candidate is a deferral or a substitution, and which one it is belongs
+            # to the facade rather than to the count. See ``_substitutes_estimand``.
             return capability
         return replace(
             capability,
@@ -1376,6 +1423,9 @@ class _CapabilityFacade:
         the third dropped them, so a combined report published two omissions that named the
         caller's request and one that did not.
 
+        The availability branch is the deliberate exception, and the only one. A row
+        refused fit-wide describes no invocation, so it carries no arguments to replay.
+
         Parameters
         ----------
         capability : AssessmentCapability
@@ -1393,6 +1443,7 @@ class _CapabilityFacade:
             The omission to report, or ``None`` when the operation may run.
         """
         item: AssessmentItem | None
+        fit_wide = False
         missing = tuple(name for name in capability.requires_arguments if name not in arguments)
         if capability.status is AssessmentStatus.DEFERRED and capability.requires_arguments:
             # A deferred row is refused by this request, not by the fit: the operation runs
@@ -1409,12 +1460,22 @@ class _CapabilityFacade:
                 reason=capability.reason,
             )
         elif not capability.available:
+            # The one branch that describes no invocation. This row is refused fit-wide,
+            # before any request was considered: the operation did not run, and no
+            # argument makes it run. Stamping the caller's request onto it, seed included,
+            # would report "no longitudinal benchmarking derivation is registered" beside
+            # a ``random_state`` that nothing ever drew from. The asymmetry with the three
+            # branches below is the point: each of those answers a request the caller
+            # made, and carries it.
+            fit_wide = True
             item = _item_from_capability(capability)
         elif missing:
             item = _missing_argument_item(capability, self._attribute, missing)
         else:
             item = _cost_refusal(capability, self._attribute, include_refits, include_retargets)
-        return None if item is None else replace(item, arguments=dict(arguments))
+        if item is None or fit_wide:
+            return item
+        return replace(item, arguments=dict(arguments))
 
     def _run_all(
         self,
@@ -1557,7 +1618,7 @@ class _CapabilityFacade:
 
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> tuple[Any, ...]:
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
         """Resolve a sensitivity parameter in the subclass that owns those routes."""
         raise NotImplementedError  # pragma: no cover - diagnostics never need this route
 
@@ -1571,12 +1632,10 @@ class _CapabilityFacade:
         resolve: bool = True,
     ) -> inspect.BoundArguments:
         function, result_first = self._routed_callable(operation)
-        if (
-            resolve
-            and self._attribute == "sensitivity"
-            and SENSITIVITY_ROUTES[operation].needs_estimand
-        ):
-            args = self._with_default_parameter(operation, args, dict(kwargs))
+        if resolve and self._attribute == "sensitivity":
+            # Every routed operation, not the positional ones alone: the substitution
+            # decides for itself whether this target takes an estimand and where it goes.
+            args, kwargs = self._with_default_parameter(operation, args, dict(kwargs))
         first = self._result if result_first else self
         signature = inspect.signature(function)
         binder = signature.bind_partial if partial else signature.bind
@@ -1779,16 +1838,20 @@ class DiagnosticsFacade(_CapabilityFacade):
         """The reported aliases ``refute`` may be asked to choose between.
 
         ``refute`` refits under one alias and refuses every name the fit did not report,
-        so its eligible set is the reported set itself.  It needs no sensitivity routing
-        to say so: :data:`SENSITIVITY_ROUTES` answers a different question, which is where
-        in :mod:`cleverly.sensitivity` an analysis is implemented, and this facade routes
-        to :func:`cleverly.validation.refute`.
+        so its eligible set is the reported set itself.  Which diagnostics face the choice
+        is read from the routed signature, exactly as the sensitivity side reads it:
+        ``refute`` is the one diagnostic today whose ``estimand`` defaults to the bare
+        ``"ate"``, and a second one is gated the day it is written rather than the day
+        somebody remembers this method.  :data:`SENSITIVITY_ROUTES` answers a different
+        question, which is where in :mod:`cleverly.sensitivity` an analysis is
+        implemented, and this facade routes to :func:`cleverly.validation.refute`.
 
-        No substitution follows from a single candidate here.  The sensitivity facade may
-        fill in a sole eligible parameter because its routes take the estimand positionally
-        and it has always done so; ``refute`` has no such default, and inventing one would
-        start refitting under a name the caller never wrote.  Only the ambiguity is
-        reported, which is the length this facade acts on.
+        No substitution follows from a single candidate here, which is why
+        ``_substitutes_estimand`` stays false and one candidate defers the row.  The
+        sensitivity facade may fill in a sole eligible parameter because its analyses
+        answer for whichever contrast they are given and it has always done so;
+        ``refute`` refits, and refitting under a name the caller never wrote is a
+        scientific choice made on their behalf.
 
         Parameters
         ----------
@@ -1800,7 +1863,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         tuple of str
             Reported aliases for ``refute``, and ``()`` for every other diagnostic.
         """
-        if operation != "refute":
+        function, _ = self._routed_callable(operation)
+        if not _defaults_to_ambiguous_estimand(function):
             return ()
         return _default_estimand_candidates(self._result, self._result.estimates)
 
@@ -3036,6 +3100,10 @@ class SensitivityFacade(_CapabilityFacade):
 
     _kind = "sensitivity"
     _attribute = "sensitivity"
+    #: This facade fills in the sole eligible estimand, through
+    #: :meth:`_with_default_parameter`, so one candidate settles the choice and only two
+    #: defer the row.
+    _substitutes_estimand = True
 
     @cached_property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
@@ -3269,9 +3337,12 @@ class SensitivityFacade(_CapabilityFacade):
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """The reported parameters a routed sensitivity analysis may be asked to choose.
 
-        ``needs_estimand`` says whether the route's second positional argument is an
-        estimand at all, so a route that takes ``covariates`` or ``gamma`` there faces no
-        choice and is never gated.
+        The gate is the target's signature: a route whose ``estimand`` defaults to the
+        bare ``"ate"`` faces the choice, and ``evalue``, which defaults to ``None``, and
+        ``missingness``, which takes no estimand, do not.  It is not
+        ``needs_estimand``, which answers where the estimand goes rather than whether
+        there is one.  ``benchmark`` takes ``covariates`` positionally and the same
+        ambiguous default by keyword, and reading the positional flag left its row alone.
 
         ``simulated_confounding`` answers for ratio and population attributable contrasts
         too, so it consults its own eligible set first and falls back to the linear set
@@ -3288,7 +3359,8 @@ class SensitivityFacade(_CapabilityFacade):
         tuple of str
             Eligible reported names, empty when the route settles its own estimand.
         """
-        if not SENSITIVITY_ROUTES[operation].needs_estimand:
+        function, _ = self._routed_callable(operation)
+        if not _defaults_to_ambiguous_estimand(function):
             return ()
         if operation == "simulated_confounding":
             from .sensitivity._simulated_confounding_request import (
@@ -3517,7 +3589,7 @@ class SensitivityFacade(_CapabilityFacade):
 
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> tuple[Any, ...]:
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
         """Supply the estimand only when the fit leaves no choice about which one.
 
         These analyses default to ``"ate"``, which a multi-arm fit never reports under that
@@ -3557,12 +3629,23 @@ class SensitivityFacade(_CapabilityFacade):
         Returns
         -------
         tuple
-            The original positional arguments, or a one-element tuple naming the estimand.
+            The positional and keyword arguments, one of them naming the estimand when
+            this fit leaves exactly one eligible parameter.
         """
-        if args or "estimand" in kwargs:
-            return args
+        positional = SENSITIVITY_ROUTES[operation].needs_estimand
+        # Where the name goes is ``needs_estimand``; whether there is one to supply is the
+        # signature, which :meth:`_estimand_candidates` reads. ``benchmark`` takes its
+        # estimand by keyword, so a positional substitution would pass a parameter name
+        # as ``covariates``, and a positional argument the caller wrote there is not an
+        # estimand and does not settle the choice.
+        if "estimand" in kwargs or (positional and args):
+            return args, kwargs
         candidates = self._estimand_candidates(operation)
-        return (candidates[0],) if len(candidates) == 1 else args
+        if len(candidates) != 1:
+            return args, kwargs
+        if positional:
+            return (candidates[0], *args), kwargs
+        return args, {**kwargs, "estimand": candidates[0]}
 
     def run_all(
         self,
