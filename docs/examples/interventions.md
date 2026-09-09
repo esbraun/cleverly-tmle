@@ -24,9 +24,9 @@ The program office is planning next year's navigation standard. Three proposals 
 Each proposal is a different question about the world. None of them is the average treatment effect,
 and a fourth number answering "offer to all versus offer to none" would not decide any of them.
 
-Each policy keeps the shared eligibility, time zero, outcome window, and no-interference controls.
-The risk rule uses baseline information only. The duration cap and scheduling odds are fixed before
-fitting, so each intervention is well defined and reproducible.
+This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
+intervention. The risk rule uses baseline information only. The program office fixes the duration
+cap and the scheduling odds before fitting, so each intervention is well defined and reproducible.
 
 ## Why these are three estimands
 
@@ -168,20 +168,23 @@ dose_study = CausalStudy(
     ),
 )
 policies = (
-    Shift(0.0, cap=None),
+    Shift(0.0, cap=None, name="current practice"),
     Shift(0.5, cap=5.0, name="+0.5 capped at 5"),
     Shift(0.5, cap=None, name="+0.5 uncapped"),
     Shift(1.0, cap=None, name="+1.0 uncapped"),
 )
 shift_effect = dose_study.identify(ModifiedTreatmentPolicyEffect(policies))
-shift_result = shift_effect.estimate(
-    outcome_learner=HistGradientBoostingRegressor(random_state=32),
-    treatment_learner=HistGradientBoostingClassifier(random_state=32),
-    density_bins=40,
-    n_folds=3,
-    random_state=32,
+shift_method = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=HistGradientBoostingRegressor(random_state=32),
+        treatment_learner=HistGradientBoostingClassifier(random_state=32),
+        density_bins=40,
+    ),
+    cross_fitting=CrossFitting(n_folds=3),
+    runtime=Runtime(random_state=32, n_jobs=1),
 )
-print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+shift_result = shift_effect.estimate(method=shift_method)
+print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]].to_string(index=False))
 shift_assessment = shift_result.assess()
 ```
 
@@ -236,7 +239,8 @@ toward the edge of what the program has staffed is not made estimable by an esti
 
 The third proposal is not one fixed assignment. The program changes its documented scheduling
 lottery from the current conditional odds to twice those odds. This stochastic policy is the
-intervention. No separate workflow change provides another path to the outcome.
+intervention. No separate workflow change provides another path to the outcome. The fit reuses the
+`method` object from the regime section, so only the estimand changes.
 
 ```python
 from cleverly import IncrementalEffect
@@ -250,12 +254,7 @@ incremental_effect = study.identify(
         )
     )
 )
-incremental_result = incremental_effect.estimate(
-    outcome_learner=HistGradientBoostingRegressor(random_state=31),
-    treatment_learner=HistGradientBoostingClassifier(random_state=31),
-    n_folds=3,
-    random_state=31,
-)
+incremental_result = incremental_effect.estimate(method=method)
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 incremental_assessment = incremental_result.assess()
 ```
@@ -293,7 +292,7 @@ print("screen on risk vs offer to none:")
 print(regime_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print()
 print("more navigation hours vs current practice:")
-print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]].to_string(index=False))
 print()
 print("double vs current assignment odds:")
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
@@ -335,3 +334,13 @@ links the evidence for each axis and states the supported compositions.
 
 Choose the axis that represents a change the program can implement. Then use its support report to
 decide whether these data can estimate that policy well enough to report.
+
+## Where to go next
+
+Every axis on this page acts at one decision time. Read
+[longitudinal TMLE](longitudinal-tmle.md) for a rule that assigns navigation again at day seven.
+Read [MSM projections](msm-projections.md) for the working model that summarizes many plans as one
+trend. The contrast these three axes replace is the average treatment effect, and
+[point-treatment TMLE](point-treatment-tmle.md) estimates it.
+
+The [examples index](index.md#the-program) lists every tutorial in the program.

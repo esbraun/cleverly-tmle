@@ -119,12 +119,12 @@ for assumption in effect.identification.assumptions:
 | no unmeasured confounding | the recorded baseline variables block every common cause of assignment and the score | no |
 | positivity | each baseline profile has some chance of an offer and of usual support | partly, through the support report |
 
-Only positivity leaves a direct trace in the observed treatment support. The program supports
-consistency with one protocol and version log. It reserves navigator capacity and records
-contamination to support no interference.
+Only positivity leaves a direct trace in the observed treatment support. This page keeps the
+[shared study design](index.md#the-shared-study-design) and changes nothing in it. That design
+states how the program supports consistency and no interference.
 
-Exchangeability needs a causal argument. For example, an unrecorded discharge-team judgement that
-affects both assignment and recovery would violate it. No estimator on this page repairs that
+No unmeasured confounding needs a causal argument. For example, an unrecorded discharge-team
+judgement that affects both assignment and recovery would violate it. No estimator on this page repairs that
 failure. Restrict eligibility or redesign assignment when the argument is not credible.
 
 The synthetic law needs only four covariates. A real protocol should also evaluate pre-assignment
@@ -275,11 +275,8 @@ def fit(outcome_learner, treatment_learner, label):
     )
     point = effect.estimate(method=method)["ate"]
     low, high = point.ci
-    contains_truth = low <= truth["ate"] <= high
-    print(
-        f"{label:24s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  "
-        f"contains truth={contains_truth}"
-    )
+    covers = low <= truth["ate"] <= high
+    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covers}")
 
 
 fit(
@@ -314,7 +311,7 @@ evidence.
 
 ## How far to trust this
 
-Start with one assessment battery. It presents validation, diagnostics, and sensitivity together.
+Start with the combined assessment. It presents validation, diagnostics, and sensitivity together.
 It leads with each returned result. It then inventories the checks and the operations that did not
 run by name, without their detail. Read `assessment.attention` for the failure and warning rows
 themselves.
@@ -468,13 +465,9 @@ Load only joblib files you trust, and keep the dependency versions compatible.
 
 ## Where to go next
 
-| the next question | read |
-| --- | --- |
-| flexible learners, and patients nested in navigator teams | [CV-TMLE and cross-fitting](cross-fitting.md) |
-| which baseline variables belong in the assignment model | [collaborative TMLE](collaborative-tmle.md) |
-| an interval when the assignment model is known to be crude | [DR-TMLE](dr-tmle.md) |
-| a rule, a dose change, or an odds tilt instead of "offer to everyone" | [intervention axes](interventions.md) |
-| most patients never returned the survey | [survey non-response](survey-nonresponse.md) |
-| navigation at more than one decision time | [longitudinal TMLE](longitudinal-tmle.md) |
-| leaving the plan is the outcome, and one cause is administrative | [retention and competing risks](longitudinal-survival.md) |
-| three navigation cadences summarized as a trend | [MSM projections](msm-projections.md) |
+This page treated discharges as independent rows. Read
+[CV-TMLE and cross-fitting](cross-fitting.md) for the same question at network scale, where patients
+share navigator teams. If your worry is instead which baseline variables belong in the assignment
+model, read [collaborative TMLE](collaborative-tmle.md).
+
+The [examples index](index.md#the-program) lists every tutorial in the program.

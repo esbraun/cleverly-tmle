@@ -54,9 +54,13 @@ them can weaken consistency or no interference.
 | [Time-to-event outcomes](longitudinal-survival.md) | plan exit, then relapse and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | competing-event elimination is outside the current supported estimands |
 | [MSM projections](msm-projections.md) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a working model that does not fit still defines the parameter it reports |
 
-Every page follows the same path. It states an applied question, specifies and identifies the
-causal effect, estimates it, and assesses the fitted result. The final section says what the
-analysis can support and what the study design must support.
+Every page opens with `The applied question` and ends with `Where to go next`.
+`How far to trust this` comes before it, and says what the analysis supports and what the study
+design must support. Most pages use the same headings in between: `Why this method`, `The data`,
+`Design and identification`, and `Estimate`. Most also give one failure mode its own section.
+
+[Intervention axes](interventions.md) is the exception to the middle headings. It presents three
+estimands rather than one, so it states the data, the design, and the fit once for each axis.
 
 Use the combined assessment for a full post-fit review. A method-focused page can open its
 diagnostics directly when sensitivity analysis does not answer its question. Open one detailed
