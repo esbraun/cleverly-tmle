@@ -2279,6 +2279,9 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
 
     The three presentation buckets partition the enum. The blocking set is a separate
     claim and cuts across them, so it is checked by containment rather than by identity.
+    The two summary tuples add an order to their membership. A check the reader must act
+    on comes first, and an omission the reader can resolve comes first, so both tuples
+    are held to their literal order here.
     """
     assert set(AssessmentStatus) == _ATTENTION | _OMISSIONS | _SETTLED
     assert _ATTENTION.isdisjoint(_OMISSIONS)
@@ -2294,6 +2297,18 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
     assert AssessmentStatus.DEFERRED in _OMISSIONS & _BLOCKING
     assert set(_SUMMARY_CHECK_ORDER) == _ATTENTION | {AssessmentStatus.PASSED}
     assert set(_SUMMARY_OMISSION_ORDER) == _OMISSIONS
+    # The two tuples are read in order by the summary, and both orders are a claim the
+    # membership checks above cannot make: either tuple reversed still holds them.
+    assert _SUMMARY_CHECK_ORDER == (
+        AssessmentStatus.FAILED,
+        AssessmentStatus.WARNING,
+        AssessmentStatus.PASSED,
+    )
+    assert _SUMMARY_OMISSION_ORDER == (
+        AssessmentStatus.DEFERRED,
+        AssessmentStatus.UNAVAILABLE,
+        AssessmentStatus.NOT_APPLICABLE,
+    )
     summary_order = (*_SUMMARY_CHECK_ORDER, *_SUMMARY_OMISSION_ORDER)
     assert len(summary_order) == len(set(summary_order))
     assert set(AssessmentStatus) == {AssessmentStatus.COMPLETED, *summary_order}
