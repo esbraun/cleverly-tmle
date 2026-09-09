@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from ..assessment import AssessmentStatus
 from ..exceptions import CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
@@ -203,7 +204,19 @@ class EValue:
 
 
 class _EValueRefusal(CapabilityError):
-    def __init__(self, status: str, reason: str) -> None:
+    """One refusal, carrying the status :mod:`cleverly.assessment` publishes for it.
+
+    The status is the enum member rather than its string, so every branch below is checked
+    where it is written.  Thirteen call sites spelled the value as a bare literal and only
+    the one place that built an :class:`~cleverly.assessment.AssessmentStatus` from it
+    validated any of them, which made a misspelling a runtime error on the row it refused.
+
+    The import is module level and introduces no cycle. :mod:`cleverly.assessment` reaches
+    this module through function-local imports only, and nothing on its own module-level
+    import chain reads :mod:`cleverly.sensitivity`.
+    """
+
+    def __init__(self, status: AssessmentStatus, reason: str) -> None:
         super().__init__(reason)
         self.status = status
 
@@ -247,13 +260,13 @@ def _default_estimand(result: TMLEResult, keys: dict[str, Any]) -> str:
         ]
         if len(candidates) > 1:
             raise _EValueRefusal(
-                "unavailable",
+                AssessmentStatus.DEFERRED,
                 f"an E-value needs one contrast; choose an explicit estimand from {candidates}",
             )
         if candidates:
             return candidates[0]
     raise _EValueRefusal(
-        "not_applicable",
+        AssessmentStatus.NOT_APPLICABLE,
         "an E-value needs a supported two-arm contrast; this fit reports no such parameter",
     )
 
@@ -290,22 +303,28 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     """Select the exact, approximate, or refusal branch for one request."""
     if getattr(result, "assessment_family", None) != "point":
         raise _EValueRefusal(
-            "unavailable",
+            AssessmentStatus.UNAVAILABLE,
             "no longitudinal sensitivity derivation is registered for an E-value",
         )
     if result.data.is_continuous_treatment:
-        raise _EValueRefusal("not_applicable", "an E-value requires a discrete arm contrast")
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE, "an E-value requires a discrete arm contrast"
+        )
     keys = arm_parameter_keys(result)
     explicit = estimand is not None
     source = _default_estimand(result, keys) if estimand is None else estimand
     if source not in result.estimates:
-        raise _EValueRefusal("unavailable", f"estimand {source!r} was not requested in this fit")
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE, f"estimand {source!r} was not requested in this fit"
+        )
     key = keys.get(source)
     if key is None:
-        raise _EValueRefusal("unavailable", f"estimand {source!r} has no structured parameter key")
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE, f"estimand {source!r} has no structured parameter key"
+        )
     if key.axis != "arm" or key.reference is None or key.stratum is not None:
         raise _EValueRefusal(
-            "not_applicable",
+            AssessmentStatus.NOT_APPLICABLE,
             f"an E-value needs an unconditioned two-arm contrast, not axis {key.axis!r}",
         )
     if key.estimand == "rr":
@@ -316,13 +335,13 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(
-            "unavailable",
+            AssessmentStatus.UNAVAILABLE,
             f"{key.estimand.upper()} needs a conditional baseline risk and a supported "
             "conditional ratio target; neither is available",
         )
     if key.estimand not in {"ate", "or"}:
         raise _EValueRefusal(
-            "not_applicable",
+            AssessmentStatus.NOT_APPLICABLE,
             f"an E-value has no supported two-arm contrast for target {key.estimand!r}",
         )
     refusal = _risk_ratio_refusal(result, source, keys)
@@ -331,11 +350,11 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if key.estimand == "or":
         return _EValueSelection(source, "reported_or")
     if result.intermediate_value is not None:
-        raise _EValueRefusal("unavailable", refusal)
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, refusal)
     baseline = _baseline_mean(result, source, keys)
     if baseline is None or not np.isfinite(result[baseline].psi) or result[baseline].psi <= 0:
         refusal += "; a finite positive reported reference-arm mean is also absent"
-        raise _EValueRefusal("unavailable", refusal)
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, refusal)
     _reject_unusable_baseline(result[baseline], result[source], refusal)
     return _EValueSelection(source, "fixed_baseline_ate")
 
@@ -355,7 +374,7 @@ def _reject_unusable_baseline(
     error = baseline.std_error
     if not np.isfinite(error) or baseline.psi <= error:
         raise _EValueRefusal(
-            "unavailable",
+            AssessmentStatus.UNAVAILABLE,
             f"{refusal}; the reported reference-arm mean {baseline.psi:.4g} is not "
             f"separated from zero by its own standard error {error:.4g}, so the "
             "fixed-baseline conversion has no stable denominator",
@@ -363,7 +382,7 @@ def _reject_unusable_baseline(
     ratio = (baseline.psi + estimate.psi) / baseline.psi
     if not np.isfinite(ratio) or ratio <= 0:
         raise _EValueRefusal(
-            "unavailable",
+            AssessmentStatus.UNAVAILABLE,
             f"{refusal}; the reported difference {estimate.psi:.4g} against the "
             f"reference-arm mean {baseline.psi:.4g} implies a nonpositive risk in the "
             "contrast arm, which no risk ratio describes",

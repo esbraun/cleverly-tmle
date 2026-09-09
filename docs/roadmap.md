@@ -109,8 +109,11 @@ The rows below remain.
 
 | gap | required change |
 | --- | --- |
-| status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
+
+`deferred` closes the taxonomy gap. It separates a caller's outstanding choice from a limitation
+of the fit. [The status contract](technical-reference/validation-methods.md#the-status-contract)
+states what each status means, and which rows carry which one.
 
 The longitudinal nuisance report now covers only fits that the estimator made. Treatment and censoring
 models appear once per node because one shared model serves every regimen. Outcome and

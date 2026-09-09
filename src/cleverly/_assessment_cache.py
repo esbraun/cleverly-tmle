@@ -92,12 +92,15 @@ def _normalize(value: Any) -> Any:
 #: which makes an older entry a harmless cache miss instead of serving a stale report.
 #:
 #: ``assess()`` is composed from ``validate`` and the two ``run_all`` surfaces rather than
-#: cached under a fourth key.  Versioning the diagnostic aggregate and validation keys is
-#: therefore what invalidates both direct calls and the corresponding parts of assess().
+#: cached under a fourth key.  Versioning those three keys is therefore what invalidates
+#: both a direct call and the corresponding part of ``assess()``.  Every operation that
+#: caches a report carrying assessment items needs a row here, which
+#: ``tests/unit/test_assessment_contract.py`` checks against the cache a real fit writes.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
-    "diagnostics.run_all": 5,
+    "diagnostics.run_all": 7,
+    "sensitivity.run_all": 2,
     "validate": 5,
 }
 

@@ -392,5 +392,5 @@ class TestOneArmSelectedOutOfAMultiArmTarget:
 
     def test_the_combined_report_completes(self, narrowed) -> None:
         combined = narrowed.diagnostics.run_all(include_retargets=True)
-        assert combined["truncation_curve"].status is not AssessmentStatus.UNAVAILABLE
+        assert combined["truncation_curve"].status is AssessmentStatus.COMPLETED
         assert "1 parameter(s)" in combined["truncation_curve"].detail

@@ -128,6 +128,14 @@ Loading therefore has pickle's arbitrary-code-execution risk and is restricted t
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
+A saved object round-trips the records it holds, and never a value it derived from them. Both
+`TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.
+The shared filter reads the `cached_property` descriptors on the owning class, and it runs on both
+sides of the pickle. A stored memo outlives the code that derived it, so the artifact reports a
+conclusion this version does not reach. No cache generation invalidates a memo, because a memo
+records no question. *Reconsider when* a derived value costs more to recompute than a load may
+spend, and needs a stored generation instead.
+
 Scalar result algebra is composed once in `inference.results`: sole-estimate selection, ordered
 name validation, influence-curve extraction, joint covariance, and smooth delta-method contrasts.
 Point and longitudinal result types delegate those operations and retain only method-specific
@@ -135,11 +143,17 @@ artifacts and reports. Scientific formulas that differ by method stay separate; 
 algebra must not be copied into another result class.
 
 Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
-aliases. Every public result family has an explicit supported, `not_applicable`, or `unavailable`
-answer for every public diagnostic; sensitivity selects parameters through `ParameterKey`.
+aliases. Every public result family has an explicit fit-wide supported, `deferred`,
+`not_applicable`, or `unavailable` answer for every public diagnostic. A `deferred` capability
+reports `available: False` and names the argument that makes the operation run. A cost opt-in stays
+request state, because it changes no capability answer. Sensitivity selects parameters through
+`ParameterKey`.
+
 `validate()` summarizes only stored state and never refits, while refutation and benchmarking are
 explicit expensive operations. Assessment caching is keyed by operation plus normalized arguments,
 is persisted separately from estimates, and may not mutate the headline estimate or its summary.
+A facade drops its memoized capability verdicts before it enters an artifact. The persistence
+invariant above states that rule for every saved object.
 *Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
@@ -148,9 +162,12 @@ Both assessment facades route through one base. Lookup, refusal, and the combine
 written once. A refusal therefore always carries the reason its own capability row declares, and a
 combined report reads that declaration the same way on both facades. Sensitivity
 implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
-takes an estimand; that table and the declared capabilities are checked against each other in
-both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
-the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
+takes an estimand as its second positional argument; that table and the declared capabilities are
+checked against each other in both directions. Whether an operation takes an estimand at all is
+read from the routed signature, not from that flag, because an operation can take the same
+ambiguous default by keyword. A facade may not fill in an estimand a fit leaves ambiguous:
+substitution is for the case where exactly one reported parameter fits, and otherwise the analysis
+refuses by name.
 
 `run_all` sorts each included capability row into one of three execution classes. A direct alias
 can remain explicit while its canonical row alone enters the combined report. Longitudinal
@@ -173,9 +190,38 @@ family still declares each operation exactly once, and the contract test enforce
 reopens if a second operation becomes method-dependent in the same way, which would argue for
 declaring the class beside the method rather than patching the row.
 
-`run_all` applies its gates in one order: availability, then required arguments, then cost. Every
-gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
-told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.
+`run_all` applies its gates in one order: caller deferral, then availability, then required
+arguments, then cost. Every gate above the cost gate refuses for a reason no flag pays off. A
+report that named the cost first told the caller to pass `include_refits=True` for a row that also
+needs explicit `covariates`.
+
+A combined run injects its top-level seed before those gates, not after them. A deferred row is a
+request the caller can replay. A non-deterministic operation replays only with the seed the run
+would have used. A row this fit refuses outright records no arguments, and that is the one
+exception. It describes no invocation, so a seed on it names a draw that nothing ever took.
+
+A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
+run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
+An invoked operation that raises a capability refusal is also unavailable.
+
+The deferral gate reads the capability status, not the supplied argument names. An argument that is
+present with a refused value defers the same operation as an absent argument. The E-value defers on
+`estimand=None`, which is its public default.
+
+An ambiguous default estimand is a deferral on both facades. Several operations default to
+`estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
+no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
+`unavailable`, because no argument makes a missing derivation run.
+
+One eligible parameter is the case each facade answers for itself. A facade that substitutes that
+name runs the row under it. A facade that substitutes nothing defers the row, because the
+operation would otherwise run on the ambiguous default and refuse.
+
+One predicate decides that ambiguity. Both the request-level capability resolution and the facade's
+own parameter substitution read it. Written twice, the two disagreed: the substitution declined to
+guess between two contrasts while the row beside it still advertised the analysis as runnable. The
+combined report then invoked the operation and published the refusal as `unavailable`, under a next
+step that named no argument.
 
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not

@@ -33,6 +33,7 @@ from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..utils.frames import emit_frame
+from ..utils.memos import without_memos
 from ..utils.text import format_pvalue, format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
 from .direct_effect import describe as describe_direct_effect
@@ -938,12 +939,56 @@ class TMLEResult:
         reloaded from disk answers with its own records rather than with a flag written
         at fit time that nothing could check afterwards. Whole-result persistence retains
         those records directly instead of rebuilding a partial result graph.
+        :meth:`__getstate__` is what makes that true across a save, because the memo this
+        property writes is otherwise part of the artifact.
 
         Free: it reads cached arrays and refits nothing.
         """
         from ..validation.score import score_check
 
         return score_check(self)
+
+    # ----------------------------------------------------------- persistence
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Persist the result without the values it derived.
+
+        ``save`` pickles the result whole, and every
+        :func:`~functools.cached_property` here writes its answer into ``__dict__``.
+        ``summary()`` reads :attr:`score_verdict`, so the ordinary ``fit``, ``summary``,
+        ``save`` order baked that verdict into the file, and the loaded result then
+        reported a conclusion this version never reached.  Whatever the artifact carried
+        was restored unchecked: a mismatched object surfaced as an
+        :class:`AttributeError` from ``summary()`` rather than as anything a reader could
+        diagnose.  Unlike the persistent assessment cache there is no generation counter
+        that could invalidate a memo, because a memo records no question.
+
+        :attr:`sensitivity` and :attr:`diagnostics` go with it.  Each facade already
+        drops its own memoized verdicts, so what a stored facade pins is one derived
+        object graph rather than a stale answer, and rebuilding it costs one
+        constructor call.  Dropping every memo rather than the three by name, because a
+        fourth is stale in the artifact written the day it is added.
+
+        Returns
+        -------
+        dict of str to Any
+            The instance state, without the entries a ``cached_property`` owns.
+        """
+        return without_memos(type(self), self.__dict__)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a result, and discard any memo the artifact already carries.
+
+        :meth:`__getstate__` keeps a memo out of every artifact this version writes. It
+        cannot reach one an older version wrote, and that artifact is the migration case:
+        the stale verdict is inside the file. Filtering on the way in heals it.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The pickled instance state.
+        """
+        self.__dict__.update(without_memos(type(self), state))
 
     # ---------------------------------------------------------------- output
 
