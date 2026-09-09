@@ -7,7 +7,7 @@ In cost order. The first two are free.
 | `res.score_verdict` | the score check's verdict, carried whether it passed or not. `summary()` prints it whenever it **fails**; a passing fit says nothing extra. Derived from the fluctuations rather than stored, so a reloaded fit recomputes it. |
 | `res.diagnostics.score_equations()` | the same score object, asked for directly |
 | `res.validate()` | the default assessment; reports `warning` when equation (10) had numerically difficult inner solves even if the returned score equations pass, with the affected round count and fraction |
-| `res.diagnostics.corrections()` | the low-level doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
+| `res.diagnostics.corrections()` | the low-level doubly-robust rows: per arm, per equation. The method requires a guarded `DRTMLE` fit. Other fits raise `CapabilityError`. |
 | `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
 | `res.diagnostics.refute()` | negative controls; costs refits |
 
@@ -78,3 +78,6 @@ The same distinction, once more, in the theorem's own terms: Theorem 1 licenses 
 *conditional on* the three empirical scores being `o_p(n^(−1/2))` **and** the two second-order
 remainder terms being `o_p(n^(−1/2))`. A fit can report on the first. Nothing reports on the
 second.
+
+Check `res.diagnostics.capability("corrections").available` before calling the correction diagnostic.
+The result records correction participation when the estimator fits it.

@@ -14,7 +14,7 @@ Everything else is routed:
 | opening a pull request, and the commit style | `docs/development/pull-requests.md` |
 | where technical documentation lives | `docs/README.md` |
 | cross-module constraints not derivable from one implementation | `docs/architecture-invariants.md` |
-| test tiers, and which deprecated studies no longer run | `docs/development/testing-strategy.md` |
+| fast tests and selective validation studies | `docs/development/testing-strategy.md` |
 | designing and registering a validation study | `docs/development/method-benchmarking.md` |
 | which instrument covers which estimand | `docs/technical-reference/evidence.md` |
 | what each shipped method was validated against | `docs/technical-reference/index.md` |
@@ -31,11 +31,10 @@ Current behavior is determined by code and tests, not by historical plans or inv
 
 ## Tests and tooling
 
-- Read `docs/development/testing-strategy.md` before choosing a tier. The fast tier is the default
-  handoff gate. The repeated-sampling studies that predate the registered rows are deprecated
-  and skipped; do not re-enable one to justify a change. A shipped method is validated by its rows
-  in the implementation validation grid, which the fast tier recomputes from committed artifacts.
-  Nothing is contingent on `pytest -m slow` running.
+- Read `docs/development/testing-strategy.md` before choosing checks. The fast suite is the default
+  handoff gate. A shipped method is validated by its rows in the implementation validation grid.
+  The fast suite recomputes their verdicts from committed artifacts. Regenerate only the studies
+  whose results a result-determining change can move.
 - A refactor is not a reason to regenerate a study. The Python module hashes in a study's
   `manifest.json` record the run; no test gates them, so cleaning shared code under
   `tests/studies/evidence/` is free. The container and R-runner hashes *are* gated. Declare a

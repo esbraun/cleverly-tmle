@@ -3,7 +3,7 @@
 **[Read the cleverly documentation →](https://esbraun.github.io/cleverly-tmle/)**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-087f8c.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
@@ -21,28 +21,28 @@ polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
 [narwhals](https://narwhals-dev.github.io/narwhals/).
 
 > [!WARNING]
-> `cleverly` is alpha software and is not on PyPI. Pin a commit for reproducible work. Unsupported
-> design, estimand, and method combinations fail before nuisance fitting instead of returning an
-> approximation to a different causal question.
+> `cleverly` is alpha software, and releases use `0.1.N` versions. Pin a version for reproducible
+> work. Unsupported combinations fail before nuisance fitting instead of returning an
+> approximation to another causal question.
 
 ## Install
 
-Install the core package from GitHub:
+Install the core package from PyPI:
 
 ```bash
-python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install cleverly
 ```
 
 Add pandas, polars, and plotting support with the `all` extra. Third-party nuisance estimators
 such as XGBoost or LightGBM can be installed separately and passed as sklearn-compatible objects:
 
 ```bash
-python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install "cleverly[all]"
 ```
 
 Python 3.11 or newer is required. See
 [Installation](https://esbraun.github.io/cleverly-tmle/getting-started/installation.html) for a
-development environment and reproducible commit-pinned installs.
+development environment and reproducible version-pinned installs.
 
 ## Quickstart
 
@@ -96,7 +96,7 @@ The Sphinx/MyST documentation is published on
 | [Python API](https://esbraun.github.io/cleverly-tmle/api/) | generated signatures, attributes, methods, and return types |
 
 The [development reference](https://esbraun.github.io/cleverly-tmle/development/) contains the
-roadmap, the architecture invariants, the test tiers and gates, and the method-benchmarking
+roadmap, the architecture invariants, the fast-test and validation-study rules, and the method-benchmarking
 strategy. The test-enforced evidence manifest lives in the Technical reference.
 
 ## Implemented analysis families
@@ -116,18 +116,15 @@ is the authoritative inventory, and it names the evidence for each row.
 
 ## Roadmap
 
-- Build the general nested Riesz engine and its initial evidence-gated catalog, including analytic
-  and direct representers, nested composition, diagnostics, and persistence.
-- Add optional DoWhy integration for graph-based identification and backdoor translation while
-  keeping the core package standalone.
-- Add EP learning for heterogeneous effects, beginning with conditional average treatment effects
-  and conditional relative risks.
-- Expand the estimand catalog target by target, with a separate derivation, evidence record,
-  refusal contract, and statistical study for each family.
+- Extend sensitivity and validation with source-backed refutations and longitudinal analyses.
+- Add optional DoWhy identification and graph validation while the core package stays standalone.
+- Add EP learning for conditional average treatment effects and conditional relative risks.
+- Extend current methods through persistence, design, splitting, and new evidenced estimands.
+- Build the nested Riesz engine and expand its catalog one evidenced target at a time.
 
-These are accepted directions, not implemented release claims. Their ordering, governing sources,
-interfaces, refusals, and evidence requirements are in the single
-[roadmap](docs/roadmap.md).
+These are accepted directions, not implemented release claims. The
+[roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) gives their binding
+order. It keeps work without published theory in a separate future grid.
 
 ## Method configuration
 
@@ -159,7 +156,7 @@ ruff check .
 ruff format --check .
 python -m tests.prose
 mypy
-pytest -m "not slow" -q
+pytest -q -n auto --dist loadgroup
 sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
@@ -175,11 +172,12 @@ output and carries no row at all. `tests/prose.py` says which rules were rejecte
 
 The fast tier compiles every Python fence and executes the registered reader-facing guides. It
 also resolves relative links and checks that generated API source represents the root API.
-Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
-relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
+Scientific behavior belongs in ordinary fast tests or registered validation studies. Regenerate
+only the affected studies. Run the relevant checks locally before handoff; a green GitHub Actions
+CI run is the final merge signal.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) gives the branch names, the checks each kind of change needs,
-and the commit style.
+[CONTRIBUTING.md](https://github.com/esbraun/cleverly-tmle/blob/main/CONTRIBUTING.md) gives the
+branch names, the checks each kind of change needs, and the commit style.
 
 ## Citing
 
@@ -190,4 +188,9 @@ listed in the
 
 ## License
 
-[GNU General Public License v3.0](LICENSE)
+[MIT License](https://github.com/esbraun/cleverly-tmle/blob/main/LICENSE).
+
+The R comparison runners under `tests/canonical/` are under the
+[GNU General Public License v3.0](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/LICENSE).
+They call reference R packages in the same process, and one package is AGPL-3. No published
+distribution carries them, so an installed copy of `cleverly` is MIT alone.

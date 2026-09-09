@@ -66,8 +66,8 @@ entry therefore describes the subject's setting and not a shared one.
 | `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9396 to 1.0430 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9337 to 0.9578, SE ratio 0.9506 to 1.0250 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin | bias -0.0048 to 0.0075, margin 0.0206 | pass |
-| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin | bias -0.3084 to -0.2904, margin 0.0302 | pass |
+| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0048 to 0.0075, margin 0.0206, SE ratio 0.9776 | pass |
+| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.3084 to -0.2904, margin 0.0302, SE ratio 0.9363 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0027, coverage 0.9136 to 0.9585, SE ratio 0.9667 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0019, coverage 0.9194 to 0.9627, SE ratio 0.9687 | pass |
 | `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0011, coverage 0.9238 to 0.9657, SE ratio 0.9542 | pass |
@@ -133,6 +133,8 @@ the committed results and checked at the precision printed.
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
 | `margin:bootstrap_replicates` | 10000 | resamples per bootstrap interval |
 | `margin:standardized_bias` | 0.2500 | bias equivalence margin in empirical standard deviations |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:coverage_floor` | 0.9000 | validity floor for the exact coverage lower endpoint |
 | `margin:over_coverage_ceiling` | 0.9900 | coverage above this is labeled conservative |
 | `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio screen, lower limit |

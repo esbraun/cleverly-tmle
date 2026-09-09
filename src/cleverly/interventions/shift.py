@@ -81,15 +81,17 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import effective_sample_size
+from ..data.weighting import SCORE_LOAD_PREDATES, effective_sample_size, format_score_load
 from ..exceptions import DataError, PositivityWarning
 from ..learners.density import ConditionalDensity, warn_if_unresolved
+from ..utils.records import _DefaultingUnpickle
+from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["Shift", "ShiftSet", "ShiftSupport", "check_shift_support"]
 
@@ -420,7 +422,7 @@ def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArra
 
 
 @dataclass(frozen=True)
-class ShiftSupport:
+class ShiftSupport(_DefaultingUnpickle):
     """Overlap for one shift: how hard the density ratio is working, and where it fails.
 
     Parameters
@@ -452,6 +454,14 @@ class ShiftSupport:
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
         the quantiles and the effective sample size above are of the whole weight.
+    score_load : _InterventionLoadRow or None
+        Concentration of the exact absolute score weights retained for this shift's
+        equation, and the cross-fitting draw it describes. ``None`` means the fitted artifact
+        did not supply a usable column. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
+    score_load_omission : str or None
+        Machine-readable reason why :attr:`score_load` is unavailable.
     """
 
     name: str
@@ -468,6 +478,10 @@ class ShiftSupport:
     #: covariate alongside the ratio, or ``None`` when the fit declared neither.  The
     #: quantiles and ESS above are of the *whole* weight when this is not ``None``.
     min_mechanism: float | None = None
+    score_load: _InterventionLoadRow | None = None
+    score_load_omission: str | None = None
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -482,11 +496,12 @@ class ShiftSupport:
             "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
         )
         label = "ratio" if self.min_mechanism is None else "weight"
+        score = format_score_load(self.score_load, style="inline")
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}\n"
+            f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
             f"    {label} quantiles -- {quantiles}"
         )
 
@@ -497,6 +512,9 @@ def check_shift_support(
     treatment: FloatArray,
     *,
     mechanisms: Sequence[FloatArray] = (),
+    absolute_score_weights: FloatArray | None = None,
+    equations: tuple[str, ...] = (),
+    n_repeats: int = 1,
 ) -> dict[str, ShiftSupport]:
     """Per-shift overlap, in the vocabulary :mod:`cleverly.interventions.support` uses.
 
@@ -525,6 +543,12 @@ def check_shift_support(
     mechanisms : sequence of ndarray
         Further ``(n, S + 1)`` denominators the fit declared. Only column ``0``,
         the value at the row's own dose, is read.
+    absolute_score_weights : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, in shift order. ``None`` records an omission.
+    equations : tuple of str
+        Fitted score-equation names, in shift order.
+    n_repeats : int
+        Number of stored cross-fitting draws. The retained weights describe draw 1.
 
     Returns
     -------
@@ -537,6 +561,10 @@ def check_shift_support(
     denominator = np.ones(a.size)
     for values in at_observed:
         denominator = denominator * values
+    labels = tuple(shifts.names)
+    score_loads, load_omission = _intervention_loads(
+        labels, absolute_score_weights, equations, a.size, n_repeats
+    )
     out: dict[str, ShiftSupport] = {}
     for index, name in enumerate(shifts.names):
         weight = shifts.ratio[:, index] / denominator
@@ -554,5 +582,7 @@ def check_shift_support(
             capped_fraction=float(np.mean(shifts.capped[:, index])),
             unsupported=int(np.sum(observed_density <= 0.0)),
             min_mechanism=float(denominator.min()) if at_observed else None,
+            score_load=score_loads.get(name),
+            score_load_omission=load_omission,
         )
     return out

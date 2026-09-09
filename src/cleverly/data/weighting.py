@@ -274,22 +274,38 @@ the supported answer is to expand the rows -- ``frame.loc[frame.index.repeat(cou
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Final, Literal, TypedDict, cast
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
+from .validate import check_weights
 
 __all__ = [
     "CONCENTRATED_DESIGN_EFFECT",
+    "REPORTED_DRAW",
+    "SCORE_LOAD_EMPTY_MASK",
+    "SCORE_LOAD_MASK_TOO_LARGE",
+    "SCORE_LOAD_MISSING",
+    "SCORE_LOAD_NOT_FINITE",
+    "SCORE_LOAD_NO_EQUATION",
+    "SCORE_LOAD_PREDATES",
+    "SCORE_LOAD_SHAPE_MISMATCH",
+    "SCORE_LOAD_VERDICT_RATIO_FORMAT",
+    "ScoreLoadRow",
+    "ScoreLoadStyle",
     "WeightKind",
     "WeightReport",
     "WeightSpec",
     "describe_weights",
     "estimand_lines",
+    "format_score_load",
     "resolve_weight_kind",
+    "score_load_row",
+    "validate_score_loads",
     "warn_if_concentrated",
     "warn_if_counts",
 ]
@@ -385,7 +401,35 @@ def resolve_weight_kind(kind: str | None, n: int) -> WeightKind:
     return "probability"
 
 
-def warn_if_counts(weights: FloatArray, name: str) -> None:
+def _prepare_weights(
+    weights: np.ndarray | None,
+    n: int,
+    *,
+    weights_type: str | None,
+    weights_estimated: bool,
+    weights_name: str | None,
+) -> tuple[FloatArray, WeightSpec]:
+    """Validate a container's weights and retain their declared meaning and original scale."""
+    label = weights_name or "weights"
+    kind = resolve_weight_kind(weights_type, n)
+    obs_weights = check_weights(weights, n, label)
+    if weights is None:
+        spec = WeightSpec(kind=kind, estimated=weights_estimated)
+    else:
+        # This frame sits between the container's ``_build`` call and the emitter, so both
+        # warnings ask for one level more than a direct call does.
+        warn_if_counts(np.asarray(weights, dtype=float), label, stacklevel=4)
+        warn_if_concentrated(obs_weights, label, stacklevel=4)
+        spec = WeightSpec(
+            kind=kind,
+            estimated=weights_estimated,
+            name=label,
+            scale=float(np.mean(np.asarray(weights, dtype=float))),
+        )
+    return obs_weights, spec
+
+
+def warn_if_counts(weights: FloatArray, name: str, *, stacklevel: int = 3) -> None:
     """Warn when weights supplied as probabilities look like counts.
 
     A frequency-weight vector passed without ``weights_type`` produces a valid estimate
@@ -393,6 +437,18 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
     ``sqrt(mean(counts))``.  That is a silent inefficiency rather than a crash, so it is
     worth naming when the evidence is strong: all values whole numbers, at least one, and
     averaging clearly above one.
+
+    Parameters
+    ----------
+    weights : FloatArray
+        Weights as supplied, before normalisation. The check reads their absolute scale.
+    name : str
+        What the caller calls this column, so the warning names it.
+    stacklevel : int, optional
+        Frames to skip when the warning is located. The default blames the caller's
+        caller, which is where a diagnostic helper's user stands.
+        :func:`_prepare_weights` passes ``4`` because it sits one frame deeper, between
+        the container's ``_build`` call and this function.
     """
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or np.unique(w).size < 2:
@@ -409,7 +465,7 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
         "rows instead; if they are sampling weights, ignore this. See "
         "cleverly.data.weighting.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
 
 
@@ -440,7 +496,7 @@ def effective_sample_size(weights: FloatArray, *, on_degenerate: float | None = 
     return float(total**2 / float(np.square(w).sum()))
 
 
-def warn_if_concentrated(weights: FloatArray, name: str) -> None:
+def warn_if_concentrated(weights: FloatArray, name: str, *, stacklevel: int = 3) -> None:
     """Warn when the weights leave the fit resting on a small part of the sample.
 
     Reported unconditionally by :meth:`WeightReport.summary`; warned about here because
@@ -448,6 +504,19 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
     effective sample size is small enough that it changes what the estimator *does* --
     ``g_bounds="auto"`` truncates harder, and the central limit theorem behind the
     interval has that many terms to work with, not ``n``.
+
+    Parameters
+    ----------
+    weights : FloatArray
+        Weights to read the design effect from. Scale-free, so either the supplied or
+        the normalised vector gives the same answer.
+    name : str
+        What the caller calls this column, so the warning names it.
+    stacklevel : int, optional
+        Frames to skip when the warning is located. The default blames the caller's
+        caller, which is where a diagnostic helper's user stands.
+        :func:`_prepare_weights` passes ``4`` because it sits one frame deeper, between
+        the container's ``_build`` call and this function.
     """
     w = np.asarray(weights, dtype=float).reshape(-1)
     if w.size == 0 or float(w.sum()) <= 0:
@@ -463,7 +532,7 @@ def warn_if_concentrated(weights: FloatArray, name: str) -> None:
         "it, and the asymptotics behind the interval have that many terms. Inspect "
         "data.weight_report() before trusting the interval.",
         WeightingWarning,
-        stacklevel=3,
+        stacklevel=stacklevel,
     )
 
 
@@ -611,17 +680,284 @@ def describe_weights(
         scale=float(spec.scale),
         coefficient_of_variation=float(np.std(w) / mean) if mean > 0 else float("nan"),
         ratio=(float(w.min() / mean), float(w.max() / mean)) if mean > 0 else (float("nan"),) * 2,
-        top_1pct=_top_share(w, 0.01),
-        top_5pct=_top_share(w, 0.05),
+        top_1pct=top_weight_share(w, 0.01),
+        top_5pct=top_weight_share(w, 0.05),
         n_zero=int(np.count_nonzero(w == 0.0)),
     )
 
 
-def _top_share(weights: FloatArray, fraction: float) -> float:
-    """Share of the total weight held by the largest ``fraction`` of rows."""
+def top_weight_share(weights: FloatArray, fraction: float) -> float:
+    """Share of the total weight held by the largest ``fraction`` of rows.
+
+    Flattens first, for the same reason :func:`effective_sample_size` does: the answer is
+    a share of one total, so a two-dimensional argument has to be pooled rather than
+    sorted along its last axis while the count is taken from its full size.  A total that
+    is zero or negative has no share to report and answers ``nan``.
+
+    Parameters
+    ----------
+    weights : ndarray
+        Weights, of any shape.
+    fraction : float
+        The upper tail to measure, as a fraction of the rows.
+
+    Returns
+    -------
+    float
+        The share of ``weights.sum()`` held by its largest ``ceil(fraction * size)``
+        entries, and ``nan`` when the total is not positive.
+    """
     w = np.asarray(weights, dtype=float).reshape(-1)
     total = float(w.sum())
     if total <= 0:
         return float("nan")
     count = max(1, int(np.ceil(fraction * w.size)))
     return float(np.sort(w)[-count:].sum() / total)
+
+
+# --------------------------------------------------------------------------------------
+# Fitted score-load concentration
+#
+# The same ten numbers describe one fitted score equation wherever it is reported: the
+# per-group table in `cleverly.sensitivity.positivity`, and the per-regime, per-shift and
+# per-tilt rows in `cleverly.interventions`.  They were written out twice, and the two
+# copies had already drifted apart in four ways -- two reason strings for the same shape
+# condition, two for the empty-mask state, a zero guard on `total_ratio` in one copy only,
+# and a refusal missing from the other entirely.  They live here because this module
+# already owns the formulas they are built from and imports nothing that either caller
+# imports: `cleverly.interventions.support` reaches `cleverly.sensitivity.positivity`
+# through the estimators package, so the shared code cannot live in one of the two report
+# modules that share it.
+# --------------------------------------------------------------------------------------
+
+#: The cross-fitting draw every retained score-load row describes.  A repeated fit stores
+#: one fluctuation artifact per draw and the reports keep the first, because concentration
+#: is a property of one fitted score equation and a combination of draws would describe an
+#: equation no reported estimate was solved from.
+REPORTED_DRAW = 1
+
+#: An artifact is present and the fit recorded no score equation to bind its columns to.
+#: Tested *after* :data:`SCORE_LOAD_MISSING`, because the caller who supplies neither an
+#: artifact nor equation names is in the absent-artifact state and has always read that
+#: reason.
+SCORE_LOAD_NO_EQUATION = "no fitted score equation was recorded for this target"
+
+#: The fluctuation exists but kept no exact absolute score weights, which is what an
+#: artifact fitted before this diagnostic looks like.  It is also what a direct caller of
+#: :func:`~cleverly.interventions.check_support` and its two siblings gets, because all
+#: three default to no artifact.
+SCORE_LOAD_MISSING = "the fitted artifact has no exact absolute score weights"
+
+#: The artifact is not an ``(m, k)`` block with one column per recorded equation.
+SCORE_LOAD_SHAPE_MISMATCH = (
+    "the fitted absolute score weights do not match the recorded score equations"
+)
+
+#: The artifact holds a negative, infinite or ``nan`` load, so no share of it is defined.
+SCORE_LOAD_NOT_FINITE = "the fitted absolute score weights are not finite and nonnegative"
+
+#: The score mask selected no rows.  Reported apart from :data:`SCORE_LOAD_MASK_TOO_LARGE`
+#: because the two say opposite things about the artifact: one is a fit that targeted
+#: nothing, the other is a malformed block.
+SCORE_LOAD_EMPTY_MASK = "the fitted score mask contains no rows"
+
+#: The score mask has more rows than the data it was fitted on, which no real fit
+#: produces.  Refusing it is what keeps ``total_ratio`` from being published above one.
+SCORE_LOAD_MASK_TOO_LARGE = "the fitted score mask size is outside the fitted data"
+
+#: A report unpickled from before these fields existed, filled in by
+#: :class:`~cleverly.utils.records._DefaultingUnpickle` rather than by a fresh build.
+SCORE_LOAD_PREDATES = "the report predates fitted score-load diagnostics"
+
+#: How :meth:`~cleverly.sensitivity.PositivityReport.summary` states a score-load Kish ratio
+#: in its overlap verdict.  A whole percent, because that sentence names which target group
+#: is the most concentrated one rather than sizing the ratio it quotes.
+SCORE_LOAD_VERDICT_RATIO_FORMAT = ".0%"
+
+#: Which rendering of a score-load row a reader wants.  ``"cell"`` is a fixed-width table
+#: cell and is deliberately the terse one; ``"inline"`` is a clause inside a one-line
+#: report summary; ``"detail"`` is the assessment row, the only one that also states the
+#: ratios.
+ScoreLoadStyle = Literal["cell", "inline", "detail"]
+
+#: The ratio precision each style states, for the one style that states a ratio.  The
+#: precision belongs to the surface and not to the row: the ``"detail"`` assessment line
+#: states a tenth of a percent, because the most concentrated column a fit can produce has a
+#: targeted ratio near ``0.002``, which reads ``0.2%`` here and ``0%`` at the whole percent
+#: :data:`SCORE_LOAD_VERDICT_RATIO_FORMAT` uses.  Two surfaces share this formatter and the
+#: row it renders.  They do not share a precision.
+_STYLE_RATIO_FORMAT: Final[Mapping[ScoreLoadStyle, str]] = {"detail": ".1%"}
+
+
+class ScoreLoadRow(TypedDict):
+    """One fitted score equation's absolute-load concentration.
+
+    ``effective`` is the Kish-equivalent row count of ``abs(w_i * H_ij)`` for one column
+    of the fitted artifact.  It describes how concentrated that column is.  It is not
+    estimator effective sample size, information, influence or precision, because the
+    residual is not in it.  ``targeted_ratio`` divides it by the rows the score mask
+    selected and ``total_ratio`` by the rows the fit had.  The two differ exactly when the
+    mask is a subset: a missing outcome, or an arm-restricted target.
+    """
+
+    equation: str
+    n_total: float
+    n_targeted: float
+    effective: float
+    targeted_ratio: float
+    total_ratio: float
+    top_1pct: float
+    top_5pct: float
+    max_load: float
+    zero_load: float
+
+
+def validate_score_loads(
+    artifact: FloatArray | None,
+    n_equations: int,
+    n_total: int,
+) -> tuple[FloatArray | None, str | None]:
+    """Accept a fitted score artifact, or say in one phrase why it cannot be described.
+
+    The guard set is the stricter of the two this replaced.  A block with more rows than
+    the fit had is refused rather than described, which the generic target-group path did
+    not do: it published a ``total_ratio`` above one instead.
+
+    Parameters
+    ----------
+    artifact : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, one per recorded score equation.
+    n_equations : int
+        How many equations the fit recorded, which is how many columns are expected.
+    n_total : int
+        Rows in the fitted data, which the score mask cannot exceed.
+
+    Returns
+    -------
+    tuple of (ndarray or None, str or None)
+        The validated ``(m, n_equations)`` block and ``None``, or ``None`` and the
+        machine-readable reason it was refused.
+    """
+    # Order matters, and this is the order the reports have always reported in.  Every
+    # public entry point defaults `equations` to `()`, so a caller who passes no artifact
+    # usually passes no equation names either, and the state that caller is in is the
+    # absent artifact.  `SCORE_LOAD_NO_EQUATION` is for the other state: an artifact is
+    # present and the fit recorded no equation to bind its columns to.
+    if artifact is None:
+        return None, SCORE_LOAD_MISSING
+    if n_equations <= 0:
+        return None, SCORE_LOAD_NO_EQUATION
+    loads = np.asarray(artifact, dtype=float)
+    if loads.ndim != 2 or loads.shape[1] != n_equations:
+        return None, SCORE_LOAD_SHAPE_MISMATCH
+    if np.any(~np.isfinite(loads)) or np.any(loads < 0.0):
+        return None, SCORE_LOAD_NOT_FINITE
+    if loads.shape[0] == 0:
+        return None, SCORE_LOAD_EMPTY_MASK
+    if loads.shape[0] > n_total:
+        return None, SCORE_LOAD_MASK_TOO_LARGE
+    return loads, None
+
+
+def score_load_row(load: FloatArray, equation: str, n_total: int) -> ScoreLoadRow:
+    """Describe one validated score column's absolute-load concentration.
+
+    The mask size is read from the column rather than passed beside it, so the denominator
+    a row reports is by construction the vector the row was computed from.
+
+    Parameters
+    ----------
+    load : ndarray
+        One column of a block :func:`validate_score_loads` accepted.
+    equation : str
+        The fitted score equation this column solved.
+    n_total : int
+        Rows in the fitted data, for ``total_ratio``.
+
+    Returns
+    -------
+    ScoreLoadRow
+        The ten concentration values for this column.
+
+    Raises
+    ------
+    DataError
+        If the column is empty, which :func:`validate_score_loads` refuses first.
+    """
+    column = np.asarray(load, dtype=float).reshape(-1)
+    if column.size == 0:
+        raise DataError("an empty score column has no load to describe")
+    effective = effective_sample_size(column, on_degenerate=0.0)
+    return {
+        "equation": equation,
+        "n_total": float(n_total),
+        "n_targeted": float(column.size),
+        "effective": effective,
+        "targeted_ratio": effective / float(column.size),
+        # Guarded for a caller that reaches here without `validate_score_loads`, which
+        # refuses an `n_total` below the mask size and so rules a zero out.
+        "total_ratio": effective / float(n_total) if n_total else 0.0,
+        "top_1pct": top_weight_share(column, 0.01),
+        "top_5pct": top_weight_share(column, 0.05),
+        "max_load": float(np.max(column)),
+        "zero_load": float(np.count_nonzero(column == 0.0)),
+    }
+
+
+def format_score_load(
+    row: ScoreLoadRow | None,
+    *,
+    style: ScoreLoadStyle,
+    draw: tuple[int, int] | None = None,
+) -> str:
+    """Render one score-load row, or the note that the report has none.
+
+    Every reader of a score-load row comes through here, so the draw a row describes is
+    printed from the row rather than from a literal each caller repeats.  Four callers
+    wrote ``draw 01`` by hand, which left ``reported_repeat`` both unread and unfalsifiable
+    and left one report contradicting its own draw count.
+
+    Parameters
+    ----------
+    row : ScoreLoadRow or None
+        The row to render. ``None`` renders the style's "unavailable" text.
+    style : str
+        One of :data:`ScoreLoadStyle`.
+    draw : tuple of int or None
+        ``(reported draw, total draws)``. ``None`` reads both from the row, which then has
+        to carry ``reported_repeat`` and ``n_repeats``.
+
+    Returns
+    -------
+    str
+        The rendered row.
+
+    Raises
+    ------
+    DataError
+        If ``draw`` is omitted and the row records no draw count. A generic target-group
+        row is that case: its draw count belongs to the report and not to the column.
+    """
+    if row is None:
+        return "unavailable" if style == "cell" else "score load unavailable"
+    if draw is None:
+        carried = cast("Mapping[str, Any]", row)
+        if "n_repeats" not in carried:
+            raise DataError(
+                "a score-load row that records no draw count needs an explicit draw; "
+                "read it from the report that holds the row"
+            )
+        draw = (int(carried["reported_repeat"]), int(carried["n_repeats"]))
+    reported, total = draw
+    size = f"{row['effective']:.1f}/{row['n_targeted']:.0f}"
+    if style == "cell":
+        return f"{size} (draw {reported:02d}/{total:02d})"
+    if style == "inline":
+        return f"score load={size} Kish-equivalent mask rows (draw {reported:02d} of {total:02d})"
+    ratio = _STYLE_RATIO_FORMAT[style]
+    return (
+        f"{size} Kish-equivalent mask rows "
+        f"({row['targeted_ratio']:{ratio}}; "
+        f"{row['total_ratio']:{ratio}} all; "
+        f"draw {reported:02d} of {total:02d})"
+    )

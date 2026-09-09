@@ -31,6 +31,7 @@ unchecked, and there is a lot of it -- so this is one hole closed rather than th
 
 from __future__ import annotations
 
+import importlib
 import re
 import unicodedata
 from pathlib import Path
@@ -248,4 +249,83 @@ def test_every_repository_source_link_resolves(path: Path) -> None:
     assert not broken, (
         f"{path.relative_to(ROOT)}: no such path in this repository: {broken}. "
         f"A blob/main link is a claim about the current tree; update it or pin it to a commit"
+    )
+
+
+#: The roadmap item id in a prose citation, which is the form the runtime refusal messages
+#: use.  ``LINK`` cannot see these: a refusal is a sentence a user reads in an exception, not
+#: a rendered link, so it names the file and the item rather than anchoring into it.
+ROADMAP_CITATION = re.compile(r"docs/roadmap\.md ([A-Z]+\d+)")
+
+#: ``### F13. Longitudinal simulated-confounding replay`` and its siblings, keyed by item id.
+ROADMAP_ITEMS = {
+    head.split(".", 1)[0]: head
+    for head in headings((ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8"))
+    if "." in head
+}
+
+
+def rule_texts(rule: object) -> list[str]:
+    """Every string a fit-wide refusal rule can return, inline or by named constant.
+
+    A rule returns either a literal, which is one of its code constants, or a module-level
+    constant, which is a global it loads by name.  Reading both means a citation added in
+    either form is covered without a hand-written list.
+    """
+    code = rule.__code__  # type: ignore[attr-defined]
+    module = importlib.import_module(rule.__module__)  # type: ignore[attr-defined]
+    found = [constant for constant in code.co_consts if isinstance(constant, str)]
+    found.extend(
+        value for name in code.co_names if isinstance(value := getattr(module, name, None), str)
+    )
+    return found
+
+
+def test_every_roadmap_item_a_refusal_cites_exists() -> None:
+    """A refusal that cites a roadmap item cites one the roadmap still declares.
+
+    ``simulated_confounding`` refuses six compositions by naming the artifact each one needs
+    and the roadmap item that tracks it.  The citation is prose, so
+    :func:`test_every_documentation_link_in_source_resolves` does not see it, and renaming an
+    item leaves the user an id that resolves to nothing.  This pull request renamed ``F14`` to
+    ``X8``, which is the rot in question.
+
+    Driven off :data:`~cleverly.sensitivity._simulated_confounding_request._FIT_WIDE_RULES`
+    rather than a list, so a rule that cites a new item is checked the day it is added.
+    """
+    from cleverly.sensitivity._simulated_confounding_request import _FIT_WIDE_RULES
+
+    cited = {
+        item
+        for _name, rule in _FIT_WIDE_RULES
+        for text in rule_texts(rule)
+        for item in ROADMAP_CITATION.findall(text)
+    }
+
+    # The negative control.  A rule table read through the wrong attribute, or a citation
+    # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
+    assert len(cited) >= 6, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
+    missing = sorted(item for item in cited if item not in ROADMAP_ITEMS)
+    assert not missing, (
+        f"refusal messages cite roadmap item(s) docs/roadmap.md does not declare: {missing}. "
+        f"Declared items are {sorted(ROADMAP_ITEMS)}"
+    )
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_roadmap_item_cited_in_source_exists(path: Path) -> None:
+    """The same check one level out, for any prose citation in any module or test.
+
+    The rule table is where these citations live today.  The habit is not confined to it,
+    and a citation written into a docstring rots exactly as quietly.
+    """
+    missing = sorted(
+        {
+            item
+            for item in ROADMAP_CITATION.findall(path.read_text(encoding="utf-8"))
+            if item not in ROADMAP_ITEMS
+        }
+    )
+    assert not missing, (
+        f"{path.relative_to(ROOT)} cites roadmap item(s) that do not exist: {missing}"
     )

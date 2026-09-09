@@ -23,7 +23,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 LABELS = ("high", "low", "medium")
 REFERENCE = "high"
@@ -109,7 +109,7 @@ def draw_for(
     record: StudyRecord, scenario: str, n: int, replicate: int
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """Draw from ``record``'s seed stream rather than from another row's stream."""
-    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
 def rows_from_result(

@@ -10,7 +10,7 @@ mechanism-fitting pipelines.  Statistical properties are checked independently i
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -24,7 +24,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 LTMLE_VERSION = "1.3-0"
 LTMLE_SOURCE_COMMIT = "338c029dae9692ef20714125773da7037688993b"
@@ -248,7 +248,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -317,39 +317,58 @@ def untargeted_estimands(frame: pd.DataFrame) -> dict[str, float]:
     return means
 
 
-def _initials(result: Any) -> dict[str, float]:
+def regimen_initials(
+    result: Any, regimens: Iterable[str], contrasts: Sequence[str]
+) -> dict[str, float]:
+    """The untargeted plug-in behind each regimen mean, and each contrast of two.
+
+    The contrast names are parsed rather than named, on the same rule
+    :func:`untargeted_estimands` already uses, so a study that adds a contrast gets its
+    plug-in without editing this.
+    """
     means = {
         f"ey_regimen[{label}]": float(np.mean(result.fits[label].steps[0].initial))
-        for label in REGIMENS
+        for label in regimens
     }
-    means["ate_regimen[always vs never]"] = means["ey_regimen[always]"] - means["ey_regimen[never]"]
-    means[f"ate_regimen[{RULE_LABEL} vs never]"] = (
-        means[f"ey_regimen[{RULE_LABEL}]"] - means["ey_regimen[never]"]
-    )
+    for name in contrasts:
+        left, right = name[len("ate_regimen[") : -1].split(" vs ")
+        means[name] = means[f"ey_regimen[{left}]"] - means[f"ey_regimen[{right}]"]
     return means
 
 
-def cleverly_rows(
-    frame: pd.DataFrame,
+def regimen_rows(
+    record: StudyRecord,
+    result: Any,
     truth: Mapping[str, float],
+    initials: Mapping[str, float],
+    estimands: Sequence[str],
     scenario: str,
     replicate: int,
+    *,
+    n: int,
 ) -> list[dict[str, Any]]:
-    if scenario != SCENARIO:
-        raise KeyError(scenario)
-    result = fit_cleverly(frame)
-    initials = _initials(result)
+    """One replication's rows for a longitudinal study that reports on the identity scale.
+
+    ``n`` is a keyword every caller supplies, and this function never derives it.  The six
+    longitudinal studies do not agree on where it comes from: ``len(frame)``, ``result.n``
+    and ``len(result.folds.assignment)`` are all in use and all published.  Choosing one
+    here would move a published column in the studies that use another.
+
+    ``initials`` is passed for the same reason.  The regimen studies read a label off the
+    fit, the survival and competing studies parse a horizon out of the estimand name, and
+    those are three different rules over three different name shapes.
+    """
     rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
+    for name in estimands:
         estimate = result[name]
         low, high = estimate.ci
         reference = float(truth[name])
         rows.append(
             {
-                "implementation": STUDY.implementation,
+                "implementation": record.implementation,
                 "scenario": scenario,
                 "replicate": replicate,
-                "n": len(frame),
+                "n": n,
                 "estimand": name,
                 "truth": reference,
                 "estimate": float(estimate.psi),
@@ -363,6 +382,27 @@ def cleverly_rows(
             }
         )
     return rows
+
+
+def cleverly_rows(
+    frame: pd.DataFrame,
+    truth: Mapping[str, float],
+    scenario: str,
+    replicate: int,
+) -> list[dict[str, Any]]:
+    if scenario != SCENARIO:
+        raise KeyError(scenario)
+    result = fit_cleverly(frame)
+    return regimen_rows(
+        STUDY,
+        result,
+        truth,
+        regimen_initials(result, REGIMENS, CONTRAST_NAMES),
+        ESTIMANDS,
+        scenario,
+        replicate,
+        n=len(frame),
+    )
 
 
 def _replicate(

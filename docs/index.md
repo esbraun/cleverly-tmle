@@ -39,18 +39,18 @@ Browse the Python API
 
 :::{warning}
 `cleverly` is alpha software. Unsupported combinations fail before fitting. The public API may
-still change, so pin a commit for reproducible work. Read the identification statement your
+still change, so pin a version for reproducible work. Read the identification statement your
 analysis returns.
 :::
 
-## Install from GitHub
+## Install from PyPI
 
 ```bash
-python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install cleverly
 ```
 
 Python 3.11 or newer is required. The [installation guide](getting-started/installation.md) covers
-optional backends, development environments, and reproducible commit-pinned installs.
+optional backends, development environments, and reproducible version-pinned installs.
 
 ## One workflow, explicit decisions
 
@@ -124,9 +124,9 @@ The [implementation matrix](technical-reference/index.md#implementation-matrix) 
 implementation family the package ships. Each row names the theory, the source module, the
 external provenance, and the correctness evidence.
 
-The [roadmap](roadmap.md) lists every proposed direction in one table, with its readiness, its
-governing sources, and the evidence gate it has to clear. A roadmap entry is an accepted direction
-and not a release claim.
+The [roadmap](roadmap.md) gives source-backed work in one binding grid. A second grid keeps future
+investigations out of the implementation sequence until a paper supplies the missing theory. A
+roadmap entry is an accepted direction and not a release claim.
 
 ```{toctree}
 :hidden:

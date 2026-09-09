@@ -10,7 +10,7 @@ an otherwise ordinary TMLE; that is the package default and is corroborated by t
 Everything asserted here is an exact algebraic consequence of the construction, so
 these tests fail deterministically rather than statistically.  The claim CV-TMLE
 actually exists to make -- that it keeps nominal coverage where a pooled fit does not
--- needs replications and lives in the slow tier.
+-- needs replications and belongs in a registered study.
 """
 
 from __future__ import annotations
@@ -24,10 +24,10 @@ from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import _average_over_folds
 from cleverly.fluctuation import restrict, stitch
-from cleverly.fluctuation.submodel import att_submodel, mean_submodel
+from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
 from cleverly.inference import cross_validated_variance, influence_variance
 from cleverly.learners.crossfit import Folds, make_folds
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, mean_one_weights
 
 #: Every estimand the binary-outcome fixture supports: the three that are linear in
 #: the targeted predictions and the four that are not.
@@ -43,6 +43,23 @@ def cv_fit() -> object:
     return (
         TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")})
         .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def weighted_fold_fit() -> object:
+    frame, _ = make_linear_ate(n=300, seed=17)
+    frame = frame.assign(wt=mean_one_weights(len(frame), spread=(0.1, 1.9)))
+    return (
+        TMLE(
+            **{
+                **FAST_KWARGS,
+                "targeting_scheme": "fold",
+                "estimands": ("ate", "ey1", "att", "atc"),
+            }
+        )
+        .fit(frame, outcome="Y", treatment="A", weights="wt")
         .single()
     )
 
@@ -89,13 +106,83 @@ class TestFoldWiseTargeting:
             covered = np.concatenate([record.index for record in fluctuation.folds])
             assert np.array_equal(np.sort(covered), np.arange(cv_fit.n))
 
-    def test_the_reported_epsilon_is_the_mass_weighted_fold_average(self, cv_fit) -> None:
-        for fluctuation in cv_fit.fluctuations.values():
-            sizes = np.array([record.n for record in fluctuation.folds], dtype=float)
+    def test_the_reported_epsilon_is_the_mass_weighted_fold_average(
+        self, weighted_fold_fit
+    ) -> None:
+        for fluctuation in weighted_fold_fit.fluctuations.values():
+            masses = np.array(
+                [weighted_fold_fit.data.weights[record.index].sum() for record in fluctuation.folds]
+            )
             stacked = np.vstack([record.epsilon for record in fluctuation.folds])
-            expected = np.average(stacked, axis=0, weights=sizes)
-            # Equal, unweighted folds here, so the mass weights are the fold sizes.
+            expected = np.average(stacked, axis=0, weights=masses)
+            row_weighted = np.average(
+                stacked,
+                axis=0,
+                weights=[record.n for record in fluctuation.folds],
+            )
             assert fluctuation.epsilon == pytest.approx(expected, abs=1e-12)
+            assert not np.allclose(expected, row_weighted, rtol=0.0, atol=1e-6)
+
+    @pytest.mark.parametrize(
+        ("group", "builder"),
+        (("att", att_submodel), ("atc", atc_submodel)),
+    )
+    def test_conditional_effect_score_blocks_use_each_folds_weighted_arm_fractions(
+        self, weighted_fold_fit, group, builder
+    ) -> None:
+        result = weighted_fold_fit
+        bounds = result.config.g_bounds_conditional
+        propensity = result.nuisance.bounded_propensity(bounds)
+        actual = result.estimator._submodel(
+            result.data,
+            result.nuisance,
+            group,
+            bounds,
+            None,
+            None,
+            None,
+            result.config.reference_arm,
+        )
+
+        for _, index in result.nuisance.folds:
+            fold_weights = result.data.weights[index]
+            fractions = np.array(
+                [
+                    np.average(result.data.treatment[index] == arm, weights=fold_weights)
+                    for arm in result.nuisance.arms
+                ]
+            )
+            unweighted = np.array(
+                [np.mean(result.data.treatment[index] == arm) for arm in result.nuisance.arms]
+            )
+            expected = builder(
+                result.data.treatment,
+                propensity,
+                arms=result.nuisance.arms,
+                arm_fractions=fractions,
+                reference=result.config.reference_arm,
+            )
+            wrong = builder(
+                result.data.treatment,
+                propensity,
+                arms=result.nuisance.arms,
+                arm_fractions=unweighted,
+                reference=result.config.reference_arm,
+            )
+
+            np.testing.assert_allclose(actual.observed[index], expected.observed[index])
+            assert not np.allclose(
+                actual.observed[index], wrong.observed[index], rtol=0.0, atol=1e-6
+            )
+
+        fluctuation = result.fluctuations[group]
+        expected_load = np.vstack(
+            [
+                np.abs(result.data.weights[index])[:, None] * np.abs(actual.observed[index])
+                for _, index in result.nuisance.folds
+            ]
+        )
+        np.testing.assert_array_equal(fluctuation.absolute_score_weights, expected_load)
 
     def test_a_pooled_fit_records_no_fold_detail(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=18)
@@ -128,6 +215,46 @@ class TestFoldWiseTargeting:
 
 class TestCanonicalTargeting:
     """Structural pins for the common validation update used by the source algorithm."""
+
+    def test_absolute_score_weights_keep_the_equal_fold_risk_measure(self) -> None:
+        """The artifact retains validation weights, not the unequal input fold masses."""
+        frame, _ = make_linear_ate(n=300, seed=17)
+        settings = {**FAST_KWARGS, "cv_evaluation": True, "estimands": ("ate",)}
+        draft = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
+        weights = np.ones(len(frame))
+        for multiplier, (_, index) in zip(
+            (0.05, 0.2, 1.0, 5.0, 20.0), draft.nuisance.folds, strict=True
+        ):
+            weights[index] = multiplier
+        result = (
+            TMLE(**settings)
+            .fit(frame.assign(wt=weights), outcome="Y", treatment="A", weights="wt")
+            .single()
+        )
+        assert all(
+            np.array_equal(left[1], right[1])
+            for left, right in zip(draft.nuisance.folds, result.nuisance.folds, strict=True)
+        )
+
+        submodel = result.estimator._submodel(
+            result.data,
+            result.nuisance,
+            "mean",
+            result.config.g_bounds,
+            None,
+            None,
+            None,
+            result.config.reference_arm,
+        )
+        validation_weights = result.estimator._validation_weights(result.data, result.nuisance)
+        expected = np.abs(validation_weights)[:, None] * np.abs(submodel.observed)
+        wrong = np.abs(result.data.weights)[:, None] * np.abs(submodel.observed)
+        retained = result.fluctuations["mean"].absolute_score_weights
+
+        np.testing.assert_array_equal(retained, expected)
+        assert not np.allclose(retained, wrong, rtol=0.0, atol=1e-12)
+        fold_mass = [float(validation_weights[index].sum()) for _, index in result.nuisance.folds]
+        assert max(fold_mass) == pytest.approx(min(fold_mass), abs=1e-12)
 
     def test_it_fits_one_common_epsilon_not_one_per_fold(
         self, canonical_report, pooled_report
@@ -496,10 +623,8 @@ class TestWhichVarianceIsTheInferentialOne:
 class TestRepeatedDraws:
     """The original fold-evaluated construction over several split draws.
 
-    ``repeats=R`` averages ``R`` fold-evaluated CV-TMLEs, and the one thing that cannot follow
-    the influence curve is the variance: the cross-validated one is defined by a fold
-    partition, and the averaged curve belongs to none of the ``R``.  What is reported is
-    the mean of the draws' cross-validated variances instead.  The arithmetic of that is
+    ``repeats=R`` median-combines ``R`` fold-evaluated CV-TMLEs. Each draw contributes
+    its cross-validated variance to the within-plus-between aggregation. The arithmetic is
     pinned in ``tests/unit/test_repeated_crossfit.py``; what is checked here is that the
     *estimator* the setting names is still the one that ran.
     """
@@ -518,23 +643,16 @@ class TestRepeatedDraws:
         assert repeated.config.estimator_name == "fold-evaluated CV-TMLE"
         assert repeated.cv_targeting.repeats == 3
 
-    def test_the_averaged_curve_belongs_to_none_of_the_draws_partitions(self, repeated) -> None:
-        # Each draw has its own fold-specific curve and partition.  Averaging the curves
-        # does not create a curve belonging to any one of those partitions, so its
-        # within-fold means remain visibly nonzero under every draw's split.
-        for repeat in repeated.repeats:
-            folds = [test for _, test in repeat.nuisance.folds]
-            worst = max(
-                abs(float(np.mean(repeated[name].influence_curve[index])))
-                for name in repeated.estimates
-                for index in folds
+    def test_the_median_variance_is_not_rebuilt_from_one_curve(self, repeated) -> None:
+        for estimate in repeated.estimates.values():
+            assert estimate.variance != pytest.approx(
+                influence_variance(estimate.influence_curve), rel=1e-6
             )
-            assert worst > 1e-6
 
     def test_the_linear_estimands_still_agree_with_the_pooled_report(self, repeated) -> None:
-        # Averaging over draws cannot change *which* estimands the two evaluations agree
+        # Taking medians over draws cannot change *which* estimands the two evaluations agree
         # on: `ate`, `ey1` and `ey0` are linear in the targeted predictions in every draw,
-        # so they stay equal after averaging, and the rest stay apart.
+        # so they stay equal after aggregation, and the rest stay apart.
         detail = repeated.cv_targeting
         for name in LINEAR:
             assert detail.canonical[name].psi == pytest.approx(detail.pooled[name].psi, rel=1e-9)

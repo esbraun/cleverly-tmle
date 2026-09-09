@@ -15,8 +15,9 @@ from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
-from tests.studies.missing_outcome_study_helpers import primary_rows, sample_discrete, truths
+from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.missing_outcome_study_helpers import sample_discrete, truths
+from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 TMLE_VERSION = "2.1.1"
 TMLE_SOURCE_SHA256 = "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133"
@@ -41,6 +42,7 @@ STUDY = StudyRecord(
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
+    nuisance_count=3,
     resampling_seed=20260922,
     margins=Margins(),
     implementation="cleverly-mar-tmle",
@@ -105,7 +107,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -135,13 +137,15 @@ def cleverly_rows(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
+    result = fit_cleverly(frame)
     return primary_rows(
-        result=fit_cleverly(frame),
-        reference=reference,
+        result=result,
+        truth=reference,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,
         estimands=ESTIMANDS,
+        initials=initial_estimates(result, ESTIMANDS),
     )
 
 

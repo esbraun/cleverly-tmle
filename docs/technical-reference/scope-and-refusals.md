@@ -33,19 +33,26 @@ rather than implying the request was ill-posed.
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
-| the targeted bootstrap and `res.sensitivity` for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics) |
+| the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
+| omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one |
+| correction diagnostics after ordinary TMLE or collaborative TMLE | those methods do not use the DR-TMLE correction system. A DR-TMLE fit with an empty guard also subtracts no correction term |
+| a binomial ATT or ATC E-value conversion | the analysis needs a conditional baseline risk and a supported conditional risk-ratio target. The library implements neither |
+| a fixed-baseline E-value on a reference-arm mean that its own standard error does not separate from zero | [the E-value paths](validation-methods.md#e-value). The conversion divides by that mean, so the ratio has no stable denominator |
+| a fixed-baseline E-value whose risk difference is at or below the negative of the reference-arm mean | [the E-value paths](validation-methods.md#e-value). The difference implies a nonpositive risk in the contrast arm, and no risk ratio describes one |
+| a cached-nuisance risk ratio after CV evaluation | the estimator refuses nonlinear ratio targets on this evaluation path. Post-fit retargeting keeps that boundary |
+| a controlled direct risk ratio | fixing an intermediate variable defines another target. The library registers no controlled direct risk-ratio target |
 
-Which multi-arm surfaces are covered, and which four are not, is tabulated in one place:
+Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
 
-Several former gaps have landed. Multi-valued longitudinal treatment nodes, multi-valued selector
-and outcome-adaptive C-TMLE, multi-valued DR-TMLE, `ATT` and `ATC` on a multi-valued treatment,
-observation weights and a working model over regimens for `LTMLE`, shift fits with `delta=`,
-`intermediate=` and weights, and multi-arm omitted-variable and MNAR sensitivity analyses are all
-supported now.
+Several former gaps have landed. `cleverly` now supports multi-valued longitudinal treatment
+nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, DR-TMLE, `ATT`,
+and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
+support `delta=`, `intermediate=`, and weights. `cleverly` also supports multi-arm
+omitted-variable and MNAR sensitivity analyses.
 
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
@@ -61,7 +68,8 @@ one into the other.
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would put two of them under one heading |
 | the per-arm propensity table on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `shifts=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
-| `res.sensitivity`, `res.diagnostics`, `res.validate()` and `res.save()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported. Sensitivity operations without a longitudinal derivation report `unavailable` |
+| `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
+| a non-empty `assess(arguments=...)` block for `score_equations` | the validation battery owns that name and runs it argument-free. The battery presents one row per name, and it presents the validation row. A caller's tolerance would be computed and then hidden, so a check that failed at that tolerance would never reach `attention`. Call `res.diagnostics.run_all(arguments=...)`, or the operation itself. The battery also owns `support` and `nuisance_models`, which accept no argument, so an argument for either is a `TypeError` from the signature |
 
 ### Wrong by construction
 
@@ -81,8 +89,8 @@ number is wrong.
 | a `cap=` fitted from the data on a shift | the estimand becomes data-dependent. The interval conditions on an estimated boundary, and every bootstrap replicate targets a slightly different policy |
 | `CTMLE` on an `incremental=` fit | each candidate `ghat` defines a different estimand, so the cross-validated search selects between *estimands* rather than between estimators |
 | splitting a cluster across folds to buy more of them | the out-of-fold predictions stop being independent of the rows they are used on, and the standard error shrinks in exactly the direction `id=` was passed to prevent |
-| median-of-estimates aggregation over `repeats=` | the median of the estimates is not the estimator whose curve is the median of the curves, so the point estimate and its interval describe different functionals |
-| a cross-validated variance of the across-draw average curve | at equal fold sizes it collapses to the pooled uncentred second moment for *every* partition. That is vacuous rather than merely arbitrary |
+| joint covariance, post-fit contrasts, or simultaneous bands after `repeats=` | coordinatewise medians do not preserve linear identities among estimates; a central-draw curve also does not represent the split-adjusted median estimator needed for a multiplier band |
+| a cross-validated variance for the curve a repeated fit retains | at equal fold sizes it collapses to the pooled uncentred second moment for *every* partition, so the partition carries no information. That rule was rejected, and the split-adjusted median variance replaced it |
 | a one-shot non-identity-link MSM | the derivative of the inverse link depends on the coefficient, so a single pass reports a standard error for an equation it did not solve. The link is supported. What is refused is skipping the alternation it needs |
 | frequency (count) weights | they assert a sample size the variance does not use. Expand the rows instead, which says the same thing where every part of the fit can see it |
 | an `LTMLE` outcome missing for a reason other than censoring | its probability of being observed is silently taken to be one. Encode it as a final censoring column so that it is estimated and enters the cumulative product |
@@ -98,10 +106,25 @@ Two more share another. **A nuisance that sits inside the estimand is not a knob
 on an incremental fit, or fitting a shift's `cap` from the data, moves the target rather than
 regularising the estimator.
 
-Two method entries carry their own detailed refusal tables, each with a `kind` column naming which
-of the three sections above the row belongs to:
-[marginal structural models](msm-projections.md#variations) and
-[longitudinal TMLE](longitudinal-tmle.md#variations).
+Three method entries carry their own detailed refusal tables, each with a `kind` column:
+[marginal structural models](msm-projections.md#variations),
+[longitudinal TMLE](longitudinal-tmle.md#variations), and
+[the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface).
+The column names which of the three sections above the row belongs to. The simulated common-cause
+table also uses `waiting on published theory` from the
+[roadmap's eligibility rules](../roadmap.md#eligibility).
+
+The simulated common-cause surface refuses six compositions for the whole fit. They are a
+longitudinal fit, multi-arm treatment, a missing outcome, an intermediate variable, estimated
+observation weights, and a clustered fit. Each one waits on published theory, so none of the three
+sections above covers it. The
+[future investigations grid](../roadmap.md#future-investigations) tracks each stop against the
+result a paper must supply.
+
+The surface accepts fixed probability weights under ordinary TMLE, under binary complete-outcome
+collaborative TMLE, and under binary complete-outcome DR-TMLE. Read
+[the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface) for
+every composition it refuses and the `kind` of each one.
 
 ## Where a multi-valued treatment is supported
 
@@ -112,7 +135,7 @@ construction and not a separate path, which is what the
 [bit-for-bit invariant](../architecture-invariants.md#dataframes-and-labels) is about.
 
 So "does this estimator take more than two arms" usually has the answer "yes, through the same code
-as two". The informative entries are the four that do not. The `status` column uses the vocabulary
+as two". The informative entries are the five that do not. The `status` column uses the vocabulary
 of [How to read a refusal](#how-to-read-a-refusal) above, plus `waiting on published theory` from
 the [roadmap's eligibility rules](../roadmap.md#eligibility).
 
@@ -123,11 +146,13 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism, selected against one nonredundant vector. See the [standing decision](../architecture-invariants.md#targets-interventions-and-variants) |
 | `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](longitudinal-tmle.md#the-algorithm-as-implemented). Each node owns its level set, and the clever covariate selects the assigned label's probability |
 | positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast, and each reads its arms from the parameter's structured index rather than assuming two |
+| simulated common-cause sensitivity | supported for binary and continuous treatment; named theory stops cover the remaining fit-wide gaps | The binary surface accepts marginal and baseline-stratum arm means, ATE, and ratios under ordinary TMLE and C-TMLE. Ordinary TMLE also accepts ATT and ATC with perturbed group membership. Ordinary TMLE alone accepts marginal and baseline-stratum PAR, PAF, fixed-regime parameters, and identity-link MSM coefficients. It also accepts marginal incremental targets and nonlinear MSM coefficients. Complete-outcome DR-TMLE supports marginal arm means, ATE, and ratios only. The continuous surface accepts marginal and baseline-stratum modified-policy means and contrasts under ordinary TMLE. Continuous MSMs require marginal fits. Every listed row accepts fixed probability weights. Longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and clustered fits report unavailable before work begins. Each of those six waits on published theory, and so does logical categorical calibration. `NaturalCourseMean`, the zero-delta policy mean, and the multiplier-one incremental mean remain refused. See the [population contract and refusal table](validation-methods.md#simulated-common-cause-stress-surface) |
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`. The multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one |
 | stochastic categorical policies and continuous doses at a longitudinal node | a different question | both change the intervention *density* rather than which label is assigned, so neither is the parameter the sequential regression identifies |
-| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Diaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm assembly of its observation, treatment and outcome correction blocks is not in it. See the [roadmap](../roadmap.md#d1-multi-arm-missing-outcome-dr-tmle) |
+| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Diaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm assembly of its observation, treatment and outcome correction blocks is not in it. See the [future investigation](../roadmap.md#f4-multi-arm-missing-outcome-dr-tmle) |
 
-The last row is the only one a source could close as it stands. Neither `a different question` row
+A source could close two entries as they stand. The first is the multi-arm part of the simulated
+common-cause row. The second is the `DRTMLE` with `delta=` row. Neither `a different question` row
 would be closed by a source. Each would be answered by a different estimand, with its own
 derivation, oracle law, and evidence.

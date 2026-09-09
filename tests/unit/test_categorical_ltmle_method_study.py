@@ -307,9 +307,9 @@ def test_the_estimator_hands_the_mechanism_the_design_the_study_assumes(noise: b
     estimator actually passes and requires it to be that layout, for the width the primary
     cells use and for the width the ``crossfit_overfitting`` cells add a noise column to.
 
-    The second-node block carries the *intervened* first-node arm, which is what the clever
-    covariate conditions on.  So the expected designs are one per declared plan, and each one
-    must be handed over at least once.
+    The second-node block carries either the observed first-node arm for diagnostics or an
+    intervened arm for the clever covariate. The expected designs are the observed history and
+    one per declared plan. Each design must be handed over at least once.
     """
     frame = law.sample(law.PROBS, 300, 3, noise=noise)
     seen: list[np.ndarray] = []
@@ -332,15 +332,21 @@ def test_the_estimator_hands_the_mechanism_the_design_the_study_assumes(noise: b
         )
         for label in common.REGIMENS
     }
+    observed_second_node = _mechanism_design(frame, second_node=True)
 
     matched: set[str] = set()
+    observed_matched = False
     for design in seen:
         if design.shape[1] == first_node.shape[1]:
             np.testing.assert_array_equal(design, first_node)
             continue
+        if np.array_equal(design, observed_second_node):
+            observed_matched = True
+            continue
         hits = [label for label, plan in second_node.items() if np.array_equal(design, plan)]
-        assert hits, "the estimator handed over a second-node design no declared plan builds"
+        assert hits, "the estimator handed over an unknown second-node prediction design"
         matched.update(hits)
+    assert observed_matched
     assert matched == set(common.REGIMENS), sorted(set(common.REGIMENS) - matched)
 
 

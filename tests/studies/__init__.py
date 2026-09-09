@@ -1,1 +1,1 @@
-"""Reusable study definitions for evidence artifacts and slow validation."""
+"""Reusable definitions for registered validation-study artifacts."""

@@ -12,6 +12,7 @@ from cleverly.estimators import TMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
+from tests.studies.evidence.seeds import draw_replicate
 
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
 SL3_COMMIT = "0e8f2365bcbe54010b8120c04a7a2dcfc8119227"
@@ -88,7 +89,7 @@ def draw_from_seed(scenario: str, n: int, seed: int):  # type: ignore[no-untyped
 
 
 def draw_scenario(scenario: str, n: int, replicate: int):  # type: ignore[no-untyped-def]
-    return multi_arm_common.draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:

@@ -153,6 +153,11 @@ def write_manifest(
                 if record.resampling_seed is not None
                 else {}
             ),
+            **(
+                {"scenario_seed_owners": dict(record.scenario_seed_owners)}
+                if record.scenario_seed_owners
+                else {}
+            ),
             "publication_policy": record.publication_policy,
             **(
                 {"accepted_reference_failure": record.accepted_reference_failure}

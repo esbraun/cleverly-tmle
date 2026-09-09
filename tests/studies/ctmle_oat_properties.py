@@ -24,6 +24,7 @@ from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     crossfit_overfitting_verdicts,
     finish,
+    robustness_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -184,11 +185,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         ),
     )
 
-    robustness = summary["property"] == "robustness_contract"
-    positive = robustness & (summary["role"] == "positive")
-    control = robustness & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    robustness_verdicts(summary, family="robustness_contract")
 
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_oat")
 

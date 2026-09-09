@@ -11,8 +11,10 @@ nuisance fits included.  Bootstrapping only the targeting step while holding the
 nuisance fits fixed would understate the variance, because the nuisance
 estimation is itself a source of uncertainty.
 
-With clusters, whole clusters are resampled -- resampling rows would destroy the
-dependence structure the cluster variance exists to account for.
+With clusters, whole clusters are resampled. Resampling rows would destroy the
+dependence structure the cluster variance exists to account for. Each sampled
+occurrence receives a distinct cluster code, including repeated draws of one source
+cluster.
 
 Observation weights are resampled with their rows and renormalised within each replicate,
 which is what keeps every replicate aimed at the same tilted parameter (see
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -41,6 +43,38 @@ __all__ = ["BootstrapResult", "bootstrap_indices", "cluster_members", "run_boots
 
 RefitFn = Callable[[CausalData], Mapping[str, float]]
 Resampling = Literal["auto", "iid", "cluster"]
+
+
+@dataclass(frozen=True)
+class _BootstrapDraw:
+    """One reproducible draw from a resolved bootstrap design."""
+
+    replicate: int
+    seed: int
+    sequence: np.random.SeedSequence
+
+
+@dataclass(frozen=True)
+class _BootstrapDesign:
+    """Resolved bootstrap samples shared by inference and refit assessments."""
+
+    draws: tuple[_BootstrapDraw, ...]
+    resampling: Literal["iid", "cluster"]
+    cluster: IntArray | None
+    members: tuple[IntArray, ...] | None
+
+    def sample(self, data: CausalData, draw: _BootstrapDraw) -> CausalData:
+        """Materialize one sample with distinct codes for cluster occurrences."""
+        index, occurrence_codes = _bootstrap_draw(
+            data.n,
+            self.cluster,
+            np.random.default_rng(draw.sequence),
+            None if self.members is None else list(self.members),
+        )
+        sample = data.subset(index)
+        if occurrence_codes is None:
+            return sample
+        return replace(sample, cluster=occurrence_codes)
 
 
 @dataclass(frozen=True)
@@ -136,17 +170,77 @@ def bootstrap_indices(
 
     Parameters
     ----------
-    members:
+    members : list of ndarray or None
         Precomputed :func:`cluster_members` output.  Building it is ``O(n log n)`` and
         does not depend on the draw, so :func:`run_bootstrap` builds it once and passes
         it to every replicate rather than paying for it thousands of times.
     """
+    index, _ = _bootstrap_draw(n, cluster, rng, members)
+    return index
+
+
+def _bootstrap_draw(
+    n: int,
+    cluster: IntArray | None,
+    rng: np.random.Generator,
+    members: list[IntArray] | None = None,
+) -> tuple[IntArray, IntArray | None]:
+    """Draw rows and, for cluster samples, one code per sampled occurrence."""
     if cluster is None:
-        return rng.integers(0, n, size=n, dtype=np.int64)
+        return rng.integers(0, n, size=n, dtype=np.int64), None
 
     groups = cluster_members(cluster) if members is None else members
     drawn = rng.integers(0, len(groups), size=len(groups))
-    return np.concatenate([groups[int(k)] for k in drawn]).astype(np.int64)
+    selected = [groups[int(k)] for k in drawn]
+    index = np.concatenate(selected).astype(np.int64)
+    occurrence_codes = np.repeat(
+        np.arange(len(selected), dtype=np.int64),
+        [group.size for group in selected],
+    )
+    return index, occurrence_codes
+
+
+def _bootstrap_design(
+    data: CausalData,
+    *,
+    n_replicates: int,
+    resampling: Resampling,
+    random_state: int | None,
+) -> _BootstrapDesign:
+    """Resolve and draw one bootstrap design without changing inference draw order."""
+    if n_replicates < 1:
+        raise ValueError(f"n_replicates must be positive; got {n_replicates}")
+    if resampling not in ("auto", "iid", "cluster"):
+        raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
+    if not hasattr(data, "subset"):
+        raise TypeError(
+            f"the bootstrap resamples rows and refits, which needs a subset() on the "
+            f"data container; {type(data).__name__} has none. A longitudinal fit is not "
+            "bootstrappable for that reason: subsetting has to carry every node and the "
+            "whole backward recursion has to run again per replicate"
+        )
+    use_clusters = data.cluster is not None if resampling == "auto" else resampling == "cluster"
+    if use_clusters and data.cluster is None:
+        raise ValueError("resampling='cluster' requires the data to carry cluster ids")
+
+    sequences = np.random.SeedSequence(random_state).spawn(n_replicates)
+    codes = data.cluster if use_clusters else None
+    members = None if codes is None else cluster_members(codes)
+    draws = []
+    for replicate, sequence in enumerate(sequences):
+        draws.append(
+            _BootstrapDraw(
+                replicate=replicate,
+                seed=int(sequence.generate_state(1)[0]),
+                sequence=sequence,
+            )
+        )
+    return _BootstrapDesign(
+        draws=tuple(draws),
+        resampling="cluster" if use_clusters else "iid",
+        cluster=codes,
+        members=None if members is None else tuple(members),
+    )
 
 
 def run_bootstrap(
@@ -171,9 +265,10 @@ def run_bootstrap(
         up with an empty treatment arm in some stratum.
     n_replicates : int
         How many replicates to draw.
-    resampling : {"auto", "cluster", "row"}
-        ``"auto"`` resamples clusters when the data has them, rows otherwise.
-
+    resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when the data has them, and rows otherwise.
+        ``"iid"`` always resamples rows. ``"cluster"`` requires cluster ids and is
+        refused without them. Any other value is refused.
     random_state : int or None
         Seed for the replicate draws.
     n_jobs : int
@@ -186,32 +281,16 @@ def run_bootstrap(
     """
     if n_replicates < 2:
         raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
-    # Checked here rather than left to the replicate loop, which catches every exception
-    # so that weak overlap does not abort a run.  A container with no ``subset`` fails
-    # that way in all n_replicates draws and comes out as "the fit is too unstable to
-    # bootstrap" -- a diagnosis about positivity for what is a missing method.
-    if not hasattr(data, "subset"):
-        raise TypeError(
-            f"the bootstrap resamples rows and refits, which needs a subset() on the "
-            f"data container; {type(data).__name__} has none. A longitudinal fit is not "
-            "bootstrappable for that reason: subsetting has to carry every node and the "
-            "whole backward recursion has to run again per replicate"
-        )
-    use_clusters = data.cluster is not None if resampling == "auto" else resampling == "cluster"
-    if use_clusters and data.cluster is None:
-        raise ValueError("resampling='cluster' requires the data to carry cluster ids")
+    design = _bootstrap_design(
+        data,
+        n_replicates=n_replicates,
+        resampling=resampling,
+        random_state=random_state,
+    )
 
-    seeds = np.random.SeedSequence(random_state).spawn(n_replicates)
-    # Built once: the membership index is the same for every replicate, and rebuilding
-    # it inside the loop costs O(n_clusters * n) per draw.
-    codes = data.cluster if use_clusters else None
-    members = None if codes is None else cluster_members(codes)
-
-    def replicate(seed: np.random.SeedSequence) -> Mapping[str, float] | None:
-        rng = np.random.default_rng(seed)
+    def replicate(draw: _BootstrapDraw) -> Mapping[str, float] | None:
         try:
-            index = bootstrap_indices(data.n, codes, rng, members)
-            return refit(data.subset(index))
+            return refit(design.sample(data, draw))
         except Exception:
             return None
 
@@ -219,7 +298,7 @@ def run_bootstrap(
         # Replicates routinely trip positivity and convergence warnings; surfacing
         # them once per replicate would bury the real output.
         warnings.simplefilter("ignore")
-        outcomes = map_parallel(replicate, seeds, n_jobs=n_jobs)
+        outcomes = map_parallel(replicate, design.draws, n_jobs=n_jobs)
 
     successes = [row for row in outcomes if row is not None]
     n_failed = len(outcomes) - len(successes)
@@ -244,5 +323,5 @@ def run_bootstrap(
         draws=draws,
         n_requested=n_replicates,
         n_failed=n_failed,
-        resampling="cluster" if use_clusters else "iid",
+        resampling=design.resampling,
     )

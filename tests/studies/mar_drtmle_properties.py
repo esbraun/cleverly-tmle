@@ -29,6 +29,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_controls,
     calibration_verdicts,
     finish,
+    robustness_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.missing_outcome_study_helpers import (
@@ -212,15 +213,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         STUDY,
         efficiency_bounds={"ate": EFFICIENCY_SD},
     )
+    robustness_verdicts(summary, family="corrected_mar_inference")
     robustness = summary["property"] == "corrected_mar_inference"
     positive = robustness & (summary["role"] == "positive")
-    control = robustness & (summary["role"] == "control")
     summary.loc[positive, "passed"] = (
-        summary.loc[positive, "bias_equivalent"]
+        summary.loc[positive, "passed"]
         & (summary.loc[positive, "coverage_ci_lower"] >= STUDY.margins.coverage_floor)
         & summary.loc[positive, "se_ratio"].between(*STUDY.margins.se_ratio_sanity)
     )
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
     correction = summary["property"] == "correction_necessity"

@@ -16,15 +16,26 @@ from .omitted_variable import (
     sensitivity_elements,
 )
 from .positivity import PositivityReport, positivity_report, truncation_curve
+from .simulated_confounding import (
+    ConfounderStrengthGrid,
+    ObservedConfounderCalibration,
+    SimulatedConfoundingCell,
+    SimulatedConfoundingResult,
+    simulated_confounding,
+)
 
 __all__ = [
     "DEFAULT_GAMMA_GRID",
     "LINEAR_ESTIMANDS",
     "BenchmarkResult",
+    "ConfounderStrengthGrid",
     "EValue",
+    "ObservedConfounderCalibration",
     "PositivityReport",
     "SensitivityBounds",
     "SensitivityElements",
+    "SimulatedConfoundingCell",
+    "SimulatedConfoundingResult",
     "benchmark",
     "contour_data",
     "evalue",
@@ -34,6 +45,7 @@ __all__ = [
     "positivity_report",
     "robustness_value",
     "sensitivity_elements",
+    "simulated_confounding",
     "tipping_gamma",
     "truncation_curve",
 ]

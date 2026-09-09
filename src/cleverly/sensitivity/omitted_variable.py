@@ -44,7 +44,6 @@ representer.  Ratios are not linear functionals of the outcome regression, so us
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -53,10 +52,11 @@ from scipy import optimize, stats
 
 from .._typing import FloatArray
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, refuse_after_repeats
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
+from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
@@ -140,11 +140,16 @@ def sensitivity_elements(
         doubly robust form wherever the functional's :math:`m(W, \alpha)` has a closed
         form, which is all of :data:`LINEAR_ESTIMANDS`.
     """
+    refuse_after_repeats(
+        result.n_repeats,
+        operation="omitted-variable sensitivity",
+        reason=(
+            "A coordinatewise median of the bound's influence terms would not be the "
+            "influence function of the median bound. Fit one split for this analysis."
+        ),
+    )
     parameter = resolve_parameter(result, estimand)
-    per_repeat = [
-        _elements_for(result, repeat, parameter, nu2_estimator) for repeat in result.repeats
-    ]
-    return _average_elements(per_repeat)
+    return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
 
 
 def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
@@ -182,38 +187,6 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
         f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
         "that contrast's own Riesz representer."
-    )
-
-
-def _average_elements(per_repeat: Sequence[SensitivityElements]) -> SensitivityElements:
-    """Average the bound's pieces over the cross-fitting draws.
-
-    Every field is averaged, scalars and per-unit arrays alike, which is the same rule
-    :func:`~cleverly.inference.average_estimates` applies to the estimate itself: the
-    reported bound is the mean of the per-draw bounds, and the curve that goes with it is
-    the mean of theirs.  ``max_bias`` is averaged rather than recomputed from the averaged
-    ``sigma2`` and ``nu2`` for exactly that reason -- ``sqrt`` of the averages is not the
-    average of the ``sqrt``s, and it is the bound that is being reported.
-    """
-    if len(per_repeat) == 1:
-        return per_repeat[0]
-    methods = {elements.nu2_estimator for elements in per_repeat}
-    return SensitivityElements(
-        estimand=per_repeat[0].estimand,
-        sigma2=float(np.mean([e.sigma2 for e in per_repeat])),
-        nu2=float(np.mean([e.nu2 for e in per_repeat])),
-        max_bias=float(np.mean([e.max_bias for e in per_repeat])),
-        psi_sigma2=np.mean([e.psi_sigma2 for e in per_repeat], axis=0),
-        psi_nu2=np.mean([e.psi_nu2 for e in per_repeat], axis=0),
-        psi_max_bias=np.mean([e.psi_max_bias for e in per_repeat], axis=0),
-        riesz_representer=np.mean([e.riesz_representer for e in per_repeat], axis=0),
-        # Named as a mixture rather than as whichever came first when the draws disagree,
-        # which happens only when the doubly-robust nu2 went non-positive on some of them
-        # and fell back. That is a diagnosis of the propensity fit, and hiding it behind
-        # one draw's label would lose it.
-        nu2_estimator=(
-            per_repeat[0].nu2_estimator if len(methods) == 1 else "+".join(sorted(methods))
-        ),
     )
 
 
@@ -665,6 +638,9 @@ class BenchmarkResult:
         Riesz second moment with them adjusted for.
     nu2_short : float
         Riesz second moment with them dropped.
+    random_state : int or None
+        Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
+        benchmark again.  ``None`` only on a result saved before this field existed.
     """
 
     estimand: str
@@ -679,6 +655,11 @@ class BenchmarkResult:
     sigma2_short: float
     nu2_long: float
     nu2_short: float
+    #: Seed the short refit ran under, resolved rather than requested: an explicit seed,
+    #: else the fit's own, else one drawn here.  A benchmark refits, so an estimator
+    #: carrying no seed would otherwise give a different answer to the same question and
+    #: cache the first one.
+    random_state: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
@@ -735,6 +716,7 @@ def benchmark(
     *,
     estimand: str = "ate",
     nu2_estimator: str = "auto",
+    random_state: int | None = None,
 ) -> BenchmarkResult:
     """Calibrate ``cf_y`` and ``cf_d`` against observed covariates.
 
@@ -755,6 +737,10 @@ def benchmark(
         Alias to benchmark.
     nu2_estimator : {"auto", "analytic", "riesz"}
         Which estimator of the Riesz second moment to use.
+    random_state : int or None
+        Seed for the short refit.  ``None`` uses the seed the fit was run with.  A fit
+        with no seed draws one.  Either way the result records it under ``random_state``,
+        and passing that value back repeats the benchmark.
 
     Returns
     -------
@@ -767,9 +753,17 @@ def benchmark(
         raise CapabilityError("benchmark needs the fitted estimator that produced the result")
     names = tuple([covariates] if isinstance(covariates, str) else covariates)
 
+    # The short model is a refit, so it carries the same reproducibility question a
+    # refutation does: an estimator with no ``random_state`` redraws its folds every time,
+    # and the result is cached on the fit and survives ``save``.  Resolve one seed, run the
+    # refit under it, and report it.  Same convention as ``cleverly.validation.refute``.
+    seed = resolve_assessment_seed(result, random_state)
+
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     short_data = result.data.without_covariates(names)
-    short_result = estimator.refit(short_data, intermediate_value=result.intermediate_value)
+    short_result = estimator.refit(
+        short_data, intermediate_value=result.intermediate_value, random_state=seed
+    )
     short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))
@@ -803,6 +797,7 @@ def benchmark(
         sigma2_short=short_elements.sigma2,
         nu2_long=long_elements.nu2,
         nu2_short=short_elements.nu2,
+        random_state=seed,
     )
 
 

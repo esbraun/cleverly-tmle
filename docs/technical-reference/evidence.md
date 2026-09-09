@@ -75,6 +75,24 @@ Those studies are summarised in the
 results are the [implementation validation studies](method-evidence/index.md). The two halves are
 different instruments and neither one substitutes for the other.
 
+Fixed observation weights are an estimator variant over the same registered point-treatment
+targets. Their registered [weighted point-treatment study](method-evidence/weighted-point-treatment-tmle.md)
+tests the tilted population target, exact weighted influence-curve efficiency, and the consequence
+of omitting the weights on identical selected samples. The separate
+[learned-nuisance weighted study](method-evidence/learned-weighted-point-treatment-tmle.md) sends
+the weights through both regressions. Its learner-only control moves the untargeted plug-in to the
+selected target, while a correct treatment mechanism repairs the targeted estimate.
+
+The registered [ordinary weighted longitudinal
+study](method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md) and [cross-fitted
+weighted longitudinal
+study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) extend that
+instrument to two treatment nodes, censoring, static and dynamic plans, and correlated contrasts.
+Both use exact-size selected samples and fixed inverse-selection weights. Their independent
+property laws include separate controls for omitting weights from the full estimator and from the
+nuisance learners alone. These are reporting rows: their committed red cells remain limitations,
+not hidden successes.
+
 ## Estimator variants over registered targets
 
 `CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they
@@ -91,6 +109,13 @@ addition. Its source audit maps the pinned R `cvFolds` path to
 `cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled", cv_evaluation=False`.
 Primary and reduced predictions are out of fold. One global alternation follows, then a
 whole-sample plug-in mean, then `cov(IC) / n` from the rowwise corrected curve.
+
+Repeated stacked point-treatment CV-TMLE likewise has a separate registered
+[reporting-policy study](method-evidence/repeated-cross-fitting.md). It reuses the shared CV-TMLE
+laws and structural checks under the median report. The point estimate is the median over complete
+fold draws. Its variance is the median of each draw's variance plus squared displacement from that
+point. zEpid independently implements the same aggregation formula. Its fold training and targeting
+construct a different estimator, so the registered full-method equivalence artifact remains empty.
 
 `tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
 on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
@@ -128,6 +153,14 @@ conditional probabilities against an exact finite-support law, and
 all armwise corrections are present and the score and correction gates pass. This is evidence for
 the source's armwise extension; it does not rewrite van der Laan's binary theorem as a multi-arm
 one.
+
+Controlled direct effects now add registered repeated-sampling evidence to their exact-law,
+Gateaux, remainder, and mutation chain. The
+[controlled direct-effect study](method-evidence/controlled-direct-effect-tmle.md) fits both
+intermediate levels, distinguishes the outcome-regression half of robustness from the joint
+treatment-intermediate-observation mechanism half, and includes one nonzero control for each
+mechanism. Its pinned R comparison recodes each requested level to `tmle`'s first result; a frozen
+fixture separately records why the native second result is not a valid exact-nuisance comparator.
 
 The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
 registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
@@ -256,6 +289,11 @@ clustering*, because a shared additive residual reaches the influence curve only
 `E[H | W]`, which is zero for a well-specified `g`. The measured design effect fell from 1.87 to
 1.00. So each generator carries a nonzero within-cluster witness beside its identification
 test; without one, a correct-looking fix leaves the study measuring nothing.
+
+The registered [clustered point-treatment study](method-evidence/clustered-point-treatment-cv-tmle.md)
+adds repeated-sampling evidence for that witness. It compares five-fold clustered TMLE against
+pinned R `lmtp` with identical grouped folds and the exact treatment mechanism. Its IID control
+reuses the same rows, estimates, and influence curves. Only cluster aggregation changes.
 
 ## What this table says is missing
 

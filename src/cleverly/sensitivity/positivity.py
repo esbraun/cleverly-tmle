@@ -8,24 +8,26 @@ estimator can say what would have happened to that control unit under treatment.
 
 What to look at, in order of how much it tells you:
 
-**Effective sample size.**  The clever covariate reweights the sample.  Kish's
-effective sample size, :math:`(\sum_i \omega_i)^2 / \sum_i \omega_i^2` for
-:math:`\omega_i = 1/g(W_i)` in the treated arm, says how many observations the
-weighted analysis is really using.  An ESS of 40 out of 500 treated units means the
-estimate rests on a small effective subsample, whatever the nominal ``n`` says.
+**Kish weight concentration.**  Kish's equivalent count,
+:math:`(\sum_i \omega_i)^2 / \sum_i \omega_i^2` for
+:math:`\omega_i = 1/g(W_i)` in the treated arm, describes how concentrated those
+nonnegative weights are.  A value of 40 out of 500 treated units deserves attention,
+but it is not estimator information or the sample size behind the standard error.
 
-**Weight concentration.**  The share of the estimating equation contributed by the
-largest few weights.  If the top 1% of units carry 30% of it, the estimate is a
-statement about those units.
+**Weight concentration.**  The share of total nonnegative diagnostic weight held by the
+largest few weights.  It excludes the residual, so it is not a share of the realised
+estimating equation or influence.
 
-**Truncation load.**  How many propensity scores were clipped, and how far.  Every
-clipped unit contributes bias in exchange for variance; a large clipped fraction
-means the reported estimate is not the estimand that was asked for.
+**Truncation load.**  How many propensity scores were clipped, and how far.  Truncation
+trades variance for potential second-order bias.  It regularises the finite-sample
+procedure, but it does not change the requested estimand.  A large clipped fraction
+means that the estimate is sensitive to this regularisation in regions with limited
+fitted overlap.
 
 Observation weights are folded into :math:`\omega_i` rather than reported separately,
-because the two costs multiply: a design that halves the effective sample size and a
-clever covariate that halves it again leave a quarter, and a diagnostic that showed only
-one of them would look comfortable.  For the weighting cost on its own -- and for the
+because the diagnostic should describe their joint weight profile with the mechanism
+factor.  Their separately computed Kish ratios do not in general multiply.  For the
+weighting profile on its own -- and for the
 estimand statement that goes with it -- see
 :meth:`~cleverly.data.CausalData.weight_report` and :mod:`cleverly.data.weighting`.
 
@@ -37,23 +39,33 @@ diagnostic can be.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._typing import FloatArray
-from ..data.weighting import effective_sample_size
+from .._typing import BoolArray, FloatArray
+from ..data.weighting import (
+    REPORTED_DRAW,
+    SCORE_LOAD_VERDICT_RATIO_FORMAT,
+    ScoreLoadRow,
+    effective_sample_size,
+    score_load_row,
+    top_weight_share,
+    validate_score_loads,
+)
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
-from ..inference.influence import average_estimates
-from ..targets import parameter_stem
-from ..utils.bounds import bound, g_bounds_for
+from ..inference.influence import median_estimates
+from ..targets import TARGETS, parameter_stem
+from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
-from ..utils.text import format_table
+from ..utils.records import _DefaultingUnpickle
+from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
+    from ..fluctuation.submodel import Submodel
 
 __all__ = ["PositivityReport", "positivity_report", "truncation_curve"]
 
@@ -63,15 +75,78 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 #: Thresholds at which the mass of extreme propensity scores is reported.
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
 
-#: The derived missing-outcome denominator ``g_a(W) pi_a(W)``.  It is a *product of two
-#: separately truncated factors* rather than a fitted or targeted mechanism of its own,
-#: which is why it is named once here: the report has to treat it differently from the
-#: rows that were held to a single bound.
+
+class GroupLeverageRow(ScoreLoadRow):
+    """One equation's descriptive absolute residual-multiplier concentration.
+
+    The ten shared concentration keys come from
+    :class:`~cleverly.data.weighting.ScoreLoadRow`.  What a target-group row adds is the
+    propensity bound that group was held to and how much of the mechanism that bound moved,
+    neither of which an intervention row has: a regime, shift or tilt is described by the
+    policy it declares rather than by an arm-level truncation interval.
+
+    There is deliberately no draw count here.  A group row is held by a
+    :class:`PositivityReport`, which records :attr:`PositivityReport.n_repeats` once for the
+    whole fit, and a second copy on every row is a second place for it to disagree with the
+    first.  The intervention rows carry their own because the reports that hold them do not
+    have such a field.
+    """
+
+    lower_bound: float
+    upper_bound: float
+    clipped_count: float
+    clipped_fraction: float
+
+
+#: The derived denominators the clever covariate divides by: ``g_a(W) pi_a(W)`` when the
+#: outcome can be missing, ``g_a(W) q_z(a, W)`` for a controlled direct effect, and the
+#: three-factor product when a controlled direct effect also has missing outcomes.  Each is
+#: a *product of separately truncated factors* rather than a fitted or targeted mechanism of
+#: its own, which is why they are named once here: the report has to treat them differently
+#: from the rows that were held to a single bound.
 JOINT_MECHANISM = "P(A=a,Delta=1|W)"
+JOINT_INTERMEDIATE = "P(A=a,Z=z|W)"
+JOINT_MISSING_INTERMEDIATE = "P(A=a,Delta=1,Z=z|W)"
+
+#: Which derived row a fit reports, keyed by ``(an observation mechanism was fitted, an
+#: intermediate density was)``.  The two derived facts below come from this one table, so a
+#: further composition is one entry rather than three edits that have to agree.
+_COMPOSED_ROWS: dict[tuple[bool, bool], str] = {
+    (True, False): JOINT_MECHANISM,
+    (False, True): JOINT_INTERMEDIATE,
+    (True, True): JOINT_MISSING_INTERMEDIATE,
+}
+
+#: How many ``[nuisance_bound, 1]`` factors stand beside ``g`` in each derived row.
+_COMPOSED_NUISANCE_FACTORS = {name: sum(key) for key, name in _COMPOSED_ROWS.items()}
+
+_COMPOSED_MECHANISMS = frozenset(_COMPOSED_ROWS.values())
+
+#: The target groups whose clever covariate really divides by ``g_a(W) pi_a(W) q_z(a, W)``
+#: -- :func:`~cleverly.fluctuation.submodel.mean_submodel`, ``regime_submodel`` and
+#: ``msm_submodel`` all build ``1 / (g * pi * pz)`` arm by arm.  The rest do not, and a
+#: derived row would name a denominator they never form: ``att`` and ``atc`` divide by
+#: ``P(A = a)`` in place of ``g_a`` and reweight the reference arm by the propensity odds,
+#: ``ipsi`` discards the propensity outright, and ``mtp`` divides by a density ratio.
+#: ``att`` and ``atc`` also read ``g_bounds_conditional`` where it applies, which is a
+#: second bound this row does not quote.  A fit that targets none of the groups below
+#: therefore reports its factor rows and no product.
+_COMPOSED_GROUPS = frozenset({"mean", "regime", "msm"})
+
+#: What each excluded group divides by instead, so that the omission explains itself.  A
+#: silently absent row reads exactly like a fit with nothing to report, which is the one
+#: thing it must not be confused with: the reader cannot tell "your denominator is fine"
+#: from "this diagnostic does not cover your estimand" unless the report says which.
+_COMPOSED_EXCLUSIONS: dict[str, str] = {
+    "att": "P(A=a) rather than g(W), and reweights the reference arm by the propensity odds",
+    "atc": "P(A=a) rather than g(W), and reweights the other arm by the propensity odds",
+    "ipsi": "a tilted mechanism that discards the propensity",
+    "mtp": "a density ratio rather than an arm probability",
+}
 
 
 @dataclass(frozen=True)
-class PositivityReport:
+class PositivityReport(_DefaultingUnpickle):
     """Overlap diagnostics for a fitted TMLE.
 
     Parameters
@@ -89,8 +164,50 @@ class PositivityReport:
         Count and fraction of propensity scores clipped by the truncation bounds, and
         the most extreme untruncated value.
     clever_covariate_max : dict of str to float
-        Largest absolute clever-covariate value per targeted estimand family -- the
-        single most direct summary of how much one observation can move the estimate.
+        Largest reconstructed absolute clever-covariate value per targeted estimand
+        family.  This is a covariate-scale diagnostic, not a score contribution or an
+        observation's influence on the estimate.
+    group_leverage : dict of str to GroupLeverageRow
+        Absolute residual-multiplier concentration for each targeted family.  A row holds
+        fourteen keys: ``equation``, ``n_total``, ``n_targeted``, ``effective``,
+        ``targeted_ratio``, ``total_ratio``, ``top_1pct``, ``top_5pct``, ``max_load``,
+        ``zero_load``, ``lower_bound``, ``upper_bound``, ``clipped_count`` and
+        ``clipped_fraction``.  It carries no draw count, which
+        :attr:`PositivityReport.n_repeats` records once for the whole fit.  The fitted
+        fluctuation retains ``abs(w_i * h_ij)`` on the
+        exact rows and with the exact weights used to evaluate each score equation.  This
+        report computes one Kish
+        concentration ratio per column, then retains the most concentrated column and
+        names it under ``equation``.  Every metric in a group row comes from that one
+        column.  It never sums columns with different units.
+
+        ``effective`` is the Kish-equivalent row count of that absolute load.  It is a
+        descriptive concentration index.  It is not the estimator's information, actual
+        influence, or the sample size used for its standard error.  ``targeted_ratio``
+        divides it by the rows in the fitted score mask.  ``total_ratio`` divides it by
+        the full data row count, so outcome missingness and intermediate selection remain
+        visible.  The two top shares, ``max_load``, and ``zero_load`` describe the same
+        selected column.
+
+        ``n_targeted`` counts rows in the fitted score mask, including a row whose selected
+        equation has a structural zero.  It does not count nonzero residual contributions.
+
+        ``lower_bound``, ``upper_bound``, ``clipped_count``, and ``clipped_fraction``
+        describe the treatment-mechanism bound used by that group.  ATT and ATC therefore
+        report ``g_bounds_conditional`` rather than the marginal bound.
+
+        The groups that reach this table through
+        :meth:`~cleverly.assessment.DiagnosticsFacade.support` are ``mean``, ``att``,
+        ``atc`` and ``msm``.  A regime, shift or incremental fit gets its own support
+        report from that method instead and so gets no row here; ``regime`` and ``ipsi``
+        appear only when :func:`positivity_report` is called directly.  ``mtp`` never
+        appears at all, because ``shifts=`` needs a continuous treatment and this report
+        refuses one.
+    group_leverage_omissions : dict of str to str
+        Machine-readable reasons an exact group diagnostic or one of its components could
+        not be reported.  Exact score-weight loads are never reconstructed from a generic
+        submodel, and clipping for a targeted treatment mechanism is unavailable unless
+        its fitted clipping mask was retained.
     bounds : tuple of float
         Truncation bounds the fit applied to the treatment mechanism.
     n : int
@@ -98,30 +215,61 @@ class PositivityReport:
     mechanisms : dict of str to dict of str to float
         Overlap for the *other* denominators in the clever covariate:
         ``P(Delta = 1 | A, W)`` when outcomes are missing, and ``P(Z = z | A, W)`` for a
-        controlled direct effect.  Each carries the smallest and lowest-quantile value,
-        how many rows the ``nuisance_bound`` clipped, and ``ess_ratio`` -- the Kish
-        effective sample size the ``1 / mechanism`` weights leave behind, on the same
-        scale as the propensity's, so the two can be read side by side.  Empty when
+        controlled direct effect.  Every row carries the same nine keys: ``min``, ``q01``,
+        ``q05`` and ``median`` of the mechanism as fitted; ``clipped`` and
+        ``clipped_fraction`` for the cells the bound moved; and ``ess_ratio``,
+        ``top_1pct`` and ``top_5pct`` for the load the weights leave behind.  Empty when
         neither applies.
 
+        The three load measures are taken over the weights the estimating equation
+        actually forms: the *bounded* mechanism at each unit's realised arm, times that
+        unit's observation weight, over the rows whose residual it multiplies.  They are
+        on the same scale as the propensity's :attr:`effective_sample_size` and
+        :attr:`weight_share`, and fold in the design for the same reason those do, so the
+        two tables can be read side by side.
+
         These deserve reporting for exactly the reason ``g`` does: they enter the
-        estimating equation as a denominator, so a value near zero gives one observation
-        unbounded leverage.  Unlike ``g`` they are one-sided -- only the approach to zero
-        matters -- and they are easy to overlook, because a fit can have perfectly
+        estimating equation as a denominator, so a value near zero can give one
+        observation a large residual multiplier.  Unlike ``g`` they are one-sided -- only
+        the approach to zero matters -- and they are easy to overlook, because a fit can
+        have perfectly
         healthy propensity overlap and still be resting on a handful of rows that were
         very unlikely to be observed at all.
 
-        **A randomized missing-outcome fit adds a derived row**, ``P(A=a,Delta=1|W)``,
-        which is the product ``g_a(W) pi_a(W)`` that equation (8)'s covariate divides by.
-        It is not a third fitted mechanism and it was never held to a bound of its own:
-        the estimator truncates each factor separately and multiplies. So its ``clipped``
-        counts the cells where the bounded product differs from the raw one -- that is,
-        where either factor's truncation bit -- and its ``ess_ratio`` weights by
-        ``clip(g) * clip(pi)``, the denominator actually formed. Its ``min`` and quantiles
-        stay on the untruncated product, as the fitted rows' do.
+        **A derived row reports the complete denominator** for a missing-outcome fit
+        (``P(A=a,Delta=1|W)``), a controlled direct effect (``P(A=a,Z=z|W)``), or both at
+        once (``P(A=a,Delta=1,Z=z|W)``).  The ``z`` in those names is the level the fit
+        targets, which the factor row beside them states outright.  It is not a further
+        fitted mechanism and it was never held to a bound of its own: the estimator
+        truncates each factor separately and multiplies.  So its ``min`` and quantiles
+        stay on the untruncated product, as the fitted rows' do, while its ``clipped``
+        counts the cells where *any* factor moved -- which is the truncation this
+        denominator underwent, and which a comparison of the two products would miss
+        wherever a zero in one factor hides a clip in another.
+
+        The derived row is the reason this table exists.  Each factor can look
+        comfortable on its own while their product concentrates the weight, because the
+        denominator factors multiply.  That does not imply their Kish ratios multiply.
+        Only the product is what the clever covariate divides by.
+        It describes the fit's **marginal-mean** estimands -- the ``ey`` family, its
+        contrasts, a regime, and a marginal structural model.  A fit that targets none of
+        those gets its factor rows and no product row, because an ATT or ATC covariate
+        divides by ``P(A = a)`` rather than ``g_a(W)`` and an incremental one drops the
+        propensity entirely.
+    composed_excluded : tuple of str
+        Targeted groups the derived row does not describe, on a fit that has the factors
+        to build one.  Empty when every targeted group forms the product, and empty when
+        no factor stands beside ``g`` at all, because then there is no derived row for any
+        group to be outside of.
+
+        This is here so the omission explains itself.  A silently absent row reads exactly
+        like a fit with nothing to report, and those are the two readings that must never
+        be confused: one says the denominator is healthy, the other says this diagnostic
+        does not cover the estimand asked for.  :meth:`summary` names these groups and
+        what each divides by instead.
     nuisance_bound : float
-        The lower bound applied to the *fitted* mechanisms above.  The derived joint row
-        has no single such bound -- see :meth:`_bound_label`.
+        The lower bound applied to the *fitted* mechanisms above.  A derived row has no
+        single such bound -- see :meth:`_bound_label`.
     simplex_deviation : float
         Largest ``|sum_a g(a | W) - 1|`` across rows *after* truncation, and ``0`` for a
         two-armed fit, where the complement form preserves the sum exactly.
@@ -136,9 +284,9 @@ class PositivityReport:
         all.
 
     n_repeats : int
-        Cross-fitting draws the fit averaged over. Everything else here describes
+        Cross-fitting draws the fit combined. Everything else here describes
         the **first** of them, because overlap is a property of one fitted
-        mechanism and averaging draws would describe one no estimate came from.
+        mechanism and a combination of draws would describe one no estimate came from.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
     """
@@ -152,11 +300,17 @@ class PositivityReport:
     bounds: tuple[float, float]
     n: int
     mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
+    composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
-    #: How many cross-fitting draws the fit averaged over.  Everything above describes the
+    #: Defaulted rather than required, so a hand-built fixture still constructs.  The
+    #: default alone does not carry an *old pickle*, which arrives with no key of this name
+    #: at all; :meth:`__setstate__` is what fills it there.  Keyed exactly as
+    #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
+    #: over the fit's targeted groups.
+    #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
-    #: of one fitted mechanism, and averaging ``R`` propensity vectors would produce a
+    #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
     #: perfectly good estimate of ``g`` that is nonetheless not the object any reported
     #: ``psi`` was computed from -- a different aggregation from the one the estimates use,
     #: under the same heading.  The draws share the data and differ only in the split, so
@@ -167,6 +321,17 @@ class PositivityReport:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: Trailing for positional compatibility with reports created before this diagnostic.
+    group_leverage: dict[str, GroupLeverageRow] = field(default_factory=dict)
+    #: A fitted artifact can predate exact per-column absolute score weights.  Such a
+    #: group is omitted rather than reconstructed from a submodel that might not be the
+    #: one the fit used (for example under fold-specific targeting).
+    group_leverage_omissions: dict[str, str] = field(default_factory=dict)
+
+    # Unpickling a report from before `group_leverage` existed is
+    # `cleverly.utils.records._DefaultingUnpickle`, which this class's own hand-written
+    # restore became.  Its docstring carries the argument for driving the fill from
+    # `dataclasses.fields` rather than from a list of names.
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -197,16 +362,17 @@ class PositivityReport:
     def _bound_label(self, name: str) -> str:
         """How a mechanism row was truncated, as text a message can print.
 
-        The derived joint row is the only one with **two** bounds: the estimator clips
-        ``g`` and ``pi`` separately and multiplies them, so naming either alone -- which
-        both call sites used to do, always ``nuisance_bound`` -- quotes a bound that row
-        was never held to.
+        A derived row is the only kind with **more than one** bound: the estimator clips
+        each factor separately and multiplies them, so naming any one alone -- which both
+        call sites used to do, always ``nuisance_bound`` -- quotes a bound that row was
+        never held to.  How many it names comes from
+        :data:`_COMPOSED_NUISANCE_FACTORS`, so a further composition does not need a
+        second place to agree with.
         """
-        if name == JOINT_MECHANISM:
-            return (
-                f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x "
-                f"[{self.nuisance_bound:.4g}, 1], factor by factor"
-            )
+        if name in _COMPOSED_MECHANISMS:
+            nuisance_factors = _COMPOSED_NUISANCE_FACTORS[name]
+            tail = " x ".join(f"[{self.nuisance_bound:.4g}, 1]" for _ in range(nuisance_factors))
+            return f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x {tail}, factor by factor"
         return f"[{self.nuisance_bound:.4g}, 1]"
 
     def summary(self) -> str:
@@ -224,8 +390,8 @@ class PositivityReport:
         ]
         if self.n_repeats > 1:
             lines.append(
-                f"describing draw 1 of {self.n_repeats}: overlap is a property of one "
-                "fitted mechanism, not of the averaged estimate"
+                f"describing {format_draw(REPORTED_DRAW, self.n_repeats)}: overlap is a "
+                "property of one fitted mechanism, not of the median-combined estimate"
             )
         lines.append("")
         quantiles = sorted(next(iter(self.propensity_quantiles.values())))
@@ -271,13 +437,79 @@ class PositivityReport:
             f"({self.truncated['fraction']:.2%}); most extreme untruncated g(W) = "
             f"{self.truncated['most_extreme']:.5g}"
         )
-        for group, value in self.clever_covariate_max.items():
-            lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.group_leverage:
+            lines.append("")
+            lines.append(
+                format_table(
+                    [
+                        "group",
+                        "equation",
+                        "target rows",
+                        "Kish-equivalent rows",
+                        "Kish / target",
+                        "Kish / total",
+                        "top 1% load",
+                        "top 5% load",
+                        "max |w h|",
+                        "zero load",
+                        "g bound",
+                        "clipped",
+                    ],
+                    [
+                        [
+                            group,
+                            str(load["equation"]),
+                            f"{load['n_targeted']:.0f}/{load['n_total']:.0f}",
+                            f"{load['effective']:.1f}",
+                            f"{load['targeted_ratio']:.3f}",
+                            f"{load['total_ratio']:.3f}",
+                            f"{load['top_1pct']:.3f}",
+                            f"{load['top_5pct']:.3f}",
+                            f"{load['max_load']:.4g}",
+                            f"{load['zero_load']:.0f}",
+                            (
+                                f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
+                                if np.isfinite(load["lower_bound"])
+                                else "not applicable"
+                            ),
+                            (
+                                f"{load['clipped_count']:.0f} ({load['clipped_fraction']:.2%})"
+                                if np.isfinite(load["clipped_fraction"])
+                                else "unavailable"
+                            ),
+                        ]
+                        for group, load in self.group_leverage.items()
+                    ],
+                )
+            )
+            lines.append(
+                "(absolute residual-multiplier load from the fitted equation; Kish values describe "
+                "residual-multiplier concentration, not residual contributions or estimator "
+                "information, influence, or precision; target rows are score-mask rows and "
+                "include structural zeros)"
+            )
+        if self.clever_covariate_max:
+            for group, value in self.clever_covariate_max.items():
+                lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.group_leverage_omissions:
+            lines.append("")
+            for group, reason in self.group_leverage_omissions.items():
+                lines.append(f"group diagnostic omitted ({group}): {reason}")
         if self.mechanisms:
             lines.append("")
             lines.append(
                 format_table(
-                    ["mechanism", "min", "1%", "5%", "median", "ESS / n", "clipped"],
+                    [
+                        "mechanism",
+                        "min",
+                        "1%",
+                        "5%",
+                        "median",
+                        "ESS / n",
+                        "top 1% weight",
+                        "top 5% weight",
+                        "clipped",
+                    ],
                     [
                         [
                             name,
@@ -286,6 +518,8 @@ class PositivityReport:
                             f"{stats['q05']:.4f}",
                             f"{stats['median']:.4f}",
                             f"{stats['ess_ratio']:.3f}",
+                            f"{stats['top_1pct']:.3f}",
+                            f"{stats['top_5pct']:.3f}",
                             f"{stats['clipped']:.0f} ({stats['clipped_fraction']:.2%})",
                         ]
                         for name, stats in self.mechanisms.items()
@@ -296,9 +530,55 @@ class PositivityReport:
                 f"{name} truncated to {self._bound_label(name)}" for name in self.mechanisms
             )
             lines.append(f"({truncations}; each row counts both arms)")
+        note = self._composed_note()
+        if note is not None:
+            lines.append("")
+            lines.append(note)
         lines.append("")
         lines.append(self.verdict())
         return "\n".join(lines)
+
+    def _composed_note(self) -> str | None:
+        """The sentence a fit gets when a derived row does not cover what it targeted.
+
+        Returns ``None`` when there is nothing to say: every targeted group forms the
+        product, or no fitted factor stands beside ``g`` so there is no derived row at
+        all.  Otherwise it names the groups and what each divides by instead, because an
+        omission that does not explain itself reads exactly like a clean bill of health.
+
+        The refusal stands, and the note now says where those groups *are* covered.  The
+        per-group leverage table reads each covariate as built rather than a denominator
+        it never forms, so an excluded group has a load measure even though it has no
+        derived row.  Naming it keeps the sentence from reading as "nothing here for you".
+        """
+        if not self.composed_excluded:
+            return None
+        excluded = "; ".join(
+            f"{group}, which divides by "
+            + _COMPOSED_EXCLUSIONS.get(group, "a denominator this row does not form")
+            for group in self.composed_excluded
+        )
+        composed = sorted(_COMPOSED_MECHANISMS & self.mechanisms.keys())
+        lead = (
+            f"{composed[0]} does not describe"
+            if composed
+            else "no derived denominator row is reported for"
+        )
+        pointer = (
+            " Their score-weight load is in the group table above." if self.group_leverage else ""
+        )
+        return f"({lead} {excluded}. Read the factor rows above for those estimands.{pointer})"
+
+    @property
+    def severity(self) -> Literal["adequate", "strain", "serious"]:
+        """Which tier this report's own thresholds place the fit in.
+
+        Returns
+        -------
+        {"adequate", "strain", "serious"}
+            The tier behind :meth:`verdict`, for a caller that must branch on it.
+        """
+        return self._verdict_parts()[0]
 
     def verdict(self) -> str:
         """A one-line reading of the diagnostics.
@@ -308,44 +588,154 @@ class PositivityReport:
         str
             One line saying whether the overlap supports the reported estimate.
         """
-        worst_ratio = min(ess["ratio"] for ess in self.effective_sample_size.values())
-        fraction = self.truncated["fraction"]
+        return self._verdict_parts()[1]
+
+    def _verdict_parts(self) -> tuple[Literal["adequate", "strain", "serious"], str]:
+        """Decide the tier and the sentence that reports it, in one place.
+
+        A reader reads :meth:`verdict`; the combined assessment row reads
+        :attr:`severity`.  Both come from here because the alternative is what shipped:
+        the aggregate row re-derived its own thresholds and so reported ``passed`` for a
+        fit this method called a serious positivity problem.  No caller outside this
+        method may restate the numbers below.
+
+        **The effective-sample-size ratio is reported and never graded.**  A Kish ratio
+        is a descriptive quantity with no derived cutoff, so a tier keyed on it would be
+        a house convention presented as a finding, and a reader would take ``passed`` as
+        a positivity clearance this package cannot give.  Every branch states the share
+        instead, and the analyst judges it against the question.  What is graded is the
+        truncated fraction, which is not a judgement about the data: it counts the rows
+        the fit clipped at a bound the caller configured, and therefore identifies where
+        the score used a bounded rather than fitted mechanism value.
+
+        The **group** quantity from :attr:`group_leverage` is a different descriptive
+        object: concentration of ``abs(w_i * h_ij)`` in one fitted score equation.  It is
+        stated separately, never pooled with arm or mechanism ESS, and adds no tier or
+        threshold.  In particular it is not estimator effective sample size, information,
+        actual influence, precision, or itself a positivity test.
+        """
+        # Non-finite ratios are dropped rather than compared.  An arm with no rows stores
+        # NaN here by construction, and `min` over a sequence containing NaN returns
+        # whichever value it met first, so an unfiltered comparison made this report's
+        # reading depend on arm order.
+        ratios = [
+            float(ess["ratio"])
+            for ess in self.effective_sample_size.values()
+            if np.isfinite(ess["ratio"])
+        ]
+        fraction = float(self.truncated["fraction"])
+        clip_label = (
+            f"the marginal treatment-mechanism bound [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
+        )
+        for group, load in self.group_leverage.items():
+            group_fraction = float(load["clipped_fraction"])
+            if np.isfinite(group_fraction) and group_fraction > fraction:
+                fraction = group_fraction
+                clip_label = (
+                    f"group {group!r}'s treatment-mechanism bound "
+                    f"[{load['lower_bound']:.4g}, {load['upper_bound']:.4g}]"
+                )
+        share = (
+            (
+                f"The narrowest arm has a Kish-equivalent weight count of {min(ratios):.0%} "
+                "of its nominal rows. This is concentration, not estimator information, and "
+                "no threshold is applied because none is derived."
+            )
+            if ratios
+            else "No arm reports a finite effective sample size."
+        )
+        group_rows = [
+            (group, load)
+            for group, load in self.group_leverage.items()
+            if np.isfinite(load["targeted_ratio"])
+        ]
+        if group_rows:
+            group, load = min(group_rows, key=lambda item: item[1]["targeted_ratio"])
+            share += (
+                f" Absolute-load concentration is greatest for group {group!r}, equation "
+                f"{load['equation']!r}: {load['effective']:.1f} Kish-equivalent rows out of "
+                f"{load['n_targeted']:.0f} score-mask rows "
+                f"({load['targeted_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}}; "
+                f"{load['total_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}} of "
+                f"{load['n_total']:.0f} total rows). This is a "
+                "descriptive residual-multiplier concentration index. It excludes the residual "
+                "and is not estimator effective sample size, information, actual influence, "
+                "precision, or a positivity test."
+            )
         for name, stats in self.mechanisms.items():
             # Checked before the propensity verdict, because this is the failure a reader
             # is least likely to be looking for: overlap in `g` can be immaculate while
             # the estimate rests on a few rows that were very unlikely to be observed.
-            # Judged on the same scale as the propensity -- the effective sample size the
-            # 1/mechanism weights leave behind -- so the two are directly comparable.
-            if stats["clipped_fraction"] > 0.01 or stats["ess_ratio"] < 0.6:
-                # The joint row *is* the whole denominator rather than a factor beside
-                # `g(W)`, so the closing sentence has to say something different about it.
+            # Two triggers, one of which only reports.  A clipped fraction is truncation
+            # and grades like the propensity's.  A low mechanism effective sample size
+            # earns the *sentence*, because a reader who never sees the number cannot
+            # weigh it, but it does not move the tier -- grading it would be the invented
+            # cutoff this report refuses to apply to the propensity.
+            composed = name in _COMPOSED_MECHANISMS
+            # A derived row's clipped cells are the union over its factors, and its
+            # propensity factor is the one the branch below already reports -- accurately,
+            # and against the curve that can move it. Triggering here on that union put a
+            # mechanism's name on a verdict whose every number came from `g`, and sent the
+            # reader to `mechanism=True`, which sweeps `nuisance_bound` alone. So a derived
+            # row earns its sentence on joint leverage only, which is the one thing neither
+            # its factor rows nor the propensity branch can show. Each factor's own
+            # clipping still triggers on that factor's own row.
+            clipped = not composed and stats["clipped_fraction"] > 0.01
+            if clipped or stats["ess_ratio"] < 0.6:
                 leverage = (
-                    "It is the whole denominator of the clever covariate, so those rows "
-                    "carry outsized leverage however each factor looks on its own."
-                    if name == JOINT_MECHANISM
+                    "It is the whole denominator of the clever covariate for this fit's "
+                    "marginal-mean estimands, so those rows carry outsized leverage "
+                    "however each factor looks on its own."
+                    if composed
                     else "It divides the clever covariate exactly as g(W) does, so those "
                     "rows carry outsized leverage whatever the propensity overlap looks like."
                 )
+                # Either bound can have moved a derived row's cells, so naming one curve
+                # would send the reader to a knob that cannot move what they were shown.
+                advice = (
+                    "Check truncation_curve() and truncation_curve(mechanism=True); this "
+                    "row is clipped by either bound."
+                    if composed
+                    else "Check truncation_curve(mechanism=True)."
+                )
                 return (
+                    "serious"
+                    if fraction > 0.05
+                    else "strain"
+                    if fraction > 0.01 or clipped
+                    else "adequate",
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    f"{self._bound_label(name)}). {leverage} "
-                    "Check truncation_curve(mechanism=True)."
+                    # `share` is carried onto this branch too, so that "every verdict
+                    # states the arm share and the group share" holds on the tier that
+                    # is already flagging strain rather than only on the three below.
+                    f"{self._bound_label(name)}). Maximum treatment-mechanism clipping is "
+                    f"{fraction:.2%} at {clip_label}. {leverage} {advice} {share}",
                 )
-        if fraction > 0.05 or worst_ratio < 0.3:
+        if fraction > 0.05:
             return (
-                "VERDICT: serious positivity problem. The weighted analysis uses far fewer "
-                "observations than it appears to, and/or a large share of units were "
-                "truncated. Treat the point estimate as describing the region of overlap "
-                "only, and check truncation_curve() before drawing conclusions."
+                "serious",
+                f"VERDICT: truncation is carrying this estimate. {fraction:.1%} of units were "
+                f"clipped at {clip_label}, so the fitted score used bounded rather than fitted "
+                "mechanism values for those units. Treat "
+                "the estimate as sensitive to this finite-sample regularisation. The bound "
+                "does not change the requested estimand. Check "
+                f"truncation_curve() before drawing conclusions. {share}",
             )
-        if fraction > 0.01 or worst_ratio < 0.6:
+        if fraction > 0.01:
             return (
-                "VERDICT: some positivity strain. Report truncation_curve() alongside the "
-                "estimate so readers can see how much the answer depends on the bound."
+                "strain",
+                f"VERDICT: some truncation. {fraction:.1%} of units were clipped at "
+                f"{clip_label}. "
+                "Report truncation_curve() alongside the estimate so readers can see how much "
+                f"the answer depends on it. {share}",
             )
-        return "VERDICT: overlap looks adequate; no truncation-driven fragility detected."
+        return (
+            "adequate",
+            f"VERDICT: no truncation-driven fragility detected ({fraction:.1%} of units "
+            f"clipped at {clip_label}). {share}",
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
@@ -401,7 +791,8 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     """Overlap for a two-armed treatment, in terms of the single propensity ``g(W)``."""
     data = result.data
     bounds = result.config.g_bounds
-    raw = result.nuisance.propensity.arm(1.0)
+    propensity = result.nuisance.propensity
+    raw = propensity.arm(1.0)
     treated = data.treatment == 1.0
 
     quantiles: dict[str, dict[float, float]] = {
@@ -418,12 +809,16 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         for threshold in _THRESHOLDS
     }
 
-    bounded = np.clip(raw, bounds[0], bounds[1])
+    # Both denominators come out of the one truncation the estimator applies, rather than
+    # from a clip written here and a complement written beside it.  The two forms agree
+    # only while the bound pair is symmetric.
+    truncation = propensity.truncate(bounds)
+    bounded = truncation.values
     ess: dict[str, dict[str, float]] = {}
     share: dict[str, dict[str, float]] = {}
     for arm, mask, weights in (
-        ("treated", treated, 1.0 / bounded),
-        ("control", ~treated, 1.0 / (1.0 - bounded)),
+        ("treated", treated, 1.0 / bounded[:, propensity.column_for(1.0)]),
+        ("control", ~treated, 1.0 / bounded[:, propensity.column_for(0.0)]),
     ):
         arm_weights = weights[mask] * data.weights[mask]
         ess[arm] = {
@@ -432,14 +827,20 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
             "ratio": _kish_ess(arm_weights) / float(mask.sum()) if mask.any() else float("nan"),
         }
         share[arm] = {
-            "top_1pct": _top_share(arm_weights, 0.01),
-            "top_5pct": _top_share(arm_weights, 0.05),
+            "top_1pct": top_weight_share(arm_weights, 0.01),
+            "top_5pct": top_weight_share(arm_weights, 0.05),
         }
 
-    clipped = (raw < bounds[0]) | (raw > bounds[1])
+    clipped = truncation.units
     inside = raw[~clipped]
+    # This line still reads the two columns as complements, which the rest of the function
+    # no longer does: `raw` is g1 alone, so `1 - inside.max()` is the control denominator
+    # only on the simplex. `truncate` sends a two-arm `simplex=False` mechanism down its
+    # column-by-column branch instead. Nothing in `src/` builds such a mechanism today, so
+    # this is recorded rather than restructured.
     most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
 
+    group_leverage, group_omissions = _group_leverage(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -456,9 +857,12 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
+        composed_excluded=_composed_excluded(result),
         nuisance_bound=result.config.missingness_bound,
         n_repeats=result.n_repeats,
         backend=data.backend,
+        group_leverage=group_leverage,
+        group_leverage_omissions=group_omissions,
     )
 
 
@@ -496,7 +900,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         for threshold in _THRESHOLDS
     }
 
-    bounded = propensity.bounded(bounds)
+    truncation = propensity.truncate(bounds)
+    bounded = truncation.values
     ess: dict[str, dict[str, float]] = {}
     share: dict[str, dict[str, float]] = {}
     for arm in propensity.arms:
@@ -510,18 +915,19 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
             "ratio": _kish_ess(arm_weights) / nominal if mask.any() else float("nan"),
         }
         share[labels[arm]] = {
-            "top_1pct": _top_share(arm_weights, 0.01),
-            "top_5pct": _top_share(arm_weights, 0.05),
+            "top_1pct": top_weight_share(arm_weights, 0.01),
+            "top_5pct": top_weight_share(arm_weights, 0.05),
         }
 
-    clipped_cells = (raw < bounds[0]) | (raw > bounds[1])
-    clipped_units = np.any(clipped_cells, axis=1)
+    clipped_cells = truncation.clipped
+    clipped_units = truncation.units
     inside = raw[~clipped_cells]
     # Only the approach to zero matters per arm, so the "most extreme" untruncated value
     # is the smallest surviving probability rather than the two-sided minimum the binary
     # report uses.
     most_extreme = float(inside.min()) if inside.size else float("nan")
 
+    group_leverage, group_omissions = _group_leverage(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -538,23 +944,49 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         bounds=bounds,
         n=data.n,
         mechanisms=_mechanism_overlap(result),
+        composed_excluded=_composed_excluded(result),
         nuisance_bound=result.config.missingness_bound,
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
         n_repeats=result.n_repeats,
         backend=data.backend,
+        group_leverage=group_leverage,
+        group_leverage_omissions=group_omissions,
     )
+
+
+def _composed_excluded(result: TMLEResult) -> tuple[str, ...]:
+    """Targeted groups a derived row would not describe, on a fit that could build one.
+
+    The mirror of the gate in :func:`_mechanism_overlap`, and it reads the same two
+    conditions: a fit with no fitted factor beside ``g`` has no derived row to be outside
+    of, and a group in :data:`_COMPOSED_GROUPS` is described by the row rather than
+    excluded from it.  Everything left over is what the report has to account for.
+    """
+    nuisance = result.nuisance
+    has_factor = nuisance.missingness is not None or (
+        nuisance.intermediate is not None and result.intermediate_value is not None
+    )
+    if not has_factor:
+        return ()
+    return tuple(group for group in result.fluctuations if group not in _COMPOSED_GROUPS)
 
 
 def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     """Overlap for the denominators other than ``g`` -- ``pi`` and the intermediate density.
 
-    Two views, because they answer different questions.  The quantiles pool both arms,
-    since both columns are used: the treated arm's covariate divides by the mechanism at
-    ``a = 1`` and the control arm's by the one at ``a = 0``, so the union is the set of
-    values that appear as denominators anywhere.  The effective sample size instead takes
-    the weights the estimating equation *actually* forms -- ``1 / pi`` at each unit's
-    realised arm, over the rows whose residual it multiplies -- and is reported on the
-    same scale as the propensity's ESS so that the two can be read side by side.
+    Two views, because they answer different questions.  The quantiles pool every arm,
+    since every column is used: each arm's covariate divides by the mechanism at that
+    arm, so the union is the set of values that appear as denominators anywhere.  The
+    effective sample size instead takes the weights the estimating equation *actually*
+    forms -- ``1 / pi`` at each unit's realised arm, over the rows whose residual it
+    multiplies -- and is reported on the same scale as the propensity's ESS so that the
+    two can be read side by side.
+
+    Beside each fitted mechanism the report carries the *product* the clever covariate
+    divides by, named in :data:`_COMPOSED_ROWS`.  It is built here rather than stored on
+    the nuisance state, so a cached product cannot go stale against the factors it came
+    from, and each factor is bounded through the accessor that owns its rule before the
+    multiplication -- which is the order the estimator uses.
 
     Which rows those are depends on the estimand.  A row with no recorded outcome
     contributes a genuine zero to the residual term, and so does a row whose intermediate
@@ -567,79 +999,112 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     data = result.data
     nuisance = result.nuisance
     missingness_bound = result.config.missingness_bound
-    treated = data.treatment == 1.0
     contributing = targeted_rows(data, result.intermediate_value)
     out: dict[str, dict[str, float]] = {}
 
-    candidates: list[tuple[str, Any]] = [("P(Delta=1|A,W)", nuisance.missingness)]
-    if nuisance.intermediate is not None and result.intermediate_value is not None:
-        # The covariate divides by P(Z = z | A, W) for the targeted z, which is the
-        # fitted probability or its complement -- so report the one actually used.
-        candidates.append(
-            (
-                f"P(Z={result.intermediate_value:.0f}|A,W)",
-                nuisance.intermediate_density(result.intermediate_value, 0.0),
-            )
-        )
+    # Which column of an `(n, K)` mechanism each row realised.  Written as a gather rather
+    # than as `np.where(treatment == 1, values[:, 1], values[:, 0])`, which reports arm 0's
+    # denominator for every unit outside arms 0 and 1 -- silently, and on a report that is
+    # otherwise per arm.  A two-armed fit gathers the same two columns that expression did.
+    realised = np.zeros(data.n, dtype=int)
+    for arm in nuisance.propensity.arms:
+        realised[data.treatment == arm] = nuisance.propensity.column_for(arm)
+    rows = np.arange(data.n)
 
-    for name, values in candidates:
-        if values is None:
-            continue
-        array = np.asarray(values, dtype=float)
-        flat = array.reshape(-1)
-        clipped = flat < missingness_bound
-        # The weight the estimating equation forms: the mechanism at the realised arm,
-        # on the rows whose residual term it multiplies.  Rows with no outcome contribute
-        # a genuine zero to that term, so they are not weighted by it and do not belong
-        # in its effective sample size.
-        at_arm = np.where(treated, array[:, 1], array[:, 0])
-        used = np.maximum(at_arm[contributing], missingness_bound)
-        out[name] = {
+    def summarize(
+        raw: FloatArray, bounded: FloatArray, clipped: BoolArray | None = None
+    ) -> dict[str, float]:
+        """One mechanism row: raw quantiles, bounded-weight load, and the cells that moved.
+
+        The two arrays are deliberately different.  Quantiles pool every column, because
+        every column appears as a denominator somewhere, and they describe the mechanism
+        as fitted.  The weights are the ones the estimating equation actually forms: the
+        *bounded* array at each unit's realised arm, times that unit's observation weight,
+        over the rows whose residual it multiplies.  ``clipped`` defaults to the cells the
+        bound moved, which is the rule for a single factor; a derived row passes the union
+        of its factors' masks instead, because its own product was never bounded.
+        """
+        flat = raw.reshape(-1)
+        at_arm = bounded[rows, realised]
+        weights = data.weights[contributing] / at_arm[contributing]
+        changed = raw != bounded if clipped is None else clipped
+        return {
             "min": float(flat.min()),
             "q01": float(np.quantile(flat, 0.01)),
             "q05": float(np.quantile(flat, 0.05)),
             "median": float(np.median(flat)),
-            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
-            "clipped": float(clipped.sum()),
-            "clipped_fraction": float(clipped.mean()),
+            "ess_ratio": (
+                _kish_ess(weights) / float(weights.size) if weights.size else float("nan")
+            ),
+            "top_1pct": top_weight_share(weights, 0.01),
+            "top_5pct": top_weight_share(weights, 0.05),
+            "clipped": float(np.count_nonzero(changed)),
+            "clipped_fraction": float(np.mean(changed)),
         }
 
-    # The product is a derived denominator, not a third fitted or targeted mechanism.
-    # Report it without storing it on the nuisance state so the treatment and observation
-    # probabilities cannot become stale relative to a cached product.
-    missing_reduction = getattr(nuisance.reduced, "reduction", None) == "missing_outcome"
-    if missing_reduction and nuisance.missingness is not None:
-        g_lower, g_upper = result.config.g_bounds
-        treatment = np.asarray(nuisance.propensity.values, dtype=float)
-        observation = np.asarray(nuisance.missingness, dtype=float)
-        array = treatment * observation
-        # The estimator truncates the two factors **separately** and multiplies -- see
+    # Each fitted nuisance factor, as the pair the report needs: the array as fitted, and
+    # the same array as the estimator bounds it at targeting time.  Both come from the
+    # accessors that own those rules -- `bounded_missingness`, and `intermediate_density`,
+    # which is the one place the `z` / `1 - z` convention lives, so the row reports the
+    # level the covariate actually divides by rather than its complement.
+    level = result.intermediate_value
+    has_observation = nuisance.missingness is not None
+    has_intermediate = nuisance.intermediate is not None and level is not None
+    factors: list[tuple[str, FloatArray, FloatArray]] = []
+    if has_observation:
+        factors.append(
+            (
+                "P(Delta=1|A,W)",
+                np.asarray(nuisance.missingness, dtype=float),
+                np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float),
+            )
+        )
+    if has_intermediate and level is not None:
+        factors.append(
+            (
+                f"P(Z={level:.0f}|A,W)",
+                np.asarray(nuisance.intermediate_density(level, 0.0), dtype=float),
+                np.asarray(nuisance.intermediate_density(level, missingness_bound), dtype=float),
+            )
+        )
+
+    for name, raw, bounded_factor in factors:
+        out[name] = summarize(raw, bounded_factor)
+
+    # The product is a derived denominator, not a further fitted or targeted mechanism.
+    # Report it without storing it on the nuisance state so the treatment, observation and
+    # intermediate probabilities cannot become stale relative to a cached product.  It is
+    # reported only for the groups that form it -- see `_COMPOSED_GROUPS`, whose comment
+    # names what the others divide by instead.  Refusing the row there is the point: an
+    # ATT fit's covariate never forms `g_a * pi_a`, so a row asserting that product is its
+    # whole denominator would describe an estimand nobody asked for.
+    if factors and not _COMPOSED_GROUPS.isdisjoint(result.fluctuations):
+        # The estimator truncates each factor **separately** and multiplies -- see
         # `build_submodel`'s `1 / (g * pi * pz)` and the missing-outcome reductions -- so
         # `g_bounds[0] * missingness_bound` is a floor no code applies. Counting the cells
         # beneath it reports a strict subset of the cells truncation altered, because a
         # small factor beside a large one leaves the product above the product of the
         # floors: at the shipped defaults that floor is around 5e-4, so the row read zero
         # on fits where a third of the observation mechanism was pinned. What is reported
-        # instead is the cells where the bounded product differs from the raw one, which
-        # is the truncation this row's denominator actually underwent.
-        bounded = bound(treatment, float(g_lower), float(g_upper)) * bound(
-            observation, float(missingness_bound), 1.0
+        # instead is the union of the factors' own clipped cells, which is the truncation
+        # this row's denominator actually underwent -- and which still marks a cell that a
+        # zero in another factor would have hidden from a product-level comparison.  The
+        # propensity contributes `Truncation`'s mask rather than a rebuilt predicate,
+        # because two arms on the simplex are clipped through `g1` and its complement, so
+        # a cell can move without ever standing below the bound.
+        truncation = nuisance.propensity.truncate(result.config.g_bounds)
+        raws = [np.asarray(nuisance.propensity.values, dtype=float)]
+        boundeds = [np.asarray(truncation.values, dtype=float)]
+        masks = [np.asarray(truncation.clipped, dtype=bool)]
+        for _, raw, bounded_factor in factors:
+            raws.append(raw)
+            boundeds.append(bounded_factor)
+            masks.append(raw != bounded_factor)
+        out[_COMPOSED_ROWS[has_observation, has_intermediate]] = summarize(
+            np.prod(np.stack(raws), axis=0),
+            np.prod(np.stack(boundeds), axis=0),
+            np.logical_or.reduce(np.stack(masks)),
         )
-        flat = array.reshape(-1)
-        clipped = (array != bounded).reshape(-1)
-        # The weight the estimating equation forms is the *bounded* product at the
-        # realised arm; flooring the raw product at `g_lo * m_lo` was a third thing,
-        # neither what was fitted nor what was divided by.
-        used = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
-        out[JOINT_MECHANISM] = {
-            "min": float(flat.min()),
-            "q01": float(np.quantile(flat, 0.01)),
-            "q05": float(np.quantile(flat, 0.05)),
-            "median": float(np.median(flat)),
-            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
-            "clipped": float(clipped.sum()),
-            "clipped_fraction": float(clipped.mean()),
-        }
     return out
 
 
@@ -657,25 +1122,18 @@ def _kish_ess(weights: FloatArray) -> float:
     return effective_sample_size(w, on_degenerate=0.0)
 
 
-def _top_share(weights: FloatArray, fraction: float) -> float:
-    """Share of total weight held by the largest ``fraction`` of units."""
-    w = np.asarray(weights, dtype=float)
-    if w.size == 0:
-        return float("nan")
-    count = max(1, int(np.ceil(fraction * w.size)))
-    largest = np.sort(w)[-count:]
-    total = w.sum()
-    return float(largest.sum() / total) if total > 0 else float("nan")
-
-
-def _max_abs_covariate(result: TMLEResult, group: str) -> float:
-    """Largest absolute clever-covariate value for one targeted family.
+def _group_submodel(result: TMLEResult, group: str) -> Submodel:
+    """The clever covariate one targeted family was fluctuated along.
 
     Rebuilt from the data, the nuisance estimates and the config rather than from the
     estimator, so this stays a real number on a result whose estimator is gone.
+
+    Every reading of a group's covariate comes through here.  The largest absolute value
+    and the load measures describe the same array by construction, which they would not
+    if each caller rebuilt the submodel with bounds and a reference arm of its own.
     """
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
-    submodel = build_submodel(
+    return build_submodel(
         result.data,
         result.nuisance,
         group,
@@ -692,7 +1150,87 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
         # beta a per-fold covariate has no other summary of.
         msm_beta=_reported_beta(result, group),
     )
-    return submodel.max_abs
+
+
+def _max_abs_covariate(result: TMLEResult, group: str) -> float:
+    """Largest absolute clever-covariate value for one targeted family."""
+    return _group_submodel(result, group).max_abs
+
+
+def _group_leverage(
+    result: TMLEResult,
+) -> tuple[dict[str, GroupLeverageRow], dict[str, str]]:
+    """Summarise the most concentrated fitted score equation in each target group.
+
+    The fluctuation artifact is authoritative.  Rebuilding a generic submodel is not:
+    fold-targeted ATT can use fold-specific arm fractions, and a nonlinear MSM can use a
+    different beta in every fold.  An older artifact without the exact absolute score
+    weights is therefore omitted with a reason rather than approximated.
+
+    Each score column is considered separately.  Kish and top-share concentration are
+    invariant to a scalar change of that column's units, while an L1 sum across columns is
+    not.  The retained group row is the column with the smallest targeted-row Kish ratio,
+    and every metric in that row is computed from that same column.
+
+    The guards and the ten concentration values are
+    :func:`~cleverly.data.weighting.validate_score_loads` and
+    :func:`~cleverly.data.weighting.score_load_row`, shared with the intervention reports.
+    Adopting them adds one refusal this path did not have: a block with more rows than the
+    fit had is now omitted with a reason, where before it was described and published a
+    ``total_ratio`` above one.
+    """
+    rows: dict[str, GroupLeverageRow] = {}
+    omissions: dict[str, str] = {}
+    for group, fluctuation in result.fluctuations.items():
+        loads, reason = validate_score_loads(
+            getattr(fluctuation, "absolute_score_weights", None),
+            len(fluctuation.names),
+            result.data.n,
+        )
+        if loads is None:
+            assert reason is not None  # returned together; narrows the type
+            omissions[group] = reason
+            continue
+
+        columns = [
+            score_load_row(loads[:, index], name, result.data.n)
+            for index, name in enumerate(fluctuation.names)
+        ]
+        # Stable first-column selection in an exact tie.  A zero-load equation has ratio
+        # zero and is correctly the one the report must expose rather than average away.
+        selected = int(np.argmin([column["targeted_ratio"] for column in columns]))
+
+        if group == "ipsi":
+            lower = upper = float("nan")
+            clipped_count = clipped_fraction = 0.0
+        else:
+            lower, upper = g_bounds_for(
+                group, result.config.g_bounds, result.config.g_bounds_conditional
+            )
+            if fluctuation.reduction is not None or fluctuation.mechanism is not None:
+                # These fits solve the outcome equation against a treatment mechanism
+                # changed during targeting.  Its score loads are exact, but the retained
+                # initial nuisance cannot recover which cells the bound moved.  Reporting
+                # initial-g clipping here would attach the right numerical bound to the
+                # wrong mechanism.
+                clipped_count = clipped_fraction = float("nan")
+                omissions[f"{group}.clipping"] = (
+                    "the score used a targeted treatment mechanism whose exact clipping "
+                    "mask was not retained"
+                )
+            else:
+                clipped = result.nuisance.propensity.truncate((lower, upper)).units
+                clipped_count = float(np.count_nonzero(clipped))
+                clipped_fraction = float(np.mean(clipped))
+
+        rows[group] = {
+            **columns[selected],
+            "lower_bound": float(lower),
+            "upper_bound": float(upper),
+            "clipped_count": clipped_count,
+            "clipped_fraction": clipped_fraction,
+        }
+    return rows, omissions
 
 
 def _reported_beta(result: TMLEResult, group: str) -> Any:
@@ -710,25 +1248,44 @@ def truncation_curve(
 ) -> Any:
     """Re-estimate across a grid of truncation bounds.
 
-    Returns a tidy frame with one row per ``(bound, estimand)`` giving the point
-    estimate and confidence interval.  Only the targeting step is re-run -- the
-    nuisance fits are cached -- so a 10-point curve costs a small fraction of the
-    original fit.
+    Returns a tidy frame with one row per evaluated bound pair and estimand, giving the
+    point estimate and confidence interval.  A scalar bound supplied by the caller remains
+    shorthand for the symmetric treatment-mechanism pair ``(bound, 1 - bound)``; an
+    observation- or intermediate-mechanism sweep uses ``(bound, 1)``.  On an ordinary,
+    collaborative, or unguarded
+    doubly-robust fit only the targeting step is re-run -- the nuisance fits are cached
+    -- so each bound costs a small fraction of the original fit.
+
+    A **guarded DR-TMLE** fit is the exception, and it is why the combined report prices
+    this operation per result rather than per operation.  Its targeting step alternates
+    against the reduced-dimension regressions, so every bound refits them.  The ordinary
+    closure refits them at the fitted reduced bounds; the missing-outcome construction is
+    handed the swept bounds instead, because they define two of its regression targets.
+    The primary outcome regression and the propensity stay cached, so one bound costs
+    less than a fit -- but the default grid has several of them, so the **whole curve can
+    cost more than the fit it describes**.  Budget it as refitting work.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
-    hinge on the truncation choice.  A curve that drifts monotonically says the
-    estimand being reported changes with the bound, and the bound should be reported
-    with the estimate.
+    hinge on the truncation choice.  A curve that drifts monotonically says the estimate
+    is sensitive to this finite-sample regularisation.  It does not change the requested
+    estimand.  The bound should be reported with the estimate.
 
     Parameters
     ----------
     result : TMLEResult
         A fitted result.
     bounds : sequence of float or None
-        Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 that
-        includes the bound the fit actually used.
+        Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 and adds
+        every exact bound pair the requested parameters used.  An explicit sequence is
+        evaluated exactly as requested and is never expanded with fitted points.
     estimands : sequence of str or None
-        Restrict to a subset; defaults to everything the fit reported.
+        Restrict the emitted rows to these parameters.  ``None`` uses every parameter the
+        fit reported.  Two forms are accepted.  A reported parameter selects its own row,
+        so ``"ey[high]"`` gives one row per bound pair.  A registered target name selects
+        every reported alias of that target, in report order, so ``"ey"`` on a three-armed
+        fit gives three rows per bound pair and on a two-armed fit gives one.  A name that
+        is neither is refused, because it has no fitted pair and no fitted estimate for a
+        row to reference, and an empty selection is refused because it names no row.
     mechanism : bool
         Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
         instead of the one on ``g(W)``.  That probability divides the clever covariate
@@ -744,7 +1301,8 @@ def truncation_curve(
     Returns
     -------
     dataframe
-        One row per ``(bound, estimand)``, with the point estimate and interval.
+        One row per evaluated bound pair and estimand, with the point estimate, interval,
+        fitted pair and estimate, and signed movement from that fitted estimate.
     """
     estimator = result.estimator
     if estimator is None:
@@ -752,39 +1310,56 @@ def truncation_curve(
             "truncation_curve needs the fitted estimator that produced the result"
         )
 
+    # Every reported alias against the target that answers it, in report order. The
+    # selection below reads it, and so does the row loop, so the registry is asked once.
+    reported_targets = {name: _target_name(result, name) for name in result.estimates}
+    reported = (
+        tuple(result.estimates) if estimands is None else _select(estimands, reported_targets)
+    )
+    if mechanism and result.nuisance.missingness is None and result.nuisance.intermediate is None:
+        raise CapabilityError(
+            "mechanism=True needs a fit with missing outcomes or an intermediate "
+            "variable; without one there is no mechanism in the clever covariate to "
+            "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+        )
+
+    def pair_for(lower: float) -> tuple[float, float]:
+        """One lower bound as the pair the sweep evaluates, in the documented shorthand."""
+        return (lower, 1.0 if mechanism else 1.0 - lower)
+
     # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
     # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
-    # against `ey` for a wider one. Mapping back through the stem keeps the sweep asking
-    # for the targets it already has, rather than for names the registry never had.
-    reported = tuple(result.estimates) if estimands is None else tuple(estimands)
-    names = tuple(dict.fromkeys(parameter_stem(name) for name in reported))
-    if mechanism:
-        if result.nuisance.missingness is None and result.nuisance.intermediate is None:
-            raise CapabilityError(
-                "mechanism=True needs a fit with missing outcomes or an intermediate "
-                "variable; without one there is no mechanism in the clever covariate to "
-                "truncate. Pass delta=<column> or intermediate=<column> to fit()."
-            )
-        fitted_bound = result.config.missingness_bound
-    else:
-        fitted_bound = result.config.g_bounds[0]
+    # against `ey` for a wider one. The rows narrow back to `reported`: an arm-narrowed fit
+    # reports `ey[high]` alone while the estimator still retargets every arm of `ey`.
+    targets = {name: reported_targets[name] for name in reported}
+    names = tuple(dict.fromkeys(targets.values()))
+    pairs = {
+        name: _fitted_bound_pair(result, target, mechanism=mechanism)
+        for name, target in targets.items()
+    }
+    fitted_psi = {name: float(result.estimates[name].psi) for name in reported}
 
+    canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:
-        grid = sorted({0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, round(fitted_bound, 6)})
+        grid = sorted({*(pair_for(lower) for lower in canned), *pairs.values()})
     else:
-        grid = sorted(float(value) for value in bounds)
+        lowers = sorted(float(value) for value in bounds)
+        for lower in lowers:
+            if not 0.0 < lower < 0.5:
+                raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
+        grid = [pair_for(lower) for lower in lowers]
 
     rows: list[dict[str, Any]] = []
-    for lower in grid:
-        if not 0.0 < lower < 0.5:
-            raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
-        pair = (lower, 1.0 - lower)
-        # Every draw, then averaged the way the fit averaged them. Sweeping one draw and
+    for lower, upper in grid:
+        if not 0.0 < lower < upper <= 1.0:  # pragma: no cover - fitted config is validated
+            raise RuntimeError(f"invalid fitted truncation pair {(lower, upper)}")
+        pair = (lower, upper)
+        # Every draw, then combined the way the fit combines them. Sweeping one draw and
         # calling the answer the fit's would compare a bound's effect on one split against
         # a reported estimate that came from R -- and the difference between the two curves
         # would read as sensitivity to the bound. Costs R times the sweep, which is still a
         # fraction of one refit.
-        estimates = average_estimates(
+        estimates = median_estimates(
             [
                 estimator.retarget(
                     result.data,
@@ -797,10 +1372,24 @@ def truncation_curve(
                 )[0]
                 for repeat in result.repeats
             ],
-            cluster=result.data.cluster,
         )
-        for name, estimate in estimates.items():
+        # A retarget of `ey` answers every arm, and a fit narrowed to one arm asked for
+        # one row. Dropping the extra names is the ordinary case; missing a requested one
+        # is an internal inconsistency, so it is raised rather than silently omitted.
+        missing = [name for name in reported if name not in estimates]
+        if missing:
+            raise RuntimeError(
+                f"retargeting at bounds {pair} reported {sorted(estimates)}, which leaves "
+                f"{missing} of the requested parameters {list(reported)} unanswered"
+            )
+        # One truncation load per bound pair: it reads the pair and the mechanism flag,
+        # and nothing that varies between the parameters sharing that pair.
+        truncated_fraction = _clipped_fraction(result, pair, mechanism)
+        for name in reported:
+            estimate = estimates[name]
             low, high = estimate.ci
+            fitted_lower, fitted_upper = pairs[name]
+            reference = fitted_psi[name]
             rows.append(
                 {
                     "bound": lower,
@@ -809,8 +1398,15 @@ def truncation_curve(
                     "std_err": estimate.std_error,
                     "ci_lower": low,
                     "ci_upper": high,
-                    "truncated_fraction": _clipped_fraction(result, lower, mechanism),
-                    "is_fitted_bound": bool(np.isclose(lower, fitted_bound, atol=1e-9)),
+                    "truncated_fraction": truncated_fraction,
+                    "is_fitted_bound": pair == (fitted_lower, fitted_upper),
+                    # Additive metadata follows the legacy columns so positional consumers
+                    # retain the order they saw before the fitted-reference contract grew.
+                    "upper_bound": upper,
+                    "fitted_lower_bound": fitted_lower,
+                    "fitted_upper_bound": fitted_upper,
+                    "fitted_psi": reference,
+                    "delta_from_fitted": float(estimate.psi - reference),
                 }
             )
 
@@ -818,11 +1414,87 @@ def truncation_curve(
     return result.data.frame_like(payload)
 
 
-def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
-    """Share of nuisance values the bound would clip, for whichever bound is swept."""
+def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]:
+    """The reported parameters an ``estimands=`` request selects, in report order.
+
+    A reported parameter selects its own row.  A registered target name selects every
+    reported alias of that target, because the two spellings coincide only on a two-armed
+    fit: ``estimands=["ey"]`` has to keep working on a fit that reports ``ey[low]``,
+    ``ey[medium]`` and ``ey[high]``, where the target is the name a caller has.
+
+    Every other name is refused here, before the first retarget.  It has no fitted pair
+    and no fitted estimate, so every row it would fill is undefined.  A typed arm label
+    the fit does not carry, such as ``ey[nope]``, is one of those: it is not stemmed back
+    to ``ey`` and answered with the whole target.  An empty request is refused for the
+    same reason, and at the same point, because it names no row for the sweep to emit.
+    """
+    requested = tuple(dict.fromkeys(estimands))
+    if not requested:
+        raise CapabilityError(
+            "estimands= selected no parameter; pass at least one of "
+            f"{list(reported_targets)}, or None for every parameter this fit reported"
+        )
+    targets = [
+        name for name in dict.fromkeys(reported_targets.values()) if name not in reported_targets
+    ]
+    unknown = [
+        name
+        for name in requested
+        if name not in reported_targets and name not in reported_targets.values()
+    ]
+    if unknown:
+        also = f"; or a target name whose reported arms it selects: {targets}" if targets else ""
+        raise CapabilityError(
+            f"parameter(s) {unknown} were not reported by this fit; "
+            f"choose from {list(reported_targets)}{also}"
+        )
+    selected = [
+        alias
+        for name in requested
+        for alias in (
+            (name,)
+            if name in reported_targets
+            else tuple(a for a, target in reported_targets.items() if target == name)
+        )
+    ]
+    return tuple(dict.fromkeys(selected))
+
+
+def _target_name(result: TMLEResult, name: str) -> str:
+    """Registered target for one reported alias, with a legacy-result fallback."""
+    # The mapping is a dataclass field and always exists, but a raw estimator result
+    # leaves it empty. The stem is that path's answer, and it is the only one available.
+    keys = result.parameter_keys
+    key = keys.get(name) if keys else None
+    return key.estimand if key is not None else parameter_stem(name)
+
+
+def _fitted_bound_pair(result: TMLEResult, target: str, *, mechanism: bool) -> tuple[float, float]:
+    """The fitted mechanism pair applicable to one registered target."""
+    if mechanism:
+        return float(result.config.missingness_bound), 1.0
+    group = TARGETS[target].group
+    return g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
+
+
+def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:
+    """Share of the nuisance the bound would clip, for whichever bound is swept.
+
+    The treatment branch asks :meth:`~cleverly.estimators._nuisance.Propensity.truncate`
+    and reports the share of **units** it moves at ``pair``.  A unit is one row of the
+    mechanism, and one binding denominator is enough to make that row use a bounded
+    rather than fitted mechanism value.  The share therefore belongs to the pair it was
+    evaluated at, and it
+    equals the :func:`positivity_report` figure only at that report's own pair.  A
+    continuous treatment fits no arms at all, and the share is ``nan`` there rather than
+    a claim that the bound moved nothing.
+
+    The mechanism branch has one column per arm as well, but its bound is applied cell by
+    cell and is reported that way.
+    """
     if not mechanism:
-        divisor = np.asarray(result.nuisance.propensity.values, dtype=float)
-        return float(np.mean((divisor < lower) | (divisor > 1.0 - lower)))
+        return result.nuisance.propensity.truncate(pair).fraction
+    lower, upper = pair
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
     # the array directly counts the wrong tail and reports a mirror-inverted fraction.
@@ -837,4 +1509,5 @@ def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> floa
     parts = [
         np.asarray(values, dtype=float).reshape(-1) for values in candidates if values is not None
     ]
-    return float(np.mean(np.concatenate(parts) < lower))
+    divisor = np.concatenate(parts)
+    return float(np.mean((divisor < lower) | (divisor > upper)))

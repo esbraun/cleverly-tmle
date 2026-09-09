@@ -12,7 +12,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing as ordinary
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = ordinary.PRIMARY_REPLICATES
 PRIMARY_N = ordinary.PRIMARY_N
@@ -77,7 +77,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:

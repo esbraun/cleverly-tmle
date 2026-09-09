@@ -80,15 +80,17 @@ other the way they can on the arm-indexed path, because :math:`\hat g` is in the
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import Any, ClassVar
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import effective_sample_size
+from ..data.weighting import SCORE_LOAD_PREDATES, effective_sample_size, format_score_load
 from ..exceptions import DataError
+from ..utils.records import _DefaultingUnpickle
+from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
 
@@ -465,7 +467,7 @@ def _tilt(
 
 
 @dataclass(frozen=True)
-class IncrementalSupport:
+class IncrementalSupport(_DefaultingUnpickle):
     """Overlap for one tilt -- which for this estimand is a statement, not a warning.
 
     The clever covariate is bounded by :math:`\\delta` and :math:`1/\\delta` however small
@@ -473,6 +475,18 @@ class IncrementalSupport:
     and ``max_ratio`` is what it delivered.  The two agreeing is the normal case; the
     report exists so that a reader can see the effective sample size stay near :math:`n`
     where an arm-indexed fit's would have collapsed.
+
+    This row is hashable and its two siblings are not, and that difference is deliberate.
+    :class:`~cleverly.interventions.RegimeSupport` and
+    :class:`~cleverly.interventions.ShiftSupport` carry quantile mappings that are part of
+    what makes one of their rows different from another, so neither has ever had a hash.
+    This row's identity is the declared tilt and what the data did with it, all of which
+    was hashable until :attr:`score_load` was added.  That field holds a ``dict``, so
+    adding it made every *fitted* row of this class raise ``TypeError: unhashable type:
+    'dict'`` while an omitted row, whose field is ``None``, still hashed.  Declaring the
+    field ``hash=False`` restores the hash rather than preserving one.  ``compare=False``
+    would have gone too far: two tilts that differ only in their fitted score load are
+    different rows and still compare unequal, and only the ``dict`` leaves the hash.
 
     Parameters
     ----------
@@ -492,6 +506,14 @@ class IncrementalSupport:
         Kish effective sample size of those weights.
     ess_ratio : float
         That size as a share of ``n``.
+    score_load : _InterventionLoadRow or None
+        Concentration of the exact absolute score weights retained for this tilt's
+        outcome equation, and the cross-fitting draw it describes. ``None`` means the artifact
+        did not supply a usable column. The twelve keys are ``equation``, ``n_total``,
+        ``n_targeted``, ``effective``, ``targeted_ratio``, ``total_ratio``, ``top_1pct``,
+        ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
+    score_load_omission : str or None
+        Machine-readable reason why :attr:`score_load` is unavailable.
     """
 
     name: str
@@ -505,6 +527,13 @@ class IncrementalSupport:
     max_ratio: float
     effective_sample_size: float
     ess_ratio: float
+    #: Kept out of the generated ``__hash__`` and left in ``__eq__``, which is what gives
+    #: this class its hash back.  The class docstring says what adding the field broke and
+    #: why the siblings are unhashable for a different reason.
+    score_load: _InterventionLoadRow | None = field(default=None, hash=False)
+    score_load_omission: str | None = None
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -515,16 +544,22 @@ class IncrementalSupport:
             A printable table, one line per row of the report.
         """
         low, high = self.guaranteed
+        score = format_score_load(self.score_load, style="inline")
         return (
             f"{self.name}: min g(1|W)={self.min_propensity:.3g}, "
             f"covariate in [{low:.3g}, {high:.3g}] by construction, "
             f"max={self.max_ratio:.3g}, "
-            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n)"
+            f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), {score}"
         )
 
 
 def check_incremental_support(
-    tilts: IPSISet, treatment: FloatArray
+    tilts: IPSISet,
+    treatment: FloatArray,
+    *,
+    absolute_score_weights: FloatArray | None = None,
+    equations: tuple[str, ...] = (),
+    n_repeats: int = 1,
 ) -> dict[str, IncrementalSupport]:
     """Per-tilt overlap, in the vocabulary the other two axes' reports use.
 
@@ -539,6 +574,12 @@ def check_incremental_support(
         The evaluated tilts to report on.
     treatment : ndarray
         ``(n,)`` observed treatment, in arm codes.
+    absolute_score_weights : ndarray or None
+        Fitted ``abs(w_i * H_ij)`` columns, in tilt order. ``None`` records an omission.
+    equations : tuple of str
+        Fitted outcome score-equation names, in tilt order.
+    n_repeats : int
+        Number of stored cross-fitting draws. The retained weights describe draw 1.
 
     Returns
     -------
@@ -547,6 +588,10 @@ def check_incremental_support(
     """
     observed = tilts.observed(treatment)
     n = observed.shape[0]
+    labels = tuple(tilts.names)
+    score_loads, load_omission = _intervention_loads(
+        labels, absolute_score_weights, equations, n, n_repeats
+    )
     out: dict[str, IncrementalSupport] = {}
     for index, name in enumerate(tilts.names):
         delta = tilts.deltas[index]
@@ -560,5 +605,7 @@ def check_incremental_support(
             max_ratio=float(column.max()) if column.size else 0.0,
             effective_sample_size=ess,
             ess_ratio=ess / n if n else 0.0,
+            score_load=score_loads.get(name),
+            score_load_omission=load_omission,
         )
     return out

@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import re
 
+from tests.studies.evidence.property_verdicts import (
+    UNION_MODEL_FAMILIES,
+    UNION_MODEL_SE_BAND,
+)
+
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
@@ -55,6 +60,8 @@ ARMS: dict[str, str] = {
     "rule": "covariate-dependent rule",
     "shift": "capped modified treatment policy",
     "tilt": "known stochastic tilt",
+    "z0": "controlled direct effect at intermediate level zero",
+    "z1": "controlled direct effect at intermediate level one",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -90,6 +97,8 @@ _TERM = re.compile(
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
+    "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
+    "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
@@ -98,6 +107,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
+    "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
+    "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
     "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
@@ -105,12 +116,20 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-drtmle": "`cleverly` multi-arm DR-TMLE",
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
+    "cleverly-weighted-tmle": "`cleverly` weighted point-treatment TMLE",
+    "cleverly-weighted-ltmle": "`cleverly` ordinary weighted LTMLE",
+    "cleverly-cross-fitted-weighted-ltmle": "`cleverly` cross-fitted weighted LTMLE",
+    "cleverly-learned-weighted-tmle": (
+        "`cleverly` weighted point-treatment TMLE with learned nuisances"
+    ),
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
     "ltmle": "R `ltmle`",
+    "ltmle-weighted": "R `ltmle` with observation weights",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
     "lmtp": "R `lmtp`",
+    "lmtp-weighted": "R `lmtp` with observation weights",
     "npcausal": "R `npcausal`",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
@@ -119,6 +138,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
+    "tmle-r-cde": "R `tmle` controlled direct-effect path",
+    "tmle-r-weighted": "R `tmle` with observation weights",
+    "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
+    "zepid-single-crossfit-tmle": "Python `zEpid` single-crossfit TMLE",
 }
 
 
@@ -128,6 +151,9 @@ SCENARIOS: dict[str, str] = {
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
     "censored_end_of_study": "two-time-point law with monotone censoring",
+    "selected_censored_end_of_study": (
+        "selected two-time-point law with monotone censoring and fixed observation weights"
+    ),
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_competing_risk_curve": (
@@ -137,18 +163,27 @@ SCENARIOS: dict[str, str] = {
         "two-time-point law with monotone censoring and four projected treatment plans"
     ),
     "continuous": "bounded continuous-outcome law with effect modification",
+    "clustered_continuous": (
+        "continuous-outcome law with ten rows per cluster and shared effect modification"
+    ),
     "bounded_continuous_projection": (
         "bounded continuous-outcome law with an unsaturated working model"
     ),
     "both_correct": "paper binary law, both nuisances correct",
     "outcome_correct": "paper binary law, outcome regression correct",
     "treatment_correct": "paper binary law, treatment mechanism correct",
+    "binary_biased_sample": "binary-outcome law sampled with unequal selection probabilities",
+    "binary_cde_z0_mar": "binary-outcome MAR observed law, intervention sets the intermediate to zero",
+    "binary_cde_z1_mar": "binary-outcome MAR observed law, intervention sets the intermediate to one",
     "binary_dynamic_rule": "binary-outcome law with a covariate-dependent deterministic rule",
     "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
+    "continuous_selected_weighted_nuisances": (
+        "continuous-outcome law selected by a covariate-dependent density"
+    ),
     "multi_arm_binary": "three-arm binary-outcome law",
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
     "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
@@ -221,6 +256,13 @@ PROPERTIES: dict[str, str] = {
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
     ),
+    "cde_robustness": (
+        "controlled direct-effect TMLE stays consistent when the outcome regression is correct "
+        "or when all three mechanisms are correct"
+    ),
+    "clustered_inference": (
+        "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
+    ),
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
@@ -248,6 +290,9 @@ PROPERTIES: dict[str, str] = {
         "the reported standard error and the exact coverage both sit inside their declared "
         "two-sided calibration bands"
     ),
+    "learner_weight_necessity": (
+        "both nuisance learners use the fixed weights that define the target population"
+    ),
     "mechanism_requirement": (
         "the treatment mechanism must be correct because it defines the incremental parameter"
     ),
@@ -264,6 +309,9 @@ PROPERTIES: dict[str, str] = {
     "projection_necessity": (
         "the declared projection measure determines the coefficient rather than an implicit "
         "uniform measure"
+    ),
+    "repeat_stability": (
+        "three fold draws reduce the ATE's sensitivity to the realized fold assignment"
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
     "robustness_contract": (
@@ -289,11 +337,84 @@ PROPERTIES: dict[str, str] = {
         "incremental inference includes the influence-curve derivative through the treatment mechanism"
     ),
     "type_i_error": "under a confounded sharp null the test rejects no more often than its nominal size",
+    "weight_necessity": (
+        "fixed inverse-selection weights recover the population target from the selected law"
+    ),
 }
 
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("cde_robustness", "all_correct"): (
+        "the outcome regression and all three mechanisms are correct",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "outcome_correct"): (
+        "the outcome regression is correct and all three mechanisms are wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "mechanisms_correct"): (
+        "all three mechanisms are correct and the outcome regression is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("cde_robustness", "treatment_wrong"): (
+        "only the treatment mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "intermediate_wrong"): (
+        "only the intermediate mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("cde_robustness", "observation_wrong"): (
+        "only the observation mechanism is wrong beside a wrong outcome regression",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("clustered_inference", "cluster_robust"): (
+        "five-fold point-treatment TMLE with cluster-robust ATE inference",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control"): (
+        "the identical rows, point estimates, and influence curves treated as independent",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("weight_necessity", "weighted"): (
+        "the selected sample analyzed with its fixed inverse-selection weights",
+        "population-target bias interval inside the equivalence margin",
+    ),
+    ("weight_necessity", "omitted_control"): (
+        "the identical selected rows analyzed without their inverse-selection weights",
+        "population-target bias outside its margin and selected-target bias inside its margin",
+    ),
+    ("weight_necessity", "omitted_weight_control"): (
+        "the identical selected rows analyzed without any observation weights",
+        "population-target bias outside its margin, selected-target bias inside its margin, "
+        "and paired displacement above its threshold",
+    ),
+    ("learner_weight_necessity", "weighted_targeted"): (
+        "the weighted nuisance fits followed by weighted targeting and averaging",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "unweighted_targeted"): (
+        "nuisance fits omit weights, while targeting and averaging retain them",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "weighted_plugin"): (
+        "the untargeted plug-in from both weighted nuisance fits",
+        "target-population bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "unweighted_plugin_control"): (
+        "the untargeted plug-in from nuisance fits that omit weights",
+        "target bias outside its margin, selected-population bias inside its margin, and paired displacement above its threshold",
+    ),
+    ("learner_weight_necessity", "weighted_learners"): (
+        "sampling weights enter nuisance learning, targeting, averaging, and covariance",
+        "population-target bias interval inside the equivalence margin",
+    ),
+    ("learner_weight_necessity", "discarded_learner_weight_control"): (
+        "nuisance learners discard sampling weights while later estimator stages retain them",
+        "population-target bias outside its margin, learner-selected-target bias inside its "
+        "margin, and paired displacement above its threshold",
+    ),
     ("corrected_mar_inference", "both_correct"): (
         "the outcome regression and observation mechanism are correctly specified",
         "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",
@@ -324,6 +445,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("crossfit_overfitting", "fold_evaluated_cvtmle"): (
         "fold-evaluated CV-TMLE with a flexible learner",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("crossfit_overfitting", "fold_targeted_cvtmle"): (
+        "fold-targeted CV-TMLE with a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("crossfit_overfitting", "stacked_cvtmle"): (
@@ -456,6 +581,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "both nuisances are correctly specified",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
+    ("interval_calibration", "treatment_correct"): (
+        "the randomized treatment mechanism is correct while the outcome regression omits effect modification",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
     ("interval_calibration", "shrunken_se_control"): (
         "the reported standard errors are multiplied by a declared factor below one",
         "the SE-ratio interval must fall below the calibration band",
@@ -467,6 +596,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
+    ),
+    ("repeat_stability", "three_repeats"): (
+        "the median ATE over three fold draws across labelled base seeds",
+        "the paired spread-ratio upper endpoint must fall below the declared boundary",
+    ),
+    ("repeat_stability", "one_repeat_control"): (
+        "the ATE from each repeated fit's first actual fold draw",
+        "the paired spread-ratio upper endpoint must fall below the declared boundary",
     ),
     ("projection_necessity", "declared_weights"): (
         "the working model uses its declared nonuniform projection weights",
@@ -657,6 +794,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "a confounded law whose true contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
+    ("type_i_error", "target_null"): (
+        "a selected law whose weighted target contrast is exactly zero",
+        "one-sided rejection bound stays under the declared type-I ceiling",
+    ),
 }
 
 
@@ -781,7 +922,12 @@ def claim(family: str) -> str:
 
 
 def cell(
-    family: str, key: str, *, exact_efficiency: bool = False, role: str | None = None
+    family: str,
+    key: str,
+    *,
+    exact_efficiency: bool = False,
+    role: str | None = None,
+    nuisance_count: int = 2,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -805,9 +951,22 @@ def cell(
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
         tested = f"{tested}, at n = {int(size.group('size')):,}"
+    if family == "interval_calibration" and base == "correctly_specified":
+        if nuisance_count == 2:
+            tested = "both nuisances are correctly specified"
+        else:
+            words = {3: "three", 4: "four"}
+            count = words.get(nuisance_count, str(nuisance_count))
+            tested = f"all {count} required nuisance functions are correctly specified"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
+    if family == "interval_calibration" and base == "noise_control" and not exact_efficiency:
+        tested = "a declared scale of independent noise is added to each estimate"
+        required = "the SE-ratio interval must fall below the calibration band"
+    if family in UNION_MODEL_FAMILIES and family != "double_robustness":
+        low, high = UNION_MODEL_SE_BAND
+        required += f", SE ratio must remain between {low} and {high}"
     if family == "targeting_necessity" and arm is not None:
         if arm.group("arm") == "mechanism":
             tested = (

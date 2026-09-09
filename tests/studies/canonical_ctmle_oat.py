@@ -13,9 +13,9 @@ from cleverly._typing import EstimandName
 from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_tmle import draw_for
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.seeds import draw_replicate
 
 CTMLE3_COMMIT = "a4ea77b07747dfee9b2eecb9cbca88262e0559ea"
 TMLE3_COMMIT = "3a610058cd89c17bb417c15fc891254388787f33"
@@ -90,7 +90,7 @@ CONFIGURATION = {
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:

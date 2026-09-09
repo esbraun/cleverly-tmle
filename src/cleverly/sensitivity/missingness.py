@@ -187,15 +187,14 @@ def missingness_tilt(
     for value in grid:
         for parameter in parameters:
             name = parameter.name
-            # Averaged over the cross-fitting draws, as the fit's own report was. Each
+            # Combined over the cross-fitting draws, as the fit's own report was. Each
             # draw has its own targeted Qbar and its own missingness mechanism, and the
             # tilt is a function of both, so a tilt read off one draw would sit at a
             # different level from the psi at gamma = 0 that the fit reported -- the curve
             # would step at its own origin. Every estimand here is a level or a
-            # difference, so the plain mean is the right average; there is no ratio to
-            # take on the log scale.
+            # difference, so the median is taken on the reported scale.
             psi = float(
-                np.mean(
+                np.median(
                     [
                         _tilted_psi(result, repeat, parameter, value, direction)
                         for repeat in result.repeats
@@ -357,8 +356,8 @@ def tipping_gamma(
 
     Returns
     -------
-    float
-        The tilt at which the conclusion reaches its null, or ``nan`` when no tilt
+    float or None
+        The tilt at which the conclusion reaches its null, or ``None`` when no tilt
         inside ``search`` does.
     """
     from scipy import optimize

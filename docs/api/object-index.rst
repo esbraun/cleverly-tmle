@@ -18,6 +18,8 @@ categorized API tables.
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.longitudinal.LongitudinalResult
+   cleverly.fluctuation.Fluctuation
+   cleverly.fluctuation.FoldFluctuation
    cleverly.ParameterKey
    cleverly.Provenance
    cleverly.ATE
@@ -50,6 +52,7 @@ categorized API tables.
    cleverly.MethodAvailability
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
+   cleverly.AssessmentReport
    cleverly.AssessmentStatus
    cleverly.DiagnosticReport
    cleverly.ValidationReport
@@ -99,6 +102,10 @@ categorized API tables.
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
    cleverly.sensitivity.BenchmarkResult
+   cleverly.sensitivity.ConfounderStrengthGrid
+   cleverly.sensitivity.ObservedConfounderCalibration
+   cleverly.sensitivity.SimulatedConfoundingCell
+   cleverly.sensitivity.SimulatedConfoundingResult
    cleverly.sensitivity.EValue
    cleverly.sensitivity.positivity_report
    cleverly.sensitivity.truncation_curve
@@ -108,11 +115,21 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
+   cleverly.sensitivity.simulated_confounding
    cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck
    cleverly.validation.ScoreCheckRow
    cleverly.validation.NuisanceDiagnostics
    cleverly.validation.NuisanceModelReport
+   cleverly.validation.RepeatSpreadRow
+   cleverly.validation.GaussianNoise
+   cleverly.validation.GaussianIndependentOutcome
+   cleverly.validation.GaussianAdjustmentOutcome
+   cleverly.validation.RelativeGaussianNoise
+   cleverly.validation.BootstrapMeasurementError
+   cleverly.validation.EmpiricalInclusionRule
+   cleverly.validation.EmpiricalRefitRecord
+   cleverly.validation.GeneratedOutcomeRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
    cleverly.validation.CoverageStudy

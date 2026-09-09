@@ -18,7 +18,7 @@ from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
@@ -169,8 +169,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int):  # type: ignore[no-untyped-def]
-    seed = replicate_seed(STUDY, scenario, replicate)
-    return draw_from_seed(scenario, n, seed)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:

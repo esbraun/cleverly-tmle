@@ -10,7 +10,7 @@ from tests.studies.cvtmle_properties import generate, summarize
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return generate(STUDY, "stacked", n_jobs=n_jobs)
+    return generate("stacked", n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

@@ -1,0 +1,81 @@
+name: publish
+
+on:
+  push:
+    tags: ["v0.1.*"]
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Match the tag, package version, and reviewed main history
+        run: |
+          python scripts/check_release.py "$GITHUB_REF_NAME"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+          extra: dev
+      - run: python -m build
+      - run: python -m twine check --strict dist/*
+      - run: python scripts/check_distribution.py dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/cleverly
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-distributions
+          path: dist/
+      # pypa/gh-action-pypi-publish v1.14.2 from the official upstream repository.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cleverly
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-distributions
+          path: dist/
+      # pypa/gh-action-pypi-publish v1.14.2 from the official upstream repository.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33

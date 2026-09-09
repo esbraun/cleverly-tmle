@@ -24,6 +24,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from cleverly.data import CausalData
 from cleverly.fluctuation import (
     InitialFit,
     att_submodel,
@@ -46,6 +47,7 @@ from cleverly.inference import (
     multiplier_critical_value,
     normal_ci,
     ratio_estimates,
+    run_bootstrap,
     simultaneous_bands,
     two_sided_pvalue,
 )
@@ -330,6 +332,40 @@ class TestParameterEstimate:
             log_psi=0.0,
         )
         assert estimate.pvalue == pytest.approx(1.0)
+
+    def test_inference_value_centralizes_additive_and_ratio_scales(self) -> None:
+        additive = make_estimate("ate", 0.4, np.zeros(10), n=10)
+        ratio = ParameterEstimate(
+            name="rr",
+            psi=float(np.exp(0.5)),
+            influence_curve=np.zeros(10),
+            variance=0.0,
+            n=10,
+            n_clusters=10,
+            scale="ratio",
+            log_psi=0.5,
+        )
+
+        assert additive.inference_value == additive.psi
+        assert ratio.inference_value == ratio.log_psi == 0.5
+
+    def test_ratio_inference_value_refuses_a_missing_log_estimate(self) -> None:
+        estimate = ParameterEstimate(
+            name="rr",
+            psi=2.0,
+            influence_curve=np.zeros(10),
+            variance=0.0,
+            n=10,
+            n_clusters=10,
+            scale="ratio",
+        )
+
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.inference_value
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.ci
+        with pytest.raises(ValueError, match="requires log_psi"):
+            _ = estimate.pvalue
 
     def test_to_dict_carries_the_reported_numbers(self) -> None:
         estimate = make_estimate("ate", 0.4, np.random.default_rng(0).normal(size=100), n=100)
@@ -974,10 +1010,90 @@ class TestBootstrapResampling:
         assert counts.sum() == 30
         assert drawn.size <= 6
 
+    def test_fixed_seed_cluster_indices_do_not_move(self) -> None:
+        codes = np.array([0, 0, 1, 2, 2, 2, 3, 3])
+        index = bootstrap_indices(8, codes, np.random.default_rng(137))
+        np.testing.assert_array_equal(index, [2, 6, 7, 0, 1, 2])
+
+    def test_cluster_samples_code_each_unbalanced_occurrence(self) -> None:
+        source_codes = np.repeat(np.arange(4), [2, 3, 5, 7])
+        row_ids = np.arange(source_codes.size)
+        data = CausalData.from_arrays(
+            outcome=np.linspace(-1.0, 1.0, source_codes.size),
+            treatment=row_ids % 2,
+            covariates=row_ids,
+            id=source_codes,
+        )
+        samples: list[CausalData] = []
+        result = run_bootstrap(
+            data,
+            lambda sample: samples.append(sample) or {"ate": 0.0},
+            n_replicates=4,
+            resampling="cluster",
+            random_state=17,
+        )
+        expected_sources = ((3, 2, 3, 2), (1, 0, 1, 0), (3, 1, 2, 3), (0, 3, 1, 0))
+        source_rows = tuple(np.flatnonzero(source_codes == code) for code in range(4))
+
+        assert result.resampling == "cluster"
+        assert len(samples) == len(expected_sources)
+        for sample, drawn in zip(samples, expected_sources, strict=True):
+            expected_rows = np.concatenate([source_rows[source] for source in drawn])
+            expected_codes = np.concatenate(
+                [
+                    np.full(source_rows[source].size, occurrence)
+                    for occurrence, source in enumerate(drawn)
+                ]
+            )
+            # Every fixed-seed draw repeats a source cluster. The repeated copies must
+            # remain separate bootstrap clusters and retain their complete source rows.
+            assert len(set(drawn)) < len(drawn)
+            np.testing.assert_array_equal(sample.covariates[:, 0], expected_rows)
+            np.testing.assert_array_equal(sample.cluster, expected_codes)
+            assert np.unique(sample.cluster).size == len(source_rows)
+            occurrence_sizes = np.bincount(sample.cluster)
+            assert len(set(occurrence_sizes.tolist())) > 1
+            for occurrence, source in enumerate(drawn):
+                np.testing.assert_array_equal(
+                    sample.covariates[sample.cluster == occurrence, 0], source_rows[source]
+                )
+
+    def test_forced_iid_sampling_keeps_source_cluster_identity(self) -> None:
+        source_codes = np.repeat(np.arange(4), 3)
+        row_ids = np.arange(source_codes.size)
+        data = CausalData.from_arrays(
+            outcome=np.linspace(-1.0, 1.0, source_codes.size),
+            treatment=row_ids % 2,
+            covariates=row_ids,
+            id=source_codes,
+        )
+        samples: list[CausalData] = []
+        run_bootstrap(
+            data,
+            lambda sample: samples.append(sample) or {"ate": 0.0},
+            n_replicates=2,
+            resampling="iid",
+            random_state=23,
+        )
+        sequences = np.random.SeedSequence(23).spawn(2)
+        indices = tuple(
+            np.random.default_rng(sequence).integers(0, data.n, size=data.n, dtype=np.int64)
+            for sequence in sequences
+        )
+
+        for sample, index in zip(samples, indices, strict=True):
+            expected_codes = np.unique(source_codes[index], return_inverse=True)[1]
+            np.testing.assert_array_equal(sample.covariates[:, 0], index)
+            np.testing.assert_array_equal(sample.cluster, expected_codes)
+
     def test_without_clusters_it_is_an_ordinary_resample(self) -> None:
         index = bootstrap_indices(50, None, np.random.default_rng(0))
         assert index.shape == (50,)
         assert index.min() >= 0 and index.max() < 50
+
+    def test_fixed_seed_iid_indices_do_not_move(self) -> None:
+        index = bootstrap_indices(8, None, np.random.default_rng(137))
+        np.testing.assert_array_equal(index, [3, 6, 1, 2, 6, 3, 1, 5])
 
 
 class TestUnscaling:

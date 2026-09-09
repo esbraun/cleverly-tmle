@@ -1,12 +1,11 @@
 """A three-armed fit end to end: does it recover the truth, and does the rest still work?
 
-Split by cost, following the project's rule that the fast tier buys exactness where it
-can.  The deterministic structural claims -- that a contrast equals the difference of the
+The fast suite buys exactness where it can. The deterministic structural claims -- that a
+contrast equals the difference of the
 means it contrasts, that a round trip changes nothing, that every cross-fitting scheme
 produces the same parameters -- are checked here on a single fit and fail deterministically.
-The one claim that genuinely needs replication, *consistency*, is a ``slow`` study: a
-single fit cannot distinguish an estimator that is unbiased from one that is off by half a
-standard error, and pretending otherwise with one seed would be a coin flip.
+The consistency claim needs replication and belongs in the registered multi-arm study. A single
+fit cannot distinguish an unbiased estimator from one that is off by half a standard error.
 """
 
 from __future__ import annotations
@@ -17,10 +16,12 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import load
+from cleverly import AssessmentStatus, CounterfactualMean, PointTreatment, load
 from cleverly._typing import FloatArray
 from cleverly.datasets import MultiArmDGP, make_multi_arm, multi_arm_dgp
 from cleverly.estimators import TMLE
+from cleverly.exceptions import CapabilityError
+from cleverly.study import CausalStudy
 
 #: Every parameter a default three-armed fit reports, and its population value.
 TRUTH = multi_arm_dgp().truth()
@@ -143,8 +144,91 @@ class TestTheRestOfTheStackStillWorks:
         )
 
     def test_the_truncation_curve_sweeps_a_multi_arm_fit(self, fit) -> None:
-        frame = fit.diagnostics.truncation_curve(bounds=[0.01, 0.05])
-        assert len(frame) > 0
+        frame = fit.diagnostics.truncation_curve(bounds=[fit.config.g_bounds[0]])
+        assert set(frame["estimand"]) == set(fit.estimates)
+        assert frame["is_fitted_bound"].all()
+        assert set(zip(frame["fitted_lower_bound"], frame["fitted_upper_bound"], strict=True)) == {
+            fit.config.g_bounds
+        }
+        for row in frame.itertuples(index=False):
+            assert row.fitted_psi == fit.psi(row.estimand)
+            assert row.delta_from_fitted == pytest.approx(0.0, abs=1e-12)
+
+    def test_the_truncation_load_counts_units_and_matches_the_support_report(self, fit) -> None:
+        """One share of units, reported by both instruments **at one bound pair**.
+
+        The curve used to divide the clipped cells by ``n * K``, so a three-armed fit
+        understated the load by about a factor of three. The support report already
+        counted units, and the two now count the same thing.
+
+        They agree here because every parameter this fit reports is evaluated at
+        ``config.g_bounds``, which is the pair the report reads. A fit that also reports a
+        conditional-group parameter evaluates that row at ``config.g_bounds_conditional``
+        instead, and the two numbers then differ. ``TestBoundsAndScaling`` in
+        ``tests/e2e/test_variants.py`` holds that witness.
+        """
+        curve = fit.diagnostics.truncation_curve(bounds=[fit.config.g_bounds[0]])
+        loads = set(curve["truncated_fraction"])
+        clipped = fit.nuisance.propensity.truncate(fit.config.g_bounds).clipped
+
+        # The condition the agreement rests on: no reported parameter here takes the
+        # conditional pair, so every row is evaluated where the report is.
+        assert set(zip(curve["fitted_lower_bound"], curve["fitted_upper_bound"], strict=True)) == {
+            fit.config.g_bounds
+        }
+        assert len(loads) == 1
+        assert loads.pop() == pytest.approx(fit.diagnostics.support().truncated["fraction"])
+        # The per-cell share is the number the curve used to report, and it is smaller.
+        assert float(np.mean(clipped)) < fit.diagnostics.support().truncated["fraction"]
+
+    def test_selecting_estimands_selects_the_rows(self, fit) -> None:
+        """``ey`` retargets every arm, and the caller asked for one of them.
+
+        The row loop iterated the retarget's own output, so a request for one arm was
+        answered with all three. It now iterates the request.
+        """
+        curve = fit.diagnostics.truncation_curve(
+            bounds=[0.01, 0.05], estimands=["ey[medium]", "ate[low vs high]"]
+        )
+
+        assert curve["estimand"].to_list() == [
+            "ey[medium]",
+            "ate[low vs high]",
+            "ey[medium]",
+            "ate[low vs high]",
+        ]
+
+    def test_a_target_name_selects_every_arm_the_fit_reports_of_it(self, fit) -> None:
+        """``estimands=["ey"]`` is the call a binary fit teaches, and it has to survive.
+
+        The refusal added with the row restriction accepted reported parameters alone, so
+        ``ey`` -- which no multi-arm fit reports under that spelling -- began raising
+        ``CapabilityError`` on the fit where the target name is the only name a caller
+        holds. The break was invisible on a two-armed fit, where the target and its one
+        reported alias are spelled alike.
+        """
+        curve = fit.diagnostics.truncation_curve(bounds=[0.05], estimands=["ey"])
+
+        # Every arm of that target and of no other, in the order the fit reports them.
+        arms = [name for name in fit.estimates if name.startswith("ey[")]
+        assert set(arms) == {"ey[low]", "ey[medium]", "ey[high]"}
+        assert curve["estimand"].to_list() == arms
+
+    def test_a_name_that_is_neither_a_parameter_nor_a_target_is_refused(self, fit) -> None:
+        """A typed arm the fit does not carry is not stemmed to the target that exists."""
+        for name in ("ey[nope]", "att"):
+            with pytest.raises(CapabilityError, match="were not reported by this fit"):
+                fit.diagnostics.truncation_curve(bounds=[0.05], estimands=[name])
+
+    def test_an_empty_selection_is_refused_before_the_sweep(self, fit, monkeypatch) -> None:
+        """The empty request used to pay for the whole grid and then die at ``rows[0]``."""
+
+        def never(*args: object, **kwargs: object) -> object:
+            raise AssertionError("the sweep retargeted before it checked estimands=")
+
+        monkeypatch.setattr(type(fit.estimator), "retarget", never)
+        with pytest.raises(CapabilityError, match="selected no parameter"):
+            fit.diagnostics.truncation_curve(bounds=[0.05], estimands=[])
 
     def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
         """One bound per contrast, and the same one after a reload.
@@ -272,33 +356,41 @@ class TestTheReferenceIsPartOfTheEstimand:
             )
 
 
-@pytest.mark.legacy_study
-class TestConsistency:
-    """The claim a single fit cannot make: the estimator is unbiased for every arm.
+class TestOneArmSelectedOutOfAMultiArmTarget:
+    """``CounterfactualMean(treatment=...)`` narrows the result and not the estimator.
 
-    Averaged over replications and compared against the Monte Carlo standard error of
-    that average, which is the only comparison that distinguishes "unbiased" from "biased
-    by less than one standard error".  The outcome model is correctly specified by the
-    indicator design for this process (see :func:`~cleverly.datasets.multi_arm_dgp`), so
-    what remains after averaging is sampling error and nothing else.
+    ``result.estimates`` then holds one alias while the estimator still retargets every
+    arm of ``ey``. The truncation sweep emitted whatever the retarget returned and looked
+    each name up in the narrowed mapping, so the first unrequested arm raised a bare
+    ``KeyError`` and took ``run_all()`` down with it.
     """
 
-    REPLICATIONS = 60
-
     @pytest.fixture(scope="class")
-    def replicates(self) -> dict[str, np.ndarray]:
-        values: dict[str, list[float]] = {name: [] for name in TRUTH}
-        for replicate in range(self.REPLICATIONS):
-            result = _fit(n=600, seed=1000 + replicate)
-            for name in TRUTH:
-                values[name].append(result.estimates[name].psi)
-        return {name: np.asarray(v, dtype=float) for name, v in values.items()}
+    def narrowed(self):
+        frame, _ = make_multi_arm(n=400, seed=0)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+        )
+        return study.identify(CounterfactualMean(treatment="high")).estimate(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=0,
+            simultaneous=False,
+        )
 
-    @pytest.mark.parametrize("name", sorted(TRUTH))
-    def test_the_bias_is_within_monte_carlo_error(self, replicates, name: str) -> None:
-        draws = replicates[name]
-        bias = float(draws.mean()) - TRUTH[name]
-        monte_carlo = float(draws.std(ddof=1)) / np.sqrt(draws.size)
-        # Three Monte Carlo standard errors: wide enough that a consistent estimator
-        # passes reliably, narrow enough that a wrong arm denominator does not.
-        assert abs(bias) < 3.0 * monte_carlo, f"{name}: bias {bias:+.4f}, mcse {monte_carlo:.4f}"
+    def test_the_curve_emits_the_narrowed_alias_alone(self, narrowed) -> None:
+        assert list(narrowed.estimates) == ["ey[high]"]
+
+        curve = narrowed.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+
+        assert curve["estimand"].to_list() == ["ey[high]", "ey[high]"]
+        for row in curve.itertuples(index=False):
+            assert row.fitted_psi == narrowed.psi("ey[high]")
+
+    def test_the_combined_report_completes(self, narrowed) -> None:
+        combined = narrowed.diagnostics.run_all(include_retargets=True)
+        assert combined["truncation_curve"].status is not AssessmentStatus.UNAVAILABLE
+        assert "1 parameter(s)" in combined["truncation_curve"].detail

@@ -113,7 +113,7 @@ count.
 ```python
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
-from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
+from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 boosted = ModelSpec(
     outcome_learner=HistGradientBoostingRegressor(random_state=34),
@@ -279,54 +279,89 @@ reported curve has a nonzero score.
 
 ## How far to trust this
 
-Start with the fit's own diagnostics.
+Start with the fit's own diagnostic report. This page does not run the sensitivity battery because
+its question is cross-fitting behavior.
 
 ```python
-print(cross_fitted.diagnostics.nuisance_models().summary())
-print(cross_fitted.diagnostics.score_equations().summary())
-print(cross_fitted.validate().summary())
+diagnostics = cross_fitted.diagnostics.run_all()
+print(diagnostics.summary())
+print(diagnostics.report("nuisance_models").summary())
+print(diagnostics.report("support").summary())
 ```
 
 The nuisance report is the one that matters most here. It is computed out of fold, so it measures
 the models on patients they did not see. An in-sample version of the same report would flatter a
 gradient-boosted learner.
 
-Then the fold draw itself. One split is one draw, and a nervous analyst can average over several.
+The support row reports 1.0% truncation and a 25.2% minimum effective sample size, and completes
+without grading that ratio. Compare it with the in-sample fit above, which reports 91.6%. Nothing
+about the true assignment mechanism changed between the two. Cross-fitting neither caused this
+strain nor repaired it. It revealed it: an in-sample propensity predicts its own training rows, so
+the weights there collapse toward one and flatter the effective sample size.
+
+Read the 25.2% as a property of the estimated mechanism rather than of the population. A
+well-specified propensity on this same law would strain less. The overview warns on the nuisance
+models, which is the row this page is about, and the retained report gives the numbers behind both.
+Its largest clever covariate is about 83.
+
+Then the fold draw itself. One split is one draw. A nervous analyst can take the median of several.
 
 ```python
 repeated = effect.estimate(
     method=TMLEMethod(
         models=boosted,
         cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=3),
+        inference=Inference(simultaneous=False),
         runtime=Runtime(random_state=34, n_jobs=1),
     )
 )
 show("three fold draws", repeated, truth["ate"])
-print(repeated.repeat_spread())
+repeated_diagnostics = repeated.diagnostics.run_all()
+repeated_nuisance = repeated_diagnostics.report("nuisance_models")
+print(repeated_nuisance.repeat_spread_frame())
 ```
 
-`repeats=` is the same estimator over several draws rather than a new estimator. `repeat_spread()`
-reports how much the answer moved between draws. A large spread says the fold draw is doing work
-that the sample size should be doing.
+`repeats=` is the same estimator over several draws rather than a new estimator. It reports the
+median point and includes split displacement in the variance. The retained nuisance report gives
+the spread of each parameter across draws, the reported standard error, and their ratio.
+
+Both the spread and the standard error are on the inference scale, which is the log scale for a
+ratio. The ratio therefore divides two like quantities. The report defines no threshold for it.
+
+Two things follow from the median rule. The report is coordinatewise, so this call sets
+`simultaneous=False`. A repeated fit reports no simultaneous band.
+
+The registered study validates the median report at three draws. Its `repeat_stability` cells also
+measure less point-estimate spread than the paired first-draw control. That measurement uses one
+fixed binary-law sample at one versus three fold draws.
+
+The study declares that condition as its own limit. It establishes nothing for another sample, law,
+or repeat count. Read the retained ratio descriptively rather than as a pass threshold.
 
 Three things constrain what this page establishes.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the two comparisons above | that in-sample nuisances and undeclared teams each gave a narrower interval on this draw | the coverage rate of any of these estimators |
+| the diagnostic overview | which cached checks need attention and which costly operations did not run | the detailed severity of every retained report |
 | the out-of-fold nuisance report | how the learners performed on unseen patients | that the learners converge fast enough for the remainder condition |
-| the registered studies | stacked CV-TMLE matches R `tmle3` on identical realized folds, and both constructions recover known truths | that folds fix a product-rate failure. They do not |
+| the retained support report | truncation, effective sample size, and clever-covariate leverage | that cross-fitting repairs poor support. It does not |
+| the retained split-spread rows | how much the estimate moved across the three declared fold draws | whether that amount is acceptable or another draw would help |
+| the two construction studies | that stacked CV-TMLE matches R `tmle3` on identical realized folds, and that both constructions recover known truths | that folds fix a product-rate failure. They do not |
+| the repeated cross-fitting study | that the three-draw median reduced fold-seed spread against the paired first-draw control, on one fixed binary-law sample | the same reduction on another sample, law, or repeat count. The study declares that limit |
 
 Leakage is checked separately, and without a tolerance. A test rigs a law where a nearest-neighbour
 learner reproduces a held-out row exactly if and only if a same-cluster row was in its training set.
 The assertions are array equality and array inequality, so leakage is not a matter of degree.
 
 The evidence rows are
-[stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md)
+[stacked point-treatment CV-TMLE](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md),
+[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md),
 and
-[fold-evaluated point-treatment CV-TMLE](../technical-reference/method-evidence/fold-evaluated-point-treatment-cv-tmle.md).
+[repeated point-treatment cross-fitted TMLE](../technical-reference/method-evidence/repeated-cross-fitting.md).
 The second has no canonical comparator, and its study says so in its own cell rather than borrowing
-a surrogate.
+a surrogate. The third covers the `repeats=3` call above, and it publishes under the reporting
+policy.
 
 ## Where to go next
 

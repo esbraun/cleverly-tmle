@@ -22,7 +22,8 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.point_study_helpers import primary_rows
 
 LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
 R_BASE_IMAGE = (
@@ -203,7 +204,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -291,32 +292,18 @@ def cleverly_rows(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
+    """One replication's rows, with the drawn frame's length as the published size."""
     result = fit_cleverly(frame)
-    initials = initial_estimates(result)
-    rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
-        estimate = result[name]
-        low, high = estimate.ci
-        truth = float(reference[name])
-        rows.append(
-            {
-                "implementation": STUDY.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": len(frame),
-                "estimand": name,
-                "truth": truth,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= truth <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
+    return primary_rows(
+        result=result,
+        truth=reference,
+        implementation=STUDY.implementation,
+        scenario=scenario,
+        replicate=replicate,
+        estimands=ESTIMANDS,
+        initials=initial_estimates(result),
+        n=len(frame),
+    )
 
 
 def _replicate(

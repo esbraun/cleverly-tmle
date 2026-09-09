@@ -595,11 +595,7 @@ class CoverageStudy:
                             std_error=float(estimate.std_error),
                             covered=bool(low <= reference <= high),
                             rejected=bool(estimate.pvalue < estimate.alpha),
-                            inference_estimate=float(
-                                estimate.log_psi
-                                if estimate.scale == "ratio" and estimate.log_psi is not None
-                                else estimate.psi
-                            ),
+                            inference_estimate=estimate.inference_value,
                             alpha=float(estimate.alpha),
                         )
                     )

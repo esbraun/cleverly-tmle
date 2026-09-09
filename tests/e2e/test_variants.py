@@ -9,6 +9,8 @@ strongest evidence available without an external reference.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import sklearn.linear_model
@@ -171,6 +173,137 @@ class TestBoundsAndScaling:
         assert result.config.g_bounds != result.config.g_bounds_conditional
         assert result.config.g_bounds_conditional[0] == pytest.approx(0.025)
 
+        curve = result.diagnostics.truncation_curve()
+        expected = {"ate": result.config.g_bounds, "att": result.config.g_bounds_conditional}
+        for name, pair in expected.items():
+            rows = curve.loc[curve["estimand"] == name]
+            assert set(
+                zip(rows["fitted_lower_bound"], rows["fitted_upper_bound"], strict=True)
+            ) == {pair}
+            fitted = rows.loc[rows["is_fitted_bound"]]
+            assert len(fitted) == 1
+            assert (fitted.iloc[0]["bound"], fitted.iloc[0]["upper_bound"]) == pair
+            assert fitted.iloc[0]["psi"] == pytest.approx(result.psi(name), rel=1e-9)
+            assert fitted.iloc[0]["fitted_psi"] == result.psi(name)
+            assert fitted.iloc[0]["delta_from_fitted"] == pytest.approx(0.0, abs=1e-12)
+
+        combined = result.diagnostics.run_all(include_retargets=True)
+        detail = combined["truncation_curve"].detail
+        assert "2 parameter(s) over evaluated lower bounds " in detail
+        assert "signed movement from the fitted estimate:" in detail
+        assert "ate [" in detail
+        assert "att [" in detail
+        # Both fitted pairs are in the default grid, so nothing is reported as omitted.
+        assert "fitted pair not evaluated" not in detail
+
+    def test_the_truncated_fraction_belongs_to_the_pair_its_row_was_evaluated_at(self) -> None:
+        """Two fitted rows, two bound pairs, two loads. The report gives one of them.
+
+        ``support()`` always reads ``config.g_bounds``, while an ATT row is fitted at
+        ``config.g_bounds_conditional``. A fit whose two pairs bind differently is the
+        witness that separates them: a multi-arm fit cannot, because every parameter it
+        reports takes the marginal pair, and the two numbers coincide there.
+        """
+        frame, _ = make_weak_overlap(n=1500, seed=72)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = (
+                fast_tmle(estimands=("ate", "att"), cross_fit=False)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
+            )
+
+        curve = result.diagnostics.truncation_curve()
+        fitted = curve.loc[curve["is_fitted_bound"]]
+        loads = dict(zip(fitted["estimand"], fitted["truncated_fraction"], strict=True))
+        propensity = result.nuisance.propensity
+        from_report = result.diagnostics.support().truncated["fraction"]
+
+        # Each row counts the units its own pair moves: 0.244 at the marginal pair and
+        # 0.2913 at the tighter conditional one, a 19% difference on this fit.
+        assert loads["ate"] == pytest.approx(propensity.truncate(result.config.g_bounds).fraction)
+        assert loads["att"] == pytest.approx(
+            propensity.truncate(result.config.g_bounds_conditional).fraction
+        )
+        assert loads["att"] > loads["ate"] * 1.1
+        # The report is one of the two, and naming it the fitted load would misreport the
+        # other by that margin.
+        assert loads["ate"] == pytest.approx(from_report)
+        assert loads["att"] != pytest.approx(from_report)
+
+    def test_an_explicit_grid_is_not_expanded_with_fitted_bounds(self) -> None:
+        frame, _ = make_linear_ate(n=1000, seed=36)
+        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
+
+        curve = result.diagnostics.truncation_curve(bounds=[0.05, 0.01, 0.05])
+
+        assert len(curve) == 6
+        assert curve.columns[:8].to_list() == [
+            "bound",
+            "estimand",
+            "psi",
+            "std_err",
+            "ci_lower",
+            "ci_upper",
+            "truncated_fraction",
+            "is_fitted_bound",
+        ]
+        assert curve["bound"].to_list() == [0.01, 0.01, 0.05, 0.05, 0.05, 0.05]
+        assert curve["upper_bound"].to_list() == [0.99, 0.99, 0.95, 0.95, 0.95, 0.95]
+        assert not curve["is_fitted_bound"].any()
+        assert set(curve.loc[curve["estimand"] == "ate", "fitted_lower_bound"]) == {
+            result.config.g_bounds[0]
+        }
+        assert set(curve.loc[curve["estimand"] == "att", "fitted_lower_bound"]) == {
+            result.config.g_bounds_conditional[0]
+        }
+
+    def test_an_asymmetric_fitted_pair_is_evaluated_and_counted_through_g1(self) -> None:
+        """The reported load is the rows ``Propensity.bounded`` moves, not a cell count.
+
+        An asymmetric pair is the witness that separates the two. The mechanism is clipped
+        through ``g1`` alone and arm 0 is its complement, so a predicate applied to the
+        whole ``(n, K)`` matrix tests the control column against a bound that column is
+        never clipped by. Both witnesses below are built without the swept code path.
+        """
+        frame, _ = make_weak_overlap(n=1500, seed=72)
+        pair = (0.05, 0.8)
+        result = (
+            fast_tmle(
+                estimands=("ate",),
+                g_bounds=pair,
+                n_folds=2,
+                learner_folds=2,
+                random_state=3,
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+        curve = result.diagnostics.truncation_curve()
+        fitted = curve.loc[curve["is_fitted_bound"]]
+        g1 = result.nuisance.propensity.arm(1.0)
+        by_hand = float(np.mean((g1 < pair[0]) | (g1 > pair[1])))
+        from_report = result.diagnostics.support().truncated["fraction"]
+
+        assert len(fitted) == 1
+        # The upper endpoint binds, which is what makes the pair a witness at all.
+        assert by_hand > np.mean(g1 < pair[0])
+        assert (fitted.iloc[0]["bound"], fitted.iloc[0]["upper_bound"]) == pair
+        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(by_hand)
+        assert fitted.iloc[0]["truncated_fraction"] == pytest.approx(from_report)
+        assert fitted.iloc[0]["fitted_psi"] == result.psi("ate")
+        assert fitted.iloc[0]["delta_from_fitted"] == pytest.approx(0.0, abs=1e-12)
+
+        # The old marker compared only the lower endpoint and therefore called this
+        # symmetric rerun the fitted analysis even though its upper endpoint -- and its
+        # answer on this nonzero witness -- differ materially.
+        symmetric = result.diagnostics.truncation_curve(bounds=[pair[0]])
+        assert len(symmetric) == 1
+        assert symmetric.iloc[0]["upper_bound"] == 1.0 - pair[0]
+        assert not symmetric.iloc[0]["is_fitted_bound"]
+        assert abs(symmetric.iloc[0]["delta_from_fitted"]) > 1e-3
+
 
 class TestWeightsAndClusters:
     def test_observation_weights_change_the_estimate(self) -> None:
@@ -225,7 +358,9 @@ class TestWeightsAndClusters:
         and 1.5.  With ``w = 1 / P(S = 1 | W1)`` the tilted law is the population law, so
         the weighted fit targets the first and the unweighted fit the second.  This is a
         bias-direction check on a single fit, not a coverage claim; the coverage claim is
-        in ``tests/e2e/test_coverage_slow.py``, where it can be averaged over replications.
+        the registered weighted point-treatment row, whose ``interval_calibration`` and
+        ``weight_necessity`` cells average over replications.  Its section is
+        ``docs/technical-reference/method-evidence/weighted-point-treatment-tmle.md``.
         """
         from cleverly.datasets import make_biased_sample
 

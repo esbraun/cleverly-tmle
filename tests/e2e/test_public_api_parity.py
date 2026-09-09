@@ -354,14 +354,16 @@ def test_bootstrap_draws_do_not_outlive_their_parameter() -> None:
         frame.assign(A=arms),
         design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
     )
-    settings = {**POINT_SETTINGS, "n_bootstrap": 20}
+    # Three draws are enough because this checks deterministic ownership and narrowing,
+    # not a sampling-distribution claim. The statistical bootstrap test keeps its larger budget.
+    settings = {**POINT_SETTINGS, "n_bootstrap": 3}
     every = study.estimate(CounterfactualMean(), **settings)
     one = study.estimate(CounterfactualMean(treatment="mid"), **settings)
 
     assert set(every.bootstrap.draws) == set(every.estimates)
     assert set(one.bootstrap.draws) == set(one.estimates) == {"ey[mid]"}
     # Still usable, and the same draws it would have had unnarrowed.
-    assert one.bootstrap.summary("ey[mid]").n_replicates == 20
+    assert one.bootstrap.summary("ey[mid]").n_replicates == 3
     np.testing.assert_array_equal(one.bootstrap.draws["ey[mid]"], every.bootstrap.draws["ey[mid]"])
 
 

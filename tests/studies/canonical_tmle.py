@@ -9,7 +9,6 @@ shared with every method that gets an evidence row.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -25,7 +24,8 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.point_study_helpers import primary_rows
 
 #: The pinned reference.  Recorded in the manifest and reproduced by the fixture container.
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
@@ -203,7 +203,7 @@ def draw_for(
     ready-made ``draw_scenario`` would silently inherit the seed of whichever module defined
     it, publish its own in ``manifest.json``, and be reproducible from neither.
     """
-    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+    return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -224,7 +224,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Replication ``replicate`` of ``scenario``: a fixed sample, whatever the study's size."""
-    return draw_for(STUDY, scenario, n, replicate)
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
@@ -259,36 +259,21 @@ def cleverly_rows(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
-    """One replication's rows in the shared per-replication schema."""
+    """One replication's rows in the shared per-replication schema.
+
+    ``n`` is the drawn frame's length and ``initial_estimate`` is ``math.nan``: this study
+    publishes no plug-in, and the refit gate compares both columns.
+    """
     result = fit_cleverly(frame, scenario)
-    rows: list[dict[str, Any]] = []
-    for name, estimate in result.estimates.items():
-        reference = float(truth[name])
-        low, high = estimate.ci
-        inference_estimate = (
-            float(estimate.log_psi)
-            if estimate.scale == "ratio" and estimate.log_psi is not None
-            else float(estimate.psi)
-        )
-        rows.append(
-            {
-                "implementation": STUDY.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": len(frame),
-                "estimand": name,
-                "truth": reference,
-                "estimate": float(estimate.psi),
-                "inference_estimate": inference_estimate,
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "log" if estimate.scale == "ratio" else "identity",
-                "covered": int(low <= reference <= high),
-                "initial_estimate": math.nan,
-            }
-        )
-    return rows
+    return primary_rows(
+        result=result,
+        truth=truth,
+        implementation=STUDY.implementation,
+        scenario=scenario,
+        replicate=replicate,
+        estimands=tuple(result.estimates),
+        n=len(frame),
+    )
 
 
 def _replicate(

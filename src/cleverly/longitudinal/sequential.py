@@ -119,6 +119,7 @@ from ..fluctuation.iterative import (
 )
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
+from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from ..utils.phases import (
@@ -160,6 +161,15 @@ _FILLER = 0.5
 _REGIMEN_ARM = 0.0
 
 
+def _internal_prediction_key(labels: Sequence[str], role: str) -> str:
+    """Return a private prediction key that cannot collide with a regimen label."""
+    occupied = set(labels)
+    key = f"__cleverly_{role}__"
+    while key in occupied:
+        key += "_"
+    return key
+
+
 @dataclass(frozen=True)
 class Mechanism:
     """Out-of-fold treatment and censoring probabilities, evaluated at each regimen.
@@ -173,6 +183,25 @@ class Mechanism:
 
     Both are indexed from zero by node, so ``treatment[0]`` is the mechanism at
     :math:`t = 1`.
+
+    Parameters
+    ----------
+    treatment : tuple of dict of str to FloatArray
+        Regimen treatment probabilities at each node.
+    censoring : tuple of dict of str to FloatArray
+        Regimen retention probabilities at each node.
+    treatment_by_fold : tuple of dict of str to FloatArray
+        Treatment predictions from each outer-fold model on all rows.
+    censoring_by_fold : tuple of dict of str to FloatArray
+        Retention predictions from each outer-fold model on all rows.
+    treatment_observed : tuple of FloatArray
+        Out-of-fold treatment probability matrices at the observed histories.
+    censoring_observed : tuple of FloatArray
+        Out-of-fold retention probabilities at the observed treatment histories.
+    treatment_diagnostics : tuple of tuple of SuperLearnerDiagnostics
+        Learner diagnostics from each treatment node and fitted fold.
+    censoring_diagnostics : tuple of tuple of SuperLearnerDiagnostics
+        Learner diagnostics from each censoring node and fitted fold.
     """
 
     treatment: tuple[dict[str, FloatArray], ...]
@@ -182,6 +211,18 @@ class Mechanism:
     #: rows of outer fold ``k``.  Empty only on mechanisms made by older persisted fits.
     treatment_by_fold: tuple[dict[str, FloatArray], ...] = ()
     censoring_by_fold: tuple[dict[str, FloatArray], ...] = ()
+    #: Out-of-fold probability matrix at the observed history and treatment, one per
+    #: node. Empty on an artifact written before longitudinal nuisance reporting.
+    treatment_observed: tuple[FloatArray, ...] = ()
+    #: Out-of-fold retention probability at the observed treatment history, one per
+    #: censoring node. Empty for complete data and on an older artifact.
+    censoring_observed: tuple[FloatArray, ...] = ()
+    #: Super Learner diagnostics from the same treatment fits that produced
+    #: ``treatment_observed``. The inner tuple contains one record per fitted fold.
+    treatment_diagnostics: tuple[tuple[SuperLearnerDiagnostics, ...], ...] = ()
+    #: Super Learner diagnostics from the same censoring fits that produced
+    #: ``censoring_observed``. Empty for complete data and for a non-Super-Learner fit.
+    censoring_diagnostics: tuple[tuple[SuperLearnerDiagnostics, ...], ...] = ()
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -264,6 +305,27 @@ class NodeInputs:
     and score.  The logistic submodel itself is an intercept shift; putting ``clever`` in
     that submodel instead would solve the same score along a different path and cease to
     match the loss-weighted update in canonical R ``ltmle``.
+
+    Parameters
+    ----------
+    time : int
+        One-based node index.
+    at_risk : BoolArray
+        Rows whose histories remain observed and regimen-consistent at this node.
+    trained_on : BoolArray
+        Rows that followed the regimen through this node.
+    fitted_on : BoolArray
+        Training rows used for this node's regression and fluctuation.
+    pseudo_outcome : FloatArray
+        Target supplied to the node regression.
+    initial : FloatArray
+        Initial node prediction before targeting.
+    counterfactual : FloatArray
+        Cumulative inverse-probability loss weight on the at-risk rows.
+    clever : FloatArray
+        Counterfactual weight restricted to rows that followed the regimen.
+    learner_diagnostics : tuple of SuperLearnerDiagnostics
+        Learner diagnostics from each fitted fold of the node regression.
     """
 
     time: int
@@ -280,11 +342,35 @@ class NodeInputs:
     initial: FloatArray
     counterfactual: FloatArray
     clever: FloatArray
+    #: Super Learner diagnostics from this node's regression, one per fitted fold.
+    learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
 
 
 @dataclass(frozen=True)
 class SequentialStep:
-    """One node of the backward recursion, kept so a fit can be inspected node by node."""
+    """One retained node of the backward recursion.
+
+    Parameters
+    ----------
+    time : int
+        One-based node index.
+    trained_on : BoolArray
+        Rows eligible for the node regression.
+    at_risk : BoolArray
+        Rows whose history is observed and consistent with the regimen.
+    pseudo_outcome : FloatArray
+        Target supplied to the node regression.
+    initial : FloatArray
+        Initial node prediction before targeting.
+    targeted : FloatArray
+        Node prediction after targeting.
+    clever : FloatArray
+        Cumulative inverse-probability multiplier on regimen followers.
+    fluctuation : Fluctuation
+        Targeting solve retained for this node.
+    learner_diagnostics : tuple of SuperLearnerDiagnostics
+        Learner diagnostics from each fitted fold of the node regression.
+    """
 
     time: int
     #: Rows eligible for the regression: followed the regimen and stayed under
@@ -309,6 +395,8 @@ class SequentialStep:
     targeted: FloatArray
     clever: FloatArray
     fluctuation: Fluctuation
+    #: Super Learner diagnostics retained from the regression that produced ``initial``.
+    learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
 
     @property
     def n_trained(self) -> int:
@@ -477,6 +565,10 @@ def fit_mechanism(
     censoring: list[dict[str, FloatArray]] = []
     treatment_by_fold: list[dict[str, FloatArray]] = []
     censoring_by_fold: list[dict[str, FloatArray]] = []
+    treatment_observed: list[FloatArray] = []
+    censoring_observed: list[FloatArray] = []
+    treatment_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
+    censoring_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -485,6 +577,8 @@ def fit_mechanism(
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
+        observed_key = _internal_prediction_key(tuple(designs), "observed_treatment")
+        prediction_designs = {**designs, observed_key: data.history_design(time)}
         with phase("mechanism_fit"):
             classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
             _check_categorical_fold_support(
@@ -495,14 +589,14 @@ def fit_mechanism(
                 data.treatment_levels[time - 1],
                 data.treatment_names[time - 1],
             )
-            probabilities, companion, _ = cross_fit_companion(
+            probabilities, companion, diagnostics = cross_fit_companion(
                 treatment_learner,
                 data.history_design(time),
                 arm,
                 data.weights,
                 folds,
                 task="classification",
-                predict_designs=designs,
+                predict_designs=prediction_designs,
                 companion_designs=designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
@@ -510,6 +604,8 @@ def fit_mechanism(
                 classes=classes,
                 n_jobs=n_jobs,
             )
+        treatment_observed.append(np.asarray(probabilities.pop(observed_key), dtype=float))
+        treatment_diagnostics.append(tuple(diagnostics))
         rows = np.arange(data.n)
         treatment.append(
             {
@@ -540,21 +636,28 @@ def fit_mechanism(
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in plans
         }
+        censor_observed_key = _internal_prediction_key(tuple(censor_designs), "observed_censoring")
+        censor_prediction_designs = {
+            **censor_designs,
+            censor_observed_key: data.history_design(time, include_current=True),
+        }
         with phase("mechanism_fit"):
-            predictions, censor_companion, _ = cross_fit_companion(
+            predictions, censor_companion, diagnostics = cross_fit_companion(
                 censoring_learner,
                 data.history_design(time, include_current=True),
                 stayed,
                 data.weights,
                 folds,
                 task="classification",
-                predict_designs=censor_designs,
+                predict_designs=censor_prediction_designs,
                 companion_designs=censor_designs,
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
             )
+        censoring_observed.append(np.asarray(predictions.pop(censor_observed_key), dtype=float))
+        censoring_diagnostics.append(tuple(diagnostics))
         censoring.append(predictions)
         for fold, (_, test) in enumerate(folds):
             for plan in plans:
@@ -565,6 +668,10 @@ def fit_mechanism(
         tuple(censoring),
         tuple(treatment_by_fold),
         tuple(censoring_by_fold),
+        tuple(treatment_observed),
+        tuple(censoring_observed),
+        tuple(treatment_diagnostics),
+        tuple(censoring_diagnostics),
     )
 
 
@@ -654,7 +761,7 @@ def prepare_node(
     if task == "classification":
         _check_outcome_varies(data, next_outcome, fitted_on, plan, time, horizon, cause)
     with phase("outcome_learner_fit"):
-        predictions, _ = cross_fit_predictions(
+        predictions, diagnostics = cross_fit_predictions(
             learner,
             design,
             next_outcome,
@@ -681,6 +788,7 @@ def prepare_node(
         initial=initial,
         counterfactual=counterfactual,
         clever=clever,
+        learner_diagnostics=tuple(diagnostics),
     )
 
 
@@ -857,6 +965,7 @@ def fit_regimen(
                 targeted=targeted,
                 clever=node.clever,
                 fluctuation=fluctuation,
+                learner_diagnostics=node.learner_diagnostics,
             )
         )
         carried = np.where(node.at_risk, targeted, _FILLER)
@@ -1034,18 +1143,41 @@ def _fit_regimen_crossfit(
         for time in range(1, horizon + 1)
     }
     fold_solves: dict[int, list[_FoldSolve]] = {time: [] for time in range(1, horizon + 1)}
+    fold_diagnostics: dict[int, list[SuperLearnerDiagnostics]] = {
+        time: [] for time in range(1, horizon + 1)
+    }
 
     def run_fold(
         fold: int, train: IntArray, test: IntArray
     ) -> tuple[
         IntArray,
-        dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, _FoldSolve]],
+        dict[
+            int,
+            tuple[
+                FloatArray,
+                FloatArray,
+                FloatArray,
+                FloatArray,
+                tuple[SuperLearnerDiagnostics, ...],
+                _FoldSolve,
+            ],
+        ],
         PhaseProfile | None,
     ]:
         _, fold_cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds, fold=fold)
         outer_train = np.zeros(data.n, dtype=bool)
         outer_train[train] = True
-        outputs: dict[int, tuple[FloatArray, FloatArray, FloatArray, FloatArray, _FoldSolve]] = {}
+        outputs: dict[
+            int,
+            tuple[
+                FloatArray,
+                FloatArray,
+                FloatArray,
+                FloatArray,
+                tuple[SuperLearnerDiagnostics, ...],
+                _FoldSolve,
+            ],
+        ] = {}
         with collect_phases(wanted) as profile:
             carried = seed_carried(data, scaler)
             for time in range(horizon, 0, -1):
@@ -1090,6 +1222,7 @@ def _fit_regimen_crossfit(
                     node.initial[test],
                     targeted[test],
                     node.clever[test],
+                    node.learner_diagnostics,
                     _FoldSolve(
                         record=FoldFluctuation(
                             index=test,
@@ -1121,11 +1254,12 @@ def _fit_regimen_crossfit(
     for _, _, profile in outcomes:
         merge_worker_phases(profile)
     for test, outputs, _ in outcomes:
-        for time, (pseudo, initial, targeted, clever, solve) in outputs.items():
+        for time, (pseudo, initial, targeted, clever, diagnostics, solve) in outputs.items():
             stitched[time]["pseudo"][test] = pseudo
             stitched[time]["initial"][test] = initial
             stitched[time]["targeted"][test] = targeted
             stitched[time]["clever"][test] = clever
+            fold_diagnostics[time].extend(diagnostics)
             fold_solves[time].append(solve)
 
     steps = tuple(
@@ -1151,6 +1285,7 @@ def _fit_regimen_crossfit(
                 loss_weights=weights * stitched[time]["clever"],
                 mask=masks.following(time),
             ),
+            learner_diagnostics=tuple(fold_diagnostics[time]),
         )
         for time in range(1, horizon + 1)
     )

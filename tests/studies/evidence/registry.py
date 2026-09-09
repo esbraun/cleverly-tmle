@@ -95,13 +95,6 @@ class Margins:
         if not 0.0 < self.confidence_level < 1.0:
             raise ValueError(f"confidence_level must be in (0, 1); got {self.confidence_level}")
 
-    @property
-    def coverage_at_se_floor(self) -> float:
-        """The coverage the sanity band's lower limit corresponds to, for the record."""
-        from tests.studies.evidence.inference import coverage_for_se_ratio
-
-        return coverage_for_se_ratio(self.se_ratio_sanity[0], alpha=self.alpha)
-
     def as_json(self) -> dict[str, object]:
         return {
             "confidence_level": self.confidence_level,
@@ -138,6 +131,12 @@ class StudyRecord:
     replicates: int
     n: int
     seed: int
+    #: Number of nuisance functions the study's correctly specified calibration cell fits.
+    nuisance_count: int = 2
+    #: Scenario -> the scenario whose primary sample stream it owns.  This supports one
+    #: observed law reported under several intervention levels: each exported scenario keeps
+    #: its own rows, while all mapped scenarios draw the owner's realized sample.
+    scenario_seed_owners: Mapping[str, str] = field(default_factory=dict)
     #: Optional independent entropy for bootstrap and Monte Carlo summary intervals.  The
     #: realized samples still use ``seed``; this exists to avoid changing costly raw rows
     #: when a newly registered study discovers a cross-study resampling-stream collision.
@@ -172,6 +171,37 @@ class StudyRecord:
     properties_module: str = "tests.studies.canonical_properties"
     #: Property name -> the cells the committed property summary must contain.
     property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Estimand -> the exact standard deviation of that estimand's efficient influence curve
+    #: under this study's declared law, on the scale the study reports inference on.
+    #:
+    #: Declared here rather than read off the property module by name, for the reason the
+    #: ``margin:`` blocks in :mod:`tests.studies.evidence.claims` are keyed off the declared
+    #: cells: a duck-typed guard publishes a bound because a constant happens to be
+    #: importable, and it goes quiet the day the constant is renamed.  A study that can
+    #: compute an exact bound at all declares it, and :func:`claims.thresholds` publishes
+    #: each one as ``bound:<estimand>_standard_error`` at this study's own sample size.  A
+    #: reader can then compare the bound against the ``mean_std_error`` the artefacts record
+    #: for the same estimand, which is what decides a disagreement between two
+    #: implementations rather than merely reporting one.
+    efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: Whether interval-calibration cells publish ratios against an exact efficiency bound.
+    #: A study may use an exact bound only to size a negative control without claiming that
+    #: its deliberately misspecified estimator attains the bound.
+    calibration_efficiency_ratio: bool = True
+    #: Measured-table quantity -> the decimal places that quantity's claim needs.
+    #:
+    #: :func:`tests.studies.evidence.document.render` chooses a precision from the value
+    #: alone, which is all it can see.  That is enough for a claim about one number and not
+    #: enough for a claim of *agreement between two rows*.  This study's exact log-odds-ratio
+    #: bound is 0.13204392 and the standard error measured against it is 0.13204485; at four
+    #: decimals both print as ``0.1320``, and the table then shows two numbers that happen to
+    #: look equal rather than an implementation attaining its bound.
+    #:
+    #: A study names the quantities whose claim is agreement, and the decimals that claim
+    #: needs.  Declaring nothing keeps the value-only precision for every row, so this widens
+    #: no table but the one that asked.  ``document.fill`` is what applies it, which keeps the
+    #: generator the source of the precision rather than the person editing the document.
+    quoted_decimals: Mapping[str, int] = field(default_factory=dict)
     #: ``"gated"`` refuses publication when a scientific verdict fails. ``"reporting"``
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.
@@ -187,6 +217,23 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
+        if self.nuisance_count < 1:
+            raise ValueError("nuisance_count must be positive")
+        scenarios = set(self.scenarios)
+        unknown = set(self.scenario_seed_owners) | set(self.scenario_seed_owners.values())
+        unknown -= scenarios
+        if unknown:
+            raise ValueError(f"scenario_seed_owners names unknown scenarios: {sorted(unknown)}")
+        chained = {
+            scenario: owner
+            for scenario, owner in self.scenario_seed_owners.items()
+            if owner in self.scenario_seed_owners and self.scenario_seed_owners[owner] != owner
+        }
+        if chained:
+            raise ValueError(
+                "scenario_seed_owners must point directly to an owning scenario; "
+                f"found chained owners {chained}"
+            )
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -231,6 +278,8 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
     )
+    from tests.studies.canonical_cde_tmle import STUDY as CANONICAL_CDE_TMLE
+    from tests.studies.canonical_clustered_tmle import STUDY as CANONICAL_CLUSTERED_TMLE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
@@ -240,6 +289,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
+    )
+    from tests.studies.canonical_learned_weighted_tmle import (
+        STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
@@ -266,13 +318,25 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
+    from tests.studies.canonical_weighted_ltmle_crossfit import (
+        STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
+    )
+    from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
+    from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
         CANONICAL_TMLE,
+        CANONICAL_WEIGHTED_TMLE,
+        CANONICAL_LEARNED_WEIGHTED_TMLE,
         CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_CVTMLE,
+        CANONICAL_CLUSTERED_TMLE,
         FOLD_EVALUATED_CVTMLE,
+        FOLD_TARGETED_CVTMLE,
+        REPEATED_CROSSFIT_TMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_OAT,
@@ -280,6 +344,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_DRTMLE,
         CANONICAL_MULTI_ARM_DRTMLE,
         CANONICAL_MAR_TMLE,
+        CANONICAL_CDE_TMLE,
         CANONICAL_MAR_DRTMLE,
         CANONICAL_POINT_MSM,
         CANONICAL_DETERMINISTIC_REGIMES,
@@ -287,9 +352,11 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_SHIFT_POLICIES,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
+        CANONICAL_WEIGHTED_LTMLE,
         CANONICAL_CATEGORICAL_LTMLE,
         CANONICAL_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
+        CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
         CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
         CANONICAL_LTMLE_SURVIVAL,
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,

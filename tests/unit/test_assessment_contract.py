@@ -5,7 +5,10 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import inspect
+import json
 import re
+import types
+import typing
 
 import pandas as pd
 import pytest
@@ -13,20 +16,38 @@ import sklearn.linear_model
 
 from cleverly import (
     ATE,
+    AssessmentReport,
     AssessmentStatus,
     CapabilityError,
+    CausalResult,
     CausalStudy,
+    ExplicitAdjustmentProvider,
+    IdentificationProvider,
     LongitudinalTreatment,
     PointTreatment,
     PositivityWarning,
     RegimeMean,
+    ValidationReport,
     load,
 )
-from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
-from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.assessment import (
+    ASSESSMENT_CAPABILITIES,
+    INTERPRETERS,
+    SENSITIVITY_ROUTES,
+    LongitudinalDiagnostics,
+)
+from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity._simulated_confounding_request import (
+    _FIT_WIDE_RULES,
+    _LONGITUDINAL_REFUSAL,
+    _MULTI_ARM_REFUSAL,
+    _fit_wide_refusal,
+)
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
+from tests.unit._confounding_support import forbid_draw_and_refit
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +99,27 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.fixture(scope="module")
+def multi_arm_result():  # type: ignore[no-untyped-def]
+    frame, _ = make_multi_arm(n=180, seed=13)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3"),
+        ),
+    )
+    return study.identify(ATE(reference="low")).estimate(
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=13,
+        simultaneous=False,
+    )
+
+
 def test_every_diagnostic_operation_covers_every_result_family() -> None:
     expected = {
         "support",
@@ -93,11 +135,23 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
         declared = {item.operation for item in family_rows}
         assert declared == expected
-        methods = {"tmle", "collaborative_tmle", "drtmle"} if family == "point" else {"tmle"}
-        assert all(set(item.methods) == methods for item in family_rows)
+        if family == "point":
+            corrections = next(item for item in family_rows if item.operation == "corrections")
+            assert set(corrections.methods) == {"drtmle"}
+            assert all(item.methods for item in family_rows)
     assert len({(item.result_family, item.operation) for item in ASSESSMENT_CAPABILITIES}) == len(
         ASSESSMENT_CAPABILITIES
     )
+
+
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_every_declared_method_is_constructible(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    result = request.getfixturevalue(fixture_name)
+    for surface in (result.diagnostics, result.sensitivity):
+        for row in surface.capabilities:
+            for method in row.methods:
+                constructed = result.identified_effect._method(method, {})
+                assert constructed.name == method
 
 
 def test_capabilities_declare_artifacts_cost_and_replay_semantics(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -143,11 +197,47 @@ def test_longitudinal_stagewise_reports_one_row_per_node(longitudinal_result) ->
     assert set(frame["share_assigned_1"]) == {0.0, 1.0}  # two static regimens
 
 
+def test_longitudinal_stagewise_is_a_direct_support_alias(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+    result = dataclasses.replace(longitudinal_result)
+
+    stagewise = result.diagnostics.stagewise()
+
+    assert stagewise is result.diagnostics.support()
+    cache_operations = {key.split(":", 1)[0] for key in result.assessment_cache}
+    assert "diagnostics.support" in cache_operations
+    assert "diagnostics.stagewise" not in cache_operations
+
+
+def test_only_the_longitudinal_stagewise_alias_is_excluded_from_combined_reports(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    excluded = {
+        (row.result_family, row.operation)
+        for row in ASSESSMENT_CAPABILITIES
+        if not row.include_in_combined
+    }
+    assert excluded == {("longitudinal", "stagewise")}
+    assert not longitudinal_result.diagnostics.capability("stagewise").include_in_combined
+
+    combined = dataclasses.replace(longitudinal_result).diagnostics.run_all()
+    names = [item.name for item in combined.items]
+    assert names.count("support") == 1
+    assert "stagewise" not in names
+    assert combined.report("support").rows
+
+
 def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
     expected = sum(len(fit.steps) for fit in longitudinal_result.fits.values())
     scores = longitudinal_result.diagnostics.score_equations()
     nuisances = longitudinal_result.diagnostics.nuisance_models()
-    assert len(nuisances.rows) == expected
+    mechanism_rows = longitudinal_result.data.n_times * 2
+    assert len(nuisances.rows) == expected + mechanism_rows
+    assert {row.role for row in nuisances.rows} == {
+        "treatment",
+        "censoring",
+        "outcome",
+        "pseudo_outcome",
+    }
     # One row per node per question the node poses.  A cross-fitted node poses two -- did
     # every fold's solve reach its root, and is the stitched residual where sampling would
     # leave it -- and a single-fold node poses only the first.
@@ -156,7 +246,24 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
     assert kinds.count("stitching") in {0, expected}
     assert len(scores.rows) == len(kinds)
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)
-    assert all(row.n > 0 and row.mse >= 0 for row in nuisances.rows)
+    assert all(row.n > 0 and row.reported_loss >= 0 for row in nuisances.rows)
+
+
+def test_longitudinal_nuisance_capability_names_every_retained_artifact(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    capability = longitudinal_result.diagnostics.capability("nuisance_models")
+    assert capability.required_artifacts == (
+        "observed-law treatment predictions",
+        "observed-law censoring predictions",
+        "node pseudo-outcomes",
+        "initial node predictions",
+        "nuisance learner diagnostics",
+    )
+    assert capability.interpretation == (
+        "weighted treatment, censoring, outcome, and pseudo-outcome fit by node and "
+        "fitted recursion"
+    )
 
 
 @pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
@@ -184,6 +291,208 @@ def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_resu
     assert {item.status for item in report.items} == {AssessmentStatus.UNAVAILABLE}
     with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
         longitudinal_result.sensitivity.omitted_confounding()
+
+
+def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law(  # type: ignore[no-untyped-def]
+    longitudinal_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = _LONGITUDINAL_REFUSAL
+    capability = longitudinal_result.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(longitudinal_result) == reason
+    # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
+    # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
+    assert not hasattr(longitudinal_result, "estimator")
+    forbid_draw_and_refit(monkeypatch, None)
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError) as facade_refusal:
+        longitudinal_result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + reason
+    )
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(longitudinal_result, grid=grid)
+    assert str(direct_refusal.value) == reason
+
+
+def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
+    multi_arm_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = _MULTI_ARM_REFUSAL
+    capability = multi_arm_result.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    # A multi-arm fit reports one estimate per arm, so the surface cannot pick a default
+    # alias. The row must ask for the estimand as well as the grid.
+    assert capability.requires_arguments == ("grid", "estimand")
+    assert _fit_wide_refusal(multi_arm_result) == reason
+    forbid_draw_and_refit(monkeypatch, multi_arm_result.estimator)
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    # Both routes, because multi-arm is the case that regressed once. The facade read the
+    # capability row and the direct call read the guard, and only the guard refused.
+    with pytest.raises(CapabilityError) as facade_refusal:
+        multi_arm_result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + reason
+    )
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(multi_arm_result, grid=grid)
+    assert str(direct_refusal.value) == reason
+
+
+@dataclasses.dataclass(frozen=True)
+class _DelegatingBackdoorProvider:
+    """A custom ``IdentificationProvider`` that reuses the built-in backdoor derivation.
+
+    The ``provider=`` argument of :meth:`cleverly.CausalStudy.identify` is documented and
+    public, so a reader can reach this state without touching a private name. The provider
+    delegates the derivation and then stamps itself, which is what any real third-party
+    provider does. ``simulated_confounding`` reads the stamp, and it requires specifically
+    an ``ExplicitAdjustmentProvider``.
+    """
+
+    name: str = "delegating-backdoor"
+
+    def identify(self, study, estimand):  # type: ignore[no-untyped-def]
+        """Delegate the derivation, then record this provider on the identified effect."""
+        effect = ExplicitAdjustmentProvider().identify(study, estimand)
+        return dataclasses.replace(effect, provider=self)
+
+
+@pytest.fixture(scope="module")
+def custom_provider_result():  # type: ignore[no-untyped-def]
+    """Fit an ordinary point ATE whose only unsupported feature is its provider."""
+    frame, _ = make_linear_ate(n=200, seed=17)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=["W1", "W2", "W3", "W4"]),
+    )
+    provider = _DelegatingBackdoorProvider()
+    assert isinstance(provider, IdentificationProvider)
+    return study.identify(ATE(), provider=provider).estimate(
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=3,
+        simultaneous=False,
+    )
+
+
+def test_a_custom_provider_fit_never_advertises_a_surface_that_refuses_it(  # type: ignore[no-untyped-def]
+    custom_provider_result,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The capability row and the execution guard must read the same table.
+
+    This is the regression witness. The capability row consulted only the first six
+    fit-wide rules, and the execution guard consulted all eighteen. Every boundary past
+    the sixth therefore reported ``available=True``, ``PASSED`` and ``reason=None``, and
+    then raised when the caller took the row at its word.
+
+    ``provider`` is the last rule in the table, so it is the furthest a public call can
+    reach, and ``provider=`` is a documented extension point rather than a tampered field.
+    The fit is otherwise ordinary: same design, same learners, same estimand as
+    ``point_result``. Only the identification provider differs.
+    """
+    result = custom_provider_result
+    assert type(result.identified_effect.provider) is _DelegatingBackdoorProvider
+    # The nonzero control: everything the first six rules test is fine on this fit, so a
+    # refusal here can only come from a rule beyond them.
+    assert result.assessment_family == "point"
+    assert result.data.is_binary_treatment
+    assert not result.data.has_missing_outcome
+    assert not result.data.has_intermediate
+    assert result.data.cluster is None
+
+    capability = result.sensitivity.capability("simulated_confounding")
+    forbid_draw_and_refit(monkeypatch, result.estimator)
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError) as direct_refusal:
+        simulated_confounding(result, grid=grid)
+
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == str(direct_refusal.value)
+    assert _fit_wide_refusal(result) == str(direct_refusal.value)
+    with pytest.raises(CapabilityError) as facade_refusal:
+        result.sensitivity.simulated_confounding(grid=grid)
+    assert str(facade_refusal.value) == (
+        "sensitivity 'simulated_confounding' is unavailable: " + capability.reason
+    )
+
+
+#: One ``dataclasses.replace`` per fit-wide rule that the capability row did not read
+#: before this change, named by the rule it reaches.  Each edit is minimal, so the rules
+#: before it in ``_FIT_WIDE_RULES`` still pass and the named rule is the one that fires.
+_LATE_RULE_CASES: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+    "missing_estimator": lambda result: dataclasses.replace(result, estimator=None),
+    "outcome_family": lambda result: dataclasses.replace(
+        result, data=dataclasses.replace(result.data, family="poisson")
+    ),
+    "weight_kind": lambda result: dataclasses.replace(
+        result,
+        data=dataclasses.replace(
+            result.data,
+            weight_spec=dataclasses.replace(result.data.weight_spec, kind="frequency"),
+        ),
+    ),
+    "weight_provenance": lambda result: dataclasses.replace(
+        result,
+        data=dataclasses.replace(
+            result.data,
+            weight_spec=dataclasses.replace(result.data.weight_spec, name="wrong"),
+        ),
+    ),
+    "identification": lambda result: dataclasses.replace(result, identified_effect=None),
+    "functional": lambda result: dataclasses.replace(
+        result,
+        identified_effect=dataclasses.replace(
+            result.identified_effect, functional=types.SimpleNamespace()
+        ),
+    ),
+    "provider": lambda result: dataclasses.replace(
+        result,
+        identified_effect=dataclasses.replace(
+            result.identified_effect, provider=types.SimpleNamespace()
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_LATE_RULE_CASES))
+def test_every_late_fit_wide_rule_reaches_the_capability_row(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, rule: str
+) -> None:
+    """Sample the rules the capability row skipped, not the one that a public fit reaches.
+
+    ``test_a_custom_provider_fit_never_advertises_a_surface_that_refuses_it`` reaches the
+    last rule through the public API and is the load-bearing witness. It pins one boundary.
+    These cases carry a tampered fitted result, which is how the neighbouring refusal tests
+    construct a state no supported fit produces, and they check the same agreement across a
+    sample of the rules that the row previously never read.
+    """
+    assert rule in {name for name, _ in _FIT_WIDE_RULES}
+    tampered = _LATE_RULE_CASES[rule](point_result)
+    capability = tampered.sensitivity.capability("simulated_confounding")
+    forbid_draw_and_refit(monkeypatch, point_result.estimator)
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(
+            tampered, grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+        )
+
+    assert not capability.available, rule
+    assert capability.status is AssessmentStatus.UNAVAILABLE, rule
+    assert capability.reason == str(refusal.value), rule
+    assert _fit_wide_refusal(tampered) == str(refusal.value), rule
+    # The nonzero control: the untampered fit advertises the row and does not refuse.
+    intact = point_result.sensitivity.capability("simulated_confounding")
+    assert intact.available and intact.reason is None
 
 
 def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]
@@ -222,6 +531,17 @@ def test_every_sensitivity_operation_is_declared_and_routed(  # type: ignore[no-
         assert route.needs_estimand == (parameter.name == "estimand" and parameter.default == "ate")
 
 
+def test_every_seeded_combined_route_accepts_random_state_in_its_real_signature(
+    point_result,
+) -> None:  # type: ignore[no-untyped-def]
+    for surface in (point_result.diagnostics, point_result.sensitivity):
+        for capability in surface.capabilities:
+            if not capability.accepts_random_state:
+                continue
+            function, _ = surface._routed_callable(capability.operation)
+            assert "random_state" in inspect.signature(function).parameters
+
+
 def test_sensitivity_routing_reads_structured_parameter_keys(point_result) -> None:  # type: ignore[no-untyped-def]
     routed = arm_parameters(point_result)
     key = point_result.parameter_keys["ate"]
@@ -245,12 +565,267 @@ def test_cached_assessments_replay_after_persistence(
     assert restored.diagnostics.run_all() == diagnostics
 
 
+def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(point_result, tmp_path) -> None:
+    """An artifact pickled before the method-aware fields reads back and still renders.
+
+    Every field this change added carries a class-level default, so a legacy instance
+    resolves it through the class rather than through its own ``__dict__``. Asserting the
+    six attribute values alone does not test that: they resolve the same way whether or
+    not the instance ever lost them.
+
+    What a legacy artifact actually does is get *rendered*, and each renderer reads the
+    new fields directly. ``summary``, ``verdict``, ``findings``, the two frames and the
+    combined row are therefore the assertions here. An attribute that stops carrying a
+    default raises inside one of those, and nowhere else.
+    """
+    import joblib
+
+    report = nuisance_diagnostics(point_result)
+    live_summary = report.summary()
+    live_findings = report.findings
+    added = (
+        "selection",
+        "treatment_role",
+        "repeat_spread",
+        "selection_omission",
+        "repeat_spread_omission",
+        "reported_repeat",
+    )
+    for name in added:
+        object.__delattr__(report, name)
+
+    path = tmp_path / "legacy-nuisance-report.joblib"
+    joblib.dump(report, path)
+    restored = joblib.load(path)
+
+    assert restored is not report
+    # The round trip reconstructs the legacy shape rather than backfilling it, which is
+    # what makes the renderings below run against a genuinely older instance.
+    assert not set(added) & set(vars(restored))
+
+    assert restored.selection is None
+    assert restored.treatment_role is None
+    assert restored.repeat_spread == ()
+    assert restored.selection_omission is None
+    assert restored.repeat_spread_omission is None
+    assert restored.reported_repeat == 1
+
+    summary = restored.summary()
+    assert summary == live_summary
+    assert restored.verdict() in summary
+    assert restored.verdict().startswith("VERDICT:")
+    assert "C-TMLE" not in summary
+    assert "Repeated-split sensitivity" not in summary
+    assert "split spread unavailable" not in summary
+    # Non-empty, so the calibration rule runs its ``treatment_role`` gate on a live note
+    # rather than on an empty tuple that a broken gate would also produce.
+    assert live_findings
+    assert restored.findings == live_findings
+    assert list(restored.to_frame()["model"]) == [model.name for model in restored.models]
+    assert len(restored.repeat_spread_frame()) == 0
+
+    item = INTERPRETERS["nuisance_models"](restored, None)
+    assert item.status is AssessmentStatus.WARNING
+    assert item.detail == "; ".join(live_findings)
+
+    # The repeated branches read three of the absent fields and are unreachable at one
+    # draw, so the draw count is raised on the same legacy instance to reach them.
+    object.__setattr__(restored, "n_repeats", 3)
+    repeated_summary = restored.summary()
+    assert "draw 1 of 3" in repeated_summary
+    assert "split spread unavailable" not in repeated_summary
+    assert "split spread" not in INTERPRETERS["nuisance_models"](restored, None).detail
+
+
+def _without_cache_generation(key: str) -> str:
+    """Rewrite a current cache key as the unversioned key an older result carries."""
+    operation, encoded = key.split(":", 1)
+    payload = json.loads(encoded)
+    payload.pop("cache_generation")
+    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
+
+
+def _with_cache_generation(key: str, generation: int) -> str:
+    """Rewrite a current cache key as an older versioned result carries it."""
+    operation, encoded = key.split(":", 1)
+    payload = json.loads(encoded)
+    payload["cache_generation"] = generation
+    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
+
+
+def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
+    point_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    """Old support, aggregate, and validation entries are cache misses after loading."""
+    result = dataclasses.replace(point_result)
+    result.diagnostics.support()
+    result.diagnostics.nuisance_models()
+    result.diagnostics.run_all()
+    result.validate()
+    versioned = {
+        key: value
+        for key, value in result.assessment_cache.items()
+        if key.split(":", 1)[0]
+        in {
+            "diagnostics.support",
+            "diagnostics.nuisance_models",
+            "diagnostics.run_all",
+            "validate",
+        }
+    }
+    assert {key.split(":", 1)[0] for key in versioned} == {
+        "diagnostics.support",
+        "diagnostics.nuisance_models",
+        "diagnostics.run_all",
+        "validate",
+    }
+
+    result.assessment_cache.clear()
+    legacy_keys = {_without_cache_generation(key) for key in versioned}
+    generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
+    stale_keys = legacy_keys | generation_one_keys
+    result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
+    restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
+
+    assert restored.diagnostics.support().group_leverage
+    assert restored.diagnostics.nuisance_models() != "legacy cached report"
+    assert restored.diagnostics.run_all() != "legacy cached report"
+    assert restored.validate() != "legacy cached report"
+    assert restored.assess().diagnostics != "legacy cached report"
+    assert stale_keys <= set(restored.assessment_cache)
+    assert any(
+        "cache_generation" in key and key.startswith("diagnostics.support:")
+        for key in restored.assessment_cache
+    )
+    assert any(
+        "cache_generation" in key and key.startswith("diagnostics.nuisance_models:")
+        for key in restored.assessment_cache
+    )
+
+
+def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
+    longitudinal_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    result = dataclasses.replace(longitudinal_result)
+    result.diagnostics.support()
+    result.diagnostics.run_all()
+    current = {
+        key: value
+        for key, value in result.assessment_cache.items()
+        if key.split(":", 1)[0] in {"diagnostics.support", "diagnostics.run_all"}
+    }
+    assert {key.split(":", 1)[0] for key in current} == {
+        "diagnostics.support",
+        "diagnostics.run_all",
+    }
+
+    result.assessment_cache.clear()
+    stale = {
+        _with_cache_generation(key, 3 if key.startswith("diagnostics.support:") else 4)
+        for key in current
+    }
+    result.assessment_cache.update(dict.fromkeys(stale, "legacy cached report"))
+    result.assessment_cache['diagnostics.stagewise:{"args":[],"kwargs":{}}'] = (
+        "legacy stagewise report"
+    )
+    restored = load(result.save(tmp_path / "legacy-longitudinal-assessment-cache.joblib"))
+
+    # Compared against the value the support key was seeded with. The alias delegates to
+    # ``support`` and reads no key of its own, so an inequality against the stagewise
+    # sentinel holds however the support generation resolves. The positive assertions say
+    # the miss produced a recomputed report rather than any other object.
+    stagewise = restored.diagnostics.stagewise()
+    assert stagewise != "legacy cached report"
+    assert isinstance(stagewise, LongitudinalDiagnostics)
+    assert {row.regimen for row in stagewise.rows} == {"always", "never"}
+    assert {row.time for row in stagewise.rows} == {1, 2}
+    combined = restored.diagnostics.run_all()
+    assert combined != "legacy cached report"
+    assert [item.name for item in combined.items].count("support") == 1
+    assert "stagewise" not in {item.name for item in combined.items}
+    assert stale <= set(restored.assessment_cache)
+
+
+def test_the_validation_report_ignores_its_immediately_previous_generation(
+    point_result, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    """A generation-four ``validate`` entry, which the seeds above cannot reach.
+
+    The unversioned and generation-one seeds miss whatever the current number is, so they
+    hold while it stays anything above one and say nothing about a bump. Seeding the
+    generation directly below the current one is what puts the bump itself under test.
+    """
+    result = dataclasses.replace(point_result)
+    result.validate()
+    keys = [key for key in result.assessment_cache if key.split(":", 1)[0] == "validate"]
+    assert len(keys) == 1
+
+    result.assessment_cache.clear()
+    stale = _with_cache_generation(keys[0], 4)
+    result.assessment_cache[stale] = "pre-generation validation report"
+    restored = load(result.save(tmp_path / "previous-generation-validate.joblib"))
+
+    report = restored.validate()
+    assert report != "pre-generation validation report"
+    assert isinstance(report, ValidationReport)
+    assert report.items
+    assert stale in restored.assessment_cache
+
+
+def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:
+    """Appending diagnostics must not reinterpret the former repeat and backend slots."""
+    report = PositivityReport(
+        {},
+        {},
+        {},
+        {},
+        {"fraction": 0.0},
+        {},
+        (0.01, 0.99),
+        10,
+        {},
+        (),
+        0.0,
+        0.0,
+        3,
+        "pandas",
+    )
+
+    assert report.n_repeats == 3
+    assert report.backend == "pandas"
+    assert report.group_leverage == {}
+
+
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
+    assert {
+        "upper_bound",
+        "fitted_lower_bound",
+        "fitted_upper_bound",
+        "fitted_psi",
+        "delta_from_fitted",
+    } <= set(before)
+    assert not before["is_fitted_bound"].any()
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
     after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
+
+
+def test_a_combined_report_retains_and_replays_a_returned_frame(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    combined = point_result.diagnostics.run_all(include_retargets=True)
+    before = combined.report("truncation_curve")
+    detail = combined["truncation_curve"].detail
+    assert isinstance(before, pd.DataFrame)
+    assert before["is_fitted_bound"].sum() == 1
+    pd.testing.assert_frame_equal(combined.reports()["truncation_curve"], before, check_exact=True)
+
+    restored = load(point_result.save(tmp_path / "combined-frame.joblib"))
+    replayed = restored.diagnostics.run_all(include_retargets=True)
+    after = replayed.report("truncation_curve")
+    assert isinstance(after, pd.DataFrame)
+    pd.testing.assert_frame_equal(after, before, check_exact=True)
+    assert replayed["truncation_curve"].detail == detail
 
 
 def test_replayability_names_the_refit_boundary(point_result, longitudinal_result) -> None:  # type: ignore[no-untyped-def]
@@ -278,6 +853,10 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         They did not: one skipped everything non-``summarize`` and the other only
         ``refit``, so ``tipping_gamma`` -- a root search over full missingness retargets --
         ran in a bare ``sensitivity.run_all()`` while ``truncation_curve`` did not.
+
+        A row that also needs a caller argument is judged by
+        ``test_a_cost_flag_is_never_named_before_a_required_argument`` instead. No flag
+        makes such a row run, so naming its cost would be a false instruction.
         """
         surface = getattr(point_result, facade)
         rows = {row.operation: row for row in surface.capabilities if row.available}
@@ -287,12 +866,15 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         for operation, row in rows.items():
             if row.execution == "summarize":
                 continue
-            flag = "include_refits" if row.execution == "refit" else "include_retargets"
             assert report[operation].status is AssessmentStatus.UNAVAILABLE
+            if row.requires_arguments:
+                assert "has no basis to choose" in report[operation].detail
+                continue
+            flag = "include_refits" if row.execution == "refit" else "include_retargets"
             assert f"pass {flag}=True" in report[operation].detail
 
         for row in rows.values():
-            if row.execution == "retarget":
+            if row.execution == "retarget" and not row.requires_arguments:
                 assert report[row.operation].detail != (
                     surface.run_all(include_retargets=True)[row.operation].detail
                 )
@@ -308,55 +890,352 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         """``run_all`` must learn this from the row, not from the operation's name."""
         rows = {row.operation: row for row in point_result.sensitivity.capabilities}
         assert rows["benchmark"].requires_arguments == ("covariates",)
+        assert rows["simulated_confounding"].requires_arguments == ("grid",)
         assert rows["omitted_confounding"].requires_arguments == ()
 
-    def test_every_argument_free_row_really_is_argument_free(self, point_result) -> None:  # type: ignore[no-untyped-def]
-        """The gate that would have caught this: call what the report claims it can call."""
-        import inspect
+    def test_simulated_surface_is_never_launched_implicitly(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(include_refits=True)
+        item = report["simulated_confounding"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert "grid" in item.detail
+        assert any("simulated_confounding" in step for step in item.next_steps)
 
-        for row in point_result.sensitivity.capabilities:
+    def test_required_arguments_and_the_common_seed_run_and_are_retained(
+        self, point_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(
+            include_refits=True,
+            arguments={"benchmark": {"covariates": ("W1",)}},
+            random_state=91,
+        )
+        item = report["benchmark"]
+        assert item.status is AssessmentStatus.COMPLETED
+        assert item.arguments["covariates"] == ("W1",)
+        assert item.arguments["random_state"] == 91
+        assert report.report("benchmark").random_state == 91
+        first_keys = set(point_result.assessment_cache)
+
+        second = point_result.sensitivity.run_all(
+            include_refits=True,
+            arguments={"benchmark": {"covariates": ("W1",)}},
+            random_state=92,
+        )
+        assert second.report("benchmark").random_state == 92
+        assert set(point_result.assessment_cache) - first_keys
+
+    def test_seed_conflicts_and_unknown_operations_fail_before_any_operation_runs(
+        self, point_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        before = set(point_result.assessment_cache)
+        with pytest.raises(ValueError, match="supplied both"):
+            point_result.sensitivity.run_all(
+                arguments={"benchmark": {"covariates": ("W1",), "random_state": 2}},
+                random_state=1,
+            )
+        with pytest.raises(KeyError, match="not_an_operation"):
+            point_result.assess(arguments={"not_an_operation": {}})
+        assert set(point_result.assessment_cache) == before
+
+
+def test_assess_is_on_the_public_protocol_and_presents_each_owned_row_once(
+    point_result, longitudinal_result
+) -> None:  # type: ignore[no-untyped-def]
+    for result in (point_result, longitudinal_result):
+        assert isinstance(result, CausalResult)
+        battery = result.assess()
+        assert isinstance(battery, AssessmentReport)
+        frame = battery.to_frame()
+        for owned in ("score_equations", "support", "nuisance_models"):
+            assert list(frame["check"]).count(owned) == 1
+        assert set(frame["surface"]) == {"validation", "diagnostics", "sensitivity"}
+
+
+def _runtime_protocol_members(protocol: type) -> frozenset[str]:
+    """The names ``isinstance`` presence-checks, on every interpreter this package runs on.
+
+    ``typing.get_protocol_members`` arrived in 3.13 and ``__protocol_attrs__`` in 3.12, so
+    read whichever this interpreter has. The set itself is the same on 3.11: it is what
+    ``typing._get_protocol_attrs`` returns, and what ``_ProtocolMeta.__instancecheck__``
+    loops over there.
+    """
+    members = getattr(typing, "get_protocol_members", None)
+    if members is not None:  # pragma: no branch - one branch per interpreter
+        return frozenset(members(protocol))
+    return frozenset(  # pragma: no cover - taken on Python 3.11 only
+        getattr(protocol, "__protocol_attrs__", None) or typing._get_protocol_attrs(protocol)  # type: ignore[attr-defined]
+    )
+
+
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_no_runtime_protocol_member_raises_when_isinstance_reads_it(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    """``isinstance(result, CausalResult)`` must answer rather than raise.
+
+    Python 3.11 checks a runtime protocol by calling ``hasattr`` for every member, which
+    *invokes* a property and swallows only ``AttributeError``. ``CausalResult.estimate``
+    was such a member, and ``LongitudinalResult.estimate`` raises ``ValueError`` on a
+    multi-parameter fit, so ``isinstance`` raised there on 3.11 while 3.12 and 3.13
+    passed. Python 3.12 reads the members with ``inspect.getattr_static`` instead, so this
+    test asserts the 3.11 predicate directly rather than calling ``isinstance``.
+
+    The witness for the mechanism, not only for its symptom: the longitudinal fixture
+    reports three parameters, so its ``estimate`` still raises. A member added to the
+    protocol whose read raises anything at all fails the loop below on every interpreter.
+    """
+    result = request.getfixturevalue(fixture_name)
+    members = _runtime_protocol_members(CausalResult)
+    assert members
+    assert "estimate" not in members
+
+    # 3.11's ``_ProtocolMeta.__instancecheck__`` body, run here on 3.13.
+    assert all(
+        hasattr(result, attr)
+        and (not callable(getattr(CausalResult, attr, None)) or getattr(result, attr) is not None)
+        for attr in members
+    )
+    assert isinstance(result, CausalResult)
+
+
+def test_the_multi_parameter_estimate_that_broke_the_protocol_check_still_refuses(
+    longitudinal_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """The nonzero witness for the test above.
+
+    Dropping ``estimate`` from the runtime membership must not weaken the refusal it
+    exists for. If this fit ever reported one parameter the loop above would pass for a
+    reason that has nothing to do with the fix.
+    """
+    assert len(longitudinal_result.estimates) > 1
+    with pytest.raises(ValueError, match="multiple parameters"):
+        _ = longitudinal_result.estimate
+    assert "estimate" in CausalResult.__doc__
+
+
+def test_assess_refuses_an_argument_for_an_operation_the_validation_battery_owns(
+    point_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """A caller's own question must not be answered and then discarded.
+
+    ``assess`` presents the validation row for these three names and hides the diagnostics
+    row of the same name. Forwarding ``arguments`` to the diagnostics side therefore ran
+    the caller's tolerance, recorded a ``failed`` row, and then showed the argument-free
+    ``passed`` row. ``attention`` never named the failure.
+    """
+    with pytest.raises(CapabilityError, match="score_equations"):
+        point_result.assess(arguments={"score_equations": {"tolerance": 1e-30}})
+
+    # The nonzero witness: the refused tolerance really does change the verdict, so the
+    # discarded row was a ``failed`` one rather than a second copy of the same answer.
+    strict = point_result.diagnostics.score_equations(tolerance=1e-30)
+    assert not strict.passed
+    assert point_result.diagnostics.score_equations().passed
+
+    # The refusal names a call that answers the question, and that call works.
+    direct = point_result.diagnostics.run_all(arguments={"score_equations": {"tolerance": 1e-30}})
+    assert direct["score_equations"].status is AssessmentStatus.FAILED
+
+    # Every other operation still accepts its arguments through ``assess``.
+    battery = point_result.assess(arguments={"omitted_confounding": {"cf_y": 0.03}})
+    assert battery.report("omitted_confounding").cf_y == pytest.approx(0.03)
+
+
+def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> None:  # type: ignore[no-untyped-def]
+    """A refusal names the first thing that is wrong, not the first gate in the code.
+
+    The cost gate ran before the required-argument gate, so a combined report told the
+    caller to pass ``include_refits=True`` for ``benchmark``. The caller passed it, and the
+    next report said ``benchmark`` needs an explicit ``covariates`` argument that no flag
+    supplies. The instruction was false when it was given.
+
+    Both facades are read together because only the sensitivity side declares a required
+    argument today. Reading them one at a time would skip the diagnostics half, and a
+    skipped check reads exactly like a passing one.
+    """
+    surfaces = [point_result.diagnostics, point_result.sensitivity]
+    demanding = [
+        (surface, row)
+        for surface in surfaces
+        for row in surface.capabilities
+        if row.available and row.requires_arguments
+    ]
+    assert demanding, "no available row declares a required argument"
+
+    for flags in ({}, {"include_refits": True, "include_retargets": True}):
+        for surface, row in demanding:
+            item = surface.run_all(**flags)[row.operation]
+            assert item.status is AssessmentStatus.UNAVAILABLE
+            assert row.requires_arguments[0] in item.detail
+            assert "include_refits" not in item.detail
+            assert "include_retargets" not in item.detail
+
+    # The paired witness: a row of the same cost and no required argument still names its
+    # flag, so the assertions above are about the argument gate rather than about cost.
+    priced = [
+        (surface, row)
+        for surface in surfaces
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution != "summarize"
+    ]
+    assert priced
+    for surface, row in priced:
+        flag = "include_refits" if row.execution == "refit" else "include_retargets"
+        assert f"pass {flag}=True" in surface.run_all()[row.operation].detail
+
+
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+def test_capabilities_never_claims_a_row_that_replayability_forbids(point_result, facade) -> None:  # type: ignore[no-untyped-def]
+    """Availability is authoritative before execution, for every row and not four of them.
+
+    ``truncation_curve``, ``benchmark`` and ``simulated_confounding`` each read their own
+    replay slot in their own facade. ``refute`` read the same slot only when it ran, so a
+    restored result reported ``refute`` available and then raised. This check derives the
+    requirement from the row rather than naming the operations.
+    """
+    detached = dataclasses.replace(point_result, estimator=None)
+    replay = detached.replayability
+    assert not replay.refit_nuisances and not replay.retarget_cached_nuisances
+
+    surface = getattr(detached, facade)
+    gated = {row.operation for row in surface.capabilities if row.requires_replay}
+    assert gated, f"the {facade} facade declares no replay-gated row"
+
+    for row in surface.capabilities:
+        if row.requires_replay is None:
+            continue
+        assert not row.available
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert "estimator configuration" in (row.reason or "")
+        # Two wordings are correct here, and the contract is the same under both. A row
+        # the replay gate rewrites says the result "no longer carries" its estimator. A
+        # row that its own declaration already refused keeps that more specific reason,
+        # which for ``simulated_confounding`` says the result has "no estimator
+        # configuration". The gate short-circuits rather than overwriting the sharper
+        # text. Pinning one wording would forbid the sharper one.
+        wordings = r"no longer carries|no estimator configuration"
+        with pytest.raises(CapabilityError, match=wordings):
+            surface._require(row.operation)
+
+    # The nonzero control: the same rows are available while the estimator is present, so
+    # the gate is reading replayability rather than refusing everything.
+    intact = {row.operation for row in getattr(point_result, facade).capabilities if row.available}
+    assert gated <= intact
+
+
+def _run_argument_free_routes(result):  # type: ignore[no-untyped-def]
+    ran = set()
+    for surface in (result.diagnostics, result.sensitivity):
+        for declared in surface.capabilities:
+            row = surface.capability(declared.operation)
             if row.requires_arguments or not row.available:
                 continue
-            signature = inspect.signature(getattr(point_result.sensitivity, row.operation))
-            required = [
-                name
-                for name, parameter in signature.parameters.items()
-                if parameter.default is inspect.Parameter.empty
-                and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
-            ]
-            assert not required, f"{row.operation} needs {required} but declares none"
+            function, _ = surface._routed_callable(row.operation)
+            assert inspect.signature(function)
+            # Bind the underlying implementation, not the facade's **kwargs wrapper.
+            surface._bind_arguments(row.operation, {}, partial=False)
+            getattr(surface, row.operation)()
+            ran.add(row.operation)
+    return ran
 
-    @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
-    @pytest.mark.parametrize("error", [KeyError("arm 'high'"), TypeError("unexpected 'subset'")])
-    def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # type: ignore[no-untyped-def]
-        self, point_result, monkeypatch: pytest.MonkeyPatch, facade: str, error: Exception
-    ) -> None:
-        """The merge that produced ``_run_all`` took the union of two caught-exception sets.
 
-        That handed the diagnostics side ``KeyError`` and ``TypeError``, which no routed
-        operation raises as a refusal: every ``raise KeyError`` in the package is a lookup
-        on an already-computed report, and every ``raise TypeError`` is structural.  A bug
-        of either kind then printed as ``unavailable`` -- a status the user guide reserves
-        for a question the fit has no derivation for -- so the report read as a scientific
-        finding about the fit rather than as the defect it was.
-        """
-        surface = getattr(point_result, facade)
-        operation = next(
-            row.operation
-            for row in surface.capabilities
-            if row.available and not row.requires_arguments and row.execution == "summarize"
-        )
+@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
+def test_every_argument_free_row_really_binds_and_runs(request, fixture_name) -> None:  # type: ignore[no-untyped-def]
+    assert _run_argument_free_routes(request.getfixturevalue(fixture_name))
 
-        def broken(*_args: object, **_kwargs: object) -> object:
-            raise error
 
-        monkeypatch.setattr(type(surface), operation, broken, raising=True)
-        # ``_run_all`` memoizes on the result, and this fixture is module-scoped, so an
-        # earlier test in the class has already banked a clean report under this key.
-        point_result.assessment_cache.clear()
-        with pytest.raises(type(error)):
-            surface.run_all()
-        point_result.assessment_cache.clear()
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+@pytest.mark.parametrize("error", [KeyError("arm 'high'"), TypeError("unexpected 'subset'")])
+def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, facade: str, error: Exception
+) -> None:
+    """A structural failure must not look like a scientific refusal."""
+    surface = getattr(point_result, facade)
+    operation = next(
+        row.operation
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution == "summarize"
+    )
+
+    def broken(*_args: object, **_kwargs: object) -> object:
+        raise error
+
+    monkeypatch.setattr(type(surface), operation, broken, raising=True)
+    point_result.assessment_cache.clear()
+    with pytest.raises(type(error)):
+        surface.run_all()
+    point_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+def test_a_refusal_is_unavailable_and_later_diagnostics_still_run(  # type: ignore[no-untyped-def]
+    point_result, monkeypatch: pytest.MonkeyPatch, facade: str
+) -> None:
+    """One unsupported diagnostic must not discard accepted diagnostic reports."""
+    surface = getattr(point_result, facade)
+    runnable = [
+        row.operation
+        for row in surface.capabilities
+        if row.available and not row.requires_arguments and row.execution == "summarize"
+    ]
+    refused, accepted = runnable[:2]
+
+    def decline(*_args: object, **_kwargs: object) -> object:
+        raise CapabilityError("the fitted artifacts do not support this requested variant")
+
+    monkeypatch.setattr(type(surface), refused, decline, raising=True)
+    point_result.assessment_cache.clear()
+    report = surface.run_all()
+
+    assert report[refused].status is AssessmentStatus.UNAVAILABLE
+    assert "declined this request" in report[refused].detail
+    assert report[accepted].status not in {
+        AssessmentStatus.NOT_APPLICABLE,
+        AssessmentStatus.UNAVAILABLE,
+    }
+    assert report.report(accepted) is not None
+    point_result.assessment_cache.clear()
+
+
+def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Median-repeat refusals stay informative while independent analyses continue."""
+    repeated = dataclasses.replace(
+        point_result,
+        repeats=point_result.repeats * 2,
+    )
+
+    requested = {"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
+    report = repeated.sensitivity.run_all(arguments=requested)
+
+    assert report["omitted_confounding"].status is AssessmentStatus.UNAVAILABLE
+    assert "median-combined repeats" in report["omitted_confounding"].detail
+    assert report["evalue"].status is AssessmentStatus.COMPLETED
+    assert report.report("evalue").estimand == "ate"
+    arguments = report["omitted_confounding"].arguments
+    assert arguments["cf_y"] == 0.23
+    assert arguments["cf_d"] == 0.17
+    assert arguments["rho"] == 1.0
+    restored = load(repeated.save(tmp_path / "refused-arguments.joblib"))
+    replayed = restored.sensitivity.run_all(arguments=requested)
+    assert replayed["omitted_confounding"].arguments == arguments
+    assert replayed == report
+
+
+def test_a_refusal_before_seed_resolution_keeps_the_seed_unspecified(
+    point_result, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    module = importlib.import_module("cleverly.validation.refute")
+
+    def unexpected_seed(*args, **kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("the refused request must not resolve a stochastic seed")
+
+    monkeypatch.setattr(module, "resolve_assessment_seed", unexpected_seed)
+    result = dataclasses.replace(point_result)
+    report = result.diagnostics.run_all(
+        include_refits=True,
+        arguments={"refute": {"tests": ("bootstrap_measurement_error",)}},
+    )
+    assert report["refute"].status is AssessmentStatus.UNAVAILABLE
+    assert "BootstrapMeasurementError declaration" in report["refute"].detail
+    assert report["refute"].arguments["random_state"] is None
+    assert report["refute"].arguments["tests"] == ("bootstrap_measurement_error",)
 
 
 class TestSupportDiagnosticsSeeAPerInterventionReport:
@@ -395,21 +1274,31 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
                 simultaneous=False,
             )
 
-    def test_the_stored_report_really_does_breach_a_threshold(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+    def test_the_stored_report_really_does_leave_almost_no_effective_sample(
+        self, extrapolating_shift
+    ) -> None:  # type: ignore[no-untyped-def]
         """The witness: without this the status below would be vacuously right."""
         support = extrapolating_shift.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) < 0.2
 
-    def test_validate_reports_the_warning_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+    def test_validate_reports_the_ratio_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+        """No pass on a fit this thin, and no invented threshold either.
+
+        This shift retains under 1% of its effective sample and truncates nothing. The
+        row therefore grades nothing, and says so: ``COMPLETED`` carries the ratio and
+        leaves the judgement to the reader. ``PASSED`` would read as a positivity
+        clearance that no threshold in this package is entitled to give.
+        """
         item = extrapolating_shift.validate()["support"]
-        assert item.status is AssessmentStatus.WARNING
-        assert "+3" in item.detail
+        assert item.status is AssessmentStatus.COMPLETED
+        assert item.status is not AssessmentStatus.PASSED
+        assert "effective-sample-size ratio" in item.detail
 
     def test_the_combined_report_agrees_with_validate(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
         item = extrapolating_shift.diagnostics.run_all()["support"]
-        assert item.status is AssessmentStatus.WARNING
+        assert item.status is AssessmentStatus.COMPLETED
 
-    def test_a_well_supported_tilt_still_passes(self) -> None:
+    def test_a_well_supported_tilt_does_not_warn(self) -> None:
         """The control: the new branch must not warn about every mapping it sees."""
         from cleverly import IncrementalMean
         from cleverly.datasets import make_linear_ate
@@ -435,7 +1324,7 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         )
         support = result.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) >= 0.2
-        assert result.validate()["support"].status is AssessmentStatus.PASSED
+        assert result.validate()["support"].status is AssessmentStatus.COMPLETED
 
 
 class TestCapabilityRowsDoNotContradictThemselves:
@@ -493,12 +1382,22 @@ class TestCapabilityRowsDoNotContradictThemselves:
         "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
     )
     def test_only_an_unrunnable_operation_carries_a_reason(self, fixture_name, request) -> None:  # type: ignore[no-untyped-def]
+        """Both facades, because the invariant is about the field and not about one surface.
+
+        This checked ``sensitivity`` alone, and ``truncation_curve`` lives on
+        ``diagnostics``. A per-result cost override that stamped a note onto an available
+        diagnostics row therefore breached the documented meaning of ``reason`` without
+        failing anything.
+        """
         result = request.getfixturevalue(fixture_name)
-        for row in result.sensitivity.capabilities:
-            if row.available:
-                assert row.reason is None, f"{row.operation} is available but explains itself away"
-            else:
-                assert row.reason, f"{row.operation} is unavailable and does not say why"
+        for surface in (result.diagnostics, result.sensitivity):
+            for row in surface.capabilities:
+                if row.available:
+                    assert row.reason is None, (
+                        f"{row.operation} is available but explains itself away"
+                    )
+                else:
+                    assert row.reason, f"{row.operation} is unavailable and does not say why"
 
     def test_a_fitted_missingness_mechanism_makes_the_tilt_available(
         self, missing_outcome_result
@@ -509,6 +1408,24 @@ class TestCapabilityRowsDoNotContradictThemselves:
         assert rows["missingness"].reason is None
         # And the operation really does run, which is what made the old row wrong.
         assert missing_outcome_result.sensitivity.missingness() is not None
+
+    def test_missing_outcome_argument_free_routes_bind_and_run(
+        self, missing_outcome_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert {"missingness", "tipping_gamma"} <= _run_argument_free_routes(missing_outcome_result)
+
+    def test_missing_estimator_disables_retargeting_but_not_stored_missingness(
+        self, missing_outcome_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        restored = dataclasses.replace(
+            missing_outcome_result,
+            estimator=None,
+        )
+
+        assert not restored.replayability.retarget_cached_nuisances
+        assert not restored.diagnostics.capability("truncation_curve").available
+        assert restored.sensitivity.capability("missingness").available
+        assert restored.sensitivity.missingness() is not None
 
     def test_the_longitudinal_reason_stays_on_the_longitudinal_row(
         self, longitudinal_result
@@ -553,3 +1470,160 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
         curve = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
         assert curve is not None
         assert hasattr(point_result.sensitivity, "evalue")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"simulated_confounding": {"grid": object()}},
+        {"simulated_confounding": {"grid": object(), "estimand": "ate"}},
+        {"benchmark": {"covariates": ("W1",)}},
+        {"evalue": {"estimand": "ate"}},
+    ],
+)
+def test_unavailable_longitudinal_arguments_never_bind_point_data(longitudinal_result, arguments):
+    result = dataclasses.replace(longitudinal_result)
+    battery = result.assess(arguments=arguments)
+    assert battery.sensitivity[next(iter(arguments))].status is AssessmentStatus.UNAVAILABLE
+    with pytest.raises(TypeError):
+        result.assess(arguments={"simulated_confounding": {"not_a_keyword": 1}})
+
+
+@pytest.mark.parametrize("name", ["score_equations", "support", "nuisance_models"])
+def test_explicit_surface_retrieves_validation_owned_diagnostics(point_result, name):
+    battery = point_result.assess()
+    assert battery.report(name, surface="diagnostics") is battery.diagnostics.report(name)
+    assert battery.report(name) is battery.report(name, surface="validation")
+    assert sum(item.name == name for _, item in battery._presented()) == 1
+    with pytest.raises(KeyError, match="surface"):
+        battery.report(name, surface="wrong")
+
+
+def test_completed_none_payload_survives_retrieval_and_pickle(point_result, tmp_path):
+    import joblib
+
+    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
+
+    item = AssessmentItem(
+        "tipping_gamma", AssessmentStatus.COMPLETED, "no tipping point", _report=None
+    )
+    omitted = AssessmentItem("missingness", AssessmentStatus.UNAVAILABLE, "missing artifacts")
+    surface = DiagnosticReport((item, omitted))
+    battery = AssessmentReport(ValidationReport(()), DiagnosticReport(()), surface)
+    path = tmp_path / "none-report.joblib"
+    joblib.dump(battery, path)
+    for report in (battery, joblib.load(path)):
+        assert report.report("tipping_gamma") is None
+        assert report.sensitivity.report("tipping_gamma") is None
+        assert report.sensitivity.reports() == {"tipping_gamma": None}
+        with pytest.raises(KeyError):
+            report.report("missingness")
+
+
+@pytest.mark.parametrize(
+    "mse, expected", [(float("nan"), AssessmentStatus.WARNING), (0.1, AssessmentStatus.COMPLETED)]
+)
+def test_longitudinal_loss_warning(mse, expected):
+    from cleverly.assessment import (
+        INTERPRETERS,
+        LongitudinalNuisanceDiagnostics,
+        LongitudinalNuisanceRow,
+    )
+
+    report = LongitudinalNuisanceDiagnostics(
+        (LongitudinalNuisanceRow("always", None, None, 1, 12, mse),)
+    )
+    assert INTERPRETERS["nuisance_models"](report, None).status is expected
+
+
+@pytest.mark.parametrize(
+    "supplied, phrase",
+    [
+        ({}, "at the default strengths"),
+        ({"cf_y": 0.03}, "at the default cf_d strength"),
+        ({"cf_d": 0.03}, "at the default cf_y strength"),
+        ({"cf_y": 0.03, "cf_d": 0.03}, None),
+    ],
+)
+def test_default_strength_provenance_uses_supplied_arguments(point_result, supplied, phrase):
+    row = point_result.sensitivity.run_all(arguments={"omitted_confounding": supplied})[
+        "omitted_confounding"
+    ]
+    if phrase is None:
+        assert "default" not in row.detail
+    else:
+        assert phrase in row.detail
+    assert row.arguments["cf_y"] == row.arguments["cf_d"] == 0.03
+
+
+def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_result, monkeypatch):
+    result = dataclasses.replace(point_result)
+    module = importlib.import_module("cleverly.validation.refute")
+    calls = []
+    original = module.refute
+
+    def tracked(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    tracked.__signature__ = inspect.signature(original)
+    monkeypatch.setattr(module, "refute", tracked)
+    arguments = {"n_replicates": 1, "tests": ("placebo",)}
+    direct = result.diagnostics.refute(**arguments)
+    combined = result.diagnostics.run_all(include_refits=True, arguments={"refute": arguments})
+    assert combined.report("refute") is direct
+    assert result.diagnostics.refute(**combined["refute"].arguments) is direct
+    assert calls == [1]
+
+
+def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_result):
+    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
+
+    repeated = dataclasses.replace(point_result, repeats=point_result.repeats * 2)
+    sensitivity = repeated.sensitivity.run_all()
+    warning = AssessmentItem("support", AssessmentStatus.WARNING, "positivity warning")
+    battery = AssessmentReport(ValidationReport((warning,)), DiagnosticReport(()), sensitivity)
+    assert "support" in [item.name for item in battery.attention]
+    assert "omitted_confounding" not in [item.name for item in battery.attention]
+    assert "omitted_confounding" in [item.name for item in battery.omissions]
+
+
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
+    point_result, backend, monkeypatch, tmp_path
+):
+    import joblib
+
+    from cleverly._assessment_cache import _CachedFrame
+
+    result = dataclasses.replace(
+        point_result,
+        data=dataclasses.replace(point_result.data, backend=backend),
+    )
+    calls = []
+    original = _CachedFrame.from_frame.__func__
+
+    def tracked(cls, frame, backend):
+        calls.append(1)
+        return original(cls, frame, backend)
+
+    monkeypatch.setattr(_CachedFrame, "from_frame", classmethod(tracked))
+    report = result.sensitivity.run_all()
+    assert calls == [1]
+    retained = report.report("contour")
+    expected = (
+        retained.to_dict(as_series=False)
+        if backend == "polars"
+        else retained.to_dict(orient="list")
+    )
+    if backend == "pandas":
+        retained.iloc[0, 0] = 99
+    else:
+        retained[0, 0] = 99
+    fresh = report.report("contour")
+    actual = fresh.to_dict(as_series=False) if backend == "polars" else fresh.to_dict(orient="list")
+    assert actual == expected
+    path = tmp_path / f"{backend}.joblib"
+    joblib.dump(report, path)
+    assert type(joblib.load(path).report("contour")) is type(fresh)
+    assert calls == [1]

@@ -32,6 +32,8 @@ lmtp_tmle_with_folds <- function(
   baseline = NULL,
   time_vary = NULL,
   cens = NULL,
+  id = NULL,
+  weights = NULL,
   outcome_type = "binomial",
   fold_assignment,
   learners_outcome = "SL.glm",
@@ -60,9 +62,35 @@ lmtp_tmle_with_folds <- function(
   )
 ) {
   if (nrow(data) != length(fold_assignment)) stop("fold assignment has the wrong length")
-  variables <- c(unlist(trt), outcome, unlist(time_vary), baseline, cens)
+  if (!is.null(weights)) {
+    if (length(weights) != nrow(data)) stop("weights have the wrong length")
+    if (!is.numeric(weights) || any(!is.finite(weights)) || any(weights <= 0)) {
+      stop("weights must be finite positive numbers")
+    }
+    weights <- as.numeric(weights)
+  }
+  if (!is.null(id) && (!is.character(id) || length(id) != 1L || !id %in% names(data))) {
+    stop("id must be NULL or the name of one cluster identifier column")
+  }
+  variables <- unique(c(unlist(trt), outcome, unlist(time_vary), baseline, cens, id))
   natural <- data[, variables, drop = FALSE]
   intervention <- shifted[, variables, drop = FALSE]
+
+  if (!is.null(id)) {
+    if (!identical(natural[[id]], intervention[[id]])) {
+      stop("natural and shifted data must preserve the cluster identifier")
+    }
+    cluster_folds <- split(as.integer(fold_assignment), natural[[id]])
+    split_clusters <- names(cluster_folds)[vapply(
+      cluster_folds, function(labels) length(unique(labels)) != 1L, logical(1)
+    )]
+    if (length(split_clusters)) {
+      stop(sprintf(
+        "%d cluster(s) are split across folds; the first is %s",
+        length(split_clusters), split_clusters[[1]]
+      ))
+    }
+  }
 
   Task <- lmtp_internal("LmtpTask")
   task <- Task$new(
@@ -75,11 +103,11 @@ lmtp_tmle_with_folds <- function(
     C = cens,
     D = NULL,
     k = Inf,
-    id = NULL,
+    id = id,
     outcome_type = outcome_type,
     bounds = NULL,
     folds = length(unique(fold_assignment)),
-    weights = NULL
+    weights = weights
   )
   task$folds <- fold_list(fold_assignment)
   progress <- function(...) invisible(NULL)
@@ -210,7 +238,7 @@ lmtp_tmle_with_folds <- function(
     shift = "supplied shifted data with exact folds",
     is_sdr = FALSE
   )
-  result$initial <- initial
+  result$initial <- if (outcome_type == "continuous") task$rescale(initial) else initial
   result$fold_assignment <- as.integer(fold_assignment)
   result
 }

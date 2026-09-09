@@ -1,4 +1,11 @@
-"""Equality for the report rows whose ``nan`` means "this column does not apply".
+"""What a frozen report row means by a default: an absent column, and an absent field.
+
+This module holds the two dataclass behaviours that a report row needs and that
+``@dataclass`` does not give it.  :func:`sentinel_equality` says what a defaulted ``nan``
+column means for equality, and :class:`_DefaultingUnpickle` says what an *absent* field
+means for a pickle written before that field existed.  Both are one implementation
+because the alternative is one copy per record class, and a copy that names its own
+fields goes stale the day a field is added.
 
 Several report classes are frozen dataclasses with a ``nan`` default on the columns that
 only some of their rows carry -- :class:`~cleverly.validation.ScoreCheckRow`'s
@@ -36,12 +43,110 @@ the interpreter happens to generate, which is why the test that pins it construc
 from __future__ import annotations
 
 import math
-from dataclasses import fields
-from typing import Any, TypeVar
+from dataclasses import MISSING, fields, is_dataclass
+from typing import Any, ClassVar, TypeVar, cast
 
 __all__ = ["sentinel_equality"]
 
 T = TypeVar("T", bound=type)
+
+
+class _DefaultingUnpickle:
+    """Restore a frozen record whose pickle predates some of its fields.
+
+    Defaulting a field is not on its own enough to keep an old pickle readable.
+    ``dataclasses`` *deletes* the class attribute for a ``default_factory`` field, so a
+    record pickled before that field existed unpickles with no entry in its instance dict
+    and no class-level fallback behind it, and every reader of that attribute raises
+    :class:`AttributeError` instead.  Filling the gap here is what makes the defaults on
+    the fields true for a stored result rather than only for a fresh construction.
+
+    The fill is driven by :func:`dataclasses.fields` rather than by a list of names, so the
+    next defaulted field is covered the day it is added.  Four record classes had written
+    this restore out by hand, three of them byte for byte, and each named its own fields --
+    which is the list that goes stale.
+
+    A field whose *stored* value has to differ from its constructor default -- a reason
+    string saying the report predates a diagnostic, rather than the ``None`` a fresh report
+    means by it -- names that value in :attr:`_PICKLE_BACKFILL`.
+
+    That map is a second list of field names, so it is the thing that goes stale, and it
+    fails *quietly* when it does.  Rename ``score_load_omission`` and the entry stops
+    matching any field: the old pickle then takes the field's own ``None`` default and
+    restores a report that claims no score load and no reason for one, which is a worse
+    answer than an error.  A required field named there would be filled from the map before
+    anything asked whether it had a default, which would hide a genuinely unreadable pickle.
+    :meth:`check_pickle_backfill` refuses both at restore time, and
+    ``tests/unit/test_record_equality.py`` sweeps every subclass in the package so the
+    refusal does not wait for someone to unpickle an old file.
+
+    Use as a base class of a frozen dataclass.  It declares no fields of its own, so it
+    does not change the generated signature, and each fill goes through
+    :func:`object.__setattr__` because the class is frozen.
+    """
+
+    #: Stored values for the fields whose backfill is not their constructor default, keyed
+    #: by field name.  Every other missing field takes its own default.  Every key has to
+    #: name a field of the class that declares it, and that field has to have a default of
+    #: its own: this map replaces a default, it does not supply one.
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {}
+
+    @classmethod
+    def check_pickle_backfill(cls) -> None:
+        """Refuse a ``_PICKLE_BACKFILL`` that no longer describes this class's fields.
+
+        Raises
+        ------
+        TypeError
+            If a key names no field of this class, or names a field with no default.
+        """
+        specs = {spec.name: spec for spec in fields(cast("Any", cls))}
+        unknown = sorted(set(cls._PICKLE_BACKFILL) - set(specs))
+        if unknown:
+            raise TypeError(
+                f"{cls.__name__}._PICKLE_BACKFILL names no such field: {', '.join(unknown)}; "
+                "a renamed field needs its entry renamed with it, or an old pickle silently "
+                "takes the field's own default"
+            )
+        required = sorted(
+            name
+            for name in cls._PICKLE_BACKFILL
+            if specs[name].default is MISSING and specs[name].default_factory is MISSING
+        )
+        if required:
+            raise TypeError(
+                f"{cls.__name__}._PICKLE_BACKFILL names a required field: "
+                f"{', '.join(required)}; a pickle that predates a field with no default is "
+                "unreadable rather than fillable"
+            )
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a pickled record, filling in every field the pickle predates.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The instance dictionary the pickle carries.
+        """
+        type(self).check_pickle_backfill()
+        self.__dict__.update(state)
+        # `self` is a dataclass instance by contract rather than by annotation: the mixin
+        # carries no fields, so it cannot be one itself.
+        for spec in fields(cast("Any", self)):
+            if spec.name in state:
+                continue
+            # The default is what makes a field fillable, so it is tested first.  The map
+            # only *replaces* a default.  Consulting it first would fill a required field
+            # from it and call an unreadable pickle restored.
+            if spec.default is not MISSING:
+                fill: Any = spec.default
+            elif spec.default_factory is not MISSING:
+                fill = spec.default_factory()
+            else:
+                continue
+            if spec.name in self._PICKLE_BACKFILL:
+                fill = self._PICKLE_BACKFILL[spec.name]
+            object.__setattr__(self, spec.name, fill)
 
 
 class _NotApplicable:
@@ -56,13 +161,45 @@ class _NotApplicable:
 _NOT_APPLICABLE = _NotApplicable()
 
 
+class _KeyKind:
+    """An identity tag that keeps unlike nested containers unequal."""
+
+    __slots__ = ()
+
+
+_DATACLASS = _KeyKind()
+_DICTIONARY = _KeyKind()
+_LIST = _KeyKind()
+_TUPLE = _KeyKind()
+
+
+def _canonical(value: Any) -> Any:
+    """Make one compared value hashable and canonicalise sentinel ``nan`` values."""
+    if isinstance(value, float) and math.isnan(value):
+        return _NOT_APPLICABLE
+    if is_dataclass(value) and not isinstance(value, type):
+        compared = (
+            _canonical(getattr(value, spec.name))
+            for spec in fields(cast("Any", value))
+            if spec.compare
+        )
+        return (_DATACLASS, type(value), tuple(compared))
+    if isinstance(value, dict):
+        return (
+            _DICTIONARY,
+            frozenset((_canonical(key), _canonical(item)) for key, item in value.items()),
+        )
+    if isinstance(value, list):
+        return (_LIST, tuple(_canonical(item) for item in value))
+    if isinstance(value, tuple):
+        return (_TUPLE, tuple(_canonical(item) for item in value))
+    return value
+
+
 def _key(record: Any) -> tuple[Any, ...]:
-    """The record's compared fields, with every sentinel ``nan`` canonicalised."""
+    """The record's compared fields as a recursively canonical, hashable key."""
     values = (getattr(record, field.name) for field in fields(record) if field.compare)
-    return tuple(
-        _NOT_APPLICABLE if isinstance(value, float) and math.isnan(value) else value
-        for value in values
-    )
+    return tuple(_canonical(value) for value in values)
 
 
 def sentinel_equality(cls: T) -> T:
@@ -79,13 +216,16 @@ def sentinel_equality(cls: T) -> T:
     ``__hash__`` is replaced alongside ``__eq__`` and over the same key, because Python
     unsets a class's hash the moment ``__eq__`` is assigned and these rows live inside
     frozen containers that are themselves hashable.  Hashing over the canonicalised key
-    rather than the raw fields is not merely bookkeeping: ``hash(nan)`` is ``0`` for every
-    ``nan``, so the two agree on which rows collide either way -- but the key is what makes
-    "equal implies equal hashes" true by construction rather than by coincidence.
+    rather than the raw fields is not merely bookkeeping: separately constructed ``nan``
+    values can also have different hashes.  The shared key makes "equal implies equal
+    hashes" true by construction.
 
-    Only ``float`` fields are canonicalised, and only when they are ``nan``.  A numpy array
-    field is left alone and will raise from ``bool()`` on an ambiguous comparison exactly as
-    it does today; no class this decorates has one.
+    Built-in ``float`` values are canonicalised only when they are ``nan``.  The walk also
+    reaches compared fields of nested dataclass values and values inside dictionaries, lists,
+    and tuples.  It tags each container kind and freezes its contents, which preserves the
+    ordinary distinctions between those values while making a dict-backed report hashable.
+    Other values retain their normal comparison and hash behavior.  In particular, a numpy
+    array field remains unsupported and raises when equality or hashing reaches it.
     """
 
     def __eq__(self: Any, other: object) -> bool:

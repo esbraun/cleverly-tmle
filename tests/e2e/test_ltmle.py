@@ -14,7 +14,6 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import AssessmentStatus, CapabilityError, load
-from cleverly.assessment import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -22,6 +21,7 @@ from cleverly.datasets import (
 )
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
+from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -492,9 +492,12 @@ def test_each_cumulative_mechanism_is_truncated_after_the_product() -> None:
 
 def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
     frame, _ = make_longitudinal(n=400, seed=91)
-    with pytest.warns(PositivityWarning, match="constant on scored rows"):
+    with pytest.warns(PositivityWarning, match="constant on scored rows") as caught:
         result = run(frame, regimens={"always": 1}, g_bounds=0.9)
-    diagnostics = result.diagnostics.stagewise().to_frame()
+    message = str(caught[0].message)
+    assert "diagnostics.support()" in message
+    assert "diagnostics.stagewise()" not in message
+    diagnostics = result.diagnostics.support().to_frame()
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]
     np.testing.assert_allclose(fit.cumulative[:, -1], 0.9)

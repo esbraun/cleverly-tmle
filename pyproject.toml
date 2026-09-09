@@ -1,13 +1,14 @@
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "cleverly"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A Python toolbox for causal studies based on targeted maximum likelihood estimation (TMLE)."
 readme = "README.md"
-license = { text = "GPL-3.0-only" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Eric Braun" }]
 keywords = [
@@ -21,7 +22,6 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -69,6 +69,8 @@ dev = [
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",
+    "build>=1.2,<2",
+    "twine>=7,<8",
     # Exact pins live here and in uv.lock. CI and nox install this extra rather than
     # restating versions, so local and automated toolchains resolve from one declaration.
     "ruff==0.16.1",
@@ -80,6 +82,11 @@ dev = [
 Homepage = "https://esbraun.github.io/cleverly-tmle/"
 Documentation = "https://esbraun.github.io/cleverly-tmle/"
 Repository = "https://github.com/esbraun/cleverly-tmle"
+Issues = "https://github.com/esbraun/cleverly-tmle/issues"
+Changelog = "https://github.com/esbraun/cleverly-tmle/releases"
+
+[tool.hatch.version]
+path = "src/cleverly/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cleverly"]
@@ -87,13 +94,18 @@ packages = ["src/cleverly"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/cleverly/py.typed" = "cleverly/py.typed"
 
+# The project is MIT, but `tests/canonical/` is GPL-3.0: its R runners call reference
+# packages in-process, and one of them is AGPL-3. Keeping the test tree out of the sdist
+# is what makes "a default install is MIT" true rather than merely intended. The wheel
+# target above already excludes it. Excluded whole rather than at `tests/canonical/`,
+# because `tests/unit/test_method_evidence.py` and every `tests/studies/canonical_*.py`
+# read the artifacts there; a partial tree collects as errors, not as a runnable suite.
+[tool.hatch.build.targets.sdist]
+exclude = ["/tests"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-markers = [
-    "slow: re-execution of the committed evidence artefacts; excluded from the fast CI tier",
-    "legacy_study: superseded repeated-sampling study, skipped unless --run-legacy-studies",
-]
 filterwarnings = [
     "error::RuntimeWarning",
     "ignore::DeprecationWarning",

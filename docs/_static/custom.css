@@ -15,6 +15,22 @@ html[data-theme="light"] {
   max-width: 62rem;
 }
 
+/* The theme splits the header into a col-lg-3 brand column and a col-lg-9 item
+   column. The brand column then holds a quarter of the width whatever the brand
+   needs, which leaves the header links too little room and wraps them onto a
+   second row. Size both columns to their content instead. */
+@media (min-width: 992px) {
+  .bd-header .navbar-header-items__start.col-lg-3 {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .bd-header .navbar-header-items.col-lg-9 {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}
+
 .cleverly-hero {
   background:
     radial-gradient(circle at 88% 18%, rgb(8 127 140 / 16%), transparent 34%),
@@ -117,9 +133,231 @@ html[data-theme="dark"] .cleverly-workflow li {
   scrollbar-width: thin;
 }
 
-.pst-scrollable-table-container td:first-child {
+#implementation-validation-grid .pst-scrollable-table-container {
+  border: 1px solid var(--pst-color-table-outer-border);
+  max-height: min(72vh, 48rem);
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+#implementation-validation-grid .pst-scrollable-table-container thead th {
+  background: var(--pst-color-table-heading-bg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+#implementation-validation-grid .pst-scrollable-table-container td:first-child {
   font-weight: 600;
-  white-space: nowrap;
+}
+
+.cleverly-grid-top-scroll {
+  border: 1px solid var(--pst-color-table-outer-border);
+  border-bottom: 0;
+  height: 1rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.cleverly-grid-top-scroll:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--pst-color-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.cleverly-grid-top-scroll__track {
+  height: 1px;
+}
+
+.cleverly-grid-cell-content {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  display: -webkit-box;
+  overflow: hidden;
+}
+
+.cleverly-grid-cell--truncated {
+  cursor: help;
+}
+
+.cleverly-grid-cell--truncated:focus-visible,
+#implementation-validation-grid tr:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--pst-color-primary) 55%, transparent);
+  outline-offset: -3px;
+}
+
+#implementation-validation-grid tr.cleverly-grid-active-row > td {
+  background-color: var(--pst-color-target);
+}
+
+.cleverly-grid-cell-popover {
+  background: var(--pst-color-background);
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 0.75rem 2rem var(--pst-color-shadow);
+  color: var(--pst-color-text-base);
+  max-height: min(28rem, calc(100vh - 1rem));
+  max-width: calc(100vw - 1rem);
+  overflow: auto;
+  padding: 1rem;
+  position: fixed;
+  width: 36rem;
+  z-index: 1100;
+}
+
+.cleverly-grid-cell-popover[hidden] {
+  display: none;
+}
+
+.cleverly-grid-cell-popover__close {
+  align-items: center;
+  background: var(--pst-color-surface);
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.25rem;
+  color: var(--pst-color-text-base);
+  display: inline-flex;
+  float: right;
+  height: 2rem;
+  justify-content: center;
+  margin: 0 0 0.5rem 0.75rem;
+  position: sticky;
+  top: 0;
+  width: 2rem;
+}
+
+.cleverly-grid-cell-popover__close:hover {
+  border-color: var(--pst-color-primary);
+  color: var(--pst-color-primary);
+}
+
+.cleverly-grid-cell-popover__content > :last-child {
+  margin-bottom: 0;
+}
+
+.cleverly-grid-study-navigation h3 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.cleverly-grid-study-navigation__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cleverly-grid-study-navigation__list a {
+  border-left: 2px solid transparent;
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.25;
+  padding: 0.3rem 0.5rem;
+}
+
+.cleverly-grid-study-navigation__list a[aria-current="location"] {
+  border-left-color: var(--pst-color-primary);
+  color: var(--pst-color-primary);
+  font-weight: 600;
+}
+
+.cleverly-sidebar-panel-header,
+.cleverly-sidebar-tab {
+  display: none;
+}
+
+.cleverly-sidebar-hide,
+.cleverly-sidebar-tab {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.25rem;
+  color: var(--pst-color-text-muted);
+  justify-content: center;
+}
+
+.cleverly-sidebar-hide:hover,
+.cleverly-sidebar-tab:hover {
+  border-color: var(--pst-color-primary);
+  color: var(--pst-color-primary);
+}
+
+.cleverly-sidebar-hide:focus-visible,
+.cleverly-sidebar-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--pst-color-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.cleverly-sidebar-hide {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+}
+
+.cleverly-sidebar-panel-header {
+  background: var(--pst-color-background);
+  flex: 0 0 auto;
+  padding: 0.25rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.cleverly-sidebar-panel-header--primary {
+  justify-content: flex-end;
+}
+
+.cleverly-sidebar-panel-header--secondary {
+  justify-content: flex-start;
+}
+
+.cleverly-sidebar-tab {
+  background: var(--pst-color-surface);
+  height: 2.75rem;
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2rem;
+  z-index: 1010;
+}
+
+.cleverly-sidebar-tab--primary {
+  border-left: 0;
+  border-radius: 0 0.35rem 0.35rem 0;
+  left: 0;
+}
+
+.cleverly-sidebar-tab--secondary {
+  border-radius: 0.35rem 0 0 0.35rem;
+  border-right: 0;
+  right: 0;
+}
+
+@media (min-width: 960px) {
+  .cleverly-sidebar-panel-header--primary {
+    display: flex;
+  }
+
+  html.cleverly-primary-sidebar-collapsed #pst-primary-sidebar {
+    display: none;
+  }
+
+  html.cleverly-primary-sidebar-collapsed .cleverly-sidebar-tab--primary {
+    display: flex;
+  }
+}
+
+@media (min-width: 1200px) {
+  .cleverly-sidebar-panel-header--secondary {
+    display: flex;
+  }
+
+  html.cleverly-secondary-sidebar-collapsed #pst-secondary-sidebar {
+    display: none;
+  }
+
+  html.cleverly-secondary-sidebar-collapsed .cleverly-sidebar-tab--secondary {
+    display: flex;
+  }
 }
 
 @media (max-width: 767px) {

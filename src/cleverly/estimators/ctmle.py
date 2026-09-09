@@ -162,6 +162,14 @@ the stronger collaborative-double-robust theorem, and no interval is claimed val
 both nuisance limits are wrong. ``n_bootstrap=`` reruns selection and can diagnose its
 finite-sample contribution, but does not create that missing theorem.
 
+Fixed probability weights replace the empirical law by its normalized weighted version.
+The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
+cross-validated risk and the plug-in. The outcome-adaptive route uses it in both nuisance
+fits, targeting and the plug-in. The simulated common-cause surface keeps each weight with
+its observed row and reruns this complete fit. That surface refuses a clustered fit and
+refuses estimated weights. Canonical ``ctmle`` and archived ``ctmle3`` provide no weighted
+comparator, so no numerical parity is claimed for that composition.
+
 State of the evidence
 ---------------------
 
@@ -396,6 +404,26 @@ class CTMLESelection:
             )
         return "\n".join([*header, table, *footer])
 
+    def describe(self) -> str:
+        """One sentence naming the strategy, the candidate the search cut at, and its target.
+
+        The sentence every report of a collaborative fit prints, in the house pattern of
+        :meth:`~cleverly.estimators.TMLEConfig.describe`.  Its counterpart is
+        :meth:`CTMLEOutcomeAdaptiveFit.describe`, so a caller renders a retained artifact
+        without first discriminating which of the two it holds.  Two call sites
+        discriminated by hand and had already drifted to ``candidate=2/5`` against
+        ``candidate 2 of 5``.
+
+        Returns
+        -------
+        str
+            A complete sentence, ready to embed in a report line.
+        """
+        return (
+            f"C-TMLE {self.strategy} selected candidate {self.selected + 1} of "
+            f"{len(self.path)} for {self.estimand}"
+        )
+
     @property
     def treatment_features(self) -> tuple[str, ...]:
         """The covariates entering the selected treatment model."""
@@ -419,6 +447,19 @@ class CTMLEOutcomeAdaptiveFit:
     def treatment_risk_selected(self) -> float:
         """Treatment negative log likelihood, under the shared C-TMLE diagnostic API."""
         return self.treatment_risk
+
+    def describe(self) -> str:
+        """One sentence naming this fit and the size of the treatment model it built.
+
+        The counterpart of :meth:`CTMLESelection.describe`.  There is no candidate path to
+        cut, so what a reader wants instead is how many ``Qbar`` features reached ``g``.
+
+        Returns
+        -------
+        str
+            A complete sentence, ready to embed in a report line.
+        """
+        return f"C-TMLE outcome-adaptive fit used {len(self.treatment_features)} Qbar feature(s)"
 
     def summary(self) -> str:
         features = ", ".join(self.treatment_features)
@@ -510,6 +551,8 @@ class CTMLE(TMLE):
     this class solves collaboratively, and running both would mean the covariate a
     correlation filter rejected never reaches the search that might have wanted it.
     """
+
+    _assessment_method = "collaborative_tmle"
 
     def __init__(
         self,
@@ -641,7 +684,7 @@ class CTMLE(TMLE):
         The draw's ``seed`` reaches the selection folds as well as the nuisance fits, so
         a repeat redraws the split the *selection* was scored against too.  Holding that
         one fixed would leave every draw choosing its stopping point against the same
-        partition, which is the noise ``repeats=`` exists to average away.
+        partition, which is the noise ``repeats=`` exists to reduce.
         """
         if self.incremental:
             raise ValueError(

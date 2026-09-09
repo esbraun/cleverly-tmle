@@ -554,7 +554,14 @@ def weighted_functional(probs: Any, estimand: str, weights: Any) -> Any:
     return functional(tilt(probs, weights), estimand)
 
 
-def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1e-30) -> float:
+def weighted_gateaux(
+    estimand: str,
+    point: int,
+    weights: Any,
+    *,
+    base: Any | None = None,
+    step: float = 1e-30,
+) -> float:
     r"""Gateaux derivative of :math:`P \mapsto \Psi(P_w)` at support point ``point``.
 
     The contamination is of :math:`P`, the law the *rows are drawn from* -- not of
@@ -562,16 +569,18 @@ def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1
     data-generating experiment, so the influence function has to be taken with respect to
     the law that generates them.
     """
-    base = PROBS.astype(complex)
-    mass = np.zeros_like(base)
+    base_array = np.asarray(PROBS if base is None else base, dtype=complex)
+    mass = np.zeros_like(base_array)
     mass[point] = 1.0
-    perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+    perturbed = (1.0 - 1j * step) * base_array + 1j * step * mass
     return float(np.imag(weighted_functional(perturbed, estimand, weights)) / step)
 
 
-def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
+def weighted_eif(estimand: str, weights: Any, *, base: Any | None = None) -> np.ndarray:
     """The EIF of ``Psi(P_w)`` at every support point, in support order."""
-    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])
+    return np.array(
+        [weighted_gateaux(estimand, point, weights, base=base) for point in range(len(SUPPORT))]
+    )
 
 
 class CellMeans(BaseEstimator):

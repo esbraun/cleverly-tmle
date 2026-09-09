@@ -146,14 +146,41 @@ the persistent cache silently.
 
 Both assessment facades route through one base. Lookup, refusal, and the combined report are
 written once. A refusal therefore always carries the reason its own capability row declares, and a
-combined report reads that declaration the same way on both facades. `run_all` names the two
-expensive classes separately: `include_refits` for operations that refit nuisances and
-`include_retargets` for those that retarget cached ones. They are disjoint, and one
-flag made whichever class it did not name run under the other's permission. Sensitivity
+combined report reads that declaration the same way on both facades. Sensitivity
 implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
 takes an estimand; that table and the declared capabilities are checked against each other in
 both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
 the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
+
+`run_all` sorts each included capability row into one of three execution classes. A direct alias
+can remain explicit while its canonical row alone enters the combined report. Longitudinal
+`stagewise` is such an alias for `support`.
+
+A `summarize` row reads stored state and always runs. A `refit` row refits nuisances and runs only
+under `include_refits`. A `retarget` row retargets cached nuisances and runs under
+`include_retargets`, unless its own row declares `cost` as `cheap`. A cheap retarget runs by
+default, which is how an eligible ordinary TMLE fit reports its derived E-value without refitting a
+nuisance model.
+
+The two flags stay separate because the two costs are disjoint: refutation and benchmarking refit
+nuisances without retargeting, and the truncation curve retargets cached nuisances without
+refitting any. One flag made whichever class it did not name run under the other's permission.
+
+A row's execution class is a fact about the fitted result, not only about the operation.
+`assessment_capabilities` resolves it per result, because a guarded DR-TMLE truncation curve refits
+the reduced regressions inside its targeting alternation and so belongs in the `refit` class. A
+family still declares each operation exactly once, and the contract test enforces that. This
+reopens if a second operation becomes method-dependent in the same way, which would argue for
+declaring the class beside the method rather than patching the row.
+
+`run_all` applies its gates in one order: availability, then required arguments, then cost. Every
+gate above the cost gate refuses for a reason no flag pays off. A report that named the cost first
+told the caller to pass `include_refits=True` for a row that also needs explicit `covariates`.
+
+Availability is authoritative before execution. Each capability row names the `Replayability` field
+it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not
+patch one row by name. `refute` read its slot only while running, and so reported `available=True`
+on a result that carries no estimator.
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed
@@ -240,8 +267,7 @@ machine, so it sizes its inner pool from `tests.parallel.available_cores()` rath
 measured `STUDY_JOBS` floor. It must still keep its phases *sequential*. `tests/canonical/tmle3/`
 generates every sample and fits the Python side to completion before it hands the same samples to
 the R container. The two are the same work on the same cores, so overlapping them would leave both
-contending for a machine neither can have. A slow-tier test that is the critical path of
-its tier may take half the budget; the fast tier still leaves inner parallelism alone.
+contending for a machine neither can have. The fast suite leaves inner parallelism alone.
 
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
 a unit, integration, or end-to-end test in the fast tier, or by a registered validation study, and
@@ -308,7 +334,7 @@ Production code stays pure Python. Prior measurements found nuisance fitting dom
 representative workloads and found no material full-workload advantage from compiling the clearest
 package-owned numerical kernels. *Reconsider when* a competent compiled implementation wins
 materially in a full supported workload, including compilation, memory, data movement, packaging,
-and maintenance cost. HAL is the clearest known workload likely to meet that condition.
+and maintenance cost.
 
 Choose the algorithm before choosing the compiler. Newton targeting is the default because the
 universal least-favourable one-step walk can dominate a cheap GLM fit, and the Gaussian multiplier

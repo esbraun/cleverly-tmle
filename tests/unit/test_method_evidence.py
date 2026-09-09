@@ -5,18 +5,18 @@ per study: a method that declares a :class:`~tests.studies.evidence.registry.Stu
 inherits the completeness checks, the recomputation, the published verdicts and the negative
 controls without a line of new test code.
 
-The split between this module and ``tests/e2e/test_method_evidence_slow.py`` is cost, not
-trust.  Everything deterministic -- the summaries, the Student and exact binomial intervals,
-and the verdicts those endpoints imply -- is recomputed here from the replication rows.  The
-resampling bounds and the full re-execution of the estimator over every replication are the
-same checks at a price the fast tier cannot pay, and live there.
+Everything deterministic -- the summaries, the Student and exact binomial intervals, and the
+verdicts those endpoints imply -- is recomputed here from the replication rows.  Re-executing an
+estimator or property study belongs to the affected registered study's regeneration command.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
@@ -26,14 +26,7 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import (
-    describe,
-    load,
-    matches,
-    quantities,
-    thresholds,
-    value,
-)
+from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -53,6 +46,7 @@ from tests.studies.evidence.seeds import replicate_seed
 
 STUDIES = registered()
 IDS = [study.slug for study in STUDIES]
+STUDY_BY_SLUG = {study.slug: study for study in STUDIES}
 
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
@@ -117,7 +111,26 @@ def study(request: pytest.FixtureRequest) -> StudyRecord:
 
 @pytest.fixture
 def rows(study: StudyRecord) -> pd.DataFrame:
-    return pd.read_csv(study.artifact("replicates.csv.gz"))
+    return _replication_rows(study.slug)
+
+
+@functools.cache
+def _replication_rows(slug: str) -> pd.DataFrame:
+    """Load immutable primary rows once per study and worker."""
+    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
+
+
+@functools.cache
+def _property_rows(slug: str) -> pd.DataFrame:
+    """Load immutable property rows once per study and worker."""
+    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
+
+
+@functools.cache
+def _property_summary(slug: str) -> pd.DataFrame:
+    """Recompute an immutable property summary once per study and worker."""
+    study = STUDY_BY_SLUG[slug]
+    return study.properties().summarize_properties(_property_rows(slug))
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
@@ -336,11 +349,10 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
         published = pd.read_csv(study.artifact("properties.csv"))
         pd.testing.assert_frame_equal(
             published,
-            study.properties().summarize_properties(rows),
+            _property_summary(study.slug),
             check_exact=False,
             check_dtype=False,
             rtol=1e-9,
@@ -351,6 +363,31 @@ class TestPublishedVerdicts:
             assert published["property_passed"].all(), published.loc[
                 ~published["property_passed"]
             ].to_string()
+
+    def test_the_exact_bound_flag_agrees_with_the_module_and_the_published_columns(
+        self, study: StudyRecord
+    ) -> None:
+        """Three statements of one fact, which can only disagree by mistake.
+
+        The registry flag says the study claims an efficiency ratio.  The property module
+        declares the band that ratio is read against.  The committed table carries the
+        populated columns.  A study that says one and not the others has a verdict rule
+        nobody reads, which is the state that let a bandless study publish calibration
+        verdicts no test checked.
+        """
+        noise_declared = any(
+            cell.endswith("noise_control")
+            for cell in study.property_cells.get("interval_calibration", ())
+        )
+        flagged = bool(noise_declared and study.calibration_efficiency_ratio)
+        declared = hasattr(study.properties(), "EFFICIENCY_RATIO_BAND")
+        published = pd.read_csv(study.artifact("properties.csv"))
+        columns = [name for name in published if name.startswith("efficiency_")]
+        populated = bool(columns) and bool(published[columns].notna().any().any())
+        assert flagged == declared == populated, (
+            f"{study.slug} flags an exact efficiency ratio={flagged}, declares a band="
+            f"{declared} and publishes populated efficiency columns={populated}"
+        )
 
     def test_no_property_row_publishes_another_row_s_verdict(self, study: StudyRecord) -> None:
         """The gate the performance table had and this one did not.
@@ -394,7 +431,7 @@ class TestPublishedVerdicts:
         # reported an error on the scale of its own spread -- otherwise the fit collapsed and
         # the bias beside it is evidence about the collapse, not about the union model.
         low, high = property_verdicts.UNION_MODEL_SE_BAND
-        union = published.loc[published["property"] == "double_robustness"]
+        union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
             endpoint = row.bias_discriminated if row.role == "control" else row.bias_equivalent
             expected = bool(endpoint) and low <= row.se_ratio <= high
@@ -445,15 +482,41 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
+        # Unconditional over every study with calibration cells.  Guarding this block on the
+        # presence of the efficiency columns left a study that publishes no exact ratio with
+        # *no* reader of its calibration verdicts at all.
         calibration = published.loc[published["property"] == "interval_calibration"]
-        if (
-            "efficiency_empirical_ci_lower" in calibration.columns
-            and calibration["efficiency_empirical_ci_lower"].notna().any()
-        ):
-            properties = study.properties()
+        if not calibration.empty:
+            # A band exists only where the study declares a noise control *and* claims the
+            # ratio, which mirrors the guard ``claims.thresholds`` publishes the band under.
+            noise_declared = any(
+                cell.endswith("noise_control")
+                for cell in study.property_cells.get("interval_calibration", ())
+            )
+            band = (
+                study.properties().EFFICIENCY_RATIO_BAND
+                if (noise_declared and study.calibration_efficiency_ratio)
+                else None
+            )
             for row in calibration.itertuples():
-                kind = row.cell.split("__", 1)[1]
-                if kind == "correctly_specified":
+                # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
+                # cell ``correctly_specified`` and ``shift-policies`` names its control
+                # ``shrunken_se_control``, with no ``__`` at all, while the longitudinal
+                # studies use two-part prefixes such as ``dynamic__correctly_specified``.
+                # ``rsplit`` reads all three.
+                suffix = row.cell.rsplit("__", 1)[-1]
+                if suffix == "shrunken_se_control":
+                    expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                elif suffix == "noise_control":
+                    expected = (
+                        row.efficiency_empirical_ci_lower > band[1]
+                        if band is not None
+                        else row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                    )
+                else:
+                    assert row.role == "positive", (
+                        f"{row.cell} is neither a declared control nor a positive arm"
+                    )
                     expected = (
                         study.margins.calibration_se_ratio[0]
                         <= row.se_ratio_ci_lower
@@ -463,21 +526,19 @@ class TestPublishedVerdicts:
                         <= row.coverage_ci_lower
                         <= row.coverage_ci_upper
                         <= study.margins.calibration_coverage[1]
-                        and properties.EFFICIENCY_RATIO_BAND[0]
-                        <= row.efficiency_empirical_ci_lower
-                        <= row.efficiency_empirical_ci_upper
-                        <= properties.EFFICIENCY_RATIO_BAND[1]
-                        and properties.EFFICIENCY_RATIO_BAND[0]
-                        <= row.efficiency_reported_ci_lower
-                        <= row.efficiency_reported_ci_upper
-                        <= properties.EFFICIENCY_RATIO_BAND[1]
                     )
-                elif kind == "shrunken_se_control":
-                    expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
-                else:
-                    expected = (
-                        row.efficiency_empirical_ci_lower > properties.EFFICIENCY_RATIO_BAND[1]
-                    )
+                    if band is not None:
+                        expected = (
+                            expected
+                            and band[0]
+                            <= row.efficiency_empirical_ci_lower
+                            <= row.efficiency_empirical_ci_upper
+                            <= band[1]
+                            and band[0]
+                            <= row.efficiency_reported_ci_lower
+                            <= row.efficiency_reported_ci_upper
+                            <= band[1]
+                        )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
@@ -556,6 +617,36 @@ class TestPublishedVerdicts:
                 >= study.properties().PROJECTION_DISPLACEMENT
             )
 
+        # One rule, two families.  Each gates on its own declared threshold, which the two
+        # studies name apart so that neither reads the other's constant.
+        for family, threshold in (
+            ("weight_necessity", "WEIGHT_DISPLACEMENT"),
+            ("learner_weight_necessity", "LEARNER_WEIGHT_DISPLACEMENT"),
+        ):
+            frame = published.loc[published["property"] == family]
+            if not frame.empty:
+                control = frame.loc[frame["role"] == "control"]
+                assert len(control) >= 1
+                alternative_ok = True
+                if (
+                    "alternative_bias_equivalent" in control
+                    and control["alternative_bias_equivalent"].notna().any()
+                ):
+                    alternative_ok = bool(control["alternative_bias_equivalent"].all())
+                    assert alternative_ok
+                displacement_column = {
+                    "weight_necessity": "weight_displacement",
+                    "learner_weight_necessity": "learner_weight_displacement",
+                }[family]
+                if displacement_column not in frame or frame[displacement_column].isna().all():
+                    displacement_column = "necessity_displacement"
+                assert frame["property_passed"].nunique() == 1
+                assert bool(frame["property_passed"].iloc[0]) is bool(
+                    frame["passed"].all()
+                    and alternative_ok
+                    and frame[displacement_column].iloc[0] >= getattr(study.properties(), threshold)
+                )
+
         recursion = published.loc[
             published["property"].isin(
                 {"survival_recursion_necessity", "competing_risk_recursion_necessity"}
@@ -595,6 +686,72 @@ class TestPublishedVerdicts:
             assert design["property_passed"].nunique() == 1
             assert bool(design["property_passed"].iloc[0]) is bool(design["passed"].all())
 
+        clustered = published.loc[published["property"] == "clustered_inference"]
+        if not clustered.empty:
+            margins = study.margins
+            for row in clustered.itertuples():
+                if row.cell == "cluster_robust":
+                    expected = (
+                        margins.calibration_se_ratio[0]
+                        <= row.se_ratio_ci_lower
+                        <= row.se_ratio_ci_upper
+                        <= margins.calibration_se_ratio[1]
+                        and margins.calibration_coverage[0]
+                        <= row.coverage_ci_lower
+                        <= row.coverage_ci_upper
+                        <= margins.calibration_coverage[1]
+                    )
+                else:
+                    expected = (
+                        row.se_ratio_ci_upper <= property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+                    )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its clustered-inference endpoints"
+                )
+            assert clustered["property_passed"].nunique() == 1
+            assert bool(clustered["property_passed"].iloc[0]) is bool(
+                clustered["passed"].all()
+                and clustered["coverage_gain_ci_lower"].iloc[0]
+                >= property_verdicts.CLUSTERED_COVERAGE_GAIN
+            )
+
+        stability = published.loc[published["property"] == "repeat_stability"]
+        if not stability.empty:
+            population_sampling_columns = [
+                "truth",
+                "mean_estimate",
+                "bias",
+                "bias_se",
+                "bias_ci_lower",
+                "bias_ci_upper",
+                "bias_margin",
+                "standardized_bias",
+                "bias_equivalent",
+                "bias_discriminated",
+                "root_n_bias",
+                "empirical_se",
+                "mean_std_error",
+                "se_ratio",
+                "se_ratio_ci_lower",
+                "se_ratio_ci_upper",
+                "coverage",
+                "coverage_ci_lower",
+                "coverage_ci_upper",
+                "rejection_rate",
+                "rejection_ci_lower",
+                "rejection_ci_upper",
+                "nominal_size",
+            ]
+            assert stability[population_sampling_columns].isna().all().all()
+            expected = (
+                stability["spread_ratio_ci_upper"].iloc[0]
+                < study.properties().MAX_REPEAT_SPREAD_RATIO
+            )
+            assert stability["passed"].nunique() == 1
+            assert bool(stability["passed"].iloc[0]) is bool(expected)
+            assert stability["property_passed"].nunique() == 1
+            assert bool(stability["property_passed"].iloc[0]) is bool(expected)
+
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
             pytest.skip("study declares no cross-fit overfitting cells")
@@ -627,13 +784,13 @@ BIAS_GATED_PROPERTIES = frozenset(
         "mechanism_requirement",
         "cap_necessity",
         "density_necessity",
-        "mar_robustness",
+        "learner_weight_necessity",
         "missingness_necessity",
-        "robustness_contract",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "weight_necessity",
         "projection_necessity",
         "ratio_necessity",
         "rule_necessity",
@@ -645,6 +802,7 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
         "correction_necessity",
@@ -659,10 +817,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # gate asserted ``passed == bias_discriminated`` exactly, so the framework held the
         # gap in place rather than merely missing it.
         "double_robustness",
+        "cde_robustness",
+        "mar_robustness",
+        "robustness_contract",
         "generated_design",
         "interval_calibration",
         "natural_course_identity",
         "power",
+        "repeat_stability",
         "root_n_and_efficiency",
         "root_n_rate",
         "static_reduction",
@@ -673,12 +835,21 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 
 
 class TestNegativeControls:
-    """Corrupt one implementation and require exactly that one to fail."""
+    """Corrupt one implementation and leave the other implementation's verdict unchanged."""
 
     @pytest.fixture
     def cell(self, study: StudyRecord, rows: pd.DataFrame) -> pd.DataFrame:
         scenario = next(iter(study.scenarios))
-        estimand = study.scenarios[scenario][0]
+        performance = pd.read_csv(study.artifact("performance-tests.csv"))
+        valid = set(
+            performance.loc[
+                (performance["implementation"] == study.implementation) & performance["passed"],
+                "estimand",
+            ]
+        )
+        estimand = next((name for name in study.scenarios[scenario] if name in valid), None)
+        if estimand is None:
+            pytest.skip("study publishes no subject-valid primary cell for this mutation")
         return rows.loc[(rows["scenario"] == scenario) & (rows["estimand"] == estimand)].copy()
 
     @staticmethod
@@ -703,6 +874,9 @@ class TestNegativeControls:
             "coverage": self._lose_coverage,
             "standard error": self._inflate_standard_errors,
         }
+        baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
+            "implementation"
+        )
         for implementation in study.implementations:
             mutated = cell.copy()
             mutations[label](mutated, mutated["implementation"] == implementation)
@@ -713,7 +887,7 @@ class TestNegativeControls:
                 f"a corrupted {label} for {implementation} was accepted"
             )
             for other in set(study.implementations) - {implementation}:
-                assert bool(verdicts.loc[other, "passed"]), (
+                assert bool(verdicts.loc[other, "passed"]) is bool(baseline.loc[other, "passed"]), (
                     f"corrupting {implementation}'s {label} implicated {other}"
                 )
 
@@ -729,20 +903,23 @@ class TestNegativeControls:
         The calibration cell is the gate that catches it, so this mutation is what shows the
         cell is load bearing rather than decorative.
         """
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
-        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
-        calibration = published.loc[published.index.get_level_values(0) == "interval_calibration"]
+        rows = _property_rows(study.slug)
+        published = _property_summary(study.slug).set_index(["property", "cell"])
+        family = (
+            "interval_calibration"
+            if "interval_calibration" in study.property_cells
+            else "clustered_inference"
+        )
+        calibration = published.loc[published.index.get_level_values(0) == family]
         positive_cells = set(
             calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
         )
         mutated = rows.copy()
-        mask = (mutated["property"] == "interval_calibration") & mutated["cell"].isin(
-            positive_cells
-        )
+        mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)
         assert mask.any(), "the study declares no calibration cell to corrupt"
         mutated.loc[mask, "std_error"] *= 0.90
         summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
-        changed = [("interval_calibration", cell) for cell in positive_cells]
+        changed = [(family, cell) for cell in positive_cells]
         assert not summary.loc[changed, "passed"].any()
         untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
@@ -761,7 +938,7 @@ class TestNegativeControls:
         is standardized by the *empirical* spread and never reads what the fit reported.
 
         :data:`~tests.studies.evidence.property_verdicts.UNION_MODEL_SE_BAND` is the screen,
-        and it binds on no committed cell -- the family spans 0.61 to 2.31, which is the union
+        and it binds on no committed cell -- the family spans 0.61 to 3.01, which is the union
         model behaving as the theory allows.  A rule nothing can fail reads exactly like a rule
         nothing has broken, so this mutation is what makes it load bearing.
 
@@ -770,21 +947,22 @@ class TestNegativeControls:
         estimates.  So the mutation isolates the clause, and the untouched assertion below
         shows it reaches no other verdict.
         """
-        if "double_robustness" not in study.property_cells:
+        families = property_verdicts.UNION_MODEL_FAMILIES.intersection(study.property_cells)
+        if not families:
             pytest.skip("the study declares no union-model cells")
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
-        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
-        union = published.loc[published.index.get_level_values(0) == "double_robustness"]
+        rows = _property_rows(study.slug)
+        published = _property_summary(study.slug).set_index(["property", "cell"])
+        union = published.loc[published.index.get_level_values(0).isin(families)]
         # At least one, not all of them: two registered rows publish a red union-model cell
         # under reporting policy, and a mutation whose cells were already failing would show
         # nothing.
         assert union["passed"].any(), "no union-model cell currently passes, so nothing can flip"
 
         mutated = rows.copy()
-        mask = mutated["property"] == "double_robustness"
+        mask = mutated["property"].isin(families)
         # Two orders of magnitude, which is the scale the collapse actually reached.  Every
-        # committed cell sits below 2.31, so this clears the band's upper limit from every one
-        # of them without depending on where any single cell started.
+        # committed cell starts above 0.61, so this clears the band's upper limit from every
+        # one of them without depending on any study-specific value.
         mutated.loc[mask, "std_error"] *= 100.0
         summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
         changed = list(union.index)
@@ -838,29 +1016,7 @@ class TestNegativeControls:
 
 
 class TestTheStudyStillMeasuresTheCode:
-    """The artefacts are evidence about ``cleverly`` only if ``cleverly`` still produces them."""
-
-    @pytest.mark.parametrize("replicate", [0, 1])
-    def test_refitting_a_committed_replication_reproduces_its_row(
-        self, study: StudyRecord, rows: pd.DataFrame, replicate: int
-    ) -> None:
-        runner = study.runner()
-        for scenario in study.scenarios:
-            frame, truth = runner.draw_scenario(scenario, study.n, replicate)
-            refitted = pd.DataFrame(runner.cleverly_rows(frame, truth, scenario, replicate))
-            published = rows.loc[
-                (rows["implementation"] == study.implementation)
-                & (rows["scenario"] == scenario)
-                & (rows["replicate"] == replicate)
-            ]
-            merged = published.merge(refitted, on="estimand", suffixes=("_published", "_refitted"))
-            assert len(merged) == len(published) == len(study.scenarios[scenario])
-            for column in ("estimate", "std_error", "ci_lower", "ci_upper"):
-                # Four orders of magnitude tighter than the narrowest margin any verdict
-                # uses, and loose enough for the last bits of a different BLAS.
-                assert merged[f"{column}_refitted"].to_numpy() == pytest.approx(
-                    merged[f"{column}_published"].to_numpy(), rel=1e-6, abs=1e-9
-                ), f"{scenario} replicate {replicate} no longer reproduces its {column}"
+    """The study declarations remain reproducible inputs to selective regeneration."""
 
     def test_each_study_draws_from_the_seed_it_publishes(self, study: StudyRecord) -> None:
         """The manifest's ``seed`` has to be the seed the samples actually came from.
@@ -1167,18 +1323,36 @@ class TestTheMethodEvidenceGrid:
 class TestTheQuotedMeasurements:
     """Every number the study document prints, against the artefacts it printed them from."""
 
-    def test_every_quoted_value_is_the_rounding_of_the_computed_one(
-        self, study: StudyRecord
-    ) -> None:
+    def test_every_quoted_value_is_the_one_the_generator_writes(self, study: StudyRecord) -> None:
+        """Not merely *a* rounding of the computed value, but the one ``fill`` would write.
+
+        ``claims.matches`` accepts any correct rounding at the precision printed.  That is the
+        right rule for reading a published table and the wrong one for gating a generated one,
+        and the difference is not academic.  Seven digits typed into this study's bound rows
+        satisfied it while ``python -m tests.studies.evidence.document`` rewrote the same rows
+        to four.  The gate was green, the committed document was not what the generator
+        produces, and the next person to run the generator got a diff nobody asked for.
+        Precision is the generator's decision alone now, and a study whose claim needs a
+        longer one declares it in ``quoted_decimals`` rather than typing it into the table.
+        """
         data = load(study)
         wrong = []
+        quoted = set()
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
-            computed = value(study, name, data)
-            if not matches(row["value"], computed):
-                wrong.append(f"{name}: {describe(computed, row['value'])}")
+            quoted.add(name)
+            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            if row["value"] != written:
+                wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
-            "the document quotes values its own results do not produce:\n  " + "\n  ".join(wrong)
+            "the measured table is not what `python -m tests.studies.evidence.document` "
+            "writes:\n  " + "\n  ".join(wrong)
+        )
+        stale = sorted(set(study.quoted_decimals) - quoted)
+        assert stale == [], (
+            f"{study.slug} declares a quoted precision for {stale}, which its measured table "
+            f"does not quote. A renamed quantity would silently drop the precision its claim "
+            f"needs and leave this document passing"
         )
 
     def test_the_table_reaches_every_family_of_result(self, study: StudyRecord) -> None:
@@ -1240,10 +1414,15 @@ def _exempt(name: str) -> bool:
     so it belongs to no artefact family by construction and must not be asked to count
     towards artefact coverage.  It is still gated: the quoted-value test resolves it like any
     other name, which is the whole point of naming a threshold instead of retyping it.
+
+    A ``bound:`` name is exempt for the same reason and gated the same way.  It is an exact
+    efficiency bound computed from the study's declared law, so no artefact produced it, and
+    a study that publishes one still has to quote it in its measured table.
     """
     return (
         name in _CONFIGURATION_QUANTITIES
         or name.startswith("margin:")
+        or name.startswith("bound:")
         or name.endswith("summary_cells")
         or "cells_with_" in name
     )
@@ -1411,7 +1590,12 @@ class TestThePublishedTestTables:
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
             try:
-                descriptions.cell(family, cell, role=role)
+                descriptions.cell(
+                    family,
+                    cell,
+                    role=role,
+                    nuisance_count=study.nuisance_count,
+                )
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
         assert undescribed == [], (
@@ -1419,6 +1603,93 @@ class TestThePublishedTestTables:
             + "\n  ".join(sorted(set(undescribed)))
             + "\nAdd them to tests/studies/evidence/descriptions.py"
         )
+
+
+#: Every ``margin:`` name :func:`~tests.studies.evidence.claims.thresholds` can publish, mapped
+#: to the declaration it must equal.
+#:
+#: ``thresholds`` publishes a threshold under a name, and the study applies a constant.  The
+#: assertions in
+#: :meth:`TestTheQuantityVocabulary.test_every_declared_threshold_is_the_constant_the_study_applies`
+#: join fourteen of the forty-five names.  The other thirty-one reached a study document with
+#: nothing checking that the name and the constant were the same decision.  The gap is not
+#: visible from either side: adding a family means editing ``claims.py`` and this module, and
+#: forgetting the second edit publishes a margin nobody verifies rather than failing.
+#:
+#: A map rather than more branches, because the coverage test below reads it *both* ways.  A
+#: name ``thresholds`` publishes and this map omits fails as an unchecked publication, and an
+#: entry here that no study reaches fails as a dead resolver.  A new family therefore cannot be
+#: added silently in either direction.
+MARGIN_SOURCES: dict[str, Any] = {
+    "margin:confidence_level": lambda s: s.margins.confidence_level,
+    "margin:alpha": lambda s: s.margins.alpha,
+    "margin:nominal_coverage": lambda s: 1.0 - s.margins.alpha,
+    "margin:bootstrap_replicates": lambda s: float(s.margins.bootstrap_replicates),
+    "margin:standardized_bias": lambda s: s.margins.standardized_bias,
+    "margin:coverage_floor": lambda s: s.margins.coverage_floor,
+    "margin:over_coverage_ceiling": lambda s: s.margins.over_coverage_ceiling,
+    "margin:se_ratio_sanity_lower": lambda s: s.margins.se_ratio_sanity[0],
+    "margin:se_ratio_sanity_upper": lambda s: s.margins.se_ratio_sanity[1],
+    "margin:calibration_se_ratio_lower": lambda s: s.margins.calibration_se_ratio[0],
+    "margin:calibration_se_ratio_upper": lambda s: s.margins.calibration_se_ratio[1],
+    "margin:calibration_coverage_lower": lambda s: s.margins.calibration_coverage[0],
+    "margin:calibration_coverage_upper": lambda s: s.margins.calibration_coverage[1],
+    "margin:type_i_ceiling": lambda s: s.margins.alpha + s.margins.type_i_margin,
+    "margin:paired_difference": lambda s: s.margins.paired_difference,
+    "margin:rmse_noninferiority": lambda s: s.margins.rmse_noninferiority,
+    "margin:coverage_noninferiority": lambda s: s.margins.coverage_noninferiority,
+    "margin:calibration_noninferiority": lambda s: s.margins.calibration_noninferiority,
+    "margin:minimum_power": lambda s: property_verdicts.MINIMUM_POWER,
+    "margin:root_n_slope": lambda s: property_verdicts.ROOT_N_SLOPE,
+    "margin:root_n_slope_lower": lambda s: (
+        property_verdicts.ROOT_N_SLOPE - property_verdicts.ROOT_N_SLOPE_MARGIN
+    ),
+    "margin:root_n_slope_upper": lambda s: (
+        property_verdicts.ROOT_N_SLOPE + property_verdicts.ROOT_N_SLOPE_MARGIN
+    ),
+    "margin:excluded_slope": lambda s: property_verdicts.EXCLUDED_SLOPE,
+    "margin:overfit_se_floor": lambda s: property_verdicts.OVERFIT_SE_FLOOR,
+    "margin:overfit_control_ceiling": lambda s: property_verdicts.OVERFIT_SE_CONTROL_CEILING,
+    "margin:overfit_coverage_gain": lambda s: property_verdicts.OVERFIT_COVERAGE_GAIN,
+    "margin:iid_control_se_ceiling": (
+        lambda s: property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+    ),
+    "margin:clustered_coverage_gain": lambda s: property_verdicts.CLUSTERED_COVERAGE_GAIN,
+    "margin:union_model_se_lower": lambda s: property_verdicts.UNION_MODEL_SE_BAND[0],
+    "margin:union_model_se_upper": lambda s: property_verdicts.UNION_MODEL_SE_BAND[1],
+    "margin:generated_design_deficit": lambda s: s.properties().GENERATED_DESIGN_DEFICIT,
+    "margin:selector_rmse_ratio": lambda s: s.properties().SELECTOR_RMSE_RATIO,
+    "margin:repeat_spread_ratio": lambda s: s.properties().MAX_REPEAT_SPREAD_RATIO,
+    "margin:shrunken_se_factor": lambda s: s.properties().SHRUNKEN_SE_FACTOR,
+    "margin:efficiency_ratio_lower": lambda s: s.properties().EFFICIENCY_RATIO_BAND[0],
+    "margin:efficiency_ratio_upper": lambda s: s.properties().EFFICIENCY_RATIO_BAND[1],
+    "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
+    "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
+    "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
+    "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
+    "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
+    "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
+    "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
+    "margin:categorical_probability_displacement": (
+        lambda s: s.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
+    ),
+    "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
+    "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
+}
+
+
+def test_no_margin_resolver_outlives_the_studies_that_reach_it() -> None:
+    """Every entry in :data:`MARGIN_SOURCES` is exercised by a registered study.
+
+    The other direction of the coverage claim.  A resolver nobody reaches is a rule that has
+    left the register, and it would keep the map looking complete while checking nothing.
+    """
+    reached = {name for study in registered() for name in thresholds(study)}
+    orphans = sorted(set(MARGIN_SOURCES) - reached)
+    assert orphans == [], (
+        f"MARGIN_SOURCES resolves {orphans}, which no registered study publishes. "
+        f"Remove the entry, or restore the study that declared it"
+    )
 
 
 class TestTheQuantityVocabulary:
@@ -1435,6 +1706,42 @@ class TestTheQuantityVocabulary:
     )
     def test_a_longer_prefix_wins_over_a_shorter_one(self, name: str, expected: str) -> None:
         assert _family(name) == expected
+
+    def test_every_published_margin_resolves_to_the_declaration_it_names(
+        self, study: StudyRecord
+    ) -> None:
+        """No study publishes a threshold that nothing joins to the constant it names.
+
+        The named assertions below reach fourteen of the forty-five margins, chosen as each
+        family arrived.  This reaches all forty-five, by exhaustion rather than by another
+        branch per family.
+
+        What it catches is the wiring, in both directions.  ``margin:weight_displacement``
+        pointed at ``TARGETING_DISPLACEMENT`` fails, because the resolver names the constant
+        the key claims to publish.  A family added to ``claims.py`` with no entry in
+        :data:`MARGIN_SOURCES` fails as an unchecked publication, which is the half that used
+        to ship silently: adding one means editing two modules, and forgetting the second
+        published a margin to a reader with nothing verifying it.
+
+        What it does not catch is a constant *moving*, because both sides resolve it through
+        the same name rather than against a literal.  That is deliberate and is the rule the
+        ``selector_necessity`` comment in ``claims.py`` states: a literal on both sides is the
+        same literal twice, and it decides nothing.
+        """
+        declared = thresholds(study)
+        for name, published in sorted(declared.items()):
+            if not name.startswith("margin:"):
+                continue
+            resolve = MARGIN_SOURCES.get(name)
+            assert resolve is not None, (
+                f"{study.slug} publishes {name}, which no entry in MARGIN_SOURCES resolves. "
+                f"A margin a study document quotes with nothing joining it to the constant "
+                f"the study applied is a rule the reader cannot check. Add the resolver"
+            )
+            assert published == resolve(study), (
+                f"{study.slug} publishes {name} as {published}, but the declaration it names "
+                f"is {resolve(study)}. One of the two moved without the other"
+            )
 
     def test_every_declared_threshold_is_the_constant_the_study_applies(
         self, study: StudyRecord
@@ -1461,7 +1768,19 @@ class TestTheQuantityVocabulary:
                 declared["margin:overfit_control_ceiling"]
                 == property_verdicts.OVERFIT_SE_CONTROL_CEILING
             )
-        if "double_robustness" in study.property_cells:
+            assert (
+                declared["margin:overfit_coverage_gain"] == property_verdicts.OVERFIT_COVERAGE_GAIN
+            )
+        if "clustered_inference" in study.property_cells:
+            assert (
+                declared["margin:iid_control_se_ceiling"]
+                == property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+            )
+            assert (
+                declared["margin:clustered_coverage_gain"]
+                == property_verdicts.CLUSTERED_COVERAGE_GAIN
+            )
+        if property_verdicts.UNION_MODEL_FAMILIES.intersection(study.property_cells):
             low, high = property_verdicts.UNION_MODEL_SE_BAND
             assert declared["margin:union_model_se_lower"] == low
             assert declared["margin:union_model_se_upper"] == high
@@ -1477,6 +1796,13 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
+            )
+        if "weight_necessity" in study.property_cells:
+            assert declared["margin:weight_displacement"] == study.properties().WEIGHT_DISPLACEMENT
+        if "learner_weight_necessity" in study.property_cells:
+            assert (
+                declared["margin:learner_weight_displacement"]
+                == study.properties().LEARNER_WEIGHT_DISPLACEMENT
             )
         if "projection_necessity" in study.property_cells:
             assert (
@@ -1496,10 +1822,13 @@ class TestTheQuantityVocabulary:
             for cell in study.property_cells.get("interval_calibration", ())
         ):
             efficiency = study.properties()
-            low, high = efficiency.EFFICIENCY_RATIO_BAND
-            assert declared["margin:efficiency_ratio_lower"] == low
-            assert declared["margin:efficiency_ratio_upper"] == high
             assert declared["margin:shrunken_se_factor"] == efficiency.SHRUNKEN_SE_FACTOR
+            if study.calibration_efficiency_ratio:
+                low, high = efficiency.EFFICIENCY_RATIO_BAND
+                assert declared["margin:efficiency_ratio_lower"] == low
+                assert declared["margin:efficiency_ratio_upper"] == high
+        for estimand, deviation in study.efficiency_bounds.items():
+            assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected

@@ -97,6 +97,7 @@ method = TMLEMethod(
 )
 regime_result = regimes.estimate(method=method)
 print(regime_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+regime_diagnostics = regime_result.diagnostics.run_all()
 ```
 
 The screening contrast is smaller than the offer-to-all contrast, because the rule reaches only part
@@ -108,8 +109,14 @@ under this plan, so the fit never divides by their probability of receiving an o
 therefore be estimable where "offer to all" is not.
 
 ```python
-print(regime_result.diagnostics.support().summary())
+regime_support = regime_diagnostics.report("support")
+print(regime_support.summary())
+print(regime_support.regimes["screen on risk"].score_load)
 ```
+
+The policy row separates assigned-arm support from fitted score load. The first describes the
+estimated treatment law where the rule assigns. The second describes concentration of the exact
+absolute residual multipliers used by that policy's targeting equation.
 
 ## A modified treatment policy: add navigation hours
 
@@ -176,6 +183,7 @@ shift_result = dose_study.estimate(
     random_state=32,
 )
 print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+shift_diagnostics = shift_result.diagnostics.run_all()
 ```
 
 ## The failure mode: the cap is part of the question
@@ -198,13 +206,17 @@ states what is achievable, because that is a question about the world.
 Now read the support report, which is published per policy rather than once for the fit.
 
 ```python
-for policy, report in shift_result.diagnostics.support().items():
+for policy, report in shift_diagnostics.report("support").items():
     print(report.summary())
+    print(report.score_load)
     print()
 ```
 
 Each declared shift moves the intensity into a different region of the conditional support, so each
 one has its own positivity problem.
+
+The density ratio omits observation weights. `score_load` includes the exact weights and score mask
+used by the fit. Read both quantities, because either one can be the more concentrated.
 
 | policy | what the report shows | how to read it |
 | --- | --- | --- |
@@ -240,7 +252,16 @@ incremental_result = study.estimate(
     random_state=31,
 )
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+incremental_diagnostics = incremental_result.diagnostics.run_all()
 ```
+
+```python
+for policy, report in incremental_diagnostics.report("support").items():
+    print(policy, report.score_load)
+```
+
+This load describes the outcome targeting equation for each odds multiplier. The incremental fit
+also targets the treatment mechanism. That second equation has no row-level load in this report.
 
 This axis matches a program that controls assignment probabilities, and it carries a warning
 that the other two do not.
@@ -259,6 +280,37 @@ the two nuisances to lean on. It is also the opposite of the [DR-TMLE](dr-tmle.m
 the mechanism was the one nobody could model. Read the
 [incremental section](../technical-reference/point-treatment-tmle.md#incremental-propensity-score-interventions)
 before reporting one.
+
+## Stress the incremental assignment rule
+
+The office can inspect qualitative movement under a simulated common cause.
+Each cell keeps the odds multiplier fixed and rebuilds the intervention from its refitted assignment model.
+Movement includes this change in probabilities. It supplies no sensitivity-adjusted interval or robustness verdict.
+
+```python
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+incremental_sensitivity = incremental_result.sensitivity.run_all(
+    include_refits=True,
+    random_state=31,
+    arguments={
+        "simulated_confounding": {
+            "estimand": "ate_ipsi[odds x2 vs odds x0.5]",
+            "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+        }
+    },
+)
+print(incremental_sensitivity.summary())
+incremental_surface = incremental_sensitivity.report("simulated_confounding")
+print(incremental_surface.to_frame())
+```
+
+The combined sensitivity report records the requested grid, alias, and common seed. It also keeps
+the returned surface for detailed inspection. Select the full reported alias for a multi-parameter
+result. The surface refuses the natural-course mean at multiplier one. A contrast against that
+reference remains eligible.
+The [technical contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+names the supported populations and replay checks.
 
 ## The three numbers side by side
 
@@ -284,13 +336,24 @@ two of them under one heading.
 ## How far to trust this
 
 ```python
-print(regime_result.validate().summary())
-print(shift_result.validate().summary())
-print(incremental_result.validate().summary())
+for axis, report in (
+    ("known regime", regime_diagnostics),
+    ("modified treatment policy", shift_diagnostics),
+    ("incremental intervention", incremental_diagnostics),
+):
+    print(axis)
+    print(report.summary())
+    print()
 ```
+
+The combined reports make the comparison explicit. The support rows for the known regime and the
+incremental intervention complete without a warning. The shift row warns and names `+1.0
+uncapped`. Every axis passes its own score equations. The reports also keep unrequested retargets
+and refits visible as omissions rather than silently skipping them.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
+| the combined diagnostic reports | which checks passed, warned, completed, or were omitted for each axis | that one axis answers another axis's policy question |
 | the per-policy support reports | which declared policies the program data can carry | that a well-supported policy is worth adopting |
 | the score-equation checks | each axis solved its own score equation | that the axis you chose matches the decision the office faces |
 | the evidence manifest | each axis has its own exact-law, Gateaux, remainder, and registered repeated-sampling checks, with nonzero controls | that a result on these declared laws transfers to missing outcomes, weights, clusters, cross-fitting, or longitudinal treatment |

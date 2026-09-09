@@ -136,7 +136,7 @@ class CrossFitting:
     learner_folds : int, default=5
         Inner folds used by ensemble learners.
     repeats : int, default=1
-        Independent outer-fold assignments to average.
+        Independent outer-fold assignments to combine by their median.
     stratify_by : {"treatment", "treatment+outcome"}, default="treatment"
         Fold-stratification policy.
     targeting_scheme : {"pooled", "fold"}, default="pooled"
@@ -152,7 +152,7 @@ class CrossFitting:
 
     Examples
     --------
-    Fewer folds, and averaged over three independent splits:
+    Fewer folds, combined over three independent splits:
 
     >>> from cleverly import CrossFitting
     >>> folds = CrossFitting(n_folds=5, repeats=3)

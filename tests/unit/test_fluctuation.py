@@ -15,7 +15,9 @@ The central claims verified here:
 
 from __future__ import annotations
 
+import pickle
 import warnings
+from dataclasses import fields
 
 import numpy as np
 import pytest
@@ -209,6 +211,19 @@ class TestWeightedForm:
         signed, new_weights = weighted_form(submodel, weights)
         assert np.allclose(signed.observed[:, 0] * new_weights, submodel.observed[:, 0] * weights)
 
+    def test_a_row_that_loads_two_score_columns_is_refused(self) -> None:
+        """One scalar regression weight cannot preserve two overlapping column scores."""
+        observed = np.array([[1.0, -2.0], [0.0, 3.0]])
+        submodel = Submodel(
+            observed,
+            {0.0: observed.copy(), 1.0: observed.copy()},
+            ("first", "second"),
+            "mean",
+        )
+
+        with pytest.raises(ValueError, match=r"row\(s\) load multiple score equations"):
+            weighted_form(submodel, np.ones(2))
+
 
 class TestNewtonSolver:
     def test_matches_a_brute_force_grid_search(self, setting) -> None:
@@ -235,6 +250,18 @@ class TestNewtonSolver:
         fitted = solve_fluctuation(y, _flat_initial(n), mean_submodel(a, g1), np.ones(n))
         assert fitted.converged
         assert fitted.score_norm < 1e-10
+
+    def test_an_older_pickled_fluctuation_defaults_the_score_weight_artifact(self, setting) -> None:
+        a, g1, y = setting["a"], setting["g1"], setting["y"]
+        fitted = solve_fluctuation(
+            y, _flat_initial(a.shape[0]), mean_submodel(a, g1), np.ones(a.shape[0])
+        )
+        fitted.__dict__.pop("absolute_score_weights")
+
+        restored = pickle.loads(pickle.dumps(fitted))
+
+        assert fields(type(restored))[-1].name == "absolute_score_weights"
+        assert restored.absolute_score_weights is None
 
     def test_covariate_and_weighted_forms_solve_the_same_equation(self, setting) -> None:
         a, g1, y = setting["a"], setting["g1"], setting["y"]

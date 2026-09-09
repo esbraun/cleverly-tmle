@@ -6,37 +6,46 @@ capabilities belong in the [user guide](user-guide/index.md), scientific contrac
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
 
-The tracks below are independent. Order is binding within a track, but an item in one track does
-not block another track unless its dependency says so.
+The main grid is one binding sequence. Complete lower numbers before higher numbers. Items with no
+published theory do not enter this sequence.
 
-| track | order | item | readiness | dependency | details |
-| --- | ---: | --- | --- | --- | --- |
-| Validation | V1 | Fold-repeat studies | source audit | none | [V1](#v1-fold-repeat-studies) |
-| Validation | V2 | Clustered inference studies | source audit | V1 ordering only | [V2](#v2-clustered-inference-studies) |
-| Validation | V3 | Point-treatment weight studies | source audit | V2 ordering only | [V3](#v3-point-treatment-weight-studies) |
-| Validation | V4 | Controlled direct-effect studies | source audit | V3 ordering only | [V4](#v4-controlled-direct-effect-studies) |
-| Validation | V5 | Weighted longitudinal studies | source audit | V4 establishes the fixed-weight study design | [V5](#v5-weighted-longitudinal-studies) |
-| Validation | V6 | Fold-evaluated CV-TMLE comparator | source audit | V5 ordering only | [V6](#v6-fold-evaluated-cv-tmle-comparator) |
-| Validation | V7 | Selector-based multi-arm C-TMLE comparator | source audit | V6 ordering only | [V7](#v7-selector-based-multi-arm-c-tmle-comparator) |
-| Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
-| Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
-| Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
-| Extensibility | E4 | Evidence-gated catalog expansion | source audit for each target | the engine and target-specific derivation | [E4](#e4-evidence-gated-catalog-expansion) |
-| Longitudinal | L1 | Stochastic categorical policies at a node | waiting on published theory | none | [L1](#l1-stochastic-categorical-policies-at-a-node) |
-| Longitudinal | L2 | Targeted bootstrap | waiting on a citable construction | L1 ordering only | [L2](#l2-targeted-bootstrap) |
-| Longitudinal | L3 | Persistence and serialization | theory-neutral | L2 ordering only | [L3](#l3-persistence-and-serialization) |
-| Longitudinal | L4 | Sensitivity analysis | source audit for each operation | L3 ordering only | [L4](#l4-sensitivity-analysis) |
-| Longitudinal | L5 | Additional longitudinal estimands | waiting on published theory | L4 ordering only | [L5](#l5-additional-longitudinal-estimands) |
-| Longitudinal | L6 | Time-respecting cross-fitting | source audit | L5 | [L6](#l6-time-respecting-cross-fitting) |
-| DR-TMLE | D1 | Multi-arm missing-outcome DR-TMLE | waiting on published theory | a multi-arm corrected influence curve | [D1](#d1-multi-arm-missing-outcome-dr-tmle) |
-| DR-TMLE | D2 | Other refused DR-TMLE compositions | waiting on published theory | composition-specific reduced regressions and corrected curve | [D2](#d2-other-refused-dr-tmle-compositions) |
-| Later candidates | C1 | Replicate-weight designs | source audit | weighted-law variance construction | [C1](#c1-replicate-weight-designs) |
-| Later candidates | C2 | MNAR and incremental-intermediate extensions | waiting on published theory | composition-specific identification and influence function | [C2](#c2-mnar-and-incremental-intermediate-extensions) |
-| Later candidates | C3 | HAL and undersmoothed HAL learners | published support; source audit | profiling evidence before a native implementation | [C3](#c3-hal-and-undersmoothed-hal-learners) |
-| Later candidates | C4 | Sequential doubly robust longitudinal estimation | published support; pending source read | C3 ordering only | [C4](#c4-sequential-doubly-robust-longitudinal-estimation) |
-| Later candidates | C5 | Natural and interventional mediation effects | published support; pending source read | C4 ordering only | [C5](#c5-natural-and-interventional-mediation-effects) |
-| Later candidates | C6 | Continuous-time survival and competing risks | published support; pending source read | C5 ordering only | [C6](#c6-continuous-time-survival-and-competing-risks) |
-| Later candidates | C7 | Two-phase and outcome-dependent sampling | published support; pending source read | C6 ordering only | [C7](#c7-two-phase-and-outcome-dependent-sampling) |
+## Main roadmap
+
+| priority | item | readiness | dependency | details |
+| ---: | --- | --- | --- | --- |
+| 0 | Assessment-report fidelity and coverage | theory-neutral | shipped assessment and diagnostic contracts | [A1](#a1-assessment-report-fidelity-and-coverage) |
+| 1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.1 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
+| 2.2 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
+| 2.3 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
+| 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
+| 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
+| 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
+| 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
+
+## Future investigations
+
+These items are hard stops. Move one into the main roadmap only after a published paper supplies
+the missing result. Package code and a related estimator do not remove the stop.
+
+| investigation | missing published result | current boundary | details |
+| --- | --- | --- | --- |
+| Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips and continuous linear dose perturbations only | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
+| Clustered simulated-confounding stress surface | a source-backed choice of row-level, cluster-level, or mixed latent perturbation and its interpretation | row-level iid perturbations on unclustered fits only | [F9](#f9-clustered-simulated-confounding-stress-surface) |
+| Logical categorical confounder calibration | a category-invariant benchmark mapped to the surface's perturbation strengths | numeric covariate calibration only | [F10](#f10-logical-categorical-confounder-calibration) |
+| Estimated-weight simulated-confounding replay | stored weight-model provenance, target-population semantics, and a source-backed regeneration rule | fixed probability weights only | [F11](#f11-estimated-weight-simulated-confounding-replay) |
+| Missing-outcome simulated-confounding replay | a joint observation, treatment, and outcome law with identified refit semantics | complete outcomes only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
+| Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
+| Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
+| Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
+| Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
+| Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
+| Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
+| Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
+| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
+| Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 
 ## Eligibility
 
@@ -54,11 +63,11 @@ published derivation governs and the discrepancy becomes a nonzero regression or
 The readiness labels rate published-method support, not programming effort:
 
 - **published support**: a paper derives the method and inference claim;
-- **source audit**: theory or canonical code appears to cover it, but the exact construction must
-  be matched and discrepancies resolved before implementation;
+- **source audit**: a published paper appears to cover it, but the exact construction must be
+  matched and discrepancies resolved before implementation;
 - **theory-neutral**: engineering that preserves an already-derived estimator;
 - **waiting on published theory**: related methods exist, but not the requested composition or
-  inference claim; this is not an active research assignment for the project; and
+  inference claim; it belongs only in the future investigations grid; and
 - **pending source read**: the governing result is identified but has not been read first-hand
   into this package's contract.
 
@@ -78,88 +87,152 @@ An item is complete only when all applicable conditions hold:
 - every relevant check has run locally and GitHub Actions is green. CI is the final merge signal,
   not a substitute for the local validation record.
 
-## Validation track
+## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. This track records the sequence for implementation families that the
-grid does not cover. A completed item leaves this roadmap and enters the grid with committed
-artifacts.
+records completed studies. Replicate-weight designs are the next source-audit item. Implement them
+only after that audit supports the planned variance construction. Longitudinal sensitivity-bound
+estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
-### V1. Fold-repeat studies
+## Detailed implementation contracts
 
-Validate rowwise averaging across independent fold draws. The study must distinguish repeated
-cross-fitting from one fixed split and from equal-fold averaging.
+The sections below group contracts by subsystem. Their physical order does not override the main
+grid.
 
-`cleverly` averages the repeat estimates, and it aggregates the curves elementwise. No shipped
-implementation matches that rule. Python `zepid` and R `DoubleML` both take the median across
-repeats, and both add the squared deviation from that median to the variance. This package refuses
-the median. Record that survey, and publish a zero-row equivalence artifact.
+### A1. Assessment-report fidelity and coverage
 
-### V2. Clustered inference studies
+The example audit found gaps between combined summaries and their retained reports. Fix these
+gaps before adding another assessment operation. Preserve every detailed payload and every
+machine-readable omission.
 
-Validate cluster-level covariance and fold integrity under genuine within-cluster dependence. The
-negative control must analyze the same rows as independent observations.
+The rows below remain.
 
-Three pinned implementations accept a cluster identifier. R `tmle` 2.1.1 and R `ltmle` 1.3-0 accept
-`id=`, and R `lmtp` 1.5.4 accepts a cluster identifier column. Choose the one whose data layout
-matches the study.
+| gap | required change |
+| --- | --- |
+| status taxonomy | distinguish work deferred by the caller from an operation that the method or stored artifact cannot run |
+| report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-### V3. Point-treatment weight studies
+The longitudinal nuisance report now covers only fits that the estimator made. Treatment and censoring
+models appear once per node because one shared model serves every regimen. Outcome and
+pseudo-outcome models appear per regimen, cause, horizon, and node because those regressions differ.
 
-Validate fixed probability weights against the tilted population law. The negative control must
-omit the weights and converge to a different parameter.
+| role | retained evaluation | reported loss |
+| --- | --- | --- |
+| treatment | the observed arm under the observed history | weighted negative log likelihood |
+| censoring | the observed retention indicator under the observed treatment history | weighted negative log likelihood |
+| outcome | the final regression target for each fitted recursion | weighted Brier loss for a binary target, or mean squared error otherwise |
+| pseudo-outcome | each earlier regression target in the fitted recursion | weighted mean squared error |
 
-R `tmle` 2.1.1 accepts `obsWeights=` for a biased sampling design. That package is pinned already,
-so this study needs no new container.
+The fit stores both observed-law mechanism predictions from the same model pass. The report does
+not refit a learner or reconstruct an observed history from regimen predictions. It labels each
+loss as `out_of_fold` or `in_sample` from the fitted split count.
 
-### V4. Controlled direct-effect studies
+`LongitudinalNuisanceDiagnostics.omissions` records typed reasons for unavailable mechanism rows.
+`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING` identifies an older artifact without the required
+prediction. `LONGITUDINAL_CENSORING_NOT_FITTED` identifies a complete-data design with no censoring
+learner.
 
-Validate each declared intermediate level against its exact controlled parameter. The study must
-exercise the treatment and intermediate mechanism product with a nonzero control.
+Each row also retains calibration and learner-library details through the shared nuisance-model
+report contract. Additive field defaults let an older artifact explain which details it lacks.
+Changed cache generations reject a retained report that predates this contract.
 
-R `tmle` 2.1.1 estimates a controlled direct effect when `Z` is a binary intermediate. It returns
-one fit for `Z = 0` and one fit for `Z = 1`, which are the two declared levels. This study can
-therefore carry a paired comparison rather than an empty equivalence artifact. The comparator is
-binary, so a further intermediate level stays outside the paired cells.
+The legacy `mse` field keeps one meaning: the square loss of a node regression. A mechanism row
+reports `nan` there rather than borrowing the Brier value of its own model report. Two retained
+behaviours changed for a weighted fit. The value averages under the observation weights, and the
+frame admits an empty value in the regimen identity columns that a mechanism row cannot fill.
 
-### V5. Weighted longitudinal studies
+`support` is the one presentation name for the longitudinal leverage report. `stagewise()` remains
+a direct compatibility alias, and its capability stays explicit. The alias is excluded from a
+combined run, so the aggregate retains one `support` payload and no `stagewise` row. The support
+payload remains unchanged.
 
-Validate fixed weights through nuisance fitting, targeting, plug-in averaging, and covariance. The
-negative control must omit the weights and miss the declared longitudinal parameter.
+The contract tests use role-specific prediction mutations, pandas and Polars parity, persistence
+replay, and a complete-data fit. `test_observed_law_predictions_are_additive_to_fitted_outputs`
+compares the former and current paths. It holds regimen predictions, estimates, influence curves,
+and sequential predictions exactly equal. The pull-request diff contains no registered-study
+artifact change.
 
-R `ltmle` 1.3-0 accepts `observation.weights=`, and R `lmtp` 1.5.4 accepts sampling `weights`. Both
-packages are pinned already.
+The point-treatment nuisance report remains a separate shape. The next paragraphs describe its
+method-specific additions.
 
-### V6. Fold-evaluated CV-TMLE comparator
+The point-treatment nuisance report now retains the exact C-TMLE selector or outcome-adaptive
+artifact. It labels the propensity as a collaborative working model. That label drops two claims
+and no others: the low-AUC claim that overlap is excellent and confounding is limited, and the
+propensity calibration-slope claim.
 
-The published fold-evaluated row claims no comparator, and that claim holds for the pooled update.
-Python `zepid` ships the fold-targeted construction instead. It fits one coefficient inside each
-split, and it averages the fold plug-ins by split size. Its variance is the mean of the
-within-split influence-curve variances over the total sample size. That equals this package's
-cross-validated variance at equal fold sizes.
+The report keeps the high-AUC positivity finding, because the selected mechanism is the denominator
+the clever covariate divides by. It also keeps the super-learner mean-weight finding, which states
+a fact about a learner library. `test_the_role_suppresses_two_claims_and_no_others` in
+`tests/e2e/test_ctmle.py` reads each of the four claims under both roles. Both the report and the
+combined row render the one selection sentence through `CTMLESelection.describe()` or
+`CTMLEOutcomeAdaptiveFit.describe()`.
 
-Register a second study for `targeting_scheme="fold"` with `cv_evaluation=True`. A study record
-names one reference, so do not move a comparator onto the published row. Two exclusions follow.
-`zepid` reports the ATE, the risk ratio, and the odds ratio, so `att` and `atc` stay outside the
-paired cells. The run must set the mean combination over one partition, because the median default
-is the aggregation this package refuses.
+A repeated fit adds one `RepeatSpreadRow` per reported parameter. Each row gives the standard
+deviation across draw-specific estimates, the reported standard error, and their descriptive ratio.
+The spread is on the inference scale the standard error is on, which is the log scale for a ratio.
+The report assigns no threshold or status to the ratio.
 
-### V7. Selector-based multi-arm C-TMLE comparator
+Nuisance models and selection describe draw 1, while the split rows read every retained draw. A
+one-draw fit reports no spread, and `repeat_spread_omission` names the cause of every missing or
+non-finite spread. A table cell with no finite value prints `-`.
 
-The published selector row claims no comparator. R `ctmle` 0.1.2 documents its treatment as a
-binary indicator, and archived R `ctmle3` ships the outcome-adaptive specification alone. Julia
-`TMLE.jl` ships a greedy strategy and a pre-ordered adaptive-correlation strategy. It accepts
-categorical treatment levels, it stratifies folds by treatment, and it selects a candidate on a
-cross-validated loss. It composes the risk ratio and the odds ratio by the delta method over a
-joint estimand.
+The retained report, combined row, split frame, and selection survive persistence. Their cache
+generations reject saved pre-change reports. The tests mutate the selected candidate and one
+draw-specific estimate. They also cover selector and outcome-adaptive fits, pandas and Polars,
+and ordinary complete-data fits.
 
-Two consequences follow. `TMLE.jl` has no discrete ladder, so the greedy and ordered scenarios need
-a separate record from the discrete scenario. This is the first comparator outside R, so it needs a
-pinned Julia image beside the existing R images.
+Intervention support rows now retain load concentration. Each regime, shift, and incremental row
+reads its matching column from the fitted fluctuation's absolute score weights. The report does not
+rebuild that column from the intervention ratio, because fitted weights can change the equation.
 
-## Extensibility track
+Each row reports the equation name, fitted score-mask size, Kish-equivalent row count, ratios to
+the mask and full data, top-load shares, maximum load, and structural-zero count. These quantities
+describe the magnitude of `w_i H_ij`. They are not estimator effective sample size, information,
+influence, precision, or a positivity test. The combined support row reports the most concentrated
+intervention equation as a separate fact and does not use it to assign status.
 
-### E1. Nested Riesz engine and initial catalog
+For repeated cross-fitting, the row identifies draw 01 and the total draw count. The retained load
+does not describe the coordinatewise median-combined estimate.
+
+For an incremental target, the row describes the retained outcome score. The separate treatment
+mechanism equation has no retained row-level weights and stays outside the report.
+
+An artifact without exact score weights keeps the intervention report. It records a machine-readable
+omission. The tests recompute every reported quantity from the artifact. Unequal observation weights
+provide a nonzero witness. The tests also cover repeated fits, persistence, pandas and Polars parity,
+combined-report retention, and complete-data non-regression.
+
+A fitted equation name is positional, such as `h_regime0`, and carries no policy identity. The
+semantic witness is `test_the_column_a_regime_row_reports_is_the_one_that_policy_solved` in
+`tests/unit/test_intervention_load_diagnostics.py`. That test declares `Static(0, name="none")` and
+`Static(1, name="all")`, whose clever covariates hold structural zeros on complementary row sets. It
+locates each policy's column by that zero pattern, then reads the row the report publishes under the
+policy name. A permutation of the fitted artifact's columns fails it.
+
+Use the documented example seeds as regression fixtures where they exercise a remaining gap. Add a
+nonzero witness and a method-specific mutation for every new diagnostic role.
+
+Acceptance also requires pandas and Polars parity, persistence replay, and complete-data
+non-regression. Update the examples and assessment guide to state what each new row establishes.
+
+### P1. EP learner
+
+Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
+review of their EP derivation, add `ConditionalContrast` estimands, modifier schema, sieve/basis
+strategy, efficient plug-in risk and targeting, bounded outcome predictions, a second-stage
+contrast learner, out-of-fold risk/calibration, and a conditional prediction result. Reuse
+study/identification objects, nuisance strategies, folds, data backends, provenance, persistence,
+and capability-aware assessment.
+
+The first catalog is paper-derived CATE and conditional relative risk. Other losses and contrasts
+require their own derivations. Aggregating an EP curve is a separate parameter and receives scalar
+inference only after its influence contribution is implemented and tested.
+
+Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
+modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
+contribution, and contrast construction, plus registered oracle-efficiency and stability studies.
+
+### R1. Nested Riesz engine and initial catalog
 
 #### Purpose and scientific boundary
 
@@ -251,9 +324,10 @@ cluster aggregation, covariance, smooth contrasts, and simultaneous inference th
 infrastructure. Recompute stage scores and the complete influence-curve mean from stored arrays.
 Do not use an untargeted curve for a targeted estimate's standard error.
 
-Repeated splitting follows only after a single split is correct: average point estimates and
-rowwise curves across repeats before variance calculation, retain repeat IDs on artifacts, and
-reject equal-fold averaging with an unequal-fold-size test.
+Repeated splitting follows only after a single split is correct. Take marginal medians over
+repeats with the registered split-dispersion variance. Retain repeat IDs on artifacts. Refuse joint
+covariance where coordinatewise medians break identities. Reject equal-fold averaging with an
+unequal-fold-size test.
 
 #### Initial catalog and refusals
 
@@ -313,7 +387,7 @@ Nested evidence uses nonconstant two- and three-stage laws and rejects reversed 
 products, all-starred products, wrong signs, and masks. Missingness evidence makes observation
 depend on treatment/history and proves unobserved rows receive the correct plug-in update.
 Longitudinal evidence covers dynamic-history restriction, third-arm categorical mutations,
-treatment/censoring products, clusters, repeats, and persistence. Named slow studies cover point
+treatment/censoring products, clusters, repeats, and persistence. Registered studies cover point
 means/ATE under both union-model halves, direct consistency and coverage, static/dynamic regimen
 means, and weak overlap with thresholds fixed before the final run.
 
@@ -322,107 +396,143 @@ single-stage parity; direct single-stage learning; nested and missingness compos
 longitudinal adapters; then persistence, assessment, documentation, and the secondary fixture. No
 commit merges independently. Handoff requires the enabled/refused catalog, source locators,
 implementation revision and discrepancies, evidence instruments, local commands/results, and
-path-based reasons for omitted slow studies.
+path-based reasons for omitted validation studies.
 
-### E2. Optional DoWhy integration
-
-Add `DoWhyIdentificationProvider` behind a `dowhy` extra. It accepts supported graphs, invokes
-DoWhy identification, translates supported backdoor results into `IdentifiedEffect`, preserves
-the original identified estimand and graph/provider provenance, verifies treatment, outcome,
-adjustment set, and population, and refuses other strategies before fitting.
-
-A graph stays optional and no causal discovery is performed. Supplying a graph *and* an
-adjustment set means "validate this proposed set". It never means "pick whichever is convenient".
-A disagreement is an error. The user resolves it by naming a different valid set, and the provider
-never chooses one. Front-door, IV, transport, mediation, and unidentified results stay
-refused until a matching `cleverly` functional and estimator are evidenced.
-
-The reverse adapter accepts a DoWhy `IdentifiedEstimand`, translates supported backdoor effects,
-runs the ordinary `cleverly` engine, returns the generic DoWhy estimate, and attaches the native
-`CausalResult`. The native result remains the complete diagnostics and provenance surface.
-
-Keep DoWhy out of the core and initially out of `all`, but include `cleverly[dowhy]` in `dev` so
-translation tests run in ordinary local and CI tiers. Pin a tested public-API version range,
-isolate imports under the integration package, document translation limits, and add a no-extra
-session or marker for missing-dependency errors.
-
-Acceptance requires equivalence between graph and explicit-adjustment workflows for the same
-identified functional, pre-fit refusals for unsupported results, round-trip provenance, a version
-matrix, and successful core import and operation without DoWhy installed.
-
-### E3. EP learner
-
-After first-hand review of the governing EP derivation, add `ConditionalContrast` estimands,
-modifier schema, sieve/basis strategy, efficient plug-in risk and targeting, bounded outcome
-predictions, a second-stage contrast learner, out-of-fold risk/calibration, and a conditional
-prediction result. Reuse study/identification objects, nuisance strategies, folds, data backends,
-provenance, persistence, and capability-aware assessment.
-
-The first catalog is paper-derived CATE and conditional relative risk. Other losses and contrasts
-require their own derivations. Aggregating an EP curve is a separate parameter and receives scalar
-inference only after its influence contribution is implemented and tested.
-
-Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
-modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
-contribution, and contrast construction, plus named slow oracle-efficiency and stability studies.
-
-### E4. Evidence-gated catalog expansion
+### R2. Evidence-gated Riesz catalog expansion
 
 Expand target by target after the engine lands. Mediation, additional longitudinal targets,
 sampling designs, and other nested functionals each require a governing derivation, typed adapter,
 registry entry, evidence row, refusal boundary, documentation, and applicable statistical study.
 Do not expose a generic engine capability as a certified causal estimand.
 
-## Longitudinal track
+### F8. Multi-arm simulated-confounding stress surface
+
+The cited DoWhy papers support a qualitative stress analysis. They do not define a multi-arm
+treatment perturbation. The pinned implementation supports a binary tail flip and a continuous
+linear change only. It has no category-valued branch.
+
+Hu et al. (2022), DOI 10.1214/21-AOAS1530, keep treatment fixed and adjust outcomes through
+directional confounding functions. That method does not supply the category-valued refit law that
+this surface needs. A pairwise label swap or a map over numeric arm codes would therefore be a new
+scientific construction.
+
+Wait for a published law that maps a shared latent variable and a $K$-level treatment to the same
+declared support. The law must name the assessed contrast, remain invariant to label order, and
+define the achieved treatment-confounder association. Until then, retain the multi-arm pre-fit
+refusal. Do not reuse a binary flip by choosing two arm codes.
+
+### F9. Clustered simulated-confounding stress surface
+
+The pinned DoWhy implementation draws one independent latent value per row. It does not accept a
+cluster identifier or define a cluster-level perturbation. Pinned `lmtp` preserves identifiers in
+folds and inference, but it does not define a simulated-common-cause surface.
+
+Ou, Tang and Chang (2023), arXiv:2301.12396v1, model unmeasured cluster effects through mixed
+models and derive a different bias correction. Their construction does not perturb treatment and
+outcome before a complete TMLE refit. It does not choose between row-level, cluster-level, and
+mixed latent causes for this surface.
+
+Wait for a published or canonical construction that defines that choice and its interpretation.
+Until then, retain the clustered pre-fit refusal. Do not infer a shared cluster draw from grouped
+folds or cluster-robust variance, because those contracts govern estimator dependence only.
+
+### F10. Logical categorical confounder calibration
+
+The pinned DoWhy implementation calibrates one encoded coordinate at a time. Its
+[calibration helpers, lines 213-340](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+hold both rules. The binary rule zeros one standardized column. The continuous rule uses one
+column's correlation times the perturbed variable's standard deviation. Neither rule defines a
+whole categorical covariate on the same scale.
+
+Wait for a source that maps a logical categorical covariate to binary flip probabilities or signed
+continuous perturbation strengths. The benchmark must state how labels, reference levels, and
+multiple encoded columns affect it. A coefficient norm, grouped deletion, or permutation score
+does not supply that mapping by itself. Keep the categorical refusal before every random draw
+and refit until this contract exists.
+
+### F11. Estimated-weight simulated-confounding replay
+
+The fitted result stores estimated weights but not the model that produced them. Replay also needs
+the target population and the variables that the model can read after perturbation.
+
+Hartman and Huang (2024) bound bias from an omitted variable in survey weights. Their method does
+not define weight regeneration inside this refit surface. Wait for a source-backed regeneration
+rule, then store enough model provenance to reproduce it. The rule must state whether the latent
+cause enters the weight model and which population each cell targets.
+
+### F12. Missing-outcome simulated-confounding replay
+
+The pinned DoWhy refuter perturbs treatment and outcome only. It defines no replacement law for the
+response indicator. Díaz and van der Laan (2017) define randomized missing-outcome DR-TMLE under
+missing at random. They do not define this diagnostic's joint perturbation law.
+
+Do not hold the response indicator fixed. A treatment perturbation can break missing at random
+conditional on the perturbed treatment. Wait for a joint observation, treatment, and outcome law
+with identified refit semantics. The law must cover ordinary TMLE and the randomized missing-outcome
+DR-TMLE construction separately.
+
+### F13. Longitudinal simulated-confounding replay
+
+The pinned DoWhy law is a single-time-point perturbation. It does not define shared latent causes
+across treatment, censoring, history, and outcome nodes. Tan (2025) supplies longitudinal
+sensitivity bounds, not a complete-refit perturbation surface.
+
+Wait for a time-indexed latent law that preserves temporal order and names the assessed contrast.
+It must define each node's perturbation, history update, censoring behavior, and induced association.
+
+### F15. Controlled-direct-effect simulated-confounding replay
+
+A controlled direct effect orders treatment, intermediate, observation, and outcome mechanisms.
+The pinned DoWhy law has no intermediate branch and no contrast rule for a fixed intermediate.
+
+Wait for a source-backed latent law that respects this order. The law must define each perturbed
+mechanism, the response indicator, and the controlled contrast before complete refits can begin.
+
+## Longitudinal contracts
 
 The four core LTMLE evidence rows are implemented and registered in the
 [validation grid](technical-reference/method-evidence/validation-grid.md). They separate
 end-of-study and survival parameters from ordinary and cross-fitted nuisance estimation. The
 remaining items below are proposed extensions to that core.
 
-### L1. Stochastic categorical policies at a node
+### F1. Stochastic categorical policies at a longitudinal node
 
 The implemented surface assigns one category per unit. A distribution-valued policy changes the
 intervention density and replaces selected probabilities with cumulative density ratios.
 Implementation waits for published identification, longitudinal influence function, remainder,
 and interval rate conditions; a point-treatment stochastic regime is not sufficient evidence.
 
-### L2. Targeted bootstrap
+### F2. Targeted bootstrap inference
 
 Wait for a source specifying what is fixed, resampled, refitted, and retargeted and which sampling
 law the interval estimates. Resampling stored curves, retargeting cached arrays, and refitting the
 complete estimator are distinct procedures and must not be inferred from the name.
 
-### L3. Persistence and serialization
+### F16. Longitudinal sensitivity-bound estimation
 
-Preserve the fitted recursion, regimen and node metadata, targeting state, diagnostics, and enough
-learner provenance to distinguish replayable operations from those requiring a refit. Round trips
-must preserve estimates, curves, scores, and refusal behavior.
+Tan (2025) derives population sensitivity bounds for a terminal outcome under binary, static
+longitudinal strategies. Section 3.2 leaves estimation with sample data to future work. Section
+6.3 asks for specialized algorithms, and for sample estimation of the ICE and IPW functionals. The
+paper reports no sampling inference for any bound. Wait for those three contracts before adding a
+sample-data operation.
 
-### L4. Sensitivity analysis
-
-A sweep over prespecified nuisance bounds may refit an established estimator without defining a
-new estimand. Any change to the intervention, missingness law, or reported parameter requires its
-own identification and influence-function result. Rerun the full backward recursion whenever a
-bound changes an earlier pseudo-outcome.
-
-### L5. Additional longitudinal estimands
+### F3. Additional longitudinal estimands
 
 Competing-event interventions and other longitudinal estimands wait for their own identification
 assumptions, influence functions, targeting construction, and inference conditions. Add accepted
 targets in both directions to the oracle registry and evidence gates rather than treating them as
 options on an existing cause-specific estimand.
 
-### L6. Time-respecting cross-fitting
+### F7. Time-respecting cross-fitting
 
-Audit blocked-temporal and rolling-origin splitting separately against published results whose
-dependence assumptions match the supported data. Record which rows may train every prediction and
-which asymptotic argument licenses its interval. Ordered indices passed through iid fold machinery
-are not sufficient.
+Blocked-temporal and rolling-origin folds wait for a published TMLE result whose dependence
+assumptions match the supported data. The result must specify which rows may train each prediction
+and which asymptotic argument licenses the interval. Ordered indices passed through iid fold
+machinery are not sufficient.
 
-## DR-TMLE track
+## DR-TMLE investigation contracts
 
-### D1. Multi-arm missing-outcome DR-TMLE
+### F4. Multi-arm missing-outcome DR-TMLE
 
 `delta=` under `guard=("Q", "g")` continues to refuse more than two treatment arms. Díaz and van
 der Laan's missing-outcome theorem is binary and does not provide arm-indexed observation,
@@ -430,37 +540,39 @@ treatment, and outcome correction blocks. Begin only when a source supplies the 
 corrected influence curve, remainder, and rate conditions. Existing binary evidence is the
 regression surface the extension must preserve.
 
-### D2. Other refused DR-TMLE compositions
+### F5. Other refused C-TMLE and DR-TMLE compositions
 
-Continue pre-fit refusals for `att`/`atc`, stochastic and incremental interventions, continuous
-shifts, MSMs, mediation, C-TMLE, estimated weights, and missing treatment in the DR-TMLE regime.
-Ordinary-TMLE implementations do not establish intervals valid when one primary nuisance is
-inconsistent. Each composition waits for its reduced regressions, corrected influence curve,
-remainder, and rate conditions; estimated weights also require their estimation influence term.
+Continue pre-fit refusals for ATT, ATC, PAR, PAF, regimes, incremental interventions, shifts, MSMs,
+mediation, and missing treatment where each variant lacks evidence. Ordinary-TMLE implementations do
+not establish collaborative or doubly robust inference for these compositions.
 
-## Later-candidate track
+Each C-TMLE extension needs its target-specific collaborative score and selection-risk contract.
+Each DR-TMLE extension needs reduced regressions, a correction, a remainder, and rate conditions.
+PAR and PAF also need the joint observed-mean curve and covariance. Complete simulated-confounding
+replay receives its own audit only after the estimator can fit the target.
 
-### C1. Replicate-weight designs
+An estimated-weight DR-TMLE fit is not refused. Its interval conditions on the supplied weights.
+An unconditional interval claim needs the influence contribution from weight estimation. This
+inference gap is separate from F11, which tracks weight-model replay after a perturbation.
 
-Add BRR, jackknife, or another replicate design only after its published variance construction is
-matched to this package's weighted-law estimands and inference conventions.
+## Other extension and investigation contracts
 
-### C2. MNAR and incremental-intermediate extensions
+### X2. Replicate-weight designs
+
+Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
+another replicate design only after a source audit matches its construction to this package's
+weighted-law estimands and inference conventions.
+
+### F6. MNAR and incremental-intermediate compositions
 
 An MNAR tilt for continuous-dose shifts and intermediate variables with incremental interventions
 wait for identification and influence-function results covering those exact compositions.
 
-### C3. HAL and undersmoothed HAL learners
-
-Match published loss, basis, optimization, and undersmoothing criteria. Consider a native
-implementation only after profiling shows that package-owned HAL work materially dominates
-end-to-end time.
-
-The four items below add methods rather than studies. Each one names the maintained implementation
+The four items below add methods rather than studies. Each item names the maintained implementation
 that a paired study would use. A named comparator is provenance for the construction. It is not the
 derivation, and it is not the acceptance gate.
 
-### C4. Sequential doubly robust longitudinal estimation
+### X4. Sequential doubly robust longitudinal estimation
 
 `lmtp_sdr` implements the sequentially doubly robust estimator of Díaz, Williams, Hoffman and
 Schenck (2023). That estimator is consistent when either the outcome regression or the treatment
@@ -469,7 +581,7 @@ targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 tha
 rows already use, and no new container is needed. Read the rate conditions its interval claims
 first, because they differ from the sequential regression conditions.
 
-### C5. Natural and interventional mediation effects
+### X5. Natural and interventional mediation effects
 
 `cleverly` reports controlled direct effects only. Natural and interventional direct and indirect
 effects are separate estimands, and each carries its own identification assumptions. Díaz, Hejazi,
@@ -479,7 +591,7 @@ estimator and a cross-validated TMLE for them, and it pins by commit. Read the i
 influence function, the targeting construction, and the interval conditions first-hand. Add each
 accepted target to the oracle registry and the evidence gates in both directions.
 
-### C6. Continuous-time survival and competing risks
+### X6. Continuous-time survival and competing risks
 
 The shipped survival and competing-risk estimators use discrete time nodes. Rytgaard, Gerds and van
 der Laan (2022) derive the continuous-time construction, which changes the intensity model, the
@@ -490,7 +602,7 @@ That comparator takes a binary baseline treatment under a static or dynamic inte
 bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
 continuous-time interval, so the existing longitudinal rows do not transfer.
 
-### C7. Two-phase and outcome-dependent sampling
+### X7. Two-phase and outcome-dependent sampling
 
 A two-phase design measures some variables on a subsample only. An outcome-dependent design samples
 on the outcome itself. Each design changes the observed-data likelihood, so each needs its own
@@ -498,10 +610,25 @@ influence-function correction.
 
 Hejazi, van der Laan, Janes, Gilbert and Benkeser (2021) derive the
 two-phase correction, and R `txshift` 0.3.8 implements it. Van der Laan (2008) derives case-control
-weighting under a known prevalence, and Julia `TMLE.jl` implements it. Fixed observation weights do
-not replace either correction. The comparator survey rejects `txshift` as a second opinion on
+weighting under a known prevalence. Fixed observation weights do not replace either correction.
+The comparator survey rejects `txshift` as a second opinion on
 continuous shifts. That verdict does not carry here, because the two-phase correction is a
 different feature.
+
+### X8. Stratified incremental and MSM targeting
+
+Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
+DR-TMLE refuses a baseline stratum, because its reduced regressions add a second targeting equation
+for the `mean` group. Each estimator raises `NotImplementedError` during the fit. A post-fit
+surface cannot repair these upstream estimator limits.
+
+This item is unwritten work rather than a hard stop. Each parameter is well posed, and the package
+already fluctuates baseline strata for arm, regime, and shift targets. The refusal taxonomy records
+each row as [not written yet](technical-reference/scope-and-refusals.md#not-written-yet).
+
+Match the stratum-indexed targeting construction to a published derivation before implementation.
+Continuous MSMs also need dose-indexed strata semantics. Add the targeting equations and their
+validation evidence next. Complete simulated-confounding replay receives its own audit last.
 
 ## Reading a gap correctly
 

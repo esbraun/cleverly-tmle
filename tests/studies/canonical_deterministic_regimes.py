@@ -17,13 +17,13 @@ from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.intervention_study_helpers import (
     initial_regime_estimates,
-    primary_rows,
     sample_discrete,
     truths,
 )
+from tests.studies.point_study_helpers import primary_rows
 
 LMTP_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
 R_BASE_IMAGE = (
@@ -126,7 +126,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -156,7 +156,7 @@ def cleverly_rows(
     result = fit_cleverly(frame)
     return primary_rows(
         result=result,
-        reference=reference,
+        truth=reference,
         implementation=STUDY.implementation,
         scenario=scenario,
         replicate=replicate,

@@ -17,9 +17,9 @@ Give materially different estimators separate evidence rows. Ordinary TMLE, stac
 fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
 samples; one method does not inherit another's parity or coverage claims.
 
-## R implementation comparisons
+## Reference implementation comparisons
 
-- Pin the R base image and packages immutably, and record hashes for the Dockerfile, runner, and
+- Pin the runtime base image and packages immutably. Record hashes for the Dockerfile, runner, and
   reference sources in the study manifest.
 - Give both implementations the same realized datasets, covariates, contrasts, nuisance-model
   families, bounds, targeting controls, and interval scale. Declare any setting that cannot be
@@ -55,13 +55,13 @@ This survey covers the intervention family. Each verdict names the evidence behi
 
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
-| R `lmtp` 1.5.4 | deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply the analytic density ratio and the exact rowwise folds. |
+| R `lmtp` 1.5.4 with R `ife` 0.2.3 | clustered point-treatment effects, deterministic regimes, categorical longitudinal regimes, known stochastic regimes, modified treatment policies | Used by point and longitudinal studies. The adapters supply analytic density ratios and exact rowwise folds. The clustered study also supplies identifiers and forms contrasts from joint influence curves. |
 | R `npcausal` at `56a5ac1` | point-treatment effects, counterfactual densities, continuous-treatment curves, and incremental propensity-score interventions | Used by the incremental study. Its public estimator list has no deterministic categorical longitudinal regimen. |
 | R `stremr` | static, dynamic, and stochastic longitudinal regimes with categorical exposures | Not used for categorical parity. Its required long-form data introduces a second representation, while pinned `lmtp` accepts the study's node columns directly. |
 | Poulos `multi-ltmle` companion | simulation code for longitudinal multi-valued treatment | Retained as supporting source provenance. It is a simulation repository, not a versioned package entry point for rowwise paired studies. |
 | R `imtp` 0.1.0 at `d4b5204` | incremental odds curve | Rejected. Its influence curve omits that derivative, so it witnesses the point curve and cannot gate inference. |
 | R `ltmle` 1.3-0 | deterministic point-treatment regimes | Available and not used. `abar` accepts a single treatment node, which `ltmle_regimen_adapter.R` already reaches at `horizon = 1`. One comparator per study is the framework limit today. |
-| R `txshift` 0.3.8 | continuous shift interventions | Not used. It imports `haldensify` and `hal9001`, so it estimates the exposure density by highly adaptive lasso. That is a second density path and a separate study, not a second opinion on this one. |
+| R `txshift` 0.3.8 | continuous shift interventions | Not used. It estimates the exposure density through a second density path, which requires a separate study rather than serving as a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
 The missing-outcome survey is separate because the response mechanism changes the observed-data
@@ -71,6 +71,15 @@ likelihood and the comparator boundary.
 | --- | --- | --- |
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
+
+The fixed-weight survey is separate because observation weights change the target law and every
+estimation stage.
+
+| candidate | weighted construction it reaches | verdict |
+| --- | --- | --- |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE through `obsWeights=` | Used by both weighted point-treatment rows. The fixed-nuisance runner supplies the same weights and exact predictions to both implementations. The learned-nuisance runner fits matching weighted main-effects Gaussian and binomial GLMs. In the fixed-nuisance row, R `tmle` reports a marginal log-odds-ratio standard error below the exact bound. That comparison therefore witnesses the point estimate rather than the inference. The learned-nuisance row reports two arm means and their difference, and no ratio. |
+| R `ltmle` 1.3-0 | ordinary weighted longitudinal TMLE through `observation.weights=` | Used by the registered ordinary weighted longitudinal reporting study. Its sequential data layout adds no witness to the point-treatment row. |
+| R `lmtp` 1.5.4 | cross-fitted weighted longitudinal TMLE through `weights` | Used by the registered cross-fitted weighted longitudinal reporting study. It is not ordinary point-treatment TMLE. |
 
 The cross-fitting survey is separate because the question is how an implementation aggregates over
 folds, not which parameter it reaches. Every candidate below describes itself as cross-fitted or
@@ -84,10 +93,11 @@ the source before you accept one.
 | R `lmtp` 1.5.4 | takes `weighted.mean` of the pooled shifted regression column | Rejected for the fold-evaluated row. Used elsewhere for its intervention family. |
 | R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |
 | R `npcausal` at `56a5ac1` | averages the influence-function values over all rows | Rejected. It is a one-step AIPW estimator, and its aggregation is pooled. |
-| Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. Retained for the multi-arm selector survey below. |
-| Python `zepid` `SingleCrossfitTMLE` | fits one coefficient per split, averages the fold plug-ins by split size, and averages the within-split influence-curve variances | The one shipped fold-evaluated construction. It matches the fold-targeted variant, not the pooled update. Its default median combination over partitions is the aggregation this package refuses. |
+| Julia `TMLE.jl` v0.20.4 | takes the mean of the counterfactual aggregate over all rows, after one fluctuation | Rejected for the fold-evaluated row. The multi-arm selector survey below also rejects it as a canonical comparator. |
+| Python `zEpid` 0.9.1 at [`16a0f96`](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L976-L1048) | `SingleCrossfitTMLE` targets separately by validation split, then takes the mean over the stacked targeted rows, which size-weights the folds. It uses a within-fold sample variance with `ddof=1`; `cleverly` uses an equal $1/V$ fold average and the raw influence-curve second moment instead | Used by the fold-targeted CV-TMLE row at two equal folds and one partition. The two point-estimate weightings coincide only at these equal sizes. At two folds, each nuisance training split is the complete validation-fold complement. It also corroborates repeated-report aggregation, but it does not compare with the stacked pooled update. |
 | R `Crossfit` at `momenulhaque/Crossfit` | takes the median of the split estimates under a double cross-fit | Rejected. Double cross-fitting fits each nuisance on a separate split, which is a different estimator. |
-| R and Python `DoubleML` 1.0.2 | takes the median across repeated partitions, and the R variance adds the squared deviation from that median | Rejected as a fold-repeat comparator. It is also a double machine learning estimator rather than a TMLE. |
+| Chernozhukov et al. (2018), Definition 3.3 and equation (3.14) | explicitly define median aggregation for fixed repeated partitions with within-partition variance plus squared split displacement | Governing source for the median reporting rule and fixed-repeat first-order validity. It does not make the DML score a TMLE or establish full-method numerical parity. |
+| current R and Python `DoubleML` | uses median aggregation with a between-partition dispersion adjustment | Further corroboration for the reporting rule, but rejected as a comparator because it is DML rather than a targeted estimator and does not expose `cleverly`'s stacked update. |
 
 The multi-arm collaborative survey is separate because the selector, not the parameter, is what a
 comparator has to reach.
@@ -97,7 +107,20 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| Julia `TMLE.jl` v0.20.4 | `GreedyStrategy` and `AdaptiveCorrelationStrategy` | Candidate for the greedy and ordered scenarios. It takes categorical treatment levels, stratifies folds by treatment, selects on a cross-validated loss, and composes ratios by the delta method. It has no discrete ladder. |
+| Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
+
+### Multi-arm selector recommendation
+
+Keep the shipped joint selector. Do not replace it with the componentwise `TMLE.jl` path.
+The library review records the alternative and its limitations; implementing it is not a current
+priority and it is not tracked on the roadmap.
+
+[van der Laan and Gruber (2010)](https://doi.org/10.2202/1557-4679.1181) derive greedy
+collaborative selection for one target parameter. [Ju et al.
+(2019)](https://doi.org/10.1177/0962280217729845) develop the scalable pre-ordered approach.
+Neither paper supplies a theorem for separately selected multi-arm components and their contrast
+covariance. The [`TMLE.jl` JOSS paper](https://doi.org/10.21105/joss.08446) documents the software,
+but it does not add that theorem.
 
 Two limits of the framework shape these tables. A study record names one `reference`, so a second
 comparator needs a second registered study. A comparator that fits its own nuisances also fixes
@@ -122,7 +145,7 @@ material over-rejection. Positive claims need a control that makes the same inst
 - coverage or standard-error calibration includes deliberately invalid inference; and
 - convergence uses at least three sample sizes and excludes a predeclared slower rate.
 
-Repeated-sampling, large-sample, and flexible-learner claims belong in the named slow study and
+Repeated-sampling, large-sample, and flexible-learner claims belong in a registered study and its
 committed artifacts. Documentation examples never count as statistical evidence.
 
 ## Registration and acceptance
@@ -141,14 +164,15 @@ Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `sum
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting
 failed replications or tuning margins after seeing the result. A regeneration expects the whole
-machine: do not run the Python and R full-core phases concurrently, and do not run the fast and
-slow test tiers concurrently. Documentation quotes measured values through
+machine. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
+beside a study regeneration. Documentation quotes measured values through
 `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
 
 Every evidence row states what it does not cover, including relevant outcome and treatment types,
 missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and
-unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
-complete fast tier, and only the named slow study whose path and assertion can observe the change.
+unsupported estimands. Validate changes with the complete fast suite and every registered study
+whose evaluated path a result-determining change can affect. Record each selected study and its
+regeneration command in the pull request.
 
 ## What makes a study stale
 
@@ -175,11 +199,10 @@ No tool separates the two, so each hash group takes its own position.
 
 The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
 
-Python modules are not gated. Re-execution is what keeps the artifacts honest, and a hash gate
+Python modules are not gated. Selective regeneration keeps the artifacts honest, and a hash gate
 would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
-`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves.
-`pytest -m slow` re-executes each study, so a change that was not result-neutral appears as a
-changed artifact.
+`tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves. A
+wrong result-neutral judgment appears as a changed artifact at the next required regeneration.
 
 Reference sources sit between the two. They are gated, because a pinned container is the one input
 a reader cannot re-derive from this repository. Declare a result-neutral difference in

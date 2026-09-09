@@ -1,4 +1,9 @@
-"""Exception and warning types raised by cleverly."""
+"""Exception and warning types raised by cleverly, and the refusals several modules share.
+
+A refusal helper lives here rather than beside one of its callers because the callers sit
+in three subpackages that do not import each other.  This module imports nothing, so any
+of them can reach it.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ __all__ = [
     "NotFittedError",
     "PositivityWarning",
     "WeightingWarning",
+    "refuse_after_repeats",
 ]
 
 
@@ -75,3 +81,28 @@ class PositivityWarning(UserWarning):
     the influence-curve based confidence intervals anti-conservative. See
     :mod:`cleverly.sensitivity.positivity` for diagnostics.
     """
+
+
+def refuse_after_repeats(n_repeats: int, *, operation: str, reason: str) -> None:
+    """Refuse an operation that median aggregation over fold draws leaves undefined.
+
+    A repeated cross-fitted report is a coordinatewise median, so it is not the report of
+    any one draw.  Several operations need a single draw's joint object, and each one
+    refuses here rather than returning a convenient approximation to a different quantity.
+
+    Parameters
+    ----------
+    n_repeats : int
+        How many cross-fitting draws the report combines. One draw refuses nothing.
+    operation : str
+        The refused operation, named as the caller writes it.
+    reason : str
+        Why the median report cannot supply it, and what the caller can do instead.
+
+    Raises
+    ------
+    CapabilityError
+        When the report combines more than one draw.
+    """
+    if n_repeats > 1:
+        raise CapabilityError(f"{operation} is not defined for median-combined repeats. {reason}")

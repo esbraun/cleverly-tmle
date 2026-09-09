@@ -482,6 +482,17 @@ class TestAWeightedShiftFit:
         assert tilted.config.auto_bounds_n < tilted.data.n
         assert tilted.config.auto_bounds_n == pytest.approx(tilted.data.effective_n)
 
+    def test_the_summary_reports_the_weighted_dose_mean_and_observed_range(self) -> None:
+        tilted = self._weighted(lambda data: np.exp(0.8 * np.asarray(data["A"])))
+        dose = np.asarray(tilted.data.treatment)
+        weighted_mean = float(np.average(dose, weights=tilted.data.weights))
+        unweighted_mean = float(np.mean(dose))
+        assert f"{weighted_mean:.4g}" != f"{unweighted_mean:.4g}"
+        summary = tilted.summary()
+        assert f"dose: mean {weighted_mean:.4g}," in summary
+        assert f"dose: mean {unweighted_mean:.4g}," not in summary
+        assert f"range [{dose.min():.3g}, {dose.max():.3g}]" in summary
+
 
 class TestTheDiagnosticsMatchTheAxis:
     def test_support_dispatches_to_the_density_ratio_report(self) -> None:

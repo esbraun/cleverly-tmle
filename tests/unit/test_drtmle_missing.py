@@ -10,14 +10,20 @@ import pytest
 import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
-from cleverly import PositivityWarning, load
+from cleverly import AssessmentStatus, CapabilityError, PositivityWarning, load
 from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
 from cleverly.estimators.tmle import build_submodel, correction_parts
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.inference.influence import missing_outcome_correction_parts
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+from cleverly.sensitivity._simulated_confounding_request import (
+    _MISSING_OUTCOME_REFUSAL,
+    _fit_wide_refusal,
+)
 from cleverly.validation.drtmle import MARGIN_ACTIVE
+from tests.unit._confounding_support import forbid_draw_and_refit
 
 
 def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
@@ -116,6 +122,27 @@ def test_randomized_missing_outcomes_solve_the_reported_equations(randomized_fit
     assert check.passed
     assert {row.equation for row in check.rows} == {"D*_A", "D*_M", "D*_Y"}
     assert len(check.rows) == 6
+
+
+def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work(
+    randomized_fit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = _MISSING_OUTCOME_REFUSAL
+    forbid_draw_and_refit(monkeypatch, randomized_fit.estimator)
+    capability = randomized_fit.sensitivity.capability("simulated_confounding")
+    assert not capability.available
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == reason
+    assert _fit_wide_refusal(randomized_fit) == reason
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(
+            randomized_fit,
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2)),
+            benchmark_covariates=("W1",),
+            random_state=17,
+        )
+    assert str(refusal.value) == reason
 
 
 def test_the_reduced_fit_record_names_the_construction_that_ran(randomized_fit) -> None:
@@ -483,7 +510,10 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
 
     np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
     assert result.extra["drtmle"].guard == ()
-    assert result.diagnostics.corrections().contract == "none"
+    capability = result.diagnostics.capability("corrections")
+    assert capability.status is AssessmentStatus.NOT_APPLICABLE
+    with pytest.raises(CapabilityError, match="subtracts no correction term"):
+        result.diagnostics.corrections()
     assert result.diagnostics.score_equations().passed
 
 
@@ -696,6 +726,35 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         old_weights = 1.0 / floored
         old = (old_weights.sum() ** 2 / np.square(old_weights).sum()) / float(floored.size)
         assert stats["ess_ratio"] != pytest.approx(old)
+
+    def test_its_concentration_uses_the_same_composed_weights(
+        self, pinched_observation_fit
+    ) -> None:
+        result = pinched_observation_fit
+        data = result.data
+        g = result.nuisance.propensity.values
+        pi = result.nuisance.missingness
+        g_lower, g_upper = result.config.g_bounds
+        bounded = result.nuisance.propensity.truncate((g_lower, g_upper)).values * np.clip(
+            pi, result.config.missingness_bound, 1.0
+        )
+        selected = np.where(data.treatment == 1.0, bounded[:, 1], bounded[:, 0])[data.observed]
+        weights = data.weights[data.observed] / selected
+        stats = result.diagnostics.support().mechanisms["P(A=a,Delta=1|W)"]
+        for fraction, key in ((0.01, "top_1pct"), (0.05, "top_5pct")):
+            count = max(1, int(np.ceil(fraction * weights.size)))
+            expected = np.sort(weights)[-count:].sum() / weights.sum()
+            assert stats[key] == pytest.approx(expected)
+
+        # The controls.  Concentration is scale-free, so a row that quietly dropped one
+        # factor would still report a plausible share; these fail unless both factors are
+        # in the denominator the shares were taken over.
+        for wrong in (g, pi):
+            wrong_at_arm = np.where(data.treatment == 1.0, wrong[:, 1], wrong[:, 0])
+            wrong_weights = data.weights[data.observed] / wrong_at_arm[data.observed]
+            count = max(1, int(np.ceil(0.05 * wrong_weights.size)))
+            share = np.sort(wrong_weights)[-count:].sum() / wrong_weights.sum()
+            assert stats["top_5pct"] != pytest.approx(share, abs=1e-4)
 
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""

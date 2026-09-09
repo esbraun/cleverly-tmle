@@ -9,13 +9,13 @@ gives the commit style, the pull request body, and what each CI job checks.
 One person maintains `cleverly`, so a review can take several days. Open an issue before you start
 a large change. An early conversation is cheaper than a rejected branch.
 
-`cleverly` is alpha software. The public API changes between commits, and no version is released
-yet.
+`cleverly` is alpha software. The public API can change between `0.1.N` releases.
 
-The [roadmap](../roadmap.md) is the single planning contract. It contains proposed work only, in
-parallel tracks. Read its [eligibility rule](../roadmap.md#eligibility) before you propose a new
-method. `cleverly` implements established statistical methods. It does not use a package feature as
-the place to invent one.
+The [roadmap](../roadmap.md) is the single planning contract. It puts source-backed work in one
+binding sequence. It keeps work without published theory in a separate future grid. Read its
+[eligibility rule](../roadmap.md#eligibility) before you propose a new method. `cleverly`
+implements established statistical methods. It does not use a package feature as the place to
+invent one.
 
 ## Set up your environment
 
@@ -54,34 +54,36 @@ The remote holds `main` alone. Delete your branch after it merges.
 | `ruff check .` | the lint rules in `pyproject.toml` |
 | `ruff format --check .` | formatting, including every Python fence in a Markdown file |
 | `mypy` | types in `src/cleverly` and in `scripts` |
-| `pytest -m "not slow" -q` | the fast tier, which is the default handoff gate |
+| `pytest -q -n auto --dist loadgroup` | the fast suite, which is the default handoff gate |
 | `python -m tests.prose` | a report on the reader-facing prose. It changes nothing and fails nothing |
 | `nox -s docs` | the documentation build, with every Sphinx warning as an error |
+| `python -m build`, then package checks | distribution metadata, contents, and clean installs |
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, and `tests` sessions. Those sessions
 mirror the CI jobs, so a green `nox` run predicts a green pull request.
 
-Run one test tier at a time. Each tier sizes itself from the machine's cores, and running two
-together oversubscribes every core. [Test tiers and gates](testing-strategy.md) explains the design
-behind the commands.
+Do not run a study regeneration beside the fast suite. Each process expects the machine's cores.
+[Fast tests and validation studies](testing-strategy.md) explains the design behind the commands.
+
+Read [releases](releases.md) before you change `src/cleverly/_version.py` or create a tag.
 
 ## Choose the checks your change needs
 
 | your change | run |
 | --- | --- |
-| documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -m "not slow" -q`, `nox -s docs` |
-| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -m "not slow" -q` |
-| a regenerated evidence artifact | the row above. The fast tier recomputes each study's verdicts from the artifacts you commit |
+| documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
+| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
+| a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
 | a notebook artifact | `python scripts/execute_notebook.py <path>`, then the documentation row above |
 
-The fast tier is the handoff gate for every one of those rows. The registered validation studies
-run inside it, so the statistical evidence is checked in minutes rather than hours.
+The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
+committed artifacts, so the statistical evidence is checked in minutes rather than hours.
 
 The notebook command executes every cell and replaces the stored outputs. It needs network
 access, because the TWINS notebook downloads a pinned dataset. It then writes a stamp with two
-halves, and only one half can fail the fast tier.
+halves, and only one half can fail the fast suite.
 
-| stamp half | covers | the fast tier |
+| stamp half | covers | the fast suite |
 | --- | --- | --- |
 | gated | the notebook's own code cells and stored outputs, its schema, and the repair command | asserts it equal |
 | recorded | the shipped package source, the dependency lock, and the generator | asserts it present and well formed |
@@ -92,13 +94,12 @@ the recorded command fails for the same reason. Edit library code and no noteboo
 recorded half names the checkout that ran the notebook. It does not constrain the tree you work
 in. `tests/notebooks.py` gives the reason for the split.
 
-`pytest -m slow` re-executes each notebook and compares the text its cells print. Images are left
-out, because a figure re-renders to different bytes for reasons no estimate explains.
-Re-execution finds a library change that moved a published number. A hash comparison does not.
+A hash comparison cannot see a library change that moved a published number while every cell kept
+its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
+re-executes the notebook and reports each cell whose printed text moved. It writes nothing.
 
-The repeated-sampling studies that predate the registered rows are deprecated, and pytest skips
-each one. Do not re-enable one to justify a change. Read
-[test tiers and gates](testing-strategy.md) for how the tiers divide the work.
+Regenerate every registered study that evaluates a result-determining implementation change. Read
+[fast tests and validation studies](testing-strategy.md) to select the affected rows.
 
 ## Write documentation
 
@@ -176,7 +177,7 @@ The project has no issue templates yet. Include these items in the issue.
 
 | item | why it is needed |
 | --- | --- |
-| the `cleverly` commit hash | no version is released, so the hash is the only identifier |
+| the `cleverly` version and commit hash | alpha releases can differ from later Git snapshots |
 | your Python version | the supported versions are 3.11, 3.12, and 3.13 |
 | your dataframe backend | some code paths differ between pandas and polars |
 | the learners you passed | estimator behaviour depends on the learner, not on `cleverly` alone |
@@ -185,5 +186,9 @@ The project has no issue templates yet. Include these items in the issue.
 
 ## License
 
-`cleverly` is under the GNU General Public License v3.0. Your contribution is licensed under the
+`cleverly` is under the MIT License. Your contribution to the project is licensed under the
 same terms.
+
+One directory differs. `tests/canonical/` is under the GNU General Public License v3.0,
+because its R runners call reference packages in the same process. A contribution to that
+directory is licensed under the GPL. No published distribution carries it.

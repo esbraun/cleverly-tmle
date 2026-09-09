@@ -11,12 +11,13 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
-from ..data.causal_data import CausalData
+from ..data.causal_data import CausalData, arm_share
+from ..exceptions import refuse_after_repeats
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.influence import ParameterEstimate, Scale
@@ -38,8 +39,15 @@ from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..assessment import DiagnosticsFacade, Replayability, SensitivityFacade, ValidationReport
+    from ..assessment import (
+        AssessmentReport,
+        DiagnosticsFacade,
+        Replayability,
+        SensitivityFacade,
+        ValidationReport,
+    )
     from ..validation.score import ScoreCheck
+    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -175,16 +183,9 @@ class TMLEConfig:
                 # repeated fit reports a different estimator from an ordinary one, and a
                 # reader who cannot tell them apart cannot compare two summaries.
                 lines.append(
-                    f"  (averaged over {self.crossfit.repeats} independent draws of the "
-                    "split; the influence curve is the mean of theirs)"
+                    f"  (median over {self.crossfit.repeats} independent draws of the "
+                    "split; variance includes within-draw uncertainty and split dispersion)"
                 )
-                if self.cv_evaluation:
-                    # Which variance rule produced the interval is not recoverable from
-                    # the number, and here it is not the one the line above implies.
-                    lines.append(
-                        "  (the standard error is the mean of the draws' cross-validated "
-                        "variances, not the variance of that curve)"
-                    )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         if self.cross_fit and self.crossfit.n_folds != self.n_folds:
@@ -255,10 +256,10 @@ class CVTargeting:
 
     Under ``repeats=R`` the fields divide by what they are.  The three that are
     *estimates* -- :attr:`pooled`, :attr:`canonical` and :attr:`variance` -- follow every
-    draw, exactly as the headline report does.  The four that are indexed *by fold* --
+    draw, exactly as the headline report does. The four that are indexed *by fold* --
     :attr:`n_folds`, :attr:`fold_sizes`, :attr:`fold_estimates`, :attr:`fold_epsilon` --
     describe the first draw alone, because fold 3 of one draw is not fold 3 of another
-    and there is no correspondence along which to average them.  :attr:`repeats` says how
+    and there is no correspondence along which to combine them. :attr:`repeats` says how
     many draws the first three cover.
 
     Attributes
@@ -268,10 +269,9 @@ class CVTargeting:
         second moment of the fold-specific influence curves -- per estimand.  This is the
         standard error attached to :attr:`canonical`; the pooled report carries the
         ordinary influence-curve one.  The two agree when the folds are balanced and the
-        score equation is solved, so a gap between them is itself informative.  Over
-        ``R`` draws it is the mean of their ``R`` cross-validated variances; see
-        ``cleverly.estimators.tmle._with_cross_validated_variance`` for why that, and not
-        a cross-validated variance of the averaged curve, is the reported quantity.
+        score equation is solved, so a gap between them is itself informative. Over
+        ``R`` draws, the median aggregation adds each point's squared displacement before
+        taking the median across draws.
     fold_estimates:
         Per-estimand tuple of fold-specific plug-in estimates, from the first draw.
         Estimands that some fold could not evaluate (no units in the conditioning arm, a
@@ -284,10 +284,10 @@ class CVTargeting:
         Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
         first draw. Empty for common pooled-validation targeting.
     pooled, canonical:
-        The two reports, per estimand, averaged over every draw.
+        The two reports, per estimand, combined by their median over every draw.
     repeats:
         How many cross-fitting draws :attr:`pooled`, :attr:`canonical` and
-        :attr:`variance` were averaged over.
+        :attr:`variance` cover.
     """
 
     n_folds: int
@@ -369,8 +369,8 @@ class CVTargeting:
         ]
         if self.repeats > 1:
             header.append(
-                f"both reports and the cv std_err average {self.repeats} draws of the "
-                "split; the fold columns describe the first."
+                f"both reports and the cv std_err combine {self.repeats} draws by their "
+                "median and split dispersion; the fold columns describe the first."
             )
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
@@ -433,8 +433,18 @@ class TMLEResult:
         Typed public method configuration.
     parameter_keys : dict of str to ParameterKey
         Structured identities for reported aliases.
+    fitted_method : str
+        Method identity stamped by the estimator; unknown for unstamped artifacts.
+    solved_corrections : bool
+        Whether the fit participated in the guarded correction system.
+
+    Attributes
+    ----------
     assessment_cache : dict
-        Saved diagnostic and sensitivity outputs.
+        Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
+        constructed result owns its own cache. A result derived with
+        :func:`dataclasses.replace` therefore starts empty and cannot serve the original
+        result's verdicts. Persistence restores the mapping without the constructor.
 
     See Also
     --------
@@ -497,9 +507,26 @@ class TMLEResult:
     method: Any = None
     #: Alias-to-structured-key mapping. Routing must read this rather than parse aliases.
     parameter_keys: dict[str, Any] = field(default_factory=dict)
+    fitted_method: str = "unknown"
+    solved_corrections: bool = False
     #: Persistent assessment results, keyed by operation plus normalized arguments.
     #: Filling this mapping never changes the fitted parameter or its summary.
-    assessment_cache: dict[str, Any] = field(default_factory=dict)
+    #:
+    #: ``init=False`` because the key records the operation and its arguments and nothing
+    #: about the result that answered them.  ``dataclasses.replace`` used to pass the
+    #: original's mapping straight through, so a result derived by ``attach_bootstrap`` --
+    #: which changes ``estimates``, and therefore every sensitivity answer -- served the
+    #: original's cached verdicts under a different method stamp.  A constructed result
+    #: now owns an empty cache, and joblib persistence restores the saved mapping through
+    #: ``__setstate__`` rather than through ``__init__``.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+
+    #: Which family of assessment declarations applies to this result.  A class constant
+    #: rather than a property: the family is a property of the result *type*, and nothing
+    #: a fit can do changes it.  ``cleverly.assessment`` reads it to pick the capability
+    #: table.  The method identity is :attr:`fitted_method`, which is the only name for
+    #: it, because two names for one value drift.
+    assessment_family: ClassVar[str] = "point"
 
     # --------------------------------------------------------------- repeats
 
@@ -532,25 +559,37 @@ class TMLEResult:
 
     @property
     def n_repeats(self) -> int:
-        """How many draws of the cross-fitting split this fit averaged over."""
+        """How many draws of the cross-fitting split this fit combined."""
         return len(self.repeats)
 
     def repeat_spread(self) -> dict[str, float]:
-        r"""Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
+        r"""Split spread of the estimate across the cross-fitting draws, per estimand.
 
         A *diagnostic*, and emphatically not a standard error.  It measures how much the
         arbitrary fold assignment moved the answer: the ``R`` draws differ in nothing but
-        the split, so :math:`\mathrm{sd}(\psi_r)` is the size of the fold noise a single
-        fit carries silently, and :math:`\mathrm{sd}(\psi_r)/\sqrt{R}` is roughly what
-        survives of it in the reported average.  Read against
+        the split, so this is the size of the fold noise a single fit carries silently.
+
+        Reported **on the inference scale**, which is the scale
+        :attr:`~cleverly.ParameterEstimate.std_error` is on: the original outcome scale
+        for a level or a difference, and the log scale for a ratio.  A ``ratio`` estimand
+        therefore contributes :math:`\mathrm{sd}(\log\hat\psi_r)`.  Read against
         :attr:`~cleverly.ParameterEstimate.std_error`: a spread that is an appreciable
         fraction of the standard error means the split mattered, and one near zero means
-        the nuisance fits were stable enough that repeating bought little.
+        the nuisance fits were stable enough that repeating bought little.  That is a way
+        to read the number and not a threshold on it.  No rule in this package assigns the
+        ratio a status, and
+        :class:`~cleverly.validation.RepeatSpreadRow` reports it without one.  A spread taken
+        on ``psi`` itself would not be comparable with the standard error of an ``rr`` or
+        an ``or``, and would be wrong by roughly the estimate's own magnitude.
+
+        A draw whose ``psi`` is not finite, or whose ratio-scale ``psi`` is not positive,
+        yields ``nan`` for that estimand rather than ``-inf`` or an exception.  There is no
+        spread on the inference scale to report there, and the caller needs the other
+        estimands.
 
         What it must not be used for is inference.  It says nothing about the *sampling*
-        variability of the estimand, so it is neither an alternative to the influence-curve
-        standard error nor something to add to it -- the reported interval already covers
-        the estimator that was reported, which is the average.
+        variability of the estimand, so it is not an alternative to the reported standard
+        error. The median variance rule already includes between-draw displacement.
 
         Raises when there is only one draw, since the standard deviation of one number is
         not a diagnostic but an artefact.
@@ -558,8 +597,8 @@ class TMLEResult:
         Returns
         -------
         dict of str to float
-            Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
-            Zero for an ordinary one-draw fit.
+            Standard deviation across the cross-fitting draws, per estimand, on the
+            inference scale of that estimand.
         """
         if self.n_repeats < 2:
             raise ValueError(
@@ -568,10 +607,23 @@ class TMLEResult:
                 "repeats=2 or more."
             )
         shared = [name for name in self.estimates if all(name in r.psi for r in self.repeats)]
-        return {
-            name: float(np.std([repeat.psi[name] for repeat in self.repeats], ddof=1))
-            for name in shared
-        }
+        spreads: dict[str, float] = {}
+        for name in shared:
+            values = np.asarray([repeat.psi[name] for repeat in self.repeats], dtype=float)
+            # Outside the ratio branch, because a draw that is not finite has no spread on
+            # any scale.  Leaving it inside sent an infinite difference-scale draw into
+            # ``np.std``, which warns and therefore raises under this project's
+            # ``error::RuntimeWarning`` filter rather than yielding the promised ``nan``.
+            if not np.all(np.isfinite(values)):
+                spreads[name] = float("nan")
+                continue
+            if self.estimates[name].scale == "ratio":
+                if np.any(values <= 0.0):
+                    spreads[name] = float("nan")
+                    continue
+                values = np.log(values)
+            spreads[name] = float(np.std(values, ddof=1))
+        return spreads
 
     # ------------------------------------------------------------- accessors
 
@@ -635,6 +687,25 @@ class TMLEResult:
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
 
+    @property
+    def ctmle_selection(self) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | None:
+        """The collaborative selection artifact a C-TMLE fit retained, if any.
+
+        The sibling of :attr:`cv_targeting` for the ``ctmle`` key, and typed for the same
+        reason: a reader who reaches into ``extra`` gets ``Any`` and has to re-assert the
+        type at every call site.  ``None`` covers both an ordinary fit and a collaborative
+        result whose artifact is absent, which the reports distinguish by
+        :attr:`fitted_method`.
+
+        The two classes are imported inside the property because
+        :mod:`cleverly.estimators.ctmle` imports this module, so the dependency only runs
+        in the direction the package already has.
+        """
+        from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+
+        value = self.extra.get("ctmle")
+        return value if isinstance(value, CTMLESelection | CTMLEOutcomeAdaptiveFit) else None
+
     # ------------------------------------------------------------- contrasts
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
@@ -656,6 +727,15 @@ class TMLEResult:
         ndarray
             Covariance matrix in the requested order.
         """
+        refuse_after_repeats(
+            self.n_repeats,
+            operation="covariance()",
+            reason=(
+                "The marginal variance includes between-draw displacement, but no "
+                "established joint aggregation rule supplies its cross-estimand "
+                "covariance. Fit one split or inspect each entry in result.repeats."
+            ),
+        )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -700,6 +780,15 @@ class TMLEResult:
         ParameterEstimate
             Derived estimate with influence-curve inference.
         """
+        refuse_after_repeats(
+            self.n_repeats,
+            operation="contrast()",
+            reason=(
+                "A coordinatewise median does not preserve algebraic identities across "
+                "estimands. Request the contrast as an estimand before fitting, or fit "
+                "one split."
+            ),
+        )
         return smooth_contrast(
             self.estimates,
             function,
@@ -769,6 +858,67 @@ class TMLEResult:
         from ..assessment import validate_result
 
         return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> AssessmentReport:
+        """Run the applicable post-fit assessment battery.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets; cheap E-value retargets run by default.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        cleverly.AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+
+        See Also
+        --------
+        TMLEResult.validate : Run the stored-artifact validation checks.
+        cleverly.assessment.DiagnosticsFacade.run_all : Run diagnostics alone.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=80, seed=1)
+        >>> result = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... ).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     n_folds=2,
+        ...     random_state=0,
+        ... )
+        >>> result.assess().validation.passed
+        True
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def replayability(self) -> Replayability:
@@ -997,16 +1147,31 @@ class TMLEResult:
 
         parts = [*header, *facts, "", table]
         if self.n_repeats > 1:
+            # Printed under the table rather than left to the scope document, because a
+            # reader who subtracts two rows of that table gets a third number the fit
+            # never reported.  contrast() refuses for this reason; the table cannot.
+            parts.append("")
+            parts.append(
+                "the report above is coordinatewise: each row is the median of its own "
+                "draws, so algebraic identities among the rows (ate versus ey1 - ey0, "
+                "say) do not hold."
+            )
             # Beside the standard error rather than in a separate report, because the
             # comparison is the whole content of the number: on its own "0.0065" says
             # nothing about whether the split mattered.
             parts.append("")
             parts.append(
-                f"split noise -- sd(psi) across the {self.n_repeats} draws, a diagnostic "
-                "and not a standard error:"
+                f"split noise -- spread across the {self.n_repeats} draws on the inference "
+                "scale (the log scale for a ratio), a diagnostic and not a standard error:"
             )
             for name, value in self.repeat_spread().items():
                 error = self[name].std_error
+                # "-" and a named reason, as every other table in this package renders a
+                # cell it has no value for.  A draw this spread could not be taken over
+                # printed "nan (nan% of std_err)" here.
+                if not np.isfinite(value):
+                    parts.append(f"  {name:<5s} -  (no spread on the inference scale)")
+                    continue
                 share = f"{value / error:.0%} of std_err" if error > 0 else "std_err unavailable"
                 parts.append(f"  {name:<5s} {value:.4g}  ({share})")
         if self.simultaneous is not None:
@@ -1194,10 +1359,10 @@ def _arm_shares(data: CausalData) -> str:
     if data.is_binary_treatment:
         return f"P(A=1) = {data.treated_fraction:.4g}"
 
-    def share(arm: float) -> float:
-        return float(np.average(data.treatment == arm, weights=data.weights))
-
-    shares = [f"{data.arm_label(arm)}={share(arm):.3g}" for arm in data.arm_codes]
+    shares = [
+        f"{data.arm_label(arm)}={arm_share(data.treatment, data.weights, arm):.3g}"
+        for arm in data.arm_codes
+    ]
     return f"arm shares: {', '.join(shares)}"
 
 

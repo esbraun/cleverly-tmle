@@ -19,6 +19,7 @@ from ..exceptions import DataError, DataWarning
 __all__ = [
     "MAX_TREATMENT_LEVELS",
     "MIN_CONTINUOUS_LEVELS",
+    "MIN_OBSERVATIONS",
     "RANDOMIZED_INTERCEPT",
     "arm_indicators",
     "check_binary",
@@ -30,6 +31,7 @@ __all__ = [
     "encode_continuous_treatment",
     "encode_treatment",
     "infer_family",
+    "resolve_family",
 ]
 
 #: The one covariate column ``cleverly`` supplies itself, for
@@ -49,6 +51,15 @@ RANDOMIZED_INTERCEPT = "__cleverly_randomized_intercept__"
 #: guard against a mis-typed column silently becoming a 200-arm fit, not a statistical
 #: threshold.
 MAX_TREATMENT_LEVELS = 20
+
+#: Fewest rows either container will build from.  A guard against a sample so small that
+#: no nuisance fit and no cross-fitting split is meaningful, not a power calculation.
+#: Producer and consumer live in different packages, so the number is defined once here
+#: rather than written out at both ends: it was a private literal in
+#: :mod:`cleverly.data.causal_data` and another in :mod:`cleverly.longitudinal.data`, and
+#: the two carried the same refusal message.  Moving one alone would have let one
+#: container accept a sample the other refuses.
+MIN_OBSERVATIONS = 10
 
 
 def check_binary(values: FloatArray, name: str) -> FloatArray:
@@ -324,6 +335,30 @@ def infer_family(y: FloatArray, observed: BoolArray | None) -> str:
     if unique.size <= 2 and np.all(np.isin(unique, (0.0, 1.0))):
         return "binomial"
     return "gaussian"
+
+
+def resolve_family(y: FloatArray, observed: BoolArray, family: str) -> str:
+    """Settle the outcome family a container will fit, refusing what it cannot fit.
+
+    ``"auto"`` defers to :func:`infer_family`; any other value is taken as declared and
+    checked.  A declared ``"binomial"`` is checked against the *observed* rows only,
+    because an unobserved row's outcome never enters a regression.  What such a row
+    holds differs by container, so neither the check nor the inference reads it.
+
+    Both containers resolve the family this way, and the check is the reason: declaring
+    ``"binomial"`` over a continuous outcome fits a logistic loss to values outside
+    ``[0, 1]``, which is a different estimand rather than a worse fit of the same one.
+    """
+    resolved = infer_family(y, observed) if family == "auto" else family
+    if resolved not in ("binomial", "gaussian"):
+        raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
+    if resolved == "binomial":
+        values = np.unique(y[observed])
+        if not np.all(np.isin(values, (0.0, 1.0))):
+            raise DataError(
+                f"family='binomial' requires a 0/1 outcome; observed values {values[:6].tolist()}"
+            )
+    return resolved
 
 
 def check_delta(delta: np.ndarray, name: str) -> BoolArray:

@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from tests.studies.evidence import descriptions
+from tests.studies.evidence import descriptions, property_verdicts
 from tests.studies.evidence.claims import load, value
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
@@ -73,8 +73,8 @@ _ROW = re.compile(
 )
 
 
-def render(computed: float) -> str:
-    """How precisely to quote a value, given nothing but the value.
+def render(computed: float, decimals: int | None = None) -> str:
+    """How precisely to quote a value, given the value and any precision its claim declares.
 
     Counts are counts.  Everything else gets four decimals, or six where four would round a real
     quantity to nothing -- a bound of 0.0002 printed as ``0.0000`` is a worse claim than a long one.
@@ -85,14 +85,35 @@ def render(computed: float) -> str:
     scientific notation instead, so the cell carries the magnitude rather than the absence of
     one.  ``claims.matches`` reads those to *significant* digits, which is the precision they
     were actually printed to.
+
+    Every rung above reads one value alone, which is the one thing this function can see.  A
+    claim of *agreement between two rows* is invisible here: an exact efficiency bound of
+    ``0.13204392`` and the standard error ``0.13204485`` measured against it both print as
+    ``0.1320``, and a reader cannot tell agreement to seven digits from a coincidence at four.
+    ``decimals`` is where the study says how much precision that claim needs, through
+    :attr:`~tests.studies.evidence.registry.StudyRecord.quoted_decimals`.  It widens the
+    fixed-point rungs and never narrows them, so a declaration cannot quote a value to less
+    precision than the value alone already earned.  A figure below the scientific-notation
+    floor stays in scientific notation, because decimal places cannot carry it at all.
+
+    Parameters
+    ----------
+    computed : float
+        The value to quote, as its artefacts produce it.
+    decimals : int or None, optional
+        The decimal places the claim on this value needs, or ``None`` for the value alone.
+
+    Returns
+    -------
+    str
+        The value, as a published table cell prints it.
     """
-    if computed == int(computed):
+    if decimals is None and computed == int(computed):
         return str(int(computed))
     if abs(computed) < 1e-6:
         return f"{computed:.3e}"
-    if abs(computed) < 0.001:
-        return f"{computed:.6f}"
-    return f"{computed:.4f}"
+    places = 6 if abs(computed) < 0.001 else 4
+    return f"{computed:.{places if decimals is None else max(places, decimals)}f}"
 
 
 def _verdict(passed: object) -> str:
@@ -194,6 +215,7 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             str(row.cell),
             exact_efficiency=_has_exact_efficiency(row),
             role=str(row.role),
+            nuisance_count=record.nuisance_count,
         )
         rows.append(
             (
@@ -227,8 +249,17 @@ def _measured(row: Any) -> str:
         # nuisance reports an error two orders of magnitude off its own spread and leaves the
         # bias interval looking like any other cell's, so the ratio the screen is read from
         # belongs in the column a reader reads.
-        if family == "double_robustness":
+        if family in property_verdicts.UNION_MODEL_FAMILIES:
             measured += f", SE ratio {render(float(row.se_ratio))}"
+        if (
+            family in {"weight_necessity", "learner_weight_necessity"}
+            and str(row.role) == "control"
+        ):
+            measured += (
+                ", selected-target bias "
+                f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
+                f"margin {render(float(row.alternative_bias_margin))}"
+            )
         return measured
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
@@ -266,6 +297,13 @@ def _measured(row: Any) -> str:
                 f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
             )
         return measured
+    if family == "clustered_inference":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            "paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+        )
     if family == "corrected_mar_inference":
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
@@ -274,6 +312,12 @@ def _measured(row: Any) -> str:
         )
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+    if family == "repeat_stability":
+        return (
+            f"spread ratio {render(float(row.spread_ratio))}, "
+            f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
+            f"boundary {render(float(row.spread_ratio_boundary))}"
+        )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":
@@ -299,11 +343,13 @@ def _has_exact_efficiency(row: Any) -> bool:
 _BIAS_GATED = frozenset(
     {
         "categorical_probability_necessity",
+        "cde_robustness",
         "double_robustness",
         "mechanism_requirement",
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
+        "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
         "robustness_contract",
@@ -313,6 +359,7 @@ _BIAS_GATED = frozenset(
         "selector_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "weight_necessity",
     }
 )
 
@@ -411,7 +458,7 @@ def fill(record: StudyRecord) -> list[str]:
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered_value = render(value(record, quantity, data))
+        rendered_value = render(value(record, quantity, data), record.quoted_decimals.get(quantity))
         if rendered_value != match.group("value"):
             changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
         lines[index] = (

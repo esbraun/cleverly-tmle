@@ -53,6 +53,7 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 from .validate import (
+    MIN_OBSERVATIONS,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -63,18 +64,17 @@ from .validate import (
     encode_continuous_treatment,
     encode_treatment,
     infer_family,
+    resolve_family,
 )
 from .weighting import (
     WeightReport,
     WeightSpec,
+    _prepare_weights,
     describe_weights,
     effective_sample_size,
-    resolve_weight_kind,
-    warn_if_concentrated,
-    warn_if_counts,
 )
 
-__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
+__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind", "arm_share"]
 
 #: How the treatment column is to be read.  ``"discrete"`` codes it into arms; there is
 #: no third reading, and the two are not points on a scale -- they select different
@@ -82,7 +82,47 @@ __all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
 #: different estimands.
 TreatmentKind = Literal["discrete", "continuous"]
 
-_MIN_OBSERVATIONS = 10
+
+def arm_share(
+    treatment: FloatArray,
+    weights: FloatArray,
+    arm: float,
+    mask: Any = None,
+) -> float:
+    """Weighted ``P(A = arm)`` on the rows ``mask`` keeps.
+
+    One rule, stated once.  The same weighted share was open-coded at the summary
+    header, at the cross-fitted and the stratified clever covariates, and at the
+    simulated-confounding population fraction.  Written out four times it is four
+    chances for a fold, a stratum and a report to disagree about what an arm's share
+    of a population is.
+
+    :attr:`CausalData.arm_fractions` deliberately does **not** route its two-arm case
+    through this function.  There it takes the complement of
+    :attr:`CausalData.treated_fraction`, because ``1 - E_w[A]`` and ``E_w[1 - A]``
+    need not agree in the last bit, and a binary fit's ATC arithmetic is pinned to the
+    complement.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        Arm codes, as :attr:`CausalData.treatment` holds them.
+    weights : ndarray
+        Row masses over the same rows as ``treatment``.
+    arm : float
+        The arm code whose share is wanted.
+    mask : ndarray or None
+        Boolean mask or index array selecting the population.  ``None`` takes every row.
+
+    Returns
+    -------
+    float
+        The weighted fraction of the selected rows in ``arm``.
+    """
+    if mask is not None:
+        treatment = treatment[mask]
+        weights = weights[mask]
+    return float(np.average(treatment == arm, weights=weights))
 
 
 @dataclass(frozen=True)
@@ -370,8 +410,8 @@ class CausalData:
         strata_levels: Sequence[tuple[Any, ...]] = (),
     ) -> CausalData:
         n = len(outcome)
-        if n < _MIN_OBSERVATIONS:
-            raise DataError(f"need at least {_MIN_OBSERVATIONS} observations; got {n}")
+        if n < MIN_OBSERVATIONS:
+            raise DataError(f"need at least {MIN_OBSERVATIONS} observations; got {n}")
         for label, arr in (
             (treatment_name, treatment),
             ("covariates", covariates),
@@ -392,32 +432,16 @@ class CausalData:
             np.ones(n, dtype=bool) if delta is None else check_delta(delta, delta_name or "delta")
         )
         y = check_outcome(outcome, outcome_name, None if delta is None else observed)
-        resolved_family = infer_family(y, observed) if family == "auto" else family
-        if resolved_family not in ("binomial", "gaussian"):
-            raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
-        if resolved_family == "binomial":
-            observed_values = np.unique(y[observed])
-            if not np.all(np.isin(observed_values, (0.0, 1.0))):
-                raise DataError(
-                    "family='binomial' requires a 0/1 outcome; observed values "
-                    f"{observed_values[:6].tolist()}"
-                )
+        resolved_family = resolve_family(y, observed, family)
 
         w, w_names, dropped = check_covariates(covariates, list(covariate_names))
-        label = weights_name or "weights"
-        kind = resolve_weight_kind(weights_type, n)
-        obs_weights = check_weights(weights, n, label)
-        if weights is None:
-            spec = WeightSpec(kind=kind, estimated=weights_estimated)
-        else:
-            warn_if_counts(np.asarray(weights, dtype=float), label)
-            warn_if_concentrated(obs_weights, label)
-            spec = WeightSpec(
-                kind=kind,
-                estimated=weights_estimated,
-                name=label,
-                scale=float(np.mean(np.asarray(weights, dtype=float))),
-            )
+        obs_weights, spec = _prepare_weights(
+            weights,
+            n,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            weights_name=weights_name,
+        )
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
         z = None
         if intermediate is not None:
@@ -587,17 +611,13 @@ class CausalData:
         recomputing the share, for the reason
         :meth:`~cleverly.estimators._nuisance.Propensity.bounded` takes the complement of
         ``g1``: it is what keeps a binary fit's ATC arithmetic bit for bit what it was,
-        since ``1 - E_w[A]`` and ``E_w[1 - A]`` need not agree in the last bit.
+        since ``1 - E_w[A]`` and ``E_w[1 - A]`` need not agree in the last bit.  Every
+        other arm count reads its share from :func:`arm_share`.
         """
         share = self.treated_fraction  # raises on a continuous treatment, as it should
         if self.n_arms == 2:
             return np.array([1.0 - share, share])
-        return np.array(
-            [
-                float(np.average(self.treatment == code, weights=self.weights))
-                for code in self.arm_codes
-            ]
-        )
+        return np.array([arm_share(self.treatment, self.weights, code) for code in self.arm_codes])
 
     # ------------------------------------------------------------------- arms
 
@@ -807,8 +827,8 @@ class CausalData:
         idx = np.asarray(index)
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
-        if idx.size < _MIN_OBSERVATIONS:
-            raise DataError(f"subset has {idx.size} rows; need at least {_MIN_OBSERVATIONS}")
+        if idx.size < MIN_OBSERVATIONS:
+            raise DataError(f"subset has {idx.size} rows; need at least {MIN_OBSERVATIONS}")
         cluster = (
             None if self.cluster is None else np.unique(self.cluster[idx], return_inverse=True)[1]
         )
@@ -856,6 +876,185 @@ class CausalData:
                 "not a null for the same parameter."
             )
         return replace(self, treatment=a)
+
+    def with_outcome(
+        self, outcome: Any, *, family: str = "auto", name: str = "replacement outcome"
+    ) -> CausalData:
+        """Return a copy with a validated replacement outcome.
+
+        Parameters
+        ----------
+        outcome : array-like
+            One replacement value per analysis row. Missing or non-finite values are
+            allowed only on rows already marked as unobserved.
+        family : {"auto", "gaussian", "binomial"}
+            Outcome family for the replacement. ``"auto"`` infers it from observed
+            replacement values.
+        name : str
+            What the caller calls this outcome. Every refusal names it, so a caller that
+            passes a named argument can report the argument rather than the role.
+
+        Returns
+        -------
+        CausalData
+            A replacement that preserves every role except outcome and family.
+
+        Raises
+        ------
+        DataError
+            If length, observed values, family, or family support is invalid.
+        """
+        values = np.asarray(outcome)
+        if values.ndim == 0 or values.reshape(-1).size != self.n:
+            actual = 1 if values.ndim == 0 else values.reshape(-1).size
+            raise DataError(f"{name} has length {actual}, expected {self.n}")
+        cleaned = check_outcome(values, name, self.observed)
+        resolved = infer_family(cleaned, self.observed) if family == "auto" else family
+        if resolved not in ("binomial", "gaussian"):
+            raise DataError(
+                f"{name} family must be 'binomial', 'gaussian' or 'auto'; got {family!r}"
+            )
+        if resolved == "binomial":
+            observed_values = np.unique(cleaned[self.observed])
+            if not np.all(np.isin(observed_values, (0.0, 1.0))):
+                raise DataError(
+                    f"{name} with family='binomial' requires 0/1 observed "
+                    f"values; observed {observed_values[:6].tolist()}"
+                )
+        return replace(self, outcome=cleaned, family=resolved)
+
+    def with_covariates(
+        self, covariates: Any, *, name: str = "replacement covariates"
+    ) -> CausalData:
+        """Return a copy with a validated complete covariate design.
+
+        An array is read by position against :attr:`covariate_names`.  A pandas or polars
+        frame is matched on its column names instead, and is reordered into the fitted
+        order; a frame that does not name exactly this design is refused rather than read
+        positionally, because a permuted frame would move every estimate with no error.  A
+        row index that is not ``0..n-1`` is refused for the same reason: this method reads
+        rows by position and never aligns on an index.
+
+        Each recorded :class:`CategoricalEncoding` is checked against the replacement, so
+        a block that is no longer a drop-first indicator block is refused here.  What is
+        preserved is every other role, every covariate name, and every encoding
+        declaration: this method replaces the values of the design and nothing else.  The
+        replacement is copied, so a caller that reuses one buffer across replicates cannot
+        mutate the returned data.
+
+        Parameters
+        ----------
+        covariates : array-like or DataFrame
+            Complete encoded design with the same shape as the fitted design.  A dataframe
+            must carry exactly the columns named by :attr:`covariate_names`.
+        name : str
+            Name used in validation errors.
+
+        Returns
+        -------
+        CausalData
+            A copy holding a private copy of the replacement design.
+
+        Raises
+        ------
+        DataError
+            If the frame's columns or row index, the shape, the finiteness, or a recorded
+            categorical block is invalid.
+        """
+        if is_dataframe(covariates):
+            values = self._covariates_from_frame(covariates, name)
+        else:
+            values = np.array(covariates, dtype=float, copy=True)
+        if values.shape != self.covariates.shape:
+            raise DataError(f"{name} has shape {values.shape}, expected {self.covariates.shape}")
+        if not np.all(np.isfinite(values)):
+            raise DataError(f"{name} contains non-finite values")
+        self._check_encoded_blocks(values, name)
+        return replace(self, covariates=values)
+
+    def _covariates_from_frame(self, covariates: Any, name: str) -> FloatArray:
+        """Read a replacement design out of a dataframe by column name.
+
+        Parameters
+        ----------
+        covariates : DataFrame
+            Replacement design, as a pandas or polars frame.
+        name : str
+            Name used in validation errors.
+
+        Returns
+        -------
+        numpy.ndarray
+            The frame's columns in :attr:`covariate_names` order.
+        """
+        expected = list(self.covariate_names)
+        if len(set(expected)) != len(expected):
+            raise DataError(
+                f"{name} was given as a dataframe, but this design repeats a covariate "
+                "name, so a name does not identify one column. Pass a numpy array in "
+                f"covariate_names order instead; the order is {expected}."
+            )
+        frame = as_frame(covariates)
+        columns = list(frame.columns)
+        duplicates = sorted({column for column in columns if columns.count(column) > 1})
+        if duplicates:
+            raise DataError(f"{name} repeats the columns {duplicates}")
+        if set(columns) != set(expected):
+            missing = [column for column in expected if column not in columns]
+            unexpected = [column for column in columns if column not in expected]
+            raise DataError(
+                f"{name} must carry exactly the fitted covariate columns. Missing "
+                f"{missing}; unexpected {unexpected}. The expected columns are {expected}."
+            )
+        index = nw.maybe_get_index(frame)
+        if index is not None:
+            labels = np.asarray(index)
+            rows = int(frame.shape[0])
+            if labels.shape != (rows,) or not np.array_equal(labels, np.arange(rows)):
+                raise DataError(
+                    f"{name} has a row index that is not 0..n-1. This method reads rows by "
+                    "position and does not align on an index. Call reset_index(drop=True) "
+                    "on the frame first, or pass a numpy array."
+                )
+        return matrix_from_columns(frame, expected)
+
+    def _check_encoded_blocks(self, values: FloatArray, name: str) -> None:
+        """Refuse a replacement that breaks a recorded drop-first indicator block.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            Replacement design, already aligned to :attr:`covariate_names`.
+        name : str
+            Name used in validation errors.
+        """
+        position = {column: j for j, column in enumerate(self.covariate_names)}
+        for encoding in self.encodings:
+            # An encoding survives on `encodings` when duplicate-column removal kept only
+            # part of its block, so only the retained indicators can be checked.  Any
+            # subset of a valid drop-first block is itself one, so the weaker check on a
+            # partial block is the strongest true statement available here.
+            columns = [position[item] for item in encoding.generated if item in position]
+            if not columns:
+                continue
+            block = values[:, columns]
+            names = [self.covariate_names[j] for j in columns]
+            if not bool(np.all(np.isin(block, (0.0, 1.0)))):
+                raise DataError(
+                    f"{name} does not encode covariate {encoding.column!r} as indicators: "
+                    f"columns {names} must hold 0 or 1. This data records a drop-first "
+                    f"encoding of {encoding.column!r} over levels "
+                    f"{list(encoding.levels)}, and every estimate reads it that way."
+                )
+            active = np.count_nonzero(block, axis=1)
+            if int(np.max(active, initial=0)) > 1:
+                rows = int(np.count_nonzero(active > 1))
+                raise DataError(
+                    f"{name} sets more than one indicator of covariate "
+                    f"{encoding.column!r} on {rows} of {values.shape[0]} rows; columns "
+                    f"{names} are a drop-first block, so at most one is active. The "
+                    f"dropped level {encoding.dropped_level!r} is the all-zero row."
+                )
 
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
         """A copy with one extra covariate column appended."""
@@ -1032,6 +1231,14 @@ def _encode_covariates(
         if dtype == nw.Boolean:
             blocks.append(column_array(frame, name).reshape(-1, 1))
             out_names.append(name)
+            encodings.append(
+                CategoricalEncoding(
+                    column=name,
+                    levels=(False, True),
+                    dropped_level=False,
+                    generated=(name,),
+                )
+            )
             continue
         values = frame[name].to_numpy()
         levels = tuple(np.unique(values).tolist())

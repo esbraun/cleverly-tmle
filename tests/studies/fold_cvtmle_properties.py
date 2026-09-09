@@ -10,7 +10,7 @@ from tests.studies.fold_evaluated_cvtmle import STUDY
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return generate(STUDY, "fold_evaluated", n_jobs=n_jobs)
+    return generate("fold_evaluated", n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

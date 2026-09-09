@@ -1,6 +1,6 @@
 """Does cleverly work with exactly *one* dataframe backend installed?
 
-``pytest -m "not slow"`` cannot answer that.  The test suite imports pandas and polars
+The ordinary test suite cannot answer that. It imports pandas and polars
 at module scope in dozens of files -- reasonably, since it compares them against each
 other -- so it can only ever run where both are present, and ``.[dev]`` installs both.
 That left the single-backend branches of :mod:`cleverly.utils.frames` unexecuted

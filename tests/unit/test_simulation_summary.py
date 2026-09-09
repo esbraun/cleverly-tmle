@@ -53,7 +53,7 @@ def test_the_two_scales_disagree_enough_to_matter() -> None:
 def test_a_difference_estimand_is_arithmetically_what_it_always_was() -> None:
     """``inference_estimates=None`` means the scales coincide, which is every non-ratio.
 
-    This is the regression guard for the ``se_ratio`` bands the slow tier asserts on
+    This is the regression guard for the ``se_ratio`` bands registered studies assert on
     ``ate``, ``ey_regimen`` and ``risk_regimen``: none of them may move by so much as a
     rounding.
     """

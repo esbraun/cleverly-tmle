@@ -10,6 +10,7 @@ what is printed is what resolves, at the precision it was printed to.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Callable, Mapping
 
@@ -200,7 +201,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:overfit_coverage_gain": property_verdicts.OVERFIT_COVERAGE_GAIN,
             }
         )
-    if "double_robustness" in record.property_cells:
+    if "clustered_inference" in record.property_cells:
+        declared.update(
+            {
+                "margin:iid_control_se_ceiling": (
+                    property_verdicts.CLUSTER_ROBUST_CONTROL_SE_CEILING
+                ),
+                "margin:clustered_coverage_gain": property_verdicts.CLUSTERED_COVERAGE_GAIN,
+            }
+        )
+    if property_verdicts.UNION_MODEL_FAMILIES.intersection(record.property_cells):
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         declared["margin:union_model_se_lower"] = low
         declared["margin:union_model_se_upper"] = high
@@ -212,6 +222,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         # and genuinely live in one module.  ``test_method_evidence`` reads it the same way,
         # so the two cannot come to disagree about which module owns it.
         declared["margin:selector_rmse_ratio"] = record.properties().SELECTOR_RMSE_RATIO
+    if "repeat_stability" in record.property_cells:
+        declared["margin:repeat_spread_ratio"] = record.properties().MAX_REPEAT_SPREAD_RATIO
     # Off the declared cells, like the three blocks above, rather than off ``hasattr`` on the
     # module.  A duck-typed guard publishes a threshold because a constant happens to be
     # importable, which is a fact about a file rather than about what the study claims -- and
@@ -223,14 +235,15 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         for cell in record.property_cells.get("interval_calibration", ())
     ):
         properties = record.properties()
-        low, high = properties.EFFICIENCY_RATIO_BAND
-        declared.update(
-            {
-                "margin:efficiency_ratio_lower": low,
-                "margin:efficiency_ratio_upper": high,
-                "margin:shrunken_se_factor": properties.SHRUNKEN_SE_FACTOR,
-            }
-        )
+        declared["margin:shrunken_se_factor"] = properties.SHRUNKEN_SE_FACTOR
+        if record.calibration_efficiency_ratio:
+            low, high = properties.EFFICIENCY_RATIO_BAND
+            declared.update(
+                {
+                    "margin:efficiency_ratio_lower": low,
+                    "margin:efficiency_ratio_upper": high,
+                }
+            )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     if "missingness_necessity" in record.property_cells:
@@ -250,6 +263,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "rule_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
+    if "weight_necessity" in record.property_cells:
+        declared["margin:weight_displacement"] = record.properties().WEIGHT_DISPLACEMENT
+    if "learner_weight_necessity" in record.property_cells:
+        declared["margin:learner_weight_displacement"] = (
+            record.properties().LEARNER_WEIGHT_DISPLACEMENT
+        )
     if "categorical_probability_necessity" in record.property_cells:
         declared["margin:categorical_probability_displacement"] = (
             record.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
@@ -265,6 +284,14 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         or "competing_risk_recursion_necessity" in record.property_cells
     ):
         declared["margin:recursion_displacement"] = record.properties().RECURSION_DISPLACEMENT
+    # A ``bound:`` name is neither a margin nor a measurement.  It is the exact standard
+    # deviation of an estimand's efficient influence curve under the study's declared law,
+    # divided by the square root of the study's own size, so a section can print it beside
+    # the ``mean_std_error`` its artefacts record for the same estimand.  That comparison is
+    # what settles a disagreement between two implementations.  Two implementations
+    # reporting the same number establishes only that they agree.
+    for estimand, deviation in sorted(record.efficiency_bounds.items()):
+        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
     return declared
 
 

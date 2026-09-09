@@ -23,8 +23,30 @@ previous reader had is not a citation; a page number is.
   10.1111/j.1541-0420.2011.01685.x.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*.
-- Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
+- Gruber & van der Laan (2012),
+  [*tmle: An R Package for Targeted Maximum Likelihood Estimation*](https://doi.org/10.18637/jss.v051.i13),
+  *Journal of Statistical Software* 51(13), DOI 10.18637/jss.v051.i13. Section 2.1,
+  page 5, defines marginal risk and odds ratios from two counterfactual risks. Section 2.7,
+  page 10, reports intervals for both ratios on the log scale. Appendix A, page 34, gives
+  their log-scale influence curves.
+- CRAN `tmle` 2.1.1, source at commit
+  [`f8d88a0`](https://github.com/cran/tmle/tree/f8d88a07a3d25c96688221b384043eef7a31fe68).
+  [`R/tmle.R`](https://github.com/cran/tmle/blob/f8d88a07a3d25c96688221b384043eef7a31fe68/R/tmle.R)
+  normalizes `obsWeights`. It routes them through outcome and treatment fitting, targeting,
+  plug-in evaluation, and influence-curve calculations. This source supports the weighted
+  ordinary-TMLE refit. It does not implement a simulated common-cause surface.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
+  [*Double/debiased machine learning for treatment and structural
+  parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
+  Journal* 21(1):C1-C68. Definition 3.3 defines the coordinatewise median point;
+  Equation (3.14) defines the median of the within-partition variance plus squared split
+  displacement.
+- zEpid 0.9.1, repeated cross-fit aggregation at commit
+  [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
+  The `calculate_joint_estimate` median branch implements the same point and variance
+  calculation.
+  It is secondary aggregation evidence and not a comparator for the complete estimator.
 - Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
   distinguishes the original fold-wise plug-in evaluation from the common targeting
   regression pooled over validation folds.
@@ -33,9 +55,11 @@ previous reader had is not a citation; a page number is.
   `R/tmle3_Update.R` selects the
   `"validation"` likelihood when `cvtmle=TRUE` and fits one update to the stacked
   validation predictions; `R/Param_TSM.R` evaluates the treatment-specific mean and its
-  influence curve from those validation likelihood values. Used as an implementation
-  reference, not as an oracle for the estimand derivation or as a moving specification.
-  Levy (2018) is the stable marker for the default stacked construction.
+  influence curve from those validation likelihood values. `R/delta_functions.R` defines the
+  log-risk and log-odds contrasts. Used as an implementation reference, not as an oracle for the
+  estimand derivation or as a moving specification. The simulated-confounding surface reports its
+  ratio movement on the same log scale. Levy (2018) is the stable marker for the default stacked
+  construction.
 - The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
   here at [`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
   `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,
@@ -45,10 +69,31 @@ previous reader had is not a citation; a page number is.
 
 ## Point treatment and stochastic interventions
 
+- Hubbard & van der Laan (2008), [*Population intervention models in causal
+  inference*](https://doi.org/10.1093/biomet/asm097), *Biometrika* 95(1):35–47.
+  [Section 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC2464276/) defines intervention-minus-observed
+  differences and intervention-to-observed ratios. Section 3 treats one fixed intervention and
+  includes the observed-outcome contribution in Equations (5) and (6).
+  `cleverly` reports the reversed difference as PAR and the ratio's complement as PAF.
+  These are the existing population-intervention parameters, evaluated anew after each
+  simulated-confounding perturbation. The paper supplies no simulated-confounding inference.
+- R `tmle3` at commit `ed72f8a`,
+  [`R/tmle3_Spec_PAR.R`, lines 20–27](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L27),
+  combines a treatment-specific mean with a natural-course mean.
+  The file [`R/delta_functions.R`, lines 18–25 and 66–78](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/delta_functions.R#L18-L78)
+  gives PAR as observed-minus-intervention and PAF as one minus intervention/observed.
+  Its PAF interval transforms a log contrast. The `cleverly` fraction uses the identity scale,
+  including for descriptive simulated-confounding displacement. The existing canonical study
+  records that interval distinction; this surface adds no interval claim.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
-  constructions cited by the conditional-population and regimen targets.
+  constructions cited by the conditional-population and regimen targets. Part I,
+  [Section 4](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126670/), treats the effect among the
+  treated as a parameter of the outcome and treatment factors. The simulated-confounding surface
+  reuses that registered ATT functional, and its relabeled ATC counterpart, on each perturbed
+  empirical law. The surface reports the changing group's share, and it claims no effect in the
+  original treated group held fixed.
 - Robins (2004), *Optimal Structural Nested Models for Optimal Sequential Decisions*, in
   *Proceedings of the Second Seattle Symposium on Biostatistics*, pp. 189–326, DOI
   [10.1007/978-1-4419-9076-1_11](https://doi.org/10.1007/978-1-4419-9076-1_11).
@@ -81,6 +126,14 @@ previous reader had is not a citation; a page number is.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   DOI 10.1177/0962280217729845.
+- The R `ctmle` 0.1.2 implementation at commit
+  [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
+  `R/ctmle_discrete.R` defines `ctmleDiscrete`, which the pinned selector-parity study calls
+  through `tests/canonical/ctmle_selector/run_ctmle.R`. `R/functions_discrete.R` defines its
+  `stage2` and `cv` helpers. `R/ctmle_general.R` and `R/functions_general.R` define
+  `ctmleGeneral`, `stage2_general`, and `cv_general`. No argument list in those four files takes
+  an observation weight, and no fit, sum, mean, or variance in them applies one. This source
+  supplies no fixed-weight comparison.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
   `R/LF_oat.R` fits categorical treatment on the complete vector of treatment-specific
@@ -139,6 +192,20 @@ previous reader had is not a citation; a page number is.
   `estimate_tmle` function fits and targets on training rows, then predicts validation rows.
   The public API accepts a fold count but not a realized assignment. A paired study therefore
   needs a pinned internal adapter before it can claim exact fold parity.
+- Fixed-weight audit of the same `lmtp` snapshot:
+  [`R/tmle.R`, lines 18-96](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/tmle.R#L18-L96)
+  keeps task weights on training rows and includes them in each targeting fluctuation. Its
+  `run_ensemble` call on lines 44-48 receives no sampling weights, so the nuisance fits are
+  unweighted. [`R/theta.R`, lines 1-15](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/theta.R#L1-L15)
+  supplies the weighted plug-in and influence-function aggregation. These locators support a
+  weight-routing audit for modified treatment policies. The registered comparison is unweighted,
+  and this source does not implement a simulated common-cause surface.
+- Clustered inference audit (2026-08-29): the same `lmtp` snapshot passes its task identifier to
+  `ife::ife`. Pinned [`ife` 0.2.3](https://cran.r-project.org/src/contrib/Archive/ife/ife_0.2.3.tar.gz)
+  requires equal identifiers before it subtracts arm objects. That subtraction uses the joint
+  rowwise influence curve. Its cluster standard error uses the variance of cluster means, so the
+  registered study fixes every cluster at ten rows. The fixture pins the source archive by
+  SHA-256.
 - Categorical longitudinal audit (2026-08-27): the same `lmtp` snapshot accepts categorical
   treatment at multiple nodes for static and dynamic plans. The ordinary study supplies one
   all-row fold. The cross-fitted study supplies the exact five-fold assignment.
@@ -207,6 +274,129 @@ previous reader had is not a citation; a page number is.
   E-value*.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
+- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
+  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. Pages 3–4 describe a simulated
+  common cause correlated with treatment and outcome. The paper supports a qualitative stress
+  surface. It does not derive sensitivity-adjusted inference or a calibration formula.
+- Sharma, Syrgkanis, Zhang & Kiciman (2021), [*DoWhy: Addressing Challenges in Expressing and
+  Validating Causal Assumptions*](https://arxiv.org/abs/2108.13518). Pages 4–6 state that these
+  analyses require plausible domain values and cannot validate identification from observed data.
+- The maintained DoWhy simulated common-cause refuter, source at commit `2116d5c`.
+  [`_include_confounders_effect`, lines 346-419](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L346-L419)
+  supplies the four perturbation branches. [`_simulate_confounders_effect_once`, lines
+  807-844](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L807-L844)
+  applies a complete fit and effect estimate after the perturbation.
+  Its direct simulation branches supply the binary tail flip, $A'=A+k_AU$, $Y'=Y-k_YU$, and the
+  binomial outcome tail flip. These are secondary finite-sample conventions only. `cleverly` uses
+  original data per cell, one shared latent vector, common refit seeds, an exact zero anchor,
+  explicit grids, and retained failures. It does not copy automatic ranges, categorical
+  encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
+  argument in `_include_confounders_effect`, so this source supplies the perturbation and the
+  refit only. It does not supply the weighted evaluation.
+- The same DoWhy function branches on treatment and outcome variable types only. It has no branch
+  for a response indicator, intermediate, cluster identifier, longitudinal history, or estimated
+  weight model. These omissions locate the fit-wide refusal boundary. They do not prove that no
+  other method can supply a law.
+- Díaz and van der Laan (2017), under [DR-TMLE](#doubly-robust-inference-drtmle), define the observed-data
+  model and estimator for randomized trials with missing outcomes. Their response mechanism is
+  part of missing-at-random identification. They do not define a response-indicator perturbation
+  for a simulated common cause. Holding the indicator fixed after treatment changes is therefore
+  not licensed by that estimator source.
+- Tan (2025), under [proposed methods](#proposed-methods-on-the-roadmap), does not define a
+  time-indexed latent perturbation followed by a complete LTMLE refit. That omission places
+  longitudinal replay in [F13](roadmap.md#f13-longitudinal-simulated-confounding-replay). The
+  entry under proposed methods records what the paper does supply.
+  [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation) states the contracts it leaves
+  open.
+- The same pinned DoWhy refit preserves `effect_modifier_names` and `target_units`.
+  Its [propensity-weighting estimator](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_estimators/propensity_score_weighting_estimator.py)
+  rebuilds ATT and ATC weights from the treatment in the supplied dataset. The
+  `estimate_effect` method selects those weights through `target_units="att"` or `"atc"`.
+  Thus observed-treatment membership follows the perturbed data. Fixed baseline strata retain
+  their original membership because the perturbation changes neither their names nor values.
+  These are qualitative composition conventions; they supply no sensitivity-adjusted interval.
+- Sofrygin and van der Laan (2017), [*Semi-Parametric Estimation and Inference for the Mean Outcome
+  of the Single Time-Point Intervention in a Causally Connected Population*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5650205/),
+  DOI 10.1515/jci-2016-0003. Section 3.2 gives the iid influence curve for a fixed stochastic intervention.
+  The subsection titled "EIC for data-adaptive parameter indexed by fixed stochastic intervention"
+  fixes $q=g^*$ and displays $q/g\,(Y-Q)+E_q Q-\Psi$.
+  The regime stress surface uses this iid formula only. It claims no network inference.
+  Static assignments and baseline rules are degenerate fixed densities.
+  A law-dependent intervention needs the additional derivative that the paper distinguishes.
+- Fixed-regime replay uses the existing [known-regime contract](technical-reference/point-treatment-tmle.md#known-regimes).
+  That contract cites Díaz & van der Laan (2013) under [point treatment and stochastic interventions](#point-treatment-and-stochastic-interventions).
+  It combines that functional with the pinned DoWhy perturbation and complete refit.
+
+  Pinned `lmtp` [`R/estimators.R`, lines 109–138](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/estimators.R#L109-L138)
+  rebuilds the task and nuisance fits from supplied data.
+  Its [`R/shift.R`, lines 1–45](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/shift.R#L1-L45)
+  retains the supplied policy function. `cleverly` freezes validated baseline densities across cells.
+  This is qualitative replay provenance, not a canonical sensitivity comparison.
+- van der Laan & Gruber (2010) is listed under [collaborative TMLE](#collaborative-tmle).
+  [Section 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/) defines the fixed-weight least-squares MSM projection and its normalized influence curve.
+  A linear working model gives the existing identity-link projection used by the binary MSM surface.
+  The surface holds its design and $h(a,W)$ fixed while refitting each perturbed dataset.
+- Pinned `tmle3` [`R/Param_MSM.R`, lines 72–81 and 115–234](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_MSM.R#L72-L234)
+  supplies arm-counterfactual, custom-weight, design, and projection implementation provenance.
+  It selects a logistic working projection for binary outcomes and a Gaussian projection otherwise.
+  Its conditional-probability weight default is outside this surface's fixed-weight contract.
+  The binary-outcome identity-link surface therefore claims no coefficient parity with that default.
+- Incremental replay uses Kennedy (2019), [Section 3.1, equation (1), and Corollaries 1–2](https://arxiv.org/html/1704.00211v3).
+  The multiplier stays fixed while the intervention density depends on the treatment mechanism.
+  Multiplier one leaves that mechanism unchanged.
+  Pinned [`npcausal` `R/ipsi.R`, lines 123–192](https://github.com/ehkennedy/npcausal/blob/56a5ac117a29258b67b94874be662a171b5131f7/R/ipsi.R#L123-L192)
+  rebuilds propensity estimates, tilt weights, and the mechanism contribution for fixed `delta.seq`.
+  This is estimator provenance. Neither source supplies a simulated-confounding bound or interval.
+- The MSM replay audit uses the existing fixed-weight projection and complete estimator.
+  Van der Laan and Gruber's Section 6 starts with discrete treatment and a differentiable working model.
+  Its worked fluctuation then assumes a coefficient-independent clever covariate.
+  It does not directly validate nonlinear fixed-weight alternation or continuous numerical integration.
+
+  Pinned `tmle3` evaluates observed-treatment designs and weights separately from counterfactual projection arrays.
+  Its logistic loss and continuous integration differ from this package's fixed-grid least-squares construction.
+  No nonlinear or continuous coefficient parity, new estimator, or interval claim follows from this diagnostic audit.
+- DoWhy's pinned [calibration helpers](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/add_unobserved_common_cause.py#L213-L340)
+  calibrates encoded coordinates separately. Its binary branch zeros one standardized column.
+  Its continuous branch uses one column's correlation times the perturbed variable's standard
+  deviation. Neither branch defines a logical categorical benchmark on these strength scales.
+- Fixed-weight binary DR-TMLE surfaces compose that DoWhy perturbation with Benkeser, Carone, van
+  der Laan & Gilbert (2017), Theorem 1. The theorem supplies the complete-outcome corrected curve
+  and remainder conditions. Existing exact-law tests transport every term to the fixed tilt
+  $dP_w=w\,dP/E_P[w]$. The joint law factorizes as $P_w\times\Phi$ because each weight depends only
+  on its observed row. The pinned R `drtmle` 1.1.2 implementation accepts no observation-weight
+  argument, so it supplies no weighted comparison.
+- Fixed-weight binary C-TMLE surfaces compose the DoWhy perturbation with van der Laan & Gruber
+  (2010), Sections 2, 5.1, and 6. Those sections define C-TMLE for a generic law. The selector
+  scores each candidate path against the empirical outcome loss and an optional influence-curve
+  penalty. The package substitutes the tilted law $dP_w=w\,dP/E_P[w]$ and its normalized
+  empirical measure.
+  `tests/unit/test_simulated_confounding.py::test_fixed_weight_ctmle_selector_components_recompute_from_the_refit`
+  rebuilds the weighted loss, penalty, fold assignment, and nested cross-validated risk of a
+  refit. Component mutations in the same module strip the weights from one production method and
+  move that risk. No exact-law transport test covers this composition. The outcome-adaptive route
+  uses the same measure for its categorical mechanism. The pinned R `ctmle` and archived `ctmle3`
+  sources have no weighted comparison, so this composition claims no parity with either.
+- Hartman & Huang (2024), [*Sensitivity Analysis for Survey
+  Weights*](https://doi.org/10.1017/pan.2023.12), *Political Analysis* 32(1):1-16.
+  Their method bounds the bias from a confounder that the weighting model omits. It supplies a
+  bound, a robustness value, and a benchmarking procedure. This surface supplies none of those, so
+  it answers a different sensitivity question.
+- Hu, Zou, Gu, Ji, Lopez & Kale (2022), [*A flexible sensitivity analysis approach for unmeasured
+  confounding with multiple treatments and a binary outcome with application to SEER-Medicare lung
+  cancer data*](https://doi.org/10.1214/21-AOAS1530), *The Annals of Applied Statistics*
+  16(2):1014–1037, DOI 10.1214/21-AOAS1530. The paper supplies a Monte Carlo sensitivity analysis
+  for multiple treatments and a binary outcome. It keeps the treatment fixed and adjusts the
+  potential outcomes through confounding functions, inside a Bayesian nested multiple-imputation
+  procedure. The abstract on page 1014 states that scope. The method encodes the impact of
+  unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
+  The paper does not perturb the treatment variable. It therefore supplies no category-valued
+  latent treatment perturbation and no refit law for this surface. Cited by roadmap item F8.
+- Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
+  Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
+  arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
+  a bias correction from those models. That construction does not perturb the treatment and the
+  outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
+  and a mixed latent cause for this surface. Cited by roadmap item F9.
 
 ## Negative controls
 
@@ -215,6 +405,27 @@ previous reader had is not a citation; a page number is.
   *Statistical Methods in Medical Research* 32(8):1576–1587. Not read here. It is cited for the
   standard caveat rather than for a derivation. A negative control has limited sensitivity and
   specificity for unmeasured confounding, and a null association does not establish the null.
+
+## Refutation
+
+- Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
+  Inference*](https://arxiv.org/abs/2011.04216), arXiv:2011.04216. The paper defines the four-stage
+  framework and describes outcome, bootstrap, and unobserved-confounder refutations. It supports
+  the shipped generated-outcome and bootstrap measurement-error refutations. The sensitivity
+  section records its separate simulated common-cause role.
+- The maintained DoWhy dummy outcome refuter, source at commit
+  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/dummy_outcome_refuter.py).
+  It supplies secondary control-flow evidence for independent noise and `f(W) + h(A)`. Two of its
+  choices are not adopted. The first is a normal rule below 100 draws, in
+  `perform_normal_distribution_test` in `dowhy/causal_refuter.py`. The second is the absence of any
+  failure policy: the pinned file has no `try` block, and its refits run under `joblib.Parallel`,
+  so one failed refit aborts the refutation. `cleverly` retains each failed refit as a
+  `ReplicationFailure` record and fails the refutation under the recorded rule.
+- The maintained DoWhy bootstrap refuter, source at commit
+  [`2116d5c`](https://github.com/py-why/dowhy/blob/2116d5cbace5a057937e03b2efba95c13140cc4c/dowhy/causal_refuters/bootstrap_refuter.py).
+  Its measurement-error control flow supplies secondary implementation evidence. The package
+  does not copy its dtype check, categorical probability reuse, or shared simulation seed. The
+  source locator is an implementation reference and not acceptance evidence.
 
 ## Multiple testing
 
@@ -274,28 +485,53 @@ mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuation
 
 ## Proposed methods on the roadmap
 
-These sources locate the derivations that [roadmap](roadmap.md#later-candidate-track) items C5 to
-C7 wait on. Nobody has read one first-hand yet, and none supports a shipped claim. The
-readiness label on each item says so.
+These sources locate unshipped methods in the [roadmap](roadmap.md). A roadmap citation does not
+support a shipped claim. Each item states the remaining source work.
+
+- Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
+  longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
+  10.1093/biomet/asae044. The paper treats a terminal outcome under binary, static longitudinal
+  strategies. Section 2 states that it deals with static strategies only. It defines population
+  sensitivity models and observed-data convex representations for sharp or conservative bounds.
+  It keeps the primary, joint, and product models separate. The primary and joint models share the
+  same sharp mean bounds. The product representations are conservative except in the restricted
+  cases the paper states. Section 6.2 treats sharp contrasts over multiple strategies in two
+  periods only. Section 3.2, after Proposition 1, sketches sample analogues under linear
+  parameterizations. That sketch assumes consistent ICE or IPW estimation for a transformed
+  outcome. The same passage leaves estimation with sample data to future work. It also supplies
+  one large-sample property. A misspecified parameterization of the quantile functions still
+  returns a conservative bound. Section 6.3 keeps the paper at the population level. It asks for
+  specialized algorithms, and for sample estimation of the ICE and IPW functionals. The paper
+  reports no sampling inference for any bound. Cited by future investigation
+  [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation), which states the missing
+  contracts.
+- van der Laan, Carone & Luedtke (2024), [*Combining T-learning and DR-learning: a framework for
+  oracle-efficient estimation of causal contrasts*](https://arxiv.org/abs/2402.01972),
+  arXiv:2402.01972. The paper derives EP learning for heterogeneous causal contrasts. Cited by
+  roadmap item P1.
+- Rust & Rao (1996), [*Variance estimation for complex surveys using replication
+  techniques*](https://doi.org/10.1177/096228029600500305), *Statistical Methods in Medical
+  Research* 5(3):283–310, DOI 10.1177/096228029600500305. The paper reviews jackknife, balanced
+  repeated replication, and bootstrap variance methods. Cited by roadmap item X2.
 
 - Díaz, Hejazi, Rudolph & van der Laan (2021), [*Non-parametric efficient causal mediation with
   intermediate confounders*](https://doi.org/10.1093/biomet/asaa085), *Biometrika* 108(3):627–641,
   DOI 10.1093/biomet/asaa085. A correction follows at *Biometrika* 111(2):723–726, DOI
   [10.1093/biomet/asae009](https://doi.org/10.1093/biomet/asae009). Read the correction with the
-  paper. Cited by roadmap item C5.
+  paper. Cited by roadmap item X5.
 - Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
-  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item C6.
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item X6.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI
   10.1111/biom.13856. This is the construction the `concrete` package implements. Cited by roadmap
-  item C6.
+  item X6.
 - Hejazi, van der Laan, Janes, Gilbert & Benkeser (2021), [*Efficient nonparametric inference on
   the effects of stochastic interventions under two-phase sampling, with applications to vaccine
   efficacy trials*](https://doi.org/10.1111/biom.13375), *Biometrics* 77(4):1241–1253, DOI
-  10.1111/biom.13375. Cited by roadmap item C7.
+  10.1111/biom.13375. Cited by roadmap item X7.
 - van der Laan (2008), [*Estimation Based on Case-Control Designs with Known Prevalence
   Probability*](https://doi.org/10.2202/1557-4679.1114), *International Journal of Biostatistics*
-  4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item C7 for the case-control
+  4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item X7 for the case-control
   weighting that `TMLE.jl` implements.

@@ -8,7 +8,7 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +37,132 @@ REPLICATE_COLUMNS = (
     "covered",
     "rejected",
 )
+
+
+#: Gathered elements one bootstrap block may materialize at once.  A block of ``b``
+#: replicates over ``n`` rows of width ``w`` gathers ``b * n * w`` floats, so this caps a
+#: block near 32 MB and the index matrix that feeds it near half that.
+BOOTSTRAP_BLOCK_ELEMENTS = 4_000_000
+
+
+def bootstrap_draw_blocks(values: np.ndarray, *, replicates: int, rng: np.random.Generator) -> Any:
+    """Yield resampled blocks of ``values`` that together form ``replicates`` draws.
+
+    ``rng.integers`` fills its output in C order, so drawing the index matrix in row blocks
+    consumes exactly the stream one ``(replicates, n)`` call consumes.  Every block is
+    therefore bit-identical to the corresponding rows of the single allocation this
+    replaces, and no published interval moves.
+
+    Blocking is what makes the cells with 40,000 replications affordable.  A ``(10,000 x
+    40,000)`` index matrix and the ``(10,000 x 40,000 x 2)`` gather it feeds cost about 9.6
+    GB together, which is fine alone and exhausts the machine once the test session runs
+    sixteen workers at a time.
+
+    Parameters
+    ----------
+    values : ndarray
+        Rows to resample, either one-dimensional or one row per observation.
+    replicates : int
+        Total bootstrap replicates to draw.
+    rng : numpy.random.Generator
+        Generator that supplies the index draws.
+
+    Yields
+    ------
+    ndarray
+        One block of resampled draws, indexed by replicate first.
+    """
+    rows = len(values)
+    width = max(1, values.size // max(1, rows))
+    block = max(1, BOOTSTRAP_BLOCK_ELEMENTS // max(1, rows * width))
+    drawn = 0
+    while drawn < replicates:
+        count = min(block, replicates - drawn)
+        yield values[rng.integers(0, rows, size=(count, rows))]
+        drawn += count
+
+
+@dataclass(frozen=True)
+class ReplicationSpec:
+    """One repeated-sampling configuration before it expands into seeded replications."""
+
+    property: str
+    cell: str
+    n: int
+    replicates: int
+    configuration: str
+
+
+def finite_support_sample(
+    probs: np.ndarray,
+    support: Sequence[Sequence[float | int]],
+    n: int,
+    seed: int,
+    *,
+    columns: Sequence[str],
+    kind_axis: int | None = None,
+    unobserved: int | None = None,
+) -> pd.DataFrame:
+    """Draw rows from a finite law, with optional missing-outcome recoding."""
+    rng = np.random.default_rng(seed)
+    cells = rng.choice(len(support), size=n, p=np.asarray(probs).reshape(-1))
+    values = np.asarray(support, dtype=float)[cells]
+    if kind_axis is None:
+        return pd.DataFrame(values, columns=columns)
+    if unobserved is None:
+        raise ValueError("unobserved is required when kind_axis is set")
+    observed_axes = [axis for axis in range(values.shape[1]) if axis != kind_axis]
+    if len(columns) != len(observed_axes):
+        raise ValueError("columns must name every support axis except kind_axis")
+    frame = pd.DataFrame(values[:, observed_axes], columns=columns)
+    kind = values[:, kind_axis]
+    frame["Y"] = np.where(kind == unobserved, np.nan, kind)
+    frame["Delta"] = np.where(kind == unobserved, 0.0, 1.0)
+    return frame
+
+
+def property_role(
+    configuration: str,
+    *,
+    controls: Collection[str],
+    property_name: str,
+    n: int,
+    rate_sizes: Sequence[int],
+) -> str:
+    """Classify a property row from its nuisance configuration and rate rung."""
+    if property_name == "root_n_and_efficiency" and n == min(rate_sizes):
+        return "control"
+    return "control" if configuration in controls else "positive"
+
+
+def replication_payloads(
+    record: Any,
+    specs: Sequence[ReplicationSpec],
+) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+    """Expand property specifications into the tuple shape used by parallel workers."""
+    from tests.studies.evidence.seeds import stream_seed
+
+    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    for spec in specs:
+        for replicate in range(spec.replicates):
+            seed = stream_seed(
+                record,
+                "property_sample",
+                spec.property,
+                spec.cell,
+                replicate,
+            )
+            payload = (
+                spec.property,
+                spec.cell,
+                replicate,
+                spec.n,
+                spec.replicates,
+                seed,
+                spec.configuration,
+            )
+            out.append((payload,))
+    return out
 
 
 @dataclass(frozen=True)
@@ -142,10 +268,13 @@ def coverage_gain_interval(
         "covered_control"
     ].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(differences), size=(replicates, len(differences)))
-    interval = percentile_interval(
-        differences[picks].mean(axis=1), confidence_level=confidence_level
+    means = np.concatenate(
+        [
+            block.mean(axis=1)
+            for block in bootstrap_draw_blocks(differences, replicates=replicates, rng=rng)
+        ]
     )
+    interval = percentile_interval(means, confidence_level=confidence_level)
     return interval.low, interval.high
 
 
@@ -199,14 +328,14 @@ def control_row(
     critical: float,
     role: str = "control",
 ) -> dict[str, Any]:
-    """The same row for an arm that has no interval of its own.
+    """Build a control row from an explicit point estimate and standard error.
 
     An unfluctuated plug-in and a survivor-only recursion are numbers, not fits: neither has
     an influence curve to report, and inventing one would make the control a claim about
-    inference where it is a claim about bias.  ``standard_error`` is therefore the *paired*
-    positive arm's, and the families that use this row are gated on their bias endpoints
-    alone.  The coverage and rejection columns exist so the row satisfies the shared schema
-    and so a reader can see how far off the point estimate sits in the table's own units.
+    inference where it is a claim about bias. Those callers supply the paired positive arm's
+    standard error, and their families gate on bias alone. An inference control can instead
+    supply a second variance calculation for the same point estimate and gate the resulting
+    coverage and standard-error ratio.
 
     ``role`` is here because a family may read one statistic at two points and gate on the
     pair, rather than pairing a fit against a control.  ``correction_necessity`` reads the
@@ -214,11 +343,10 @@ def control_row(
     one; without the argument its caller patched the returned dictionary, which put the
     schema's meaning in the caller rather than here.
 
-    Such a caller has no scale to supply either, and passes a unit placeholder.  The
+    A bias-only caller has no scale to supply either, and passes a unit placeholder.  The
     consequence is on the record rather than hidden: ``mean_std_error``, ``se_ratio``,
     ``coverage`` and ``rejection_rate`` are then arithmetic on that placeholder and mean
-    nothing.  Renderers select on the family, so no published table quotes them, and the
-    family's verdict reads the bias endpoints alone.
+    nothing. Renderers and verdicts select on the family, so they do not publish those values.
     """
     half = critical * standard_error
     return {
@@ -398,10 +526,12 @@ def ratio_intervals(
     """
     values = group[["estimate", "std_error"]].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(values), size=(replicates, len(values)))
-    draws = values[picks]
-    spread = draws[:, :, 0].std(axis=1, ddof=1)
-    reported = draws[:, :, 1].mean(axis=1)
+    blocks = [
+        (draws[:, :, 0].std(axis=1, ddof=1), draws[:, :, 1].mean(axis=1))
+        for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+    ]
+    spread = np.concatenate([block[0] for block in blocks])
+    reported = np.concatenate([block[1] for block in blocks])
     intervals = {
         "se_ratio": percentile_interval(reported / spread, confidence_level=confidence_level)
     }
@@ -461,11 +591,85 @@ def se_ratio_deficit_interval(
         ["estimate_subject", "std_error_subject", "estimate_reference", "std_error_reference"]
     ].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(values), size=(replicates, len(values)))
-    draws = values[picks]
-    subject_ratio = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
-    reference_ratio = draws[:, :, 3].mean(axis=1) / draws[:, :, 2].std(axis=1, ddof=1)
-    return percentile_interval(subject_ratio - reference_ratio, confidence_level=confidence_level)
+    gaps = np.concatenate(
+        [
+            draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
+            - draws[:, :, 3].mean(axis=1) / draws[:, :, 2].std(axis=1, ddof=1)
+            for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+        ]
+    )
+    return percentile_interval(gaps, confidence_level=confidence_level)
+
+
+@dataclass(frozen=True)
+class PairedSpreadRatio:
+    """A paired spread ratio and its percentile-bootstrap interval."""
+
+    ratio: float
+    interval: Interval
+
+
+def paired_spread_ratio_interval(
+    numerator: pd.DataFrame,
+    denominator: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> PairedSpreadRatio:
+    """Bootstrap one ratio of paired across-replication standard deviations.
+
+    The two inputs must contain each replication exactly once and must have identical
+    replication keys. The bootstrap samples paired rows with one shared index matrix. This
+    preserves any dependence between the two estimates instead of resampling two marginal
+    spreads independently.
+
+    A zero denominator is undefined. The helper refuses it in either the observed statistic
+    or a resampled draw instead of dropping that draw and changing the bootstrap law.
+    """
+    required = {"replicate", "estimate"}
+    for label, frame in (("numerator", numerator), ("denominator", denominator)):
+        missing = required.difference(frame.columns)
+        if missing:
+            raise ValueError(f"the {label} is missing required columns {sorted(missing)}")
+        if frame["replicate"].duplicated().any():
+            raise ValueError(f"the {label} contains duplicate replication keys")
+
+    ordered_numerator = numerator.sort_values("replicate")
+    ordered_denominator = denominator.sort_values("replicate")
+    numerator_keys = ordered_numerator["replicate"].to_numpy()
+    denominator_keys = ordered_denominator["replicate"].to_numpy()
+    if not np.array_equal(numerator_keys, denominator_keys):
+        raise ValueError("the numerator and denominator are not paired on replication")
+    if len(numerator_keys) < 2:
+        raise ValueError("a spread ratio needs at least two paired replications")
+
+    values = np.column_stack(
+        [
+            ordered_numerator["estimate"].to_numpy(dtype=float),
+            ordered_denominator["estimate"].to_numpy(dtype=float),
+        ]
+    )
+    if not np.isfinite(values).all():
+        raise ValueError("the paired estimates must all be finite")
+    observed_spreads = values.std(axis=0, ddof=1)
+    if observed_spreads[1] <= 0.0:
+        raise ValueError("the observed denominator spread is zero")
+
+    rng = np.random.default_rng(seed)
+    spreads = np.concatenate(
+        [
+            draws.std(axis=1, ddof=1)
+            for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+        ]
+    )
+    if np.any(spreads[:, 1] <= 0.0):
+        raise ValueError("a bootstrap draw has zero denominator spread")
+    ratios = spreads[:, 0] / spreads[:, 1]
+    return PairedSpreadRatio(
+        ratio=float(observed_spreads[0] / observed_spreads[1]),
+        interval=percentile_interval(ratios, confidence_level=confidence_level),
+    )
 
 
 @dataclass(frozen=True)
@@ -585,14 +789,18 @@ def rate(
     children = np.random.SeedSequence(seed).spawn(len(samples))
     for index, values in enumerate(samples):
         rng = np.random.default_rng(children[index])
-        picks = rng.integers(0, len(values), size=(bootstrap_replicates, len(values)))
-        resampled = values[picks]
-        if statistic == "spread":
-            draws[:, index] = np.log(resampled.std(axis=1, ddof=1))
-        elif statistic == "bias":
-            draws[:, index] = np.log(_positive(np.abs(resampled.mean(axis=1) - truths[index])))
-        else:
-            draws[:, index] = np.log(resampled.mean(axis=1))
+        filled = 0
+        for resampled in bootstrap_draw_blocks(values, replicates=bootstrap_replicates, rng=rng):
+            stop = filled + len(resampled)
+            if statistic == "spread":
+                draws[filled:stop, index] = np.log(resampled.std(axis=1, ddof=1))
+            elif statistic == "bias":
+                draws[filled:stop, index] = np.log(
+                    _positive(np.abs(resampled.mean(axis=1) - truths[index]))
+                )
+            else:
+                draws[filled:stop, index] = np.log(resampled.mean(axis=1))
+            filled = stop
     return Rate(
         slope=float(point),
         interval=percentile_interval(_slope(sizes, draws), confidence_level=confidence_level),

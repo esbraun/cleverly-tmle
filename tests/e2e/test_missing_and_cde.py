@@ -271,7 +271,7 @@ class TestCoverageStudiesRunPerLevel:
 
     The tests here are about plumbing -- that the level reaches both the process and the
     result set, and that the two agree.  They deliberately do not assert coverage: three
-    replications cannot, and a study sized to do so belongs in the nightly slow tier.
+    replications cannot, and a study sized to do so belongs in registered validation.
     """
 
     def _study(self, z: float | None, **kwargs: object) -> object:

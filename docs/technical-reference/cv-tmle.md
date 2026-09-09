@@ -39,7 +39,8 @@ measures what an in-sample interval costs under a flexible learner.
 Outer folds isolate nuisance training from prediction. Learner folds tune a model inside its outer
 training data. The two layers are separate, and neither borrows the other's count.
 
-`cleverly` ships two constructions over those folds, and they are different estimators.
+`cleverly` ships targeting and evaluation choices over those folds. Their combinations are
+different estimators.
 
 **Stacked CV-TMLE is the default.** It stacks all out-of-fold predictions and fits one targeting
 regression over the validation rows. It then evaluates the plug-in parameter on the whole sample.
@@ -76,20 +77,37 @@ and
 | `cross_fit=False` | one fold, no splitting. This is ordinary TMLE | **yes**. See [point-treatment TMLE](point-treatment-tmle.md) |
 | `n_folds=` | the outer split count. Default 10 | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5 | no |
-| `repeats=` | repeats the outer split, runs a complete estimator per draw, averages the estimates, and aggregates the influence curves elementwise | no. It is the same estimator over several draws |
+| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
-| `targeting_scheme="fold"` | one coefficient fitted inside each validation fold | **yes**. It is a package extension. It removes cross-fold coupling through the coefficient, and a row still contributes to the coefficient used on its own fold. Only the common update is attributed to the cited literature |
+| `targeting_scheme="fold"` | one fluctuation fit inside each validation fold | **yes**. It removes cross-fold coupling through the fluctuation fit. Python `zEpid` 0.9.1 corroborates this construction at two folds |
 | `cv_evaluation=True` | fold plug-in evaluation with cross-validated variance | **yes**. This is fold-evaluated CV-TMLE |
 
 **Two refusals under `cv_evaluation=True`.** A nonlinear fold aggregate has a fold-varying
 gradient. Until a common targeting score for it is implemented, `rr`, `or`, and MSM coefficients
 are refused rather than given an interval whose reported curve has a nonzero score.
 
-**Two refusals for aggregation over `repeats=`.** Median-of-estimates aggregation is refused,
-because the median of the estimates is not the estimator whose curve is the median of the curves. A
-cross-validated variance of the across-draw average curve is refused, because at equal fold sizes
-it collapses to the pooled uncentred second moment for every partition.
+**The repeat rule is median-only.** For draw-specific points $\hat\psi_r$ and variances
+$\hat\sigma_r^2$, `cleverly` reports
+
+$$
+\widetilde\psi = \operatorname{median}_r(\hat\psi_r), \qquad
+\widetilde\sigma^2 = \operatorname{median}_r\left\{
+\hat\sigma_r^2 + (\hat\psi_r - \widetilde\psi)^2
+\right\}.
+$$
+
+Risk ratios and odds ratios apply both operations on the log scale. This is the median rule in
+Chernozhukov et al. (2018), equation (3.14), and the same calculation used by zEpid's repeated
+cross-fit TMLE aggregator. zEpid corroborates this reporting layer, but it is not a full-estimator
+comparator. It trains each nuisance on one partition and targets separately inside validation
+partitions. `cleverly` retains its validated complement-trained, stacked pooled update. There is no
+mean option.
+
+Coordinatewise medians do not preserve identities among several estimands. Repeated fits therefore
+refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
+multiplier construction would use the retained central-draw curve. That curve supports marginal
+diagnostics; the split-adjusted variance above supplies the pointwise interval.
 
 ## Validation issues special to this method
 
@@ -107,17 +125,22 @@ exactly the direction the cluster role was declared to prevent.
 `tests/unit/test_parallel_invariance.py` pins that, because a fold-parallel implementation that
 reseeds per worker would give a different answer at a different `n_jobs`.
 
-**Three registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
-CV-TMLE, and fold-evaluated CV-TMLE may share a limit while differing in finite samples. Each has
-its own row.
+**Six registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
+CV-TMLE, clustered CV-TMLE, pooled-targeted fold-evaluated CV-TMLE, fold-targeted CV-TMLE, and
+repeated stacked CV-TMLE can share a limit while differing in finite samples. Each has its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
 | [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
+| [clustered point-treatment CV-TMLE](method-evidence/clustered-point-treatment-cv-tmle.md) | paired against pinned R `lmtp` and `ife` on identical grouped folds, with cluster-calibration evidence and an IID variance control |
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
-| [the implementation validation grid](method-evidence/validation-grid.md) | both rows, with their declared limits |
+| [fold-targeted point-treatment CV-TMLE](method-evidence/fold-targeted-point-treatment-cv-tmle.md) | paired against Python `zEpid` on identical equal two-fold assignments, where `cleverly`'s equal $1/V$ aggregation equals zEpid's size weighting; all property cells pass, and the report discloses zEpid's `ddof=1` fold variance |
+| [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
+| [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked
-R CV-TMLE. No maintained package pairs a pooled update with fold evaluation. A study that had no
-comparator says so in its own cell rather than borrowing a surrogate. Python `zepid` targets
-inside each fold and then evaluates by fold, which is the `targeting_scheme="fold"` variant above.
+R CV-TMLE. No maintained package pairs a pooled update with fold evaluation. Python `zEpid`
+targets and evaluates inside each fold. The separate fold-targeted row compares that estimator at
+two folds, where zEpid nuisance training is the complete validation-fold complement. zEpid's mean
+over stacked targeted rows size-weights folds; it equals `cleverly`'s $1/V$ fold average here only
+because those folds are equal.

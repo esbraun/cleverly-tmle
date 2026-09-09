@@ -24,7 +24,7 @@ check limited to documents that build their own data would have run neither.
 *executability*: the assertion is that the block raises nothing.  Nothing here asserts an
 estimate, an interval, or a diagnostic verdict, and nothing here is statistical evidence --
 ``docs/architecture-invariants.md`` keeps that rule, and behaviour shown in a guide still has to
-be covered by an ordinary fast test or a named slow study.  A documented example that runs is a
+be covered by an ordinary fast test or a registered study. A documented example that runs is a
 much weaker claim than a documented example that is right, and only the weaker one is made here.
 
 **The blocks are shrunk, and only in two declared ways.**  :class:`Shrink` rewrites the ``n=``
@@ -47,15 +47,14 @@ checkout that ran the notebook, so this module asserts it present and well forme
 asserts it equal. The stamp is not provenance-complete, and this module does not claim that it
 is: it reaches no markdown cell, no cell metadata such as the ``tags`` ``myst-nb`` reads, and no
 notebook metadata such as ``kernelspec``.
-:func:`test_every_notebook_still_reproduces_its_outputs` is the check that covers what a digest
-comparison cannot, and it is a slow detector rather than a gate.
+``python scripts/execute_notebook.py <path> --check`` covers what a digest comparison cannot: a
+library change that moves a published number while every cell keeps its bytes.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-import socket
 from pathlib import Path
 from typing import Any
 
@@ -202,6 +201,7 @@ PRELUDES: dict[str, str] = {
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
+    "docs/technical-reference/validation-methods.md": "",
     "docs/user-guide/longitudinal.md": "",
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,
@@ -380,111 +380,6 @@ def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
     assert "NaN" not in ordinary_tmle_row, (
         "the ordinary package TMLE lost its confidence interval in the comparison figure"
-    )
-
-
-#: The host the published notebooks fetch their data from.  Probed before a re-execution, so a
-#: machine with no network skips the detector instead of reporting a library defect.
-_DATA_HOST = ("raw.githubusercontent.com", 443)
-
-
-#: The wall clock a fit prints in its provenance stamp.  :func:`cleverly.provenance.describe`
-#: writes ``datetime.now(UTC).isoformat(timespec="seconds")``, so this string moves on every
-#: re-execution and reports nothing about an estimate.  Masked rather than dropped, so a stamp
-#: that disappears altogether still reads as a difference.
-_WALL_CLOCK = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?")
-
-
-def _text_outputs(notebook: Any) -> dict[str, list[str]]:
-    """Cell id to the text every output of that cell carries, in order.
-
-    Images are left out.  A figure re-renders to different bytes for reasons that have nothing
-    to do with an estimate, and this detector reports a moved number.  The wall clock is masked
-    for the same reason, and :func:`test_the_wall_clock_mask_hides_only_the_clock` holds the
-    mask to that narrow job.
-    """
-    collected: dict[str, list[str]] = {}
-    for cell in code_cells(notebook):
-        texts = []
-        for output in cell.get("outputs", ()):
-            texts.append(_WALL_CLOCK.sub("<wall clock>", str(output.get("text", ""))))
-            texts.append(
-                _WALL_CLOCK.sub("<wall clock>", str(output.get("data", {}).get("text/plain", "")))
-            )
-        collected[cell["id"]] = texts
-    return collected
-
-
-def test_the_wall_clock_mask_hides_only_the_clock() -> None:
-    """The mask removes the timestamp and leaves every number an estimate could move.
-
-    A mask wide enough to hide a changed estimate would make the detector unable to fail, which
-    is the failure a detector must not have.  The stamp below is the line
-    :func:`cleverly.provenance.describe` prints.
-    """
-    stamp = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-08T23:26:45+00:00"
-    later = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-09T01:54:45+00:00"
-    assert _WALL_CLOCK.sub("<wall clock>", stamp) == _WALL_CLOCK.sub("<wall clock>", later)
-    assert "2026" not in _WALL_CLOCK.sub("<wall clock>", stamp)
-
-    moved = "ate_regimen[always vs never]  -0.0639   0.0128      [-0.0889, -0.0389]"
-    assert _WALL_CLOCK.sub("<wall clock>", moved) == moved
-    assert _WALL_CLOCK.sub("<wall clock>", "cleverly 0.1.0") == "cleverly 0.1.0"
-
-
-@pytest.mark.slow
-# ``pyproject.toml`` raises a ``RuntimeWarning`` as an error, and starting a kernel on Windows
-# emits one from ``zmq``: the Proactor event loop has no ``add_reader``, so ``zmq`` registers a
-# selector thread and says so.  It is a report about the platform's event loop and not about
-# this repository, and without this line it aborts the detector before the notebook runs.
-@pytest.mark.filterwarnings("ignore:Proactor event loop does not implement add_reader")
-@pytest.mark.parametrize(
-    "path",
-    NOTEBOOKS,
-    ids=lambda path: path.relative_to(ROOT).as_posix(),
-)
-def test_every_notebook_still_reproduces_its_outputs(path: Path, tmp_path: Path) -> None:
-    """Re-execute the notebook and compare the text it prints against the text it stores.
-
-    This is a detector and not a gate.  ``CLAUDE.md`` says nothing is contingent on
-    ``pytest -m slow`` running, and the fast tier stays green without this.  It exists because
-    the fast tier compares digests, and a digest comparison cannot see a library change that
-    moves a published number while every cell keeps its bytes.  That is not hypothetical: one
-    re-execution moved the TWINS estimate from ``-0.0651`` to ``-0.0639`` with the code cells
-    untouched.  ``docs/development/method-benchmarking.md`` states the position this follows.
-
-    A difference here is a finding to read rather than a defect.  Report the cell, compare the
-    numbers, and either accept the new artifact or find what moved it.
-    """
-    pytest.importorskip("nbclient")
-    pytest.importorskip("ipykernel")
-    from jupyter_client.kernelspec import KernelSpecManager, NoSuchKernel
-    from nbclient import NotebookClient
-
-    try:
-        KernelSpecManager().get_kernel_spec("python3")
-    except NoSuchKernel:  # pragma: no cover - environment dependent
-        pytest.skip("no python3 kernel; the dev extra ships ipykernel")
-    try:
-        socket.create_connection(_DATA_HOST, timeout=10).close()
-    except OSError:  # pragma: no cover - environment dependent
-        pytest.skip(f"{_DATA_HOST[0]} is unreachable and the notebook downloads its data")
-
-    stored = nbformat.read(path, as_version=4)
-    fresh = nbformat.read(path, as_version=4)
-    NotebookClient(
-        fresh,
-        timeout=1800,
-        kernel_name="python3",
-        resources={"metadata": {"path": str(tmp_path)}},
-    ).execute()
-
-    before, after = _text_outputs(stored), _text_outputs(fresh)
-    moved = sorted(cell for cell in before if before[cell] != after.get(cell))
-    assert not moved, (
-        f"re-executing {path.relative_to(ROOT).as_posix()} printed different text in "
-        f"{moved}. Read the difference before you regenerate: the stored artifact is what the "
-        f"published prose interprets"
     )
 
 

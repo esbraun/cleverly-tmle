@@ -59,6 +59,7 @@ __all__ = [
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
+    "Truncation",
     "UnfittedPropensity",
     "cross_fit_companion",
     "cross_fit_predictions",
@@ -78,6 +79,56 @@ CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 #: the float error in a classifier's ``[1 - p, p]`` and in a weighted arm proportion, tight
 #: enough that no real second mechanism slips through.
 _SIMPLEX_TOLERANCE = 1e-9
+
+
+@dataclass(frozen=True)
+class Truncation:
+    """One truncated mechanism, beside the cells the truncation rule moved.
+
+    :meth:`Propensity.truncate` returns this so that a caller holding the mechanism reads
+    the rule instead of restating it.  A diagnostic that rebuilds
+    ``(values < lower) | (values > upper)`` for itself gets a different answer from the
+    estimator whenever the bound pair is asymmetric, because that predicate is not the
+    rule a two-arm mechanism is clipped by.
+
+    Two targeting modules still write the same rule out, because they are handed the raw
+    array rather than the object and so cannot call :meth:`Propensity.truncate`.
+    :func:`~cleverly.inference.influence.reduced_correction_parts` restates :attr:`clipped`
+    and :attr:`units`, and ``cleverly.fluctuation.reduced.reduced_mechanism_covariate``
+    and ``_bounded_armwise_propensity`` restate :attr:`values`.  All three agree with this
+    rule today, and no test ties them to it.
+
+    Parameters
+    ----------
+    values : FloatArray
+        The ``(n, K)`` truncated mechanism, which is what the targeting step divides by.
+    clipped : BoolArray
+        The ``(n, K)`` cells the rule moved.  A two-arm simplex row is marked in both
+        columns or in neither, because both denominators change together.
+    """
+
+    values: FloatArray
+    clipped: BoolArray
+
+    @property
+    def units(self) -> BoolArray:
+        """The ``(n,)`` rows whose mechanism the bound moved in at least one arm."""
+        return np.any(np.asarray(self.clipped, dtype=bool), axis=1)
+
+    @property
+    def fraction(self) -> float:
+        """The share of rows the bound moved, counted per unit rather than per cell.
+
+        ``nan`` for a mechanism with no arms, which is what a continuous treatment fits:
+        its propensity is ``(n, 0)``, and a share of moved units is not a quantity that
+        mechanism has.  The guard belongs here rather than in each diagnostic, because
+        ``np.any`` over an empty axis is ``False`` by definition and the mean of that is a
+        well-formed ``0.0`` -- a positive claim that the bound moved no unit, made about a
+        mechanism with no unit to move.
+        """
+        if np.asarray(self.clipped).shape[1] == 0:
+            return float("nan")
+        return float(self.units.mean())
 
 
 @dataclass(frozen=True)
@@ -151,8 +202,16 @@ class Propensity:
         """``P(A = arm | W)``, untruncated."""
         return np.asarray(self.values, dtype=float)[:, self.column_for(arm)]
 
-    def bounded(self, bounds: tuple[float, float]) -> FloatArray:
-        r"""The ``(n, K)`` mechanism truncated into ``bounds``.
+    def truncate(self, bounds: tuple[float, float]) -> Truncation:
+        r"""The ``(n, K)`` mechanism truncated into ``bounds``, beside the cells that moved.
+
+        This is where the diagnostics read the truncation rule. :meth:`bounded` returns the
+        values alone, and every diagnostic that reports a truncation load reads the mask
+        from here rather than rebuilding a predicate that disagrees with the estimator.
+        Two array-level targeting sites still restate the rule, because they never hold
+        this object: :func:`~cleverly.inference.influence.reduced_correction_parts` and
+        ``cleverly.fluctuation.reduced``'s ``reduced_mechanism_covariate`` and
+        ``_bounded_armwise_propensity``.  :class:`Truncation` names what each one repeats.
 
         **Two arms on the simplex keep the complement form.**  ``g1`` is clipped and arm 0
         is taken as ``1 - g1``, which is exactly what the estimator has always done -- and
@@ -160,7 +219,11 @@ class Propensity:
         is what keeps every binary regression fixture valid.  It is valid only because the
         two columns sum to one; a ``simplex=False`` mechanism takes the column-by-column
         branch below, and :meth:`__post_init__` refuses the combination that would silently
-        get this one.
+        get this one.  A row whose ``g1`` moved is marked in **both** columns, because both
+        denominators change together.  The mask is read off ``g1`` rather than off a
+        comparison of the whole truncated matrix with the raw one, because the two columns
+        are allowed to sum to ``1 ± _SIMPLEX_TOLERANCE`` and float inequality on the
+        complement column would flag rows the bound never touched.
 
         **More than two arms are clipped column by column, and are not renormalised.**
         Flooring a row of a multinomial breaks :math:`\sum_a g_a = 1`, and the obvious
@@ -176,10 +239,25 @@ class Propensity:
         lower, upper = float(bounds[0]), float(bounds[1])
         values = np.asarray(self.values, dtype=float)
         if self.n_arms == 2 and self.simplex:
-            one = bound(values[:, self.column_for(1.0)], lower, upper)
-            columns = {self.column_for(1.0): one, self.column_for(0.0): 1.0 - one}
-            return np.column_stack([columns[j] for j in range(2)])
-        return bound(values, lower, upper)
+            one_column, zero_column = self.column_for(1.0), self.column_for(0.0)
+            one = bound(values[:, one_column], lower, upper)
+            moved = one != values[:, one_column]
+            columns = {one_column: one, zero_column: 1.0 - one}
+            return Truncation(
+                np.column_stack([columns[j] for j in range(2)]),
+                np.column_stack([moved, moved]),
+            )
+        truncated = bound(values, lower, upper)
+        return Truncation(truncated, truncated != values)
+
+    def bounded(self, bounds: tuple[float, float]) -> FloatArray:
+        """The ``(n, K)`` mechanism truncated into ``bounds``.
+
+        Two arms on the simplex are clipped through ``g1`` and take arm 0 as its
+        complement; anything else is clipped column by column.  :meth:`truncate` states
+        the rule in full and also reports which cells it moved.
+        """
+        return self.truncate(bounds).values
 
 
 @dataclass(frozen=True)
@@ -190,9 +268,11 @@ class UnfittedPropensity(Propensity):
     treatment model, because the outcome and missingness fits travel in it.  What it must
     *not* return is an array a consumer can quietly use.  Zeros would be usable: they clip
     to :meth:`Propensity.bounded`'s floor and give a finite, plausible, wrong estimate.  So
-    the values are ``NaN`` and both read accessors raise -- the collaborative caller
+    the values are ``NaN`` and every read accessor raises -- the collaborative caller
     replaces the whole object before targeting, and any path that does not is a defect
-    rather than a slightly worse fit.
+    rather than a slightly worse fit.  :meth:`arm` and :meth:`truncate` refuse directly,
+    and :meth:`Propensity.bounded` refuses through :meth:`truncate`, so one override
+    covers both truncating accessors.
     """
 
     def _unfitted(self) -> ValueError:
@@ -205,7 +285,7 @@ class UnfittedPropensity(Propensity):
     def arm(self, arm: float) -> FloatArray:
         raise self._unfitted()
 
-    def bounded(self, bounds: tuple[float, float]) -> FloatArray:
+    def truncate(self, bounds: tuple[float, float]) -> Truncation:
         raise self._unfitted()
 
 
@@ -525,8 +605,8 @@ class RepeatFit:
     """One draw of the cross-fitting split, with everything that draw produced.
 
     A fit with ``repeats=R`` runs the whole construction ``R`` times over independent
-    fold draws and averages the estimates (see
-    :func:`~cleverly.inference.average_estimates`).  The four things a draw produces --
+    fold draws and reports the median of the estimates (see
+    :func:`~cleverly.inference.median_estimates`). The four things a draw produces --
     its folds, its nuisance predictions, the ``epsilon`` its targeting step solved, and
     the targeted ``Qbar`` that came out -- are *not* interchangeable between draws, so
     they are held together here rather than in parallel tuples on the result.  The pairing

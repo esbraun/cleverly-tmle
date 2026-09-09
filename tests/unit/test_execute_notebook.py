@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from scripts.execute_notebook import WALL_CLOCK, text_outputs
 from tests.notebooks import (
     GATED_DIGESTS,
     GENERATOR_MODULES,
@@ -442,3 +443,45 @@ def test_a_file_set_digest_moves_when_a_file_is_renamed(tmp_path: Path) -> None:
     after = _file_set_digest([right], root=tmp_path)
 
     assert before != after
+
+
+def test_the_wall_clock_mask_hides_only_the_clock() -> None:
+    """The mask removes the timestamp and leaves every number an estimate could move.
+
+    ``--check`` compares the text a notebook prints against the text it stores, and one field in
+    that text is a wall clock: :func:`cleverly.provenance.describe` writes
+    ``datetime.now(UTC).isoformat(timespec="seconds")``.  Without the mask the comparison reports
+    a difference on every run and can never pass.  A mask wide enough to hide a changed estimate
+    would make it unable to fail, which is the worse failure of the two.
+    """
+    stamp = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-08T23:26:45+00:00"
+    later = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-09T01:54:45+00:00"
+    assert WALL_CLOCK.sub("<wall clock>", stamp) == WALL_CLOCK.sub("<wall clock>", later)
+    assert "2026" not in WALL_CLOCK.sub("<wall clock>", stamp)
+
+    moved = "ate_regimen[always vs never]  -0.0639   0.0128      [-0.0889, -0.0389]"
+    assert WALL_CLOCK.sub("<wall clock>", moved) == moved
+    assert WALL_CLOCK.sub("<wall clock>", "cleverly 0.1.0") == "cleverly 0.1.0"
+
+
+def test_the_check_comparison_reads_code_cell_text_and_not_images() -> None:
+    """``--check`` compares printed text, and a re-rendered figure is not a moved number."""
+    notebook = {
+        "cells": [
+            {"cell_type": "markdown", "id": "prose", "source": "# Title\n"},
+            {
+                "cell_type": "code",
+                "id": "answer",
+                "source": "render()",
+                "outputs": [
+                    {"output_type": "stream", "text": "psi = -0.0639\n"},
+                    {"output_type": "display_data", "data": {"image/png": "iVBORw0KGgo="}},
+                ],
+            },
+        ]
+    }
+    collected = text_outputs(notebook)
+
+    assert set(collected) == {"answer"}, "a markdown cell prints nothing and is not compared"
+    assert any("-0.0639" in text for text in collected["answer"])
+    assert not any("iVBORw0" in text for text in collected["answer"])

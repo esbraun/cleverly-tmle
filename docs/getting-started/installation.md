@@ -2,11 +2,10 @@
 
 ## Supported Python
 
-`cleverly` requires Python 3.11 or newer. It is not published on PyPI yet, so install the current
-package from GitHub or from a checked-out commit.
+`cleverly` requires Python 3.11 or newer. Install the core package from PyPI:
 
 ```bash
-python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install cleverly
 ```
 
 The core install includes NumPy, SciPy, scikit-learn, narwhals, joblib, and threadpoolctl. Install
@@ -14,11 +13,28 @@ the `all` extra for pandas, polars, and plotting support. Install third-party nu
 such as XGBoost or LightGBM separately and pass their sklearn-compatible objects directly:
 
 ```bash
-python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install "cleverly[all]"
 ```
 
-For a reproducible analysis, replace the default branch with a release tag or full commit hash.
-Because the project is alpha software, an unconstrained Git install can receive public-API changes.
+Pin the complete version for a reproducible analysis:
+
+```bash
+python -m pip install "cleverly[all]==0.1.0"
+```
+
+`cleverly` uses `0.1.N` versions while it remains alpha software. A later patch can contain a
+public API change.
+
+## Development snapshot
+
+Install a reviewed Git snapshot when you need a change that has no release:
+
+```bash
+python -m pip install \
+  "cleverly @ git+https://github.com/esbraun/cleverly-tmle.git@FULL_COMMIT_HASH"
+```
+
+Use a full commit hash. A branch name can move after you record an analysis.
 
 ## Development install
 

@@ -14,11 +14,11 @@ from cleverly.estimators import DRTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_drtmle import STUDY
-from tests.studies.evidence.properties import PropertyCell, Rate, run_cells
+from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
-    apply_shared_verdicts,
-    finish,
-    fitted_rate_row,
+    CONTRACTION_SCENARIOS,
+    control_role,
+    summarize_contraction_properties,
 )
 
 #: Which design columns each misspecified nuisance keeps.
@@ -53,7 +53,6 @@ MISSPECIFIED_TREATMENT_COLUMNS = (1, 2)
 #: at and doubles twice, so its first rung reproduces that regime rather than a milder one.
 CONTRACTION_SIZES = (2000, 4000, 8000)
 CONTRACTION_REPLICATES = 600
-CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 
 
 class ColumnLogistic(BaseEstimator, ClassifierMixin):
@@ -115,7 +114,7 @@ def _contraction_cells() -> tuple[PropertyCell, ...]:
             # fitted across sizes, and a shared stream would correlate the rungs and narrow
             # the slope interval for a reason that has nothing to do with the estimator.
             24_000 + scenario_index * 300 + size_index * 100,
-            role="control" if scenario == "both_wrong" else "positive",
+            role=control_role(scenario),
             estimand=multi_arm_properties.ESTIMAND,
         )
         for scenario_index, scenario in enumerate(CONTRACTION_SCENARIOS)
@@ -163,67 +162,4 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = apply_shared_verdicts(rows, STUDY)
-    _contraction_verdicts(summary)
-    rates.extend(_contraction_rates(rows, summary.columns))
-    return finish(summary, rates)
-
-
-def _contraction_verdicts(summary: pd.DataFrame) -> None:
-    """Each ladder rung's own claim: does the interval still cover at this size?
-
-    The rung is not judged on its bias.  ``double_robustness`` already judges that against
-    the equivalence margin, and repeating the verdict at three more sizes would publish the
-    same red cell four times without adding a statement.  What a rung adds is whether the
-    interval stays usable as ``n`` grows in a one-correct regime, and the control adds the
-    case where it must not.
-    """
-    margins = STUDY.margins
-    ladder = summary["property"] == "double_robust_contraction"
-    positive = ladder & (summary["role"] == "positive")
-    summary.loc[positive, "passed"] = (
-        summary.loc[positive, "coverage_ci_lower"] >= margins.coverage_floor
-    )
-    control = ladder & (summary["role"] == "control")
-    summary.loc[control, "passed"] = (
-        summary.loc[control, "coverage_ci_upper"] < margins.coverage_floor
-    )
-
-
-def _contracts(fitted: Rate) -> bool:
-    """Whether the fitted slope establishes that the bias shrinks with ``n`` at all.
-
-    A direction, not an exponent.  Three points give a wide interval, so requiring the
-    second-order ``-1`` would fail a correct estimator on Monte Carlo error.  Requiring the
-    whole interval below zero is what this ladder supports, and it separates a decaying
-    remainder from an inconsistent estimator.
-    """
-    return bool(fitted.interval.high < 0.0)
-
-
-def _contraction_rates(rows: pd.DataFrame, columns: Any) -> list[dict[str, Any]]:
-    """One fitted contraction slope per nuisance regime, as a published row.
-
-    Each positive regime must establish that its bias contracts.  The control must fail to,
-    and that half is what gives the family teeth: an inconsistent estimator's bias does not
-    shrink with ``n``, so a rule that only asked the positives to contract could be passed by
-    an implementation that had stopped estimating anything.
-    """
-    ladder = rows.loc[rows["property"] == "double_robust_contraction"]
-    return [
-        fitted_rate_row(
-            ladder.loc[ladder["cell"].str.startswith(f"{scenario}_n")],
-            STUDY,
-            columns,
-            ladder_property="double_robust_contraction",
-            property_name="double_robust_contraction",
-            cell=f"rate_{scenario}",
-            role="control" if scenario == "both_wrong" else "positive",
-            statistic="bias",
-            seed_labels=("double_robust_contraction", scenario),
-            verdict=(
-                (lambda fitted: not _contracts(fitted)) if scenario == "both_wrong" else _contracts
-            ),
-        )
-        for scenario in CONTRACTION_SCENARIOS
-    ]
+    return summarize_contraction_properties(rows, STUDY)

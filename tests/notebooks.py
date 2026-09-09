@@ -22,8 +22,9 @@ re-execution that refits every estimator.  This follows the position
 :func:`tests.studies.evidence.manifest.study_module_hashes` already takes for a study manifest,
 and for the same reason: the record must identify the run well enough to reproduce it, and
 re-execution rather than a hash comparison is what keeps the stored numbers honest.
-:func:`tests.unit.test_documentation_runtime.test_every_notebook_still_reproduces_its_outputs`
-is that re-execution, and it is a slow detector rather than a gate.
+``python scripts/execute_notebook.py <path> --check`` is that re-execution.  It is a command a
+contributor runs when a result-determining change lands, in the shape this repository already
+uses for a study regeneration, and not a test.
 
 The recorded half also carries :data:`RECORDED_IDENTITY`, which is what a reader acts on when a
 digest disagrees.  A digest says two trees differ and never says where, and recomputing one

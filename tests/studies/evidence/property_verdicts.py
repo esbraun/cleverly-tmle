@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from tests.studies.evidence.inference import Interval
+from tests.studies.evidence.inference import Interval, standardized_bias_verdict
 from tests.studies.evidence.properties import (
     Rate,
     coverage_gain_interval,
@@ -32,6 +32,31 @@ from tests.studies.evidence.seeds import stream_seed
 ROOT_N_SLOPE = -0.5
 EXCLUDED_SLOPE = -0.25
 ROOT_N_SLOPE_MARGIN = 0.125
+
+#: The property family the bias-contraction ladder publishes under, in the replication rows it
+#: reads and in the summary rows it writes.  One name rather than four literals: the family is
+#: read once to select the ladder, once to fit each slope, and twice more to name the published
+#: row, so a family spelled four times is a family that can be renamed in three of them.
+CONTRACTION_FAMILY = "double_robust_contraction"
+
+#: The scenario label whose arm is the control, everywhere a nuisance regime names an arm.
+#:
+#: The label carries an *inverted* rule.  Every other scenario has to establish that its bias
+#: contracts, and this one has to establish that it does not, because an inconsistent estimator
+#: is what the family exists to exclude.  Spelled at the point of use, the inversion is a
+#: literal comparison a future study could satisfy by accident: name a positive regime
+#: ``both_wrong`` and its verdict silently flips, publishing an estimator that stopped
+#: contracting as a pass.  :func:`control_role` is the one place the mapping is stated.
+CONTROL_SCENARIO = "both_wrong"
+
+#: The nuisance regimes the contraction ladder is fitted over.
+#:
+#: Result-determining, and shared rather than declared per study for that reason.  The tuple
+#: decides which cells the ladder draws, which of them publishes a fitted slope, and which
+#: :func:`~tests.studies.evidence.seeds.stream_seed` stream each slope is resampled from, since
+#: the stream is labelled by the scenario.  Both DR-TMLE contraction studies declared a
+#: byte-identical tuple, which is a declaration that could be changed in one of them.
+CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
@@ -64,6 +89,18 @@ MINIMUM_POWER = 0.80
 #: requires the verdict to move.
 UNION_MODEL_SE_BAND = (0.1, 10.0)
 
+#: Property families whose bias claims describe a union model.  Each family answers to the
+#: same reported-error scale screen even when its study uses a more specific public name.
+UNION_MODEL_FAMILIES = frozenset(
+    {
+        "double_robustness",
+        "cde_robustness",
+        "mar_robustness",
+        "robustness_contract",
+        "corrected_mar_inference",
+    }
+)
+
 #: The three margins the ``crossfit_overfitting`` family answers to.  Shared rather than owned
 #: by the study that first declared them: four families now make the same three statements
 #: about a paired cross-fit and in-sample arm, and a margin written four times is a margin
@@ -77,6 +114,20 @@ OVERFIT_SE_FLOOR = 0.85
 OVERFIT_SE_CONTROL_CEILING = 0.75
 OVERFIT_COVERAGE_GAIN = 0.15
 
+#: The two margins the ``clustered_inference`` family answers to.  Beside the overfitting
+#: block for the reason that block gives: both families make the same three statements about
+#: a positive cell, a deliberately wrong control, and the coverage the pair buys, so
+#: :func:`_paired_cell_verdicts` states the rule once and the margins it reads live in one
+#: module rather than inside a single study.
+#:
+#: The positive arm answers to :attr:`~Margins.calibration_se_ratio` and
+#: :attr:`~Margins.calibration_coverage`, the band every calibrated cell answers to, so this
+#: family declares no floor of its own.  ``CLUSTER_ROBUST_CONTROL_SE_CEILING`` is what the
+#: IID control must fall below for the control to be the failure it claims to be, and
+#: ``CLUSTERED_COVERAGE_GAIN`` is the coverage the cluster-robust variance has to buy over
+#: that control on the same draws.
+CLUSTER_ROBUST_CONTROL_SE_CEILING = 0.80
+CLUSTERED_COVERAGE_GAIN = 0.03
 
 #: Columns every study family's property summary carries, whatever else it adds.
 SHARED_COLUMNS = (
@@ -99,6 +150,39 @@ EFFICIENCY_COLUMNS = (
     "efficiency_reported_ci_lower",
     "efficiency_reported_ci_upper",
 )
+
+
+def control_role(scenario: str) -> str:
+    """Which arm a nuisance regime is, read off the scenario label it publishes under.
+
+    Shared rather than spelled per cell builder, for the reason
+    :data:`CONTROL_SCENARIO` gives: the mapping is an inversion, and an inversion spelled at
+    every builder is one that can be left stale at all but one of them.  A study whose control
+    carries a different label states its own rule instead of calling this.
+
+    Parameters
+    ----------
+    scenario : str
+        The nuisance regime the cell was fitted under.
+
+    Returns
+    -------
+    str
+        ``"control"`` for :data:`CONTROL_SCENARIO`, and ``"positive"`` for every other label.
+    """
+    return "control" if scenario == CONTROL_SCENARIO else "positive"
+
+
+def robustness_verdicts(summary: pd.DataFrame, *, family: str) -> None:
+    """Apply the shared bias and reported-error rule to one union-model family."""
+    if family not in UNION_MODEL_FAMILIES:
+        raise ValueError(f"{family!r} is not a declared union-model property family")
+    robustness = summary["property"] == family
+    scaled = summary["se_ratio"].between(*UNION_MODEL_SE_BAND)
+    positive = robustness & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"] & scaled
+    control = robustness & (summary["role"] == "control")
+    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
 
 
 def apply_shared_verdicts(
@@ -155,20 +239,15 @@ def apply_shared_verdicts(
     # :func:`finish` resolves.
     summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
 
-    robustness = summary["property"] == "double_robustness"
+    robustness_verdicts(summary, family="double_robustness")
+
+    efficiency = summary["property"] == "root_n_and_efficiency"
     # Both roles answer to the same screen, and each keeps its own bias endpoint.  A positive
     # cell claims the bias is inside the margin and a control claims it is outside, but neither
     # is a claim about the union model unless the fit reported an error on the scale of its own
     # spread.  The control is where this was found: it is the arm whose bias endpoint a
     # collapsed nuisance cannot fail, so bias alone published a pass for a cell that reported
     # 87.6 times its empirical spread.
-    scaled = summary["se_ratio"].between(*UNION_MODEL_SE_BAND)
-    positive = robustness & (summary["role"] == "positive")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"] & scaled
-    control = robustness & (summary["role"] == "control")
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"] & scaled
-
-    efficiency = summary["property"] == "root_n_and_efficiency"
     sizes = efficiency & (summary["role"] == "positive")
     summary.loc[sizes, "passed"] = (
         (summary.loc[sizes, "coverage_ci_lower"] >= margins.coverage_floor)
@@ -338,6 +417,155 @@ def fitted_rate_row(
     return row
 
 
+def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
+    """Each ladder rung's own claim: does the interval still cover at this size?
+
+    The rung is *not* judged on its bias.  ``double_robustness`` already judges the bias
+    against the equivalence margin, and repeating that verdict at three more sizes would
+    publish the same red cell four times without adding a statement.  What a rung adds is
+    whether the interval remains usable as ``n`` grows in a one-correct regime, and the
+    control adds the case where it must not.
+
+    Shared rather than copied per study: the ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` studies both publish this family, and a verdict written
+    twice is a verdict that can be *changed* once.  Only the ladder's sizes and its
+    replication budget belong to the study.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes ``passed`` on for the ladder's rungs alone.
+    record : StudyRecord
+        Supplies the coverage floor each rung is read against.
+    """
+    margins = record.margins
+    ladder = summary["property"] == CONTRACTION_FAMILY
+    positive = ladder & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = (
+        summary.loc[positive, "coverage_ci_lower"] >= margins.coverage_floor
+    )
+    control = ladder & (summary["role"] == "control")
+    summary.loc[control, "passed"] = (
+        summary.loc[control, "coverage_ci_upper"] < margins.coverage_floor
+    )
+
+
+def _contracts(fitted: Rate) -> bool:
+    """Whether the fitted slope establishes that the bias shrinks with ``n`` at all.
+
+    A *direction*, not an exponent.  Three points give a wide interval, so requiring the
+    second-order ``-1`` would fail a correct estimator on Monte Carlo error; requiring the
+    whole interval below zero is what this ladder can actually support and is enough to
+    separate a decaying remainder from an inconsistent estimator.
+    """
+    return bool(fitted.interval.high < 0.0)
+
+
+def contraction_rates(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    columns: Any,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+) -> list[dict[str, Any]]:
+    """One fitted contraction slope per scenario, as a published row.
+
+    A positive scenario must establish that its bias contracts.  The control must fail to,
+    and that is the half that gives the family teeth -- an inconsistent estimator's bias does
+    not shrink with ``n``, so its slope interval straddles zero and a rule that only asked the
+    positives to contract could be passed by an implementation that had stopped estimating
+    anything.
+
+    Shared rather than copied per study: the ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` studies both publish this family, and the seed stream, the
+    set of scenarios and the inverted control rule are what a second copy could change in one
+    place alone.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Every replication row the study emitted.  The ladder's own rows are selected here.
+    record : StudyRecord
+        Supplies the resampling budget, the confidence level and the seed stream.
+    columns : Any
+        The summary's columns, so each row carries every one the table publishes.
+    scenarios : Sequence[str], optional
+        The nuisance regimes to fit, one published row each.  Defaults to
+        :data:`CONTRACTION_SCENARIOS`, which is what both studies declare.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        One published row per scenario.
+    """
+    ladder = rows.loc[rows["property"] == CONTRACTION_FAMILY]
+    return [
+        fitted_rate_row(
+            ladder.loc[ladder["cell"].str.startswith(f"{scenario}_n")],
+            record,
+            columns,
+            ladder_property=CONTRACTION_FAMILY,
+            property_name=CONTRACTION_FAMILY,
+            cell=f"rate_{scenario}",
+            role=control_role(scenario),
+            statistic="bias",
+            seed_labels=(CONTRACTION_FAMILY, scenario),
+            verdict=(
+                (lambda fitted: not _contracts(fitted))
+                if scenario == CONTROL_SCENARIO
+                else _contracts
+            ),
+        )
+        for scenario in scenarios
+    ]
+
+
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+) -> pd.DataFrame:
+    """The whole published summary for a study whose extra family is the contraction ladder.
+
+    The shared cells, the ladder's per-rung coverage verdicts, the shared root-n rate rows and
+    the ladder's own fitted slopes.  The order is the order they have to be computed in: a rate
+    row is built from the summary's columns, so it comes after every verdict that adds one.
+    :func:`finish` then puts the table in its published order.
+
+    Shared rather than copied per study: ``canonical-drtmle`` and
+    ``canonical-multi-arm-drtmle`` composed these four calls identically, so the composition
+    was a fifth thing that could be changed in one study and left stale in the other.  It is
+    kept out of :func:`apply_shared_verdicts`, which already carries three optional axes and
+    is called by every study, including the many that publish no ladder at all.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Every replication row the study emitted.
+    record : StudyRecord
+        The study's own record, which supplies every margin and every seed stream.
+    scenarios : Sequence[str], optional
+        The nuisance regimes the ladder is fitted over.  Defaults to
+        :data:`CONTRACTION_SCENARIOS`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The published summary, in its published order.
+
+    See Also
+    --------
+    apply_shared_verdicts : The cells and rate rows every study family shares.
+    contraction_verdicts : The per-rung coverage rule this applies.
+    contraction_rates : The fitted slopes this appends.
+    """
+    summary, rates = apply_shared_verdicts(rows, record)
+    contraction_verdicts(summary, record)
+    rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
+    return finish(summary, rates)
+
+
 def _rate_row(
     rates: list[dict[str, Any]],
     rows: pd.DataFrame,
@@ -380,6 +608,7 @@ def calibration_controls(
     calibration_n: int,
     shrunken_se_factor: float,
     critical: float,
+    positive_suffix: str = "correctly_specified",
 ) -> pd.DataFrame:
     """The calibration cell's two deliberately invalid arms, derived from its own rows.
 
@@ -394,14 +623,27 @@ def calibration_controls(
     A pure transformation of ``rows``: it draws no sample and fits nothing, so a study gains
     these arms without spending replications on them.  Shared rather than copied because the
     arithmetic is the same wherever the claim is, and only the declared constants differ.
+
+    ``positive_suffix`` names the arm the controls are derived from.  Most studies call the
+    positive arm ``correctly_specified``, but a study whose outcome regression is misspecified
+    on purpose must not use that name, because the name would be a false claim.  Such a study
+    passes its own suffix here rather than renaming the cell on the way in.
+
+    An empty selection is a refusal, not an empty frame.  A caller whose suffix does not match
+    its cells would otherwise derive zero controls in silence, and a study that publishes no
+    control reads exactly like a study whose controls all passed.
     """
     source = rows.loc[
         (rows["property"] == "interval_calibration")
-        & rows["cell"].str.endswith("__correctly_specified")
+        & rows["cell"].str.endswith(f"__{positive_suffix}")
     ]
     controls: list[pd.DataFrame] = []
     for label in labels:
-        base = source.loc[source["cell"] == f"{label}__correctly_specified"].copy()
+        base = source.loc[source["cell"] == f"{label}__{positive_suffix}"].copy()
+        if base.empty:
+            raise ValueError(
+                f"{label}__{positive_suffix} has no calibration rows to derive controls from"
+            )
         shrunken = base.copy()
         shrunken["cell"] = f"{label}__shrunken_se_control"
         shrunken["role"] = "control"
@@ -430,7 +672,11 @@ def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataF
 
 
 def calibration_verdicts(
-    summary: pd.DataFrame, *, margins: Margins, efficiency_band: tuple[float, float]
+    summary: pd.DataFrame,
+    *,
+    margins: Margins,
+    efficiency_band: tuple[float, float] | None = None,
+    positive_suffix: str = "correctly_specified",
 ) -> None:
     """Read each calibration cell's verdict against the rule its *kind* answers to.
 
@@ -440,25 +686,46 @@ def calibration_verdicts(
     than the positive arm's.  Written here rather than per study for the reason the arms are:
     the rules belong to the instrument, and only the band belongs to the study that can compute
     an exact bound at all.
+
+    ``efficiency_band`` is optional, because a study may use an exact bound only to size the
+    noise arm without claiming that its estimator attains the bound.  Such a study publishes no
+    efficiency columns at all, so the intervals are read lazily and only where a band exists.
+
+    Without a band the noise arm answers to the SE-ratio rule.  Added noise inflates the
+    empirical spread while the reported standard errors stay where they were, so the ratio
+    falls below its band.  That is the same movement the efficiency rule reads, and it is the
+    only reading left when there is no bound to form an efficiency ratio against.
+
+    ``positive_suffix`` names the positive arm, for the reason
+    :func:`calibration_controls` takes it.
     """
     calibration = summary["property"] == "interval_calibration"
     for index in summary.index[calibration]:
-        kind = str(summary.loc[index, "cell"]).split("__", 1)[1]
+        kind = str(summary.loc[index, "cell"]).rsplit("__", 1)[-1]
         ratio = summary_interval(summary, index, "se_ratio")
-        empirical = summary_interval(summary, index, "efficiency_empirical")
-        reported = summary_interval(summary, index, "efficiency_reported")
-        coverage = summary_interval(summary, index, "coverage")
-        if kind == "correctly_specified":
-            passed = (
-                ratio.within(*margins.calibration_se_ratio)
-                and coverage.within(*margins.calibration_coverage)
-                and empirical.within(*efficiency_band)
-                and reported.within(*efficiency_band)
+        if kind == positive_suffix:
+            coverage = summary_interval(summary, index, "coverage")
+            passed = ratio.within(*margins.calibration_se_ratio) and coverage.within(
+                *margins.calibration_coverage
             )
+            if efficiency_band is not None:
+                passed = (
+                    passed
+                    and summary_interval(summary, index, "efficiency_empirical").within(
+                        *efficiency_band
+                    )
+                    and summary_interval(summary, index, "efficiency_reported").within(
+                        *efficiency_band
+                    )
+                )
         elif kind == "shrunken_se_control":
             passed = ratio.high < margins.calibration_se_ratio[0]
         elif kind == "noise_control":
-            passed = empirical.low > efficiency_band[1]
+            passed = (
+                summary_interval(summary, index, "efficiency_empirical").low > efficiency_band[1]
+                if efficiency_band is not None
+                else ratio.high < margins.calibration_se_ratio[0]
+            )
         else:
             raise ValueError(f"unknown calibration cell kind {kind!r}")
         summary.loc[index, "passed"] = bool(passed)
@@ -533,6 +800,248 @@ def necessity_verdicts(
     )
 
 
+def alternative_target_necessity_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    family: str,
+    labels: Sequence[str],
+    arms: tuple[str, str],
+    alternative_truths: Mapping[str, float],
+    column: str,
+    threshold: float,
+) -> None:
+    """Require a declared analysis choice to select between two exact targets.
+
+    Some necessity controls estimate a different valid parameter. An omitted observation
+    weight, for example, targets the selected population instead of producing an arbitrary
+    wrong number. A population-target bias check proves the omission matters. It does not
+    prove the control converges to the alternative target that explains the failure.
+
+    This helper adds that second direction to :func:`necessity_verdicts`, and it *calls* that
+    function rather than restating it.  The displacement rule, the arm-to-role mapping and
+    the joint clause are written once, in the place the module's own docstrings say they
+    belong: a rule written twice is a rule that can be changed in one of them.  What is added
+    here is the second direction alone, ANDed into the verdicts the shared rule wrote.
+
+    Three claims therefore hold together.  The positive arm must recover the study truth.
+    The control must miss that truth and recover its declared alternative truth.  The paired
+    displacement must clear the study's threshold.  A control that misses its claimed
+    alternative target fails both its own displayed row and the joint property.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this function updates with both target verdicts.
+    rows : pandas.DataFrame
+        Paired replication rows for the positive and control arms.
+    record : StudyRecord
+        Supplies the standardized-bias margin and confidence level.
+    family : str
+        The property family that owns the paired cells.
+    labels : Sequence[str]
+        Parameter labels used as cell-name prefixes.
+    arms : tuple[str, str]
+        Positive and control cell suffixes, in that order.
+    alternative_truths : Mapping[str, float]
+        Exact control target for each label.
+    column : str
+        Summary column that publishes the minimum paired displacement.
+    threshold : float
+        Declared minimum displacement in positive-arm empirical standard deviations.
+    """
+    mask = summary["property"] == family
+    if not mask.any():
+        return
+    missing = sorted(set(labels) - set(alternative_truths))
+    if missing:
+        raise ValueError(f"{family} has no alternative truth for {missing}")
+
+    numeric = (
+        "alternative_truth",
+        "alternative_bias_ci_lower",
+        "alternative_bias_ci_upper",
+        "alternative_bias_margin",
+    )
+    for name in numeric:
+        if name not in summary:
+            summary[name] = np.nan
+    if "alternative_bias_equivalent" not in summary:
+        summary["alternative_bias_equivalent"] = pd.Series(
+            [None] * len(summary), dtype=object, index=summary.index
+        )
+    else:
+        summary["alternative_bias_equivalent"] = summary["alternative_bias_equivalent"].astype(
+            object
+        )
+    if column not in summary:
+        summary[column] = np.nan
+
+    necessity_verdicts(
+        summary,
+        rows,
+        family=family,
+        labels=labels,
+        arms=arms,
+        column=column,
+        threshold=threshold,
+    )
+
+    control_arm = arms[1]
+    alternative_passed: list[bool] = []
+    for label in labels:
+        control_cell = f"{label}__{control_arm}"
+        group = rows.loc[(rows["property"] == family) & (rows["cell"] == control_cell)]
+        if group.empty:
+            raise ValueError(f"{family} has no rows for {control_cell}")
+        truth = float(alternative_truths[label])
+        verdict = standardized_bias_verdict(
+            group["estimate"].to_numpy(dtype=float) - truth,
+            margin=record.margins.standardized_bias,
+            confidence_level=record.margins.confidence_level,
+        )
+        cell_mask = mask & (summary["cell"] == control_cell)
+        if int(cell_mask.sum()) != 1:
+            raise ValueError(f"{family} has {int(cell_mask.sum())} summary rows for {control_cell}")
+        summary.loc[cell_mask, "alternative_truth"] = truth
+        summary.loc[cell_mask, "alternative_bias_ci_lower"] = verdict.interval.low
+        summary.loc[cell_mask, "alternative_bias_ci_upper"] = verdict.interval.high
+        summary.loc[cell_mask, "alternative_bias_margin"] = verdict.margin
+        summary.loc[cell_mask, "alternative_bias_equivalent"] = verdict.equivalent
+        summary.loc[cell_mask, "passed"] = bool(
+            summary.loc[cell_mask, "passed"].iloc[0] and verdict.equivalent
+        )
+        alternative_passed.append(bool(verdict.equivalent))
+
+    # ANDed into what the shared rule already decided, rather than recomputed beside it.
+    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
+    # verdict; the only claim it cannot make is that the control reaches the target this
+    # study declares for it.
+    summary.loc[mask, "property_passed"] = bool(
+        summary.loc[mask, "property_passed"].all() and all(alternative_passed)
+    )
+
+
+def _paired_cell_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    family: str,
+    positive_cell: str,
+    control_cell: str,
+    positive_rule: Callable[[Interval, Interval, Margins], bool],
+    control_ceiling: float,
+    gain_floor: float,
+) -> None:
+    """One positive cell, one deliberately wrong control, and the gain the pair buys.
+
+    Three statements, and they do not all belong to the same row.  The positive arm claims a
+    standard error its own family calls honest.  The control claims the opposite, that a
+    deliberately wrong variance understates it by a wide margin.  The third is about the
+    *pair*: the positive arm has to buy coverage the control does not have, on the same
+    draws, which is why the two arms share a seed.
+
+    Each row therefore publishes its own verdict in ``passed`` and the paired clause in
+    ``property_passed``.  One scalar broadcast across the property published the positive
+    arm's rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a
+    reader could not tell which statement the "Pass" belonged to.
+
+    Only ``positive_rule`` differs between the families that call this.  Everything else --
+    the two resampled SE ratios, the paired coverage interval, the control's ceiling and the
+    six published columns -- is one statement written once, for the reason
+    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is: a statistic
+    written twice is a statistic that can be changed once.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes the two intervals, ``passed`` and
+        ``property_passed`` on.
+    rows : pandas.DataFrame
+        The replication rows both arms were emitted from, paired on ``replicate``.
+    record : StudyRecord
+        Supplies the margins and the resampling streams.
+    family : str
+        The property the two cells are filed under.
+    positive_cell : str
+        The cell the positive arm publishes under.
+    control_cell : str
+        The cell the control arm publishes under.
+    positive_rule : Callable[[Interval, Interval, Margins], bool]
+        The positive arm's own rule, read off its resampled SE ratio, its exact coverage
+        interval and the study's margins.
+    control_ceiling : float
+        What the control's SE ratio must fall below.
+    gain_floor : float
+        The coverage the positive arm must buy over the control.
+    """
+    margins = record.margins
+    selected = rows.loc[rows["property"] == family]
+    positive = selected.loc[selected["cell"] == positive_cell]
+    control = selected.loc[selected["cell"] == control_cell]
+    positive_se = se_ratio_interval(
+        positive,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, positive_cell),
+    )
+    control_se = se_ratio_interval(
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, control_cell),
+    )
+    gain = coverage_gain_interval(
+        positive,
+        control,
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=stream_seed(record, family, "coverage_gain"),
+    )
+    positive_mask = (summary["property"] == family) & (summary["cell"] == positive_cell)
+    coverage = summary_interval(summary, summary.index[positive_mask.to_numpy()][0], "coverage")
+    verdicts = {
+        positive_cell: bool(positive_rule(positive_se, coverage, margins)),
+        control_cell: bool(control_se.high <= control_ceiling),
+    }
+    joint = bool(all(verdicts.values()) and gain[0] >= gain_floor)
+    for cell, interval in ((positive_cell, positive_se), (control_cell, control_se)):
+        mask = (summary["property"] == family) & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
+        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
+        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
+        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
+        summary.loc[mask, "passed"] = verdicts[cell]
+        summary.loc[mask, "property_passed"] = joint
+
+
+def _overfit_positive_rule(se_ratio: Interval, coverage: Interval, margins: Margins) -> bool:
+    """Neither understated nor outside the study's own sanity screen.
+
+    The floor is this family's, and the ceiling is the sanity band's *upper* limit, so the
+    cross-fit arm is held to the screen any other estimator answers to.  Coverage is not read:
+    the arm's claim is about the standard error it reports, and the pair's coverage clause is
+    published separately by :func:`_paired_cell_verdicts`.
+    """
+    return bool(se_ratio.low >= OVERFIT_SE_FLOOR and se_ratio.high <= margins.se_ratio_sanity[1])
+
+
+def _clustered_positive_rule(se_ratio: Interval, coverage: Interval, margins: Margins) -> bool:
+    """Two-sided on the SE ratio, and calibrated coverage beside it.
+
+    The same pair of statements :func:`apply_shared_verdicts` puts on an
+    ``interval_calibration`` cell, and needed for the same reason: a cluster-robust variance
+    inflated by a constant keeps coverage inside its band while failing the ratio, and one
+    that is right on average but wrong replication by replication does the reverse.
+    """
+    return bool(
+        se_ratio.within(*margins.calibration_se_ratio)
+        and coverage.within(*margins.calibration_coverage)
+    )
+
+
 def crossfit_overfitting_verdicts(
     summary: pd.DataFrame,
     rows: pd.DataFrame,
@@ -543,60 +1052,64 @@ def crossfit_overfitting_verdicts(
 ) -> None:
     """Require honest cross-fitted inference and a deliberately optimistic control.
 
-    Three statements, and they do not all belong to the same row.  The cross-fit arm claims a
-    standard error that is neither understated nor outside the study's own sanity screen.  The
-    control claims the opposite -- that fitting the same flexible learner in sample understates
-    it by a wide margin.  The third is about the *pair*: cross-fitting has to buy coverage the
-    in-sample fit does not have, on the same draws, which is why the two arms share a seed.
+    The cross-fit arm claims a standard error that is neither understated nor outside the
+    study's own sanity screen.  The control claims the opposite, that fitting the same
+    flexible learner in sample understates it by a wide margin.  Cross-fitting then has to
+    buy coverage the in-sample fit does not have, on the same draws.
 
-    Each row therefore publishes its own verdict in ``passed`` and the paired clause in
-    ``property_passed``.  One scalar broadcast across the property published the positive arm's
-    rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a reader
-    could not tell which statement the "Pass" belonged to.
+    The rule itself lives in :func:`_paired_cell_verdicts`, which the clustered family also
+    states, for the reason
+    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is written once: a
+    statistic written twice is a statistic that can be changed once.  The study supplies only
+    the name of its positive arm.
 
-    Written once here rather than per study for the reason
-    :func:`~tests.studies.evidence.properties.coverage_gain_interval` is: four families now
-    make this claim, and a statistic written four times is a statistic that can be changed
-    once.  The study supplies only the name of its positive arm.
+    See Also
+    --------
+    _paired_cell_verdicts : The shared rule this states the cross-fit arm's half of.
     """
-    margins = record.margins
-    selected = rows.loc[rows["property"] == "crossfit_overfitting"]
-    positive = selected.loc[selected["cell"] == positive_cell]
-    control = selected.loc[selected["cell"] == control_cell]
-    positive_se = se_ratio_interval(
-        positive,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", positive_cell),
+    _paired_cell_verdicts(
+        summary,
+        rows,
+        record,
+        family="crossfit_overfitting",
+        positive_cell=positive_cell,
+        control_cell=control_cell,
+        positive_rule=_overfit_positive_rule,
+        control_ceiling=OVERFIT_SE_CONTROL_CEILING,
+        gain_floor=OVERFIT_COVERAGE_GAIN,
     )
-    control_se = se_ratio_interval(
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", control_cell),
+
+
+def clustered_inference_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    positive_cell: str = "cluster_robust",
+    control_cell: str = "iid_control",
+) -> None:
+    """Require calibrated cluster-robust inference and a deliberately IID control.
+
+    The cluster-robust arm claims a calibrated standard error and calibrated coverage.  The
+    control claims the opposite, that treating correlated rows as independent understates the
+    standard error by a wide margin.  The cluster-robust variance then has to buy coverage the
+    IID variance does not have, on the same draws and from the same point estimate.
+
+    See Also
+    --------
+    _paired_cell_verdicts : The shared rule this states the cluster-robust arm's half of.
+    """
+    _paired_cell_verdicts(
+        summary,
+        rows,
+        record,
+        family="clustered_inference",
+        positive_cell=positive_cell,
+        control_cell=control_cell,
+        positive_rule=_clustered_positive_rule,
+        control_ceiling=CLUSTER_ROBUST_CONTROL_SE_CEILING,
+        gain_floor=CLUSTERED_COVERAGE_GAIN,
     )
-    gain = coverage_gain_interval(
-        positive,
-        control,
-        replicates=margins.bootstrap_replicates,
-        confidence_level=margins.confidence_level,
-        seed=stream_seed(record, "crossfit_overfitting", "coverage_gain"),
-    )
-    verdicts = {
-        positive_cell: bool(
-            positive_se.low >= OVERFIT_SE_FLOOR and positive_se.high <= margins.se_ratio_sanity[1]
-        ),
-        control_cell: bool(control_se.high <= OVERFIT_SE_CONTROL_CEILING),
-    }
-    joint = bool(all(verdicts.values()) and gain[0] >= OVERFIT_COVERAGE_GAIN)
-    for cell, interval in ((positive_cell, positive_se), (control_cell, control_se)):
-        mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
-        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
-        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
-        summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
-        summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-        summary.loc[mask, "passed"] = verdicts[cell]
-        summary.loc[mask, "property_passed"] = joint
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:

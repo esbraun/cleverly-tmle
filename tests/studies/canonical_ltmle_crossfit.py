@@ -9,17 +9,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, QuasiBinomialGLM
+from tests.studies.canonical_ltmle import (
+    KnownLongitudinalMechanism,
+    QuasiBinomialGLM,
+    regimen_initials,
+    regimen_rows,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import draw_replicate
 
 LMTP_VERSION = "1.5.4"
 LMTP_SOURCE_COMMIT = "f04a2b47f46debc515ce4ae778e05ebfde922c44"
@@ -159,7 +163,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    return draw_from_seed(scenario, n, replicate_seed(STUDY, scenario, replicate))
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:
@@ -194,18 +198,6 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     )
 
 
-def _initials(result: Any) -> dict[str, float]:
-    means = {
-        f"ey_regimen[{label}]": float(np.mean(result.fits[label].steps[0].initial))
-        for label in REGIMENS
-    }
-    means["ate_regimen[always vs never]"] = means["ey_regimen[always]"] - means["ey_regimen[never]"]
-    means[f"ate_regimen[{RULE_LABEL} vs never]"] = (
-        means[f"ey_regimen[{RULE_LABEL}]"] - means["ey_regimen[never]"]
-    )
-    return means
-
-
 def cleverly_rows(
     frame: pd.DataFrame,
     truth: Mapping[str, float],
@@ -223,31 +215,17 @@ def _rows_from_result(
     scenario: str,
     replicate: int,
 ) -> list[dict[str, Any]]:
-    initials = _initials(result)
-    rows: list[dict[str, Any]] = []
-    for name in ESTIMANDS:
-        estimate = result[name]
-        low, high = estimate.ci
-        reference = float(truth[name])
-        rows.append(
-            {
-                "implementation": STUDY.implementation,
-                "scenario": scenario,
-                "replicate": replicate,
-                "n": result.n,
-                "estimand": name,
-                "truth": reference,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
-                "inference_scale": "identity",
-                "covered": int(low <= reference <= high),
-                "initial_estimate": initials[name],
-            }
-        )
-    return rows
+    """This study publishes ``result.n``, not ``len(frame)``, which the ordinary one writes."""
+    return regimen_rows(
+        STUDY,
+        result,
+        truth,
+        regimen_initials(result, REGIMENS, CONTRAST_NAMES),
+        ESTIMANDS,
+        scenario,
+        replicate,
+        n=result.n,
+    )
 
 
 def _replicate(

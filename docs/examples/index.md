@@ -58,6 +58,10 @@ Every page states an applied question, builds a synthetic population, declares t
 estimand, fits the method, and demonstrates its failure mode. Each page also separates diagnostics
 from causal assumptions that data cannot verify.
 
+Each page starts its post-fit review with a combined report. It then retrieves the detailed report
+for a question that the summary cannot answer. A page keeps a method-specific diagnostic when no
+combined row represents it.
+
 ## Three outcome families
 
 | outcome | what it is | which pages use it |
@@ -73,8 +77,8 @@ on real data. It compares several estimators on one question and stores its exec
 
 ## What the code gate checks
 
-Documentation code is syntax-checked and executed. Numerical behavior is enforced by the ordinary
-fast and named slow tests in the [evidence manifest](../technical-reference/evidence.md). A runnable
+Documentation code is syntax-checked and executed. Numerical behavior is enforced by fast tests
+and registered studies in the [evidence manifest](../technical-reference/evidence.md). A runnable
 example is not evidence that a real study satisfies its causal assumptions.
 
 ```{toctree}

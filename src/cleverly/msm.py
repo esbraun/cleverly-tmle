@@ -78,6 +78,7 @@ van der Laan, M. J. and Rose, S. (2011). *Targeted Learning*, chapter 12.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -115,6 +116,14 @@ MSMLink = Literal["identity", "log", "logit"]
 #: and the projection they define is not one vector -- so it is refused where the design
 #: is built rather than left to surface as an implausible coefficient.
 _MIN_RCOND = 1e-10
+
+
+class _DataBoundArmFunction(ABC):
+    """Internal arm callable whose cached values require a specific data contract."""
+
+    @abstractmethod
+    def check_data(self, data: CausalData) -> None:
+        """Validate the full data before an MSM enumerates its treatment arms."""
 
 
 def check_projection_rank(gram: FloatArray, terms: Sequence[str], *, axis: str = "arms") -> None:
@@ -573,6 +582,9 @@ class MSMSet:
         retargeted from it agree on what the working model is by construction rather than
         by re-running the user's function and hoping it is deterministic.
         """
+        for function in (msm.design, msm.weights):
+            if isinstance(function, _DataBoundArmFunction):
+                function.check_data(data)
         _check_support(link_for(str(msm.link)), data)
         frame = _covariate_frame(data)
         if data.is_continuous_treatment:
