@@ -49,10 +49,11 @@ CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 #: separates the two cells' *fitted* means in its ``rule_displacement`` column, which is a
 #: *Monte Carlo* displacement of 6.859632.  A search of that artifact for 6.8764 returns
 #: nothing, so each figure above names the quantity it measures.  No candidate sits near the
-#: boundary, so the choice of mutation cannot decide the verdict.  A one-stratum variant would
-#: be a second control rather than a correction to this one.
-#: ``test_no_rule_mutation_choice_decides_the_necessity_verdict`` reads ``MUTATED_REGIMENS``
-#: and recomputes the exact-law table, so the claim is checked rather than recorded.
+#: boundary on this law.  This does not predict each alternative control's finite-sample verdict,
+#: which would require fitting and registering those controls.  A one-stratum variant would be a
+#: second control rather than a correction to this one.
+#: ``test_each_rule_mutation_has_large_exact_law_separation`` reads ``MUTATED_REGIMENS`` and
+#: recomputes the exact-law table, so the narrower claim is checked rather than recorded.
 #:
 #: What pins the rule *evaluation* is not this family at all.  The exact-law fold test holds the
 #: dynamic contrast to its g-formula truth and its Gateaux curve at 1e-12, which is a sharper

@@ -74,6 +74,21 @@ def test_the_scan_drops_a_generated_or_autosaved_copy(tmp_path: Path) -> None:
     assert found == {"README.md", "docs/examples/notebook.ipynb", "docs/examples/guide.md"}
 
 
+@pytest.mark.parametrize("ancestor", ("_build", "generated", ".ipynb_checkpoints"))
+def test_an_excluded_name_above_the_repository_does_not_empty_the_scan(
+    tmp_path: Path, ancestor: str
+) -> None:
+    """Exclusions apply to repository-relative directories, not checkout ancestors."""
+    root = tmp_path / ancestor / "repository"
+    (root / "docs").mkdir(parents=True)
+    (root / "README.md").write_text("# root\n", encoding="utf-8")
+    (root / "docs" / "guide.md").write_text("# guide\n", encoding="utf-8")
+
+    found = {path.relative_to(root).as_posix() for path in reader_facing(root)}
+
+    assert found == {"README.md", "docs/guide.md"}
+
+
 def test_the_scanner_sees_what_it_should_and_ignores_what_it_should_not() -> None:
     """A deliberate mutation, because a scanner that matches nothing reports a clean tree.
 

@@ -73,12 +73,12 @@ provenance contract.
 ## Notebook artifacts
 
 A committed notebook stores the outputs of a run rather than recomputing them. The fast suite
-checks that its stored outputs still belong to its code cells, so an edited cell cannot keep the
-results of an older run. Re-execute a notebook with
+checks that its stamp still matches its code cells and stored outputs. This detects an edit after
+stamping, but the unkeyed hashes do not prove that one payload produced the other. Re-execute with
 `python scripts/execute_notebook.py <path>`. The command needs network access.
 
 The stamp it writes has two halves. The gated half covers the notebook alone, and the fast suite
-asserts it equal. The recorded half names the checkout that ran the notebook, and the fast suite
+asserts it equal. The recorded half fingerprints the repository context of the run. The fast suite
 asserts only that it is present and well formed. A library edit therefore fails no notebook check.
 `tests/notebooks.py` gives the reason, and it is the reason a study manifest does not gate its
 Python module hashes either.

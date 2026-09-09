@@ -16,7 +16,13 @@ from typing import Any
 
 import pytest
 
-from scripts.execute_notebook import WALL_CLOCK, text_outputs
+from scripts.execute_notebook import (
+    NEVER_SKIP_TAG,
+    comparable_outputs,
+    execute_notebook,
+    validate_execution_environment,
+    validate_notebook_path,
+)
 from tests.notebooks import (
     GATED_DIGESTS,
     GENERATOR_MODULES,
@@ -197,13 +203,18 @@ def test_the_schema_version_and_command_are_part_of_the_stamp(tmp_path: Path) ->
     stamp = notebook_execution_stamp(_notebook(), path, repository_root=tmp_path)
 
     assert stamp["schema_version"] == STAMP_SCHEMA_VERSION
-    assert stamp["command"] == "python scripts/execute_notebook.py docs/example.ipynb"
+    assert stamp["command"] == ["python", "scripts/execute_notebook.py", "docs/example.ipynb"]
 
     moved = tmp_path / "docs" / "renamed.ipynb"
     moved.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     relocated = notebook_execution_stamp(_notebook(), moved, repository_root=tmp_path)
 
     assert relocated["command"] != stamp["command"]
+
+    spaced = tmp_path / "docs" / "example notebook.ipynb"
+    spaced.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    with_space = notebook_execution_stamp(_notebook(), spaced, repository_root=tmp_path)
+    assert with_space["command"][-1] == "docs/example notebook.ipynb"
 
 
 @pytest.mark.parametrize(
@@ -456,16 +467,21 @@ def test_the_wall_clock_mask_hides_only_the_clock() -> None:
     """
     stamp = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-08T23:26:45+00:00"
     later = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-09T01:54:45+00:00"
-    assert WALL_CLOCK.sub("<wall clock>", stamp) == WALL_CLOCK.sub("<wall clock>", later)
-    assert "2026" not in WALL_CLOCK.sub("<wall clock>", stamp)
+    left = _payload_notebook("text/plain", stamp)
+    right = _payload_notebook("text/plain", later)
+    assert comparable_outputs(left) == comparable_outputs(right)
 
     moved = "ate_regimen[always vs never]  -0.0639   0.0128      [-0.0889, -0.0389]"
-    assert WALL_CLOCK.sub("<wall clock>", moved) == moved
-    assert WALL_CLOCK.sub("<wall clock>", "cleverly 0.1.0") == "cleverly 0.1.0"
+    assert comparable_outputs(_payload_notebook("text/plain", moved)) != comparable_outputs(
+        _payload_notebook("text/plain", moved.replace("-0.0639", "-0.0539"))
+    )
+    observed = _payload_notebook("text/plain", "event = 2026-09-08T23:26:45+00:00")
+    revised = _payload_notebook("text/plain", "event = 2026-09-09T01:54:45+00:00")
+    assert comparable_outputs(observed) != comparable_outputs(revised)
 
 
-def test_the_check_comparison_reads_code_cell_text_and_not_images() -> None:
-    """``--check`` compares printed text, and a re-rendered figure is not a moved number."""
+def test_the_check_comparison_reads_non_image_outputs() -> None:
+    """``--check`` sees every publishable payload and ignores only image bytes."""
     notebook = {
         "cells": [
             {"cell_type": "markdown", "id": "prose", "source": "# Title\n"},
@@ -475,13 +491,103 @@ def test_the_check_comparison_reads_code_cell_text_and_not_images() -> None:
                 "source": "render()",
                 "outputs": [
                     {"output_type": "stream", "text": "psi = -0.0639\n"},
-                    {"output_type": "display_data", "data": {"image/png": "iVBORw0KGgo="}},
+                    {
+                        "output_type": "display_data",
+                        "data": {
+                            "image/png": "iVBORw0KGgo=",
+                            "text/html": "<table><td>-0.0639</td></table>",
+                            "application/json": {"estimate": 1},
+                        },
+                    },
                 ],
             },
         ]
     }
-    collected = text_outputs(notebook)
+    collected = comparable_outputs(notebook)
 
     assert set(collected) == {"answer"}, "a markdown cell prints nothing and is not compared"
     assert any("-0.0639" in text for text in collected["answer"])
+    assert any("text/html" in text for text in collected["answer"])
+    assert any("application/json" in text for text in collected["answer"])
     assert not any("iVBORw0" in text for text in collected["answer"])
+
+    html_changed = copy.deepcopy(notebook)
+    html_changed["cells"][1]["outputs"][1]["data"]["text/html"] = "<table><td>-0.0539</td></table>"
+    assert comparable_outputs(html_changed) != collected
+
+    json_changed = copy.deepcopy(notebook)
+    json_changed["cells"][1]["outputs"][1]["data"]["application/json"]["estimate"] = 2
+    assert comparable_outputs(json_changed) != collected
+
+    image_changed = copy.deepcopy(notebook)
+    image_changed["cells"][1]["outputs"][1]["data"]["image/png"] = "different bytes"
+    assert comparable_outputs(image_changed) == collected
+
+
+def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch: Any) -> None:
+    """A stale output behind nbclient's default skip tag must be replaced."""
+    notebook = _notebook()
+    notebook["cells"][1]["metadata"] = {"tags": ["skip-execution"]}
+    received: dict[str, Any] = {}
+
+    class Client:
+        def __init__(self, payload: Any, **kwargs: Any) -> None:
+            received.update(kwargs)
+            self.payload = payload
+
+        def execute(self) -> None:
+            if received["skip_cells_with_tag"] != "skip-execution":
+                self.payload["cells"][1]["outputs"][0]["text"] = "fresh\n"
+
+    monkeypatch.setitem(execute_notebook.__globals__, "NotebookClient", Client)
+
+    execute_notebook(notebook, timeout=30, repository_root=tmp_path)
+
+    assert notebook["cells"][1]["outputs"][0]["text"] == "fresh\n"
+    assert received["skip_cells_with_tag"] == NEVER_SKIP_TAG
+    assert received["force_raise_errors"] is True
+
+
+def test_the_executor_rejects_cells_nbclient_cannot_execute(tmp_path: Path) -> None:
+    """Blank cells and the private no-skip tag cannot preserve old outputs."""
+    blank = _notebook()
+    blank["cells"][1]["source"] = "  \n"
+    with pytest.raises(ValueError, match="blank code cell"):
+        execute_notebook(blank, timeout=30, repository_root=tmp_path)
+
+    reserved = _notebook()
+    reserved["cells"][1]["metadata"] = {"tags": [NEVER_SKIP_TAG]}
+    with pytest.raises(ValueError, match="reserved tag"):
+        execute_notebook(reserved, timeout=30, repository_root=tmp_path)
+
+
+def test_notebook_paths_are_rejected_before_execution(tmp_path: Path) -> None:
+    """The artifact command accepts only notebook files below ``docs``."""
+    outside = tmp_path.parent / "outside.ipynb"
+    outside.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="outside the repository"):
+        validate_notebook_path(outside, repository_root=tmp_path)
+
+    inside = tmp_path / "docs" / "example.ipynb"
+    inside.parent.mkdir()
+    inside.write_text("{}", encoding="utf-8")
+    assert validate_notebook_path(inside, repository_root=tmp_path) == inside.resolve()
+
+    autosave = tmp_path / "docs" / ".ipynb_checkpoints" / "example.ipynb"
+    autosave.parent.mkdir()
+    autosave.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="generated or autosaved"):
+        validate_notebook_path(autosave, repository_root=tmp_path)
+
+
+def test_the_executor_refuses_another_checkout(monkeypatch: Any, tmp_path: Path) -> None:
+    """The stamp and the kernel must describe this repository's package source."""
+    import cleverly
+
+    other = tmp_path / "other" / "src" / "cleverly" / "__init__.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cleverly, "__file__", str(other))
+
+    with pytest.raises(ValueError, match="not this checkout"):
+        validate_execution_environment(repository_root=REPOSITORY_ROOT)

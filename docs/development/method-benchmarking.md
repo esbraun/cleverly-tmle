@@ -227,15 +227,15 @@ Carry a value forward only while the digest that produced it is unchanged. A car
 predates a change to `tests/notebooks.py` matches no checkout at all, because no commit ever
 computed it that way. Re-execute the notebook instead when a digest definition moves.
 
-The recorded half names its own definition, so you do not have to remember this rule.
-`generator_files` lists the files the generator digest folded, and the fast tier compares that
-list against the current `GENERATOR_MODULES`. A moved definition therefore fails with an
-instruction rather than leaving a digest that matches nothing.
+The recorded half names its generator file set. `generator_files` lists the files the generator
+digest folded, and the fast tier compares that list against the current `GENERATOR_MODULES`. A
+file-set change therefore fails with an instruction. A semantic digest change still needs a
+schema-version change and review.
 
-`cleverly_commit` and `cleverly_version` name the checkout directly, which a digest cannot do. A
-digest reports that two trees differ and never reports where. Read `cleverly_worktree_clean`
-before you trust the commit. A notebook runs before the commit that lands it, so the recorded
-commit is the parent, and `false` means the commit places the run rather than reproduces it.
+`cleverly_commit` and `cleverly_version` place the run in repository history. A digest reports
+that two trees differ and never reports where. Read `cleverly_worktree_clean` before you interpret
+the commit. A notebook runs before the commit that lands it, so the recorded commit is the parent.
+A `false` value means that the commit does not reconstruct the executed tree.
 
 ## Adding a method row
 

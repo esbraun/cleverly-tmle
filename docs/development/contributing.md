@@ -91,8 +91,8 @@ halves, and only one half can fail the fast suite.
 
 Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
 the recorded command fails for the same reason. Edit library code and no notebook gate fails. The
-recorded half names the checkout that ran the notebook. It does not constrain the tree you work
-in. `tests/notebooks.py` gives the reason for the split.
+recorded half fingerprints the run's repository context. It does not reconstruct a dirty tree or
+constrain the tree you work in. `tests/notebooks.py` gives the reason for the split.
 
 A hash comparison cannot see a library change that moved a published number while every cell kept
 its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command

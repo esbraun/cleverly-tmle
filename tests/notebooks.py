@@ -14,13 +14,13 @@ A **gated** digest covers the notebook and nothing else, so recomputing it needs
 no kernel, and no fitted estimator.  Whatever moves it is repairable from the file in front of
 you.  The fast tier asserts these equal.
 
-A **recorded** digest identifies the checkout that ran the notebook: the shipped ``cleverly``
+A **recorded** digest fingerprints the repository context of the run: the shipped ``cleverly``
 source tree, the dependency lock, and the generator modules.  The fast tier asserts these are
 present and well formed, and does not assert them equal.  Equality here would fail the default
 handoff gate on any one-character library edit, and the only repair would be a networked
 re-execution that refits every estimator.  This follows the position
 :func:`tests.studies.evidence.manifest.study_module_hashes` already takes for a study manifest,
-and for the same reason: the record must identify the run well enough to reproduce it, and
+and for the same reason: the record must identify the run well enough to investigate it, and
 re-execution rather than a hash comparison is what keeps the stored numbers honest.
 ``python scripts/execute_notebook.py <path> --check`` is that re-execution.  It is a command a
 contributor runs when a result-determining change lands, in the shape this repository already
@@ -28,9 +28,9 @@ uses for a study regeneration, and not a test.
 
 The recorded half also carries :data:`RECORDED_IDENTITY`, which is what a reader acts on when a
 digest disagrees.  A digest says two trees differ and never says where, and recomputing one
-needs the formula that produced it.  ``cleverly_commit`` names the tree directly, and
-``generator_files`` names the set that was folded, so a moved definition reads as a moved
-definition rather than as an unexplained hash.
+needs the formula that produced it.  ``cleverly_commit`` places the run in history, and
+``generator_files`` names the set that was folded, so a file-set change reads as such rather than
+as an unexplained hash.  A semantic digest change still requires a schema-version change.
 
 **Coverage boundary.**  The stamp covers the ordered code-cell sources, and each code cell's
 identity, execution count, and stored outputs.  It does not cover markdown cells, cell
@@ -65,9 +65,10 @@ __all__ = [
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
-#: Bumped to 3 when the flat stamp split into a gated half and a recorded half, and to 4 when
-#: the recorded half gained the coordinates in :data:`RECORDED_IDENTITY`.
-STAMP_SCHEMA_VERSION = 4
+#: Bumped to 3 when the flat stamp split into a gated half and a recorded half, to 4 when
+#: the recorded half gained the coordinates in :data:`RECORDED_IDENTITY`, and to 5 when the
+#: repair command became an argument vector that needs no shell quoting.
+STAMP_SCHEMA_VERSION = 5
 
 #: Asserted equal by the fast tier.  Each one is a digest of the notebook alone.
 GATED_DIGESTS = frozenset({"code_source_sha256", "execution_payload_sha256"})
@@ -242,7 +243,7 @@ def execution_payload_digest(notebook: Any) -> str:
 
 
 def _recorded_identity(repository_root: Path) -> dict[str, Any]:
-    """Name the checkout that ran the notebook, in terms a reader can act on.
+    """Place the run in repository history, in terms a reader can act on.
 
     ``cleverly_worktree_clean`` is the honest qualifier on ``cleverly_commit``.  A notebook is
     executed before the commit that lands it, so the recorded commit is the parent and the tree
@@ -274,7 +275,7 @@ def notebook_execution_stamp(
     relative = notebook_path.resolve().relative_to(repository_root.resolve()).as_posix()
     return {
         "schema_version": STAMP_SCHEMA_VERSION,
-        "command": f"python scripts/execute_notebook.py {relative}",
+        "command": ["python", "scripts/execute_notebook.py", relative],
         "gated": {
             "code_source_sha256": code_source_digest(notebook),
             "execution_payload_sha256": execution_payload_digest(notebook),

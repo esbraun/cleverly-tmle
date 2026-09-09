@@ -56,7 +56,7 @@ DOCUMENTS = sorted(
         *(
             path
             for path in ROOT.glob("docs/**/*.md")
-            if not EXCLUDED_DIRECTORIES.intersection(path.parts)
+            if not EXCLUDED_DIRECTORIES.intersection(path.relative_to(ROOT).parts)
         ),
     }
 )
@@ -91,7 +91,7 @@ def reader_facing(root: Path) -> list[Path]:
                 path
                 for suffix in ("md", "rst", "ipynb")
                 for path in root.glob(f"docs/**/*.{suffix}")
-                if not EXCLUDED_DIRECTORIES.intersection(path.parts)
+                if not EXCLUDED_DIRECTORIES.intersection(path.relative_to(root).parts)
             ),
         }
     )

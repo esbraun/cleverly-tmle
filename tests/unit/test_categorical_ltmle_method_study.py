@@ -153,8 +153,8 @@ def _second_node_arms(specification: tuple[str, Any]) -> tuple[int, ...]:
     return tuple(law.ARM_LABELS.index(str(label)) for label in labels)
 
 
-def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
-    """The shipped mutation is larger than the alternatives, and that cannot be why it passes.
+def test_each_rule_mutation_has_large_exact_law_separation() -> None:
+    """The shipped mutation is larger, but each alternative has a large oracle separation.
 
     ``rule_necessity``'s control has to establish that its bias lands *outside* the equivalence
     margin, so a larger mutation is an easier bar.  The shipped control exchanges both of the
@@ -162,23 +162,16 @@ def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     stratum, and a control chosen for being easy to discriminate would be a control that says
     less than it appears to.
 
-    The answer is arithmetic and needs no fitting.  Each candidate mutation's displacement is
-    its shift in the exact regimen mean over the positive cell's committed empirical spread, and
-    every one of them clears the declared floor by more than an order of magnitude.  Nothing sits
-    near the boundary, so no verdict in this family turns on which mutation was chosen.
+    The answer about the target separation is arithmetic and needs no fitting.  Each candidate
+    mutation's displacement is its shift in the exact regimen mean over the positive cell's
+    committed empirical spread.  Every candidate clears the declared floor by more than an order
+    of magnitude in both studies.  This does not establish an unregistered alternative's fitted
+    displacement or bias-discrimination verdict.
 
     Both rules are read off the modules that ship them rather than restated here.  A restated
     ``shipped`` tuple would leave this test passing while ``MUTATED_REGIMENS`` said something
     else, and that is the failure the closing assertion claims to catch.
     """
-    published = pd.read_csv(ordinary.STUDY.artifact("properties.csv"))
-    positive = published.loc[
-        (published["property"] == "rule_necessity")
-        & (published["cell"] == "dynamic__declared_rule")
-    ]
-    assert len(positive) == 1, "the committed positive rule_necessity cell is not where this looks"
-    spread = float(positive["empirical_se"].iloc[0])
-
     arm = {label: law.ARM_LABELS.index(label) for label in law.ARM_LABELS}
     for name, specification in (
         ("declared", common.REGIMENS["respond"]),
@@ -205,24 +198,34 @@ def test_no_rule_mutation_choice_decides_the_necessity_verdict() -> None:
     }
 
     base = _regimen_mean(declared)
-    displacement = {
-        name: abs(_regimen_mean(rule) - base) / spread
-        for name, rule in {"shipped": shipped, **alternatives}.items()
-    }
-    for name, value in displacement.items():
-        assert value > 10.0 * shared.RULE_DISPLACEMENT, (
-            f"the {name} mutation displaces the regimen mean by {value:.2f}, which is close "
-            f"enough to the {shared.RULE_DISPLACEMENT} floor that the choice of mutation could "
-            f"decide the verdict"
+    for study in (ordinary.STUDY, crossfit.STUDY):
+        published = pd.read_csv(study.artifact("properties.csv"))
+        positive = published.loc[
+            (published["property"] == "rule_necessity")
+            & (published["cell"] == "dynamic__declared_rule")
+        ]
+        assert len(positive) == 1, (
+            f"{study.slug} does not have the committed positive rule_necessity cell"
         )
-    assert displacement["shipped"] == max(displacement.values()), (
-        "the shipped mutation is no longer the largest, so the comment beside MUTATED_REGIMENS "
-        "describes a different control"
-    )
-    assert displacement["shipped"] == pytest.approx(6.8764, abs=5e-5), (
-        f"the shipped mutation's exact-law displacement is {displacement['shipped']:.4f}, and "
-        f"the comment beside MUTATED_REGIMENS quotes 6.8764"
-    )
+        spread = float(positive["empirical_se"].iloc[0])
+        displacement = {
+            name: abs(_regimen_mean(rule) - base) / spread
+            for name, rule in {"shipped": shipped, **alternatives}.items()
+        }
+        for name, value in displacement.items():
+            assert value > 10.0 * shared.RULE_DISPLACEMENT, (
+                f"{study.slug}'s {name} mutation has exact-law displacement {value:.2f}, close "
+                f"to the {shared.RULE_DISPLACEMENT} floor"
+            )
+        assert displacement["shipped"] == max(displacement.values()), (
+            "the shipped mutation is no longer the largest, so the shared comment describes a "
+            "different control"
+        )
+        if study is ordinary.STUDY:
+            assert displacement["shipped"] == pytest.approx(6.8764, abs=5e-5), (
+                "the ordinary study's shipped exact-law displacement moved from the value "
+                "quoted beside MUTATED_REGIMENS"
+            )
 
 
 def _mechanism_design(

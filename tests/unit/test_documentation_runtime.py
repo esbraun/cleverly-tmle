@@ -43,8 +43,8 @@ notebook's name.
 **A reader-facing notebook carries an execution stamp instead, and half of that stamp is
 gated.** ``tests/notebooks.py`` says which half and why. The gated half covers the notebook's
 own code cells and stored outputs, so this module asserts it equal. The recorded half names the
-checkout that ran the notebook, so this module asserts it present and well formed and never
-asserts it equal. The stamp is not provenance-complete, and this module does not claim that it
+repository context, so this module asserts it present and well formed and never asserts it equal.
+The stamp is not provenance-complete, and this module does not claim that it
 is: it reaches no markdown cell, no cell metadata such as the ``tags`` ``myst-nb`` reads, and no
 notebook metadata such as ``kernelspec``.
 ``python scripts/execute_notebook.py <path> --check`` covers what a digest comparison cannot: a
@@ -78,6 +78,15 @@ SMALL_N = 200
 #: Conditional-density bins.  The documented value is tuned for a readable support report on a
 #: few thousand rows; at :data:`SMALL_N` it is only a cost.
 SMALL_BINS = 8
+
+#: MyST forms that render Python but :func:`tests.documents.python_blocks` does not execute.
+#: The runtime gate supports one house form, so a new alias must fail rather than bypass it.
+ALTERNATE_PYTHON_BLOCK = re.compile(
+    r"^(?:```(?:py|python3|ipython3)[ \t]*$|~~~(?:py|python)[ \t]*$|"
+    r"```\{(?:code-block|code-cell)\}[ \t]+(?:python|ipython3)[ \t]*$|"
+    r"\.\. code-block:: python[ \t]*$)",
+    re.MULTILINE,
+)
 
 
 class Shrink(ast.NodeTransformer):
@@ -223,7 +232,7 @@ def test_every_documented_example_is_registered() -> None:
 
     A notebook stores its Python in cells rather than in a fence, so it never enters
     :func:`documented` and needs no exemption here.  Its own gate is
-    :func:`test_every_notebook_is_a_current_successfully_executed_artifact`, parametrized over
+    :func:`test_every_notebook_has_an_internally_consistent_execution_artifact`, parametrized over
     the same document set.
     """
     unregistered = documented() - set(PRELUDES)
@@ -231,6 +240,36 @@ def test_every_documented_example_is_registered() -> None:
         f"reader-facing document(s) with Python and no runtime gate: {sorted(unregistered)}. "
         f"Add a PRELUDES entry for Markdown, or commit a stamped notebook artifact"
     )
+
+
+def test_every_python_example_uses_the_executable_house_fence() -> None:
+    """A MyST Python alias must not render while bypassing the runtime gate."""
+    unsupported = [
+        path.relative_to(ROOT).as_posix()
+        for path in READER_FACING
+        if path.suffix in {".md", ".rst"}
+        and ALTERNATE_PYTHON_BLOCK.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not unsupported, (
+        f"Python blocks in {unsupported} bypass tests.documents.python_blocks; use ```python"
+    )
+
+
+@pytest.mark.parametrize(
+    "opening",
+    (
+        "```py",
+        "```python3",
+        "```ipython3",
+        "~~~python",
+        "```{code-block} python",
+        "```{code-cell} ipython3",
+        ".. code-block:: python",
+    ),
+)
+def test_each_rendered_python_alias_is_recognized_as_unsupported(opening: str) -> None:
+    """The house-syntax guard needs a witness for every alias it refuses."""
+    assert ALTERNATE_PYTHON_BLOCK.search(f"# Example\n{opening}\nprint(1)\n```")
 
 
 def test_the_registry_names_real_documents() -> None:
@@ -246,8 +285,8 @@ def test_the_registry_names_real_documents() -> None:
     NOTEBOOKS,
     ids=lambda path: path.relative_to(ROOT).as_posix(),
 )
-def test_every_notebook_is_a_current_successfully_executed_artifact(path: Path) -> None:
-    """Every published notebook stores successful outputs from its own code cells."""
+def test_every_notebook_has_an_internally_consistent_execution_artifact(path: Path) -> None:
+    """Every notebook's stamp still matches its successful stored code and output payload."""
     notebook = nbformat.read(path, as_version=4)
     code = code_cells(notebook)
     relative = path.relative_to(ROOT).as_posix()
@@ -278,9 +317,9 @@ def test_every_notebook_is_a_current_successfully_executed_artifact(path: Path) 
         f"whose command is {expected['command']!r}; restamp the notebook"
     )
     assert execution.get("gated") == expected["gated"], (
-        f"{relative} stores outputs its own code cells did not produce. Both digests here are "
-        f"computed from the notebook alone, so no library or lockfile edit can move them. "
-        f"Run {expected['command']}"
+        f"{relative} changed after its execution stamp was written. Both digests here are "
+        f"computed from the notebook alone, so this gate detects internal edits rather than "
+        f"proving which process produced them. Run the command arguments {expected['command']}"
     )
 
 
@@ -289,8 +328,8 @@ def test_every_notebook_is_a_current_successfully_executed_artifact(path: Path) 
     NOTEBOOKS,
     ids=lambda path: path.relative_to(ROOT).as_posix(),
 )
-def test_every_notebook_identifies_the_checkout_that_ran_it(path: Path) -> None:
-    """The recorded half names the run, and no library edit can fail this.
+def test_every_notebook_records_its_repository_context(path: Path) -> None:
+    """The recorded half fingerprints the run's repository context.
 
     Asserted present and well formed, and deliberately not asserted equal.  An equality gate
     over the shipped source tree and the dependency lock fails the default handoff gate on any
@@ -299,9 +338,9 @@ def test_every_notebook_identifies_the_checkout_that_ran_it(path: Path) -> None:
     manifest, and ``docs/development/method-benchmarking.md`` states the rule: re-execution is
     what keeps an artifact honest, and a hash comparison is not re-execution.
 
-    These three digests name a run rather than a working tree, so a stamp rewritten without a
-    re-execution carries them forward unchanged.  Recomputing them would make the notebook
-    claim that a checkout which never ran it produced its outputs.
+    These three digests fingerprint the run rather than the current working tree.  A stamp
+    rewritten without a re-execution carries them forward unchanged.  Recomputing them would
+    attach the current context to outputs that it did not produce.
 
     ``generator_files`` is the exception, and it is checked against the current definition
     rather than carried.  A digest is only recomputable by whoever still has the formula behind
@@ -326,19 +365,22 @@ def test_every_notebook_identifies_the_checkout_that_ran_it(path: Path) -> None:
     )
     assert not malformed, (
         f"{relative} records {malformed} as something other than a SHA-256 digest, so the "
-        f"stamp no longer identifies the checkout that ran the notebook"
+        f"stamp no longer carries a valid repository-context fingerprint"
     )
 
     assert recorded["generator_files"] == list(GENERATOR_MODULES), (
         f"{relative} folded {recorded['generator_files']} into its generator digest and this "
-        f"checkout defines {list(GENERATOR_MODULES)}. The stored digest was produced by a "
-        f"formula that no longer exists, so it names no checkout. Re-execute the notebook "
-        f"rather than carrying the value forward"
+        f"checkout defines {list(GENERATOR_MODULES)}. The current schema cannot interpret that "
+        f"stored generator digest. Re-execute the notebook rather than carrying the value forward"
     )
     assert str(recorded["cleverly_commit"]) == UNKNOWN or re.fullmatch(
         r"[0-9a-f]{40}", str(recorded["cleverly_commit"])
     ), f"{relative} records a commit that is neither a revision nor {UNKNOWN!r}"
     assert isinstance(recorded["cleverly_version"], str) and recorded["cleverly_version"]
+    if recorded["cleverly_commit"] == UNKNOWN:
+        assert recorded["cleverly_worktree_clean"] is None
+    else:
+        assert isinstance(recorded["cleverly_worktree_clean"], bool)
 
 
 def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
@@ -380,6 +422,44 @@ def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
     assert "NaN" not in ordinary_tmle_row, (
         "the ordinary package TMLE lost its confidence interval in the comparison figure"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    NOTEBOOKS,
+    ids=lambda path: path.relative_to(ROOT).as_posix(),
+)
+def test_every_published_figure_has_a_non_image_companion(path: Path) -> None:
+    """An image-only result cannot participate in the deterministic ``--check`` comparison."""
+    notebook = nbformat.read(path, as_version=4)
+    unsupported = []
+    for cell in code_cells(notebook):
+        has_image = any(
+            mime.startswith("image/")
+            for output in cell.get("outputs", ())
+            for mime in output.get("data", {})
+        )
+        if not has_image:
+            continue
+        has_companion = any(
+            str(output.get("text", "")).strip()
+            or any(
+                not mime.startswith("image/")
+                and (
+                    mime != "text/plain"
+                    or not str(payload).lstrip().startswith(("<Figure", "Figure("))
+                )
+                for mime, payload in output.get("data", {}).items()
+            )
+            for output in cell.get("outputs", ())
+        )
+        if not has_companion:
+            unsupported.append(cell["id"])
+
+    assert not unsupported, (
+        f"{path.relative_to(ROOT).as_posix()} has image-only cell(s) {unsupported}; publish the "
+        "plotted values as text, HTML, or JSON so --check can compare them"
     )
 
 

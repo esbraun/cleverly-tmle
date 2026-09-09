@@ -44,11 +44,10 @@ exclude_patterns = [
     "**/.ipynb_checkpoints",
 ]
 
-# The notebook executor stamps every committed output against its own code cells, and records
-# the checkout that produced it. The fast tier discovers every reader-facing notebook and
-# asserts that an edited cell cannot keep an older run's outputs. Documentation builds therefore
-# stay deterministic, offline, and quick: they render stored outputs without downloading data or
-# refitting estimators.
+# The notebook executor stamps each committed code and output payload, and records the repository
+# context of the run. The fast tier detects edits made after stamping. It does not infer that one
+# payload produced the other. Documentation builds stay deterministic, offline, and quick because
+# they render stored outputs without downloading data or refitting estimators.
 nb_execution_mode = "off"
 
 myst_enable_extensions = [
