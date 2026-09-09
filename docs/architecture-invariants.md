@@ -192,6 +192,17 @@ The deferral gate reads the capability status, not the supplied argument names. 
 present with a refused value defers the same operation as an absent argument. The E-value defers on
 `estimand=None`, which is its public default.
 
+An ambiguous default estimand is a deferral on both facades. Several operations default to
+`estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
+no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
+`unavailable`, because no argument makes a missing derivation run.
+
+One predicate decides that ambiguity. Both the request-level capability resolution and the facade's
+own parameter substitution read it. Written twice, the two disagreed: the substitution declined to
+guess between two contrasts while the row beside it still advertised the analysis as runnable. The
+combined report then invoked the operation and published the refusal as `unavailable`, under a next
+step that named no argument.
+
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not
 patch one row by name. `refute` read its slot only while running, and so reported `available=True`

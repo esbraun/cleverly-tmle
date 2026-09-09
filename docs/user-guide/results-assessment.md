@@ -229,12 +229,30 @@ verdict. `completed` means a descriptive analysis ran without an inferential ver
 uses an existing diagnostic rule.
 
 `deferred` means that the same operation can run after the caller supplies a required choice or
-cost opt-in. An ambiguous default E-value is deferred when an explicit estimand can run. These
-rows keep their next step and remain in `omissions`.
+cost opt-in. These rows keep their next step and remain in `omissions`.
 
-An expected refusal after invocation becomes `unavailable`. The aggregate run then continues with
-other accepted diagnostics. Direct calls still raise the precise refusal. `not_applicable` and
-`unavailable` also appear in `omissions`.
+An ambiguous default estimand is one such choice. The operations below answer for one parameter
+and default to `estimand="ate"`. A multi-arm fit reports no bare `ate`, so the caller owns the
+choice. The report defers each of these rows and names `estimand` in the next step.
+
+| operation | facade |
+| --- | --- |
+| `evalue()` | `sensitivity` |
+| `omitted_confounding()` | `sensitivity` |
+| `robustness_value()` | `sensitivity` |
+| `elements()` | `sensitivity` |
+| `contour()` | `sensitivity` |
+| `tipping_gamma()` | `sensitivity` |
+| `refute()` | `diagnostics` |
+
+Pass the parameter through `arguments=` to run the row. The row is available again for that
+request. A fit that reports exactly one eligible parameter needs no argument. A sensitivity analysis
+supplies that name for you. `refute()` is the exception, and it accepts no supplied name.
+
+An expected refusal after invocation becomes `unavailable`. An estimand you name that the fit never
+reported is such a refusal. The aggregate run then continues with other accepted diagnostics.
+Direct calls still raise the precise refusal. `not_applicable` and `unavailable` also appear in
+`omissions`.
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
 contrast and a missingness analysis without missing outcomes. An operation can also refuse after

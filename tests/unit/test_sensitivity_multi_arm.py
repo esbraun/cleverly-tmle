@@ -521,16 +521,59 @@ class TestTheRestOfTheFacade:
         This fit reports seven arm-indexed linear parameters.  Substituting the first --
         which is what filling the gap by position amounts to -- answers about whichever
         one the report happens to order first, with nothing in the returned bound to say
-        which.  The refusal instead names every parameter the bound is available for, and
-        a combined report carries that same sentence rather than a silent number.
+        which.  A direct call therefore hears the bound name every parameter it could
+        have answered for.
         """
         with pytest.raises(ValueError, match=r"available for .*'ate\[high vs low\]'"):
             exact_fit.sensitivity.omitted_confounding()
 
+    def test_the_combined_report_defers_that_choice_to_the_caller(self, exact_fit: Any) -> None:
+        """The same missing choice, read from the report rather than from the exception.
+
+        This row said ``unavailable`` while the E-value beside it said ``deferred`` for
+        the identical missing estimand, so one report carried two taxonomies for one
+        cause.  ``unavailable`` is the answer a fit gives when nothing the caller writes
+        makes the operation run, and the next line writes exactly that argument.  The
+        next step also named no argument: it said to call the method "for the refusal in
+        full", which is the instruction to go and read the sentence again.
+        """
         item = exact_fit.sensitivity.run_all()["omitted_confounding"]
-        assert item.status == "unavailable"
-        assert "declined this request" in item.detail
+        assert item.status == "deferred"
+        assert "choose an explicit estimand" in item.detail
         assert "ate[high vs low]" in item.detail
+        assert item.next_steps == (
+            "call result.sensitivity.omitted_confounding() directly with estimand",
+        )
+
+        exact_fit.assessment_cache.clear()
+        chosen = "ate[high vs low]"
+        completed = exact_fit.sensitivity.run_all(
+            arguments={"omitted_confounding": {"estimand": chosen}}
+        )["omitted_confounding"]
+        assert completed.status == "completed"
+        assert completed.arguments["estimand"] == chosen
+        exact_fit.assessment_cache.clear()
+
+    def test_an_estimand_this_fit_never_reported_stays_unavailable(self, exact_fit: Any) -> None:
+        """The deferral is for an *ambiguous* default, not for every refused estimand.
+
+        The bound's own sentence conflates the two: "estimand 'ate' was not requested in
+        this fit" is what a caller hears both when they named nothing and when they named
+        a parameter the fit does not report.  Only the first is a choice the caller has
+        left open.  Reporting the second as ``deferred`` would tell the caller to supply
+        the argument they just supplied.
+        """
+        report = exact_fit.sensitivity.run_all(
+            arguments={
+                "omitted_confounding": {"estimand": "ate[nope vs low]"},
+                "elements": {"estimand": "rr"},
+            }
+        )
+        assert report["omitted_confounding"].status == "unavailable"
+        assert "was not requested in this fit" in report["omitted_confounding"].detail
+        assert report["elements"].status == "unavailable"
+        assert "applies to" in report["elements"].detail
+        exact_fit.assessment_cache.clear()
 
     def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, missing_fit: Any) -> None:
         calibrated = missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
@@ -811,6 +854,56 @@ class TestTheTiltReportsWhatEachArmReceived:
         frame = missingness_tilt(missing_fit, [1.5])
         for label in ("low", "mid", "high"):
             assert set(frame[f"gamma[{label}]"]) == {1.5}
+
+
+class TestTheTippingSearchDefersItsChoiceBeforeItsCost:
+    """``tipping_gamma`` needs an estimand *and* an opt-in, and one of them comes first.
+
+    The row sits behind ``include_retargets`` as well as behind the ambiguous default, so
+    it is the witness for the gate order this facade declares: caller deferral, then
+    availability, then required arguments, then cost.  A report that named the flag first
+    would send the caller to ``include_retargets=True`` and then, on the very next run, to
+    the estimand it had not mentioned.  The refusal names the first thing that is wrong.
+    """
+
+    def test_the_estimand_is_named_before_the_retarget_flag(self, missing_fit: Any) -> None:
+        item = missing_fit.sensitivity.run_all()["tipping_gamma"]
+
+        assert item.status == "deferred"
+        assert "choose an explicit estimand" in item.detail
+        assert "include_retargets" not in item.detail
+        assert item.next_steps == (
+            "call result.sensitivity.tipping_gamma() directly with estimand",
+        )
+        # The paired witness: the tilt beside it takes no estimand, so its own deferral
+        # still names the cost.  Without it these assertions would pass on a report that
+        # had simply stopped mentioning the flag.
+        assert "include_retargets" in missing_fit.sensitivity.run_all()["missingness"].detail
+        missing_fit.assessment_cache.clear()
+
+    def test_it_runs_once_the_caller_names_one(self, missing_fit: Any) -> None:
+        """The deferral is the caller's to lift, which is what separates it from
+        unavailable."""
+        report = missing_fit.sensitivity.run_all(
+            include_retargets=True,
+            arguments={"tipping_gamma": {"estimand": "ate[mid vs low]"}},
+        )
+        item = report["tipping_gamma"]
+
+        assert item.status == "completed"
+        assert item.arguments["estimand"] == "ate[mid vs low]"
+        assert report.report("tipping_gamma") == pytest.approx(
+            tipping_gamma(missing_fit, "ate[mid vs low]")
+        )
+        missing_fit.assessment_cache.clear()
+
+    def test_a_flag_alone_does_not_lift_it(self, missing_fit: Any) -> None:
+        """Paying the cost must not turn the choice into a guess."""
+        item = missing_fit.sensitivity.run_all(include_retargets=True)["tipping_gamma"]
+
+        assert item.status == "deferred"
+        assert "choose an explicit estimand" in item.detail
+        missing_fit.assessment_cache.clear()
 
 
 class TestRawEValuesUseFittedArmIdentity:

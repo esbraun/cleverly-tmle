@@ -460,6 +460,42 @@ carry the capability's reason and remain `unavailable` or `not_applicable`. An e
 after invocation becomes `unavailable` and retains the bound invocation arguments. The report
 continues with other accepted operations. Structural errors still propagate.
 
+#### The ambiguous default estimand
+
+The operations below declare `estimand="ate"` and answer for one parameter. A fit that reports a
+bare `ate` settles that default. A multi-arm fit reports `ate[high vs low]` and `ate[medium vs
+low]`, so it settles nothing. The caller then owns the choice. The row reports `deferred`, and its
+next step names `estimand`.
+
+| operation | facade |
+| --- | --- |
+| `evalue` | sensitivity |
+| `omitted_confounding` | sensitivity |
+| `robustness_value` | sensitivity |
+| `elements` | sensitivity |
+| `contour` | sensitivity |
+| `tipping_gamma` | sensitivity |
+| `refute` | diagnostics |
+
+The count of eligible reported parameters selects the answer.
+
+| eligible parameters | the combined report |
+| --- | --- |
+| the fit reports a bare `ate` | runs the operation |
+| exactly one, on a sensitivity route | supplies that name, then runs the operation |
+| two or more | reports `deferred` and names `estimand` |
+| none | keeps the fit's own refusal, which is `not_applicable` or `unavailable` |
+
+`refute` accepts no supplied name. A fit that reports one eligible alias and no bare `ate` gives
+`refute` an `unavailable` row.
+
+`simulated_confounding` shares the same default and is not in the table. It declares `estimand` in
+`requires_arguments` beside `grid`, so the required-argument gate defers its row and names both.
+
+An estimand the caller names is never a deferral. A name the fit never reported, an unsupported
+contrast, a missing derivation, and a missing replay artifact all report `unavailable`. The facade
+resolves the deferral for each request, so a supplied `estimand` makes the row available again.
+
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
 declares, for each operation and each result family, the answer, the required artifacts, the cost,

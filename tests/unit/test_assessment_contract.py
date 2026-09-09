@@ -437,6 +437,178 @@ def test_a_saved_facade_carries_no_verdict_it_memoized(multi_arm_result, tmp_pat
     assert revived.run_all()["evalue"] == fresh
 
 
+#: Every operation that declares ``estimand="ate"`` and answers for one parameter, with
+#: the facade it lives on.  ``evalue`` is covered above, and it was the only one of the
+#: seven whose ambiguous default reported ``deferred``: the rest refused during invocation
+#: and left the generic handler to publish ``unavailable`` with a next step that named no
+#: argument.  One report then carried two taxonomies for one cause.
+#:
+#: ``tipping_gamma`` is the seventh and is missing here on purpose. It needs a fitted
+#: missingness mechanism, which this fixture has none of, so
+#: ``test_sensitivity_multi_arm.py::TestTheTippingSearchDefersItsChoiceBeforeItsCost``
+#: covers it on a fit that does. It is also the only one that sits behind a cost flag as
+#: well, which is what that class checks the order of.
+_AMBIGUOUS_DEFAULT_OPERATIONS = [
+    ("sensitivity", "omitted_confounding"),
+    ("sensitivity", "robustness_value"),
+    ("sensitivity", "elements"),
+    ("sensitivity", "contour"),
+    ("diagnostics", "refute"),
+]
+
+#: Flags that pay for every row above, so a cost gate can never be what these tests read.
+_PAID = {"include_refits": True, "include_retargets": True}
+
+
+@pytest.mark.parametrize("facade,operation", _AMBIGUOUS_DEFAULT_OPERATIONS)
+def test_an_ambiguous_default_estimand_defers_and_runs_once_it_is_named(  # type: ignore[no-untyped-def]
+    multi_arm_result, facade: str, operation: str
+) -> None:
+    """A choice the caller can make is a deferral, and the caller then makes it.
+
+    Both halves matter and only together. The first is the taxonomy: this fit reports two
+    contrasts and no bare ``"ate"``, which is a missing choice rather than a missing
+    derivation, and the report says which argument settles it. The second is that the
+    argument really does settle it. ``_skipped`` defers on the status alone, so a row that
+    stayed ``deferred`` once the estimand arrived would defer for ever, and the first half
+    would read exactly the same.
+    """
+    surface = getattr(multi_arm_result, facade)
+    item = surface.run_all(**_PAID)[operation]
+
+    assert item.status is AssessmentStatus.DEFERRED
+    assert "choose an explicit estimand" in item.detail
+    assert sorted(multi_arm_result.estimates)[0] in item.detail
+    assert item.next_steps == (f"call result.{facade}.{operation}() directly with estimand",)
+    multi_arm_result.assessment_cache.clear()
+
+    chosen = next(iter(multi_arm_result.estimates))
+    completed = surface.run_all(**_PAID, arguments={operation: {"estimand": chosen}})[operation]
+    assert completed.status not in {
+        AssessmentStatus.DEFERRED,
+        AssessmentStatus.NOT_APPLICABLE,
+        AssessmentStatus.UNAVAILABLE,
+    }
+    assert completed.arguments["estimand"] == chosen
+    multi_arm_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize("facade,operation", _AMBIGUOUS_DEFAULT_OPERATIONS)
+def test_the_public_default_spelled_out_defers_exactly_as_the_bare_request_does(  # type: ignore[no-untyped-def]
+    multi_arm_result, facade: str, operation: str
+) -> None:
+    """One request, spelled two ways, may not reach two statuses.
+
+    ``estimand=None`` asks for the documented default. The gate therefore reads the
+    supplied *value* rather than the key, which is the split verdict the E-value row met
+    first: the membership test let this spelling through to the invocation, and the
+    refusal came back as ``unavailable`` while the bare request said ``deferred``.
+    """
+    surface = getattr(multi_arm_result, facade)
+    bare = surface.run_all(**_PAID)[operation]
+    multi_arm_result.assessment_cache.clear()
+    spelled = surface.run_all(**_PAID, arguments={operation: {"estimand": None}})[operation]
+
+    assert spelled.status is bare.status is AssessmentStatus.DEFERRED
+    assert spelled.detail == bare.detail
+    assert spelled.next_steps == bare.next_steps
+    multi_arm_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize("facade,operation", _AMBIGUOUS_DEFAULT_OPERATIONS)
+def test_an_estimand_the_caller_named_and_the_fit_never_reported_stays_unavailable(  # type: ignore[no-untyped-def]
+    multi_arm_result, facade: str, operation: str
+) -> None:
+    """Only the ambiguity moved. A refused *name* is still an unavailable operation.
+
+    These operations say "estimand 'ate' was not requested in this fit" for both cases,
+    which is why they have to be told apart here rather than by the sentence. Reporting a
+    name the fit does not report as ``deferred`` would answer the caller's explicit
+    argument by asking for that argument again.
+    """
+    surface = getattr(multi_arm_result, facade)
+    item = surface.run_all(**_PAID, arguments={operation: {"estimand": "ate[nope vs low]"}})[
+        operation
+    ]
+
+    assert item.status is AssessmentStatus.UNAVAILABLE
+    assert "declined this request" in item.detail
+    multi_arm_result.assessment_cache.clear()
+
+
+@pytest.mark.parametrize("facade,operation", _AMBIGUOUS_DEFAULT_OPERATIONS)
+def test_a_reported_ate_settles_the_choice_and_nothing_defers(  # type: ignore[no-untyped-def]
+    point_result, facade: str, operation: str
+) -> None:
+    """The control: the deferral is the fit's ambiguity, not a new demand on every fit.
+
+    A two-armed fit reports a bare ``"ate"``, which is what every one of these operations
+    defaults to, so there is no choice left open and the row runs argument-free. Without
+    this the tests above would pass on a change that deferred these rows unconditionally.
+    """
+    surface = getattr(point_result, facade)
+    assert surface._estimand_candidates(operation) == ()
+    item = surface.run_all(**_PAID)[operation]
+
+    assert item.status not in {
+        AssessmentStatus.DEFERRED,
+        AssessmentStatus.NOT_APPLICABLE,
+        AssessmentStatus.UNAVAILABLE,
+    }
+    point_result.assessment_cache.clear()
+
+
+def test_a_saved_aggregate_from_before_the_deferral_is_not_replayed(  # type: ignore[no-untyped-def]
+    multi_arm_result, tmp_path
+) -> None:
+    """The migration case: the stale row is inside the artifact, not in the code.
+
+    ``run_all`` is cached on the result and ``save`` writes that cache, so a multi-arm
+    result saved before this change carries a combined report whose bound says
+    ``unavailable`` with no argument to act on. The cache key is what rejects it, so both
+    aggregates carry a generation and both had to move. Without the bump the loaded result
+    hits the old entry and republishes the old taxonomy.
+    """
+    result = dataclasses.replace(multi_arm_result)
+    fresh = result.sensitivity.run_all()
+    assert fresh["omitted_confounding"].status is AssessmentStatus.DEFERRED
+
+    current = next(key for key in result.assessment_cache if key.startswith("sensitivity.run_all:"))
+    result.assessment_cache.clear()
+    result.assessment_cache[_with_cache_generation(current, 1)] = "a verdict from before"
+    restored = load(result.save(tmp_path / "stale-multi-arm-aggregate.joblib"))
+
+    assert restored.sensitivity.run_all() == fresh
+    assert restored.diagnostics.run_all()["refute"].status is AssessmentStatus.DEFERRED
+
+
+def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) -> None:  # type: ignore[no-untyped-def]
+    """The deferral and the filled-in argument must not be able to disagree.
+
+    ``_with_default_parameter`` declined to guess between two contrasts while the row
+    beside it advertised the analysis as runnable, and that split is the whole defect:
+    the combined report invoked an operation its own capability had already decided it
+    could not choose an argument for. Both now read
+    :meth:`_CapabilityFacade._estimand_candidates`, so this asserts the two answers
+    against the one predicate rather than against each other.
+    """
+    facade = multi_arm_result.sensitivity
+    candidates = facade._estimand_candidates("omitted_confounding")
+
+    assert len(candidates) > 1
+    assert set(candidates) == set(multi_arm_result.estimates)
+    # Ambiguous, so nothing is substituted and the row defers.
+    assert facade._with_default_parameter("omitted_confounding", (), {}) == ()
+    assert facade._capability_for_arguments("omitted_confounding", {}).status is (
+        AssessmentStatus.DEFERRED
+    )
+    # Named, so the row is the declared one again and the operation runs.
+    chosen = candidates[0]
+    resolved = facade._capability_for_arguments("omitted_confounding", {"estimand": chosen})
+    assert resolved == facade.capability("omitted_confounding")
+    assert resolved.available and resolved.requires_arguments == ()
+
+
 @dataclasses.dataclass(frozen=True)
 class _DelegatingBackdoorProvider:
     """A custom ``IdentificationProvider`` that reuses the built-in backdoor derivation.
@@ -777,13 +949,13 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
 
     result.assessment_cache.clear()
     legacy_keys = {_without_cache_generation(key) for key in versioned}
-    generation_one_keys = {
-        _with_cache_generation(key, 1)
-        for key in versioned
-        if not key.startswith("sensitivity.run_all:")
-    }
+    # Generation one covers the sensitivity aggregate's own immediately previous version:
+    # both aggregates now report ``deferred`` where they reported ``unavailable`` for an
+    # ambiguous default estimand, and a result saved before that carries the old row in
+    # its own cache.
+    generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
     previous_diagnostic_aggregate = {
-        _with_cache_generation(key, 5)
+        _with_cache_generation(key, 6)
         for key in versioned
         if key.startswith("diagnostics.run_all:")
     }

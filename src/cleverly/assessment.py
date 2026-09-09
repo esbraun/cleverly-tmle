@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
@@ -1077,6 +1077,47 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     )
 
 
+def _default_estimand_candidates(result: Any, eligible: Container[str]) -> tuple[str, ...]:
+    """Reported parameters an operation defaulting to ``"ate"`` is left to choose between.
+
+    Seven operations across the two facades declare ``estimand="ate"`` and answer for one
+    parameter: the four omitted-variable analyses, ``tipping_gamma``,
+    ``simulated_confounding`` and ``refute``.  A fit that reports a bare ``"ate"`` settles
+    the choice, and this returns nothing.  A fit that reports none has to be asked which
+    one, and the answer separates three cases a combined report has to tell apart:
+
+    ============ =============================================================
+    length       what the caller is owed
+    ============ =============================================================
+    ``0``        nothing the operation applies to, so no argument makes it run
+    ``1``        the sole eligible parameter, which a facade may substitute
+    ``2`` upward the ambiguity only the caller can settle, which is a deferral
+    ============ =============================================================
+
+    The length-zero and the length-two answers are the two the report used to give one
+    status.  A multi-arm fit reports ``ate[high vs low]`` and ``ate[medium vs low]``, and
+    the bound refuses the bare default with "estimand 'ate' was not requested in this
+    fit", which is also what an incremental fit hears when the bound applies to nothing it
+    reports.  The first is a choice; the second is a missing derivation.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result whose reported parameters settle the choice.
+    eligible : container of str
+        Names the operation can answer for. Reported parameters outside it are not
+        choices, so they are not counted towards the ambiguity.
+
+    Returns
+    -------
+    tuple of str
+        The eligible reported names, in the order the fit reports them.
+    """
+    if "ate" in result.estimates:
+        return ()
+    return tuple(name for name in result.estimates if name in eligible)
+
+
 def _without_memos(owner: type, state: Mapping[str, Any]) -> dict[str, Any]:
     """Instance state without the entries a ``cached_property`` on ``owner`` owns."""
     return {
@@ -1188,11 +1229,90 @@ class _CapabilityFacade:
             )
         return item
 
+    def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
+        """Reported parameters this operation is left to choose between, or ``()``.
+
+        The one place either facade decides whether a fit leaves an operation's estimand
+        ambiguous.  :meth:`_estimand_gated` reads it to defer the row, and
+        :meth:`SensitivityFacade._with_default_parameter` reads it to substitute the sole
+        eligible name.  Written twice, the two disagreed: the substitution declined to
+        guess between two contrasts and the row still advertised itself as runnable, so a
+        combined report invoked the operation and published the refusal as ``unavailable``
+        with a next step that named no argument.
+
+        An operation that takes no ``estimand``, or whose default this fit settles,
+        returns ``()`` and is never gated.  :func:`_default_estimand_candidates` states
+        what each length means.
+
+        Parameters
+        ----------
+        operation : str
+            Declared operation on this facade.
+
+        Returns
+        -------
+        tuple of str
+            Eligible reported names, empty for an operation that faces no choice.
+        """
+        return ()
+
+    def _estimand_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Defer a row whose ``estimand`` default this fit leaves ambiguous.
+
+        The deferral is resolved per request, exactly as the E-value's is.  A caller who
+        names a supported estimand gets the row back untouched and the operation runs, so
+        the row cannot stay deferred once the argument that lifts it is supplied. That
+        matters because :meth:`_skipped` defers unconditionally on the status.
+
+        Only the ambiguity moves.  An operation the fit refuses outright keeps its own
+        ``unavailable`` answer, because no argument makes a missing derivation, a missing
+        replay artifact or an unsupported contrast run.
+
+        Parameters
+        ----------
+        capability : AssessmentCapability
+            The declared row, already gated by method and by replayability.
+        arguments : mapping of str to Any
+            Arguments the caller supplied for this operation.
+
+        Returns
+        -------
+        AssessmentCapability
+            The row, deferred on the estimand when this request leaves it ambiguous.
+        """
+        if not capability.available:
+            # An availability refusal outranks a choice: the caller cannot name their way
+            # past a derivation this family does not have.
+            return capability
+        if "estimand" in capability.requires_arguments:
+            # ``simulated_confounding`` already declares the argument, so the
+            # missing-argument gate reports it and names ``grid`` beside it.
+            return capability
+        if arguments.get("estimand") is not None:
+            # Read the value, not the key. ``estimand=None`` is the documented public
+            # default, so that spelling has to defer exactly as the bare request does.
+            return capability
+        candidates = self._estimand_candidates(capability.operation)
+        if len(candidates) < 2:
+            return capability
+        return replace(
+            capability,
+            available=False,
+            status=AssessmentStatus.DEFERRED,
+            reason=(
+                f"{capability.operation} answers for one estimand; choose an explicit "
+                f"estimand from {list(candidates)}"
+            ),
+            requires_arguments=(*capability.requires_arguments, "estimand"),
+        )
+
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
         """Resolve request-specific availability and cost before aggregate execution."""
-        return self.capability(operation)
+        return self._estimand_gated(self.capability(operation), arguments)
 
     def _skipped(
         self,
@@ -1610,6 +1730,35 @@ class DiagnosticsFacade(_CapabilityFacade):
     @cached_property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         return assessment_capabilities(self._result)
+
+    def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
+        """The reported aliases ``refute`` may be asked to choose between.
+
+        ``refute`` refits under one alias and refuses every name the fit did not report,
+        so its eligible set is the reported set itself.  It needs no sensitivity routing
+        to say so: :data:`SENSITIVITY_ROUTES` answers a different question, which is where
+        in :mod:`cleverly.sensitivity` an analysis is implemented, and this facade routes
+        to :func:`cleverly.validation.refute`.
+
+        No substitution follows from a single candidate here.  The sensitivity facade may
+        fill in a sole eligible parameter because its routes take the estimand positionally
+        and it has always done so; ``refute`` has no such default, and inventing one would
+        start refitting under a name the caller never wrote.  Only the ambiguity is
+        reported, which is the length this facade acts on.
+
+        Parameters
+        ----------
+        operation : str
+            Declared diagnostic operation.
+
+        Returns
+        -------
+        tuple of str
+            Reported aliases for ``refute``, and ``()`` for every other diagnostic.
+        """
+        if operation != "refute":
+            return ()
+        return _default_estimand_candidates(self._result, self._result.estimates)
 
     def stagewise(self) -> LongitudinalDiagnostics:
         """Return support and targeting diagnostics by longitudinal stage.
@@ -3068,8 +3217,48 @@ class SensitivityFacade(_CapabilityFacade):
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
         if operation == "evalue":
+            # The E-value selects for itself from a ``None`` sentinel rather than through
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
+
+    def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
+        """The reported parameters a routed sensitivity analysis may be asked to choose.
+
+        ``needs_estimand`` says whether the route's second positional argument is an
+        estimand at all, so a route that takes ``covariates`` or ``gamma`` there faces no
+        choice and is never gated.
+
+        ``simulated_confounding`` answers for ratio and population attributable contrasts
+        too, so it consults its own eligible set first and falls back to the linear set
+        when that set names no single parameter. The rest are functionals of one linear
+        contrast, and their eligible set is the arm-indexed one.
+
+        Parameters
+        ----------
+        operation : str
+            Declared sensitivity operation.
+
+        Returns
+        -------
+        tuple of str
+            Eligible reported names, empty when the route settles its own estimand.
+        """
+        if not SENSITIVITY_ROUTES[operation].needs_estimand:
+            return ()
+        if operation == "simulated_confounding":
+            from .sensitivity._simulated_confounding_request import (
+                _eligible_binary_parameter_names,
+            )
+
+            binary = _default_estimand_candidates(
+                self._result, _eligible_binary_parameter_names(self._result)
+            )
+            if len(binary) == 1:
+                return binary
+        from .sensitivity._parameters import arm_parameters
+
+        return _default_estimand_candidates(self._result, arm_parameters(self._result))
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
         """Bound omitted-confounder bias for a reported estimand.
@@ -3294,17 +3483,16 @@ class SensitivityFacade(_CapabilityFacade):
         first would answer about ``ey1`` on an ``ey1``/``ey0`` fit, silently returning a
         statement about a counterfactual mean to someone who asked about an effect.
 
-        ``simulated_confounding`` also answers for ratio and population attributable
-        contrasts. It consults its own eligible set first, including ordinary-TMLE ATT
-        and ATC targets. It falls back to the linear set when its eligible set does not name
-        exactly one parameter. Unsupported variants then receive the selected alias and
-        explain their source boundary.
+        Which parameters are eligible is :meth:`_estimand_candidates`, and a combined
+        report reads the same method to decide that the row is deferred rather than
+        unavailable.  Both answers have to come from one predicate: while they did not,
+        this method declined to guess between two contrasts and the row beside it still
+        said the analysis was runnable.
 
-        When the choice stays ambiguous this returns the arguments untouched and the
-        analysis refuses for itself.
+        A direct call still hears the analysis refuse for itself when the choice stays
+        ambiguous, and that refusal names every parameter it could have answered for.
         :func:`~cleverly.sensitivity.omitted_variable.resolve_parameter` and
-        :func:`~cleverly.sensitivity.missingness.missingness_tilt` both name every estimand
-        they could have answered for.
+        :func:`~cleverly.sensitivity.missingness.missingness_tilt` write those lists.
         :func:`~cleverly.sensitivity.simulated_confounding.simulated_confounding` refuses on
         its own ``"ate"`` default instead. Its binary selection message lists only the
         arm, fixed-regime, and identity-MSM aliases the stored estimator can replay.
@@ -3327,20 +3515,9 @@ class SensitivityFacade(_CapabilityFacade):
         tuple
             The original positional arguments, or a one-element tuple naming the estimand.
         """
-        if args or "estimand" in kwargs or "ate" in self._result.estimates:
+        if args or "estimand" in kwargs:
             return args
-        if operation == "simulated_confounding":
-            from .sensitivity._simulated_confounding_request import (
-                _eligible_binary_parameter_names,
-            )
-
-            binary_candidates = _eligible_binary_parameter_names(self._result)
-            if len(binary_candidates) == 1:
-                return (binary_candidates[0],)
-        from .sensitivity._parameters import arm_parameters
-
-        known = arm_parameters(self._result)
-        candidates = [name for name in self._result.estimates if name in known]
+        candidates = self._estimand_candidates(operation)
         return (candidates[0],) if len(candidates) == 1 else args
 
     def run_all(
