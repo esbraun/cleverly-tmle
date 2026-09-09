@@ -85,6 +85,7 @@ halves, and only one half can fail the fast tier.
 | --- | --- | --- |
 | gated | the notebook's own code cells and stored outputs, its schema, and the repair command | asserts it equal |
 | recorded | the shipped package source, the dependency lock, and the generator | asserts it present and well formed |
+| recorded | the commit, the version, and the generator's file list | asserts the file list matches this checkout |
 
 Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
 the recorded command fails for the same reason. Edit library code and no notebook gate fails. The

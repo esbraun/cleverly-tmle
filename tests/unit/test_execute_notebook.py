@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from operator import itemgetter
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,10 @@ from tests.notebooks import (
     GATED_DIGESTS,
     GENERATOR_MODULES,
     RECORDED_DIGESTS,
+    RECORDED_IDENTITY,
+    REPOSITORY_ROOT,
     STAMP_SCHEMA_VERSION,
+    UNKNOWN,
     _canonical_json_digest,
     _file_digest,
     _file_set_digest,
@@ -94,6 +98,10 @@ WITNESSED_BY = {
     "generator_sha256": "test_repository_inputs_each_invalidate_the_stamp",
     "package_source_sha256": "test_repository_inputs_each_invalidate_the_stamp",
     "dependency_lock_sha256": "test_repository_inputs_each_invalidate_the_stamp",
+    "cleverly_commit": "test_the_recorded_identity_names_the_checkout",
+    "cleverly_version": "test_the_recorded_identity_names_the_checkout",
+    "cleverly_worktree_clean": "test_the_recorded_identity_names_the_checkout",
+    "generator_files": "test_the_generator_file_set_is_recorded_beside_its_digest",
 }
 
 
@@ -119,14 +127,67 @@ def test_the_stamp_carries_exactly_the_keys_this_module_witnesses(tmp_path: Path
         "generator_sha256",
         "package_source_sha256",
         "dependency_lock_sha256",
-    }, "the recorded half changed; add the new digest to WITNESSED_BY with its control"
+        "cleverly_commit",
+        "cleverly_version",
+        "cleverly_worktree_clean",
+        "generator_files",
+    }, "the recorded half changed; add the new field to WITNESSED_BY with its control"
 
     assert set(WITNESSED_BY) == set(stamp["gated"]) | set(stamp["recorded"])
     assert set(stamp["gated"]) == set(GATED_DIGESTS)
-    assert set(stamp["recorded"]) == set(RECORDED_DIGESTS)
+    assert set(stamp["recorded"]) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY)
 
     missing = sorted(name for name in set(WITNESSED_BY.values()) if name not in globals())
     assert not missing, f"WITNESSED_BY names test(s) this module does not define: {missing}"
+
+
+def test_the_generator_file_set_is_recorded_beside_its_digest(tmp_path: Path) -> None:
+    """The stamp names the files it folded, so a moved definition is readable.
+
+    A digest is only recomputable by whoever still has the formula behind it.  The first
+    ``generator_sha256`` folded one file, the generator became two, and the stored value then
+    matched no checkout in history with nothing to say so.  The recorded set is what the fast
+    tier compares, so the next definition change reports itself.
+    """
+    path = _repository(tmp_path)
+    stamp = notebook_execution_stamp(_notebook(), path, repository_root=tmp_path)
+
+    assert stamp["recorded"]["generator_files"] == list(GENERATOR_MODULES)
+    assert len(stamp["recorded"]["generator_files"]) > 1, (
+        "one entry would not separate a recorded set from a recorded path, which is the "
+        "distinction this field exists to make"
+    )
+
+    folded = _file_set_digest(
+        (tmp_path / module for module in stamp["recorded"]["generator_files"]),
+        root=tmp_path,
+    )
+    assert folded == stamp["recorded"]["generator_sha256"], (
+        "the recorded file set does not reproduce the recorded digest, so the two describe "
+        "different runs"
+    )
+
+
+def test_the_recorded_identity_names_the_checkout(tmp_path: Path) -> None:
+    """A commit, a version, and an honest qualifier on the commit.
+
+    ``cleverly_worktree_clean`` is what keeps ``cleverly_commit`` from overclaiming.  A notebook
+    is executed before the commit that lands it, so the recorded commit is the parent.  A
+    scratch root is no repository at all, and the stamp reports that rather than failing.
+    """
+    path = _repository(tmp_path)
+    scratch = notebook_execution_stamp(_notebook(), path, repository_root=tmp_path)
+
+    assert scratch["recorded"]["cleverly_commit"] == UNKNOWN
+    assert scratch["recorded"]["cleverly_worktree_clean"] is None
+    assert isinstance(scratch["recorded"]["cleverly_version"], str)
+    assert scratch["recorded"]["cleverly_version"]
+
+    real = notebook_execution_stamp(_notebook(), REPOSITORY_ROOT / "docs" / "x.ipynb")
+    assert re.fullmatch(r"[0-9a-f]{40}", real["recorded"]["cleverly_commit"]), (
+        "this repository has a history, so the stamp has to name a revision here"
+    )
+    assert isinstance(real["recorded"]["cleverly_worktree_clean"], bool)
 
 
 def test_the_schema_version_and_command_are_part_of_the_stamp(tmp_path: Path) -> None:

@@ -25,6 +25,12 @@ re-execution rather than a hash comparison is what keeps the stored numbers hone
 :func:`tests.unit.test_documentation_runtime.test_every_notebook_still_reproduces_its_outputs`
 is that re-execution, and it is a slow detector rather than a gate.
 
+The recorded half also carries :data:`RECORDED_IDENTITY`, which is what a reader acts on when a
+digest disagrees.  A digest says two trees differ and never says where, and recomputing one
+needs the formula that produced it.  ``cleverly_commit`` names the tree directly, and
+``generator_files`` names the set that was folded, so a moved definition reads as a moved
+definition rather than as an unexplained hash.
+
 **Coverage boundary.**  The stamp covers the ordered code-cell sources, and each code cell's
 identity, execution count, and stored outputs.  It does not cover markdown cells, cell
 metadata such as the ``tags`` that ``myst-nb`` reads, or notebook metadata such as
@@ -37,6 +43,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from collections.abc import Iterable
 from operator import itemgetter
 from pathlib import Path
@@ -46,6 +53,7 @@ __all__ = [
     "GATED_DIGESTS",
     "GENERATOR_MODULES",
     "RECORDED_DIGESTS",
+    "RECORDED_IDENTITY",
     "REPOSITORY_ROOT",
     "STAMP_SCHEMA_VERSION",
     "code_cells",
@@ -56,8 +64,9 @@ __all__ = [
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
-#: Bumped to 3 when the flat stamp split into a gated half and a recorded half.
-STAMP_SCHEMA_VERSION = 3
+#: Bumped to 3 when the flat stamp split into a gated half and a recorded half, and to 4 when
+#: the recorded half gained the coordinates in :data:`RECORDED_IDENTITY`.
+STAMP_SCHEMA_VERSION = 4
 
 #: Asserted equal by the fast tier.  Each one is a digest of the notebook alone.
 GATED_DIGESTS = frozenset({"code_source_sha256", "execution_payload_sha256"})
@@ -70,6 +79,49 @@ RECORDED_DIGESTS = frozenset(
 #: Every module that writes a stamp.  The digest helpers moved out of the script, so hashing
 #: the script alone would name half of the code that produced the run.
 GENERATOR_MODULES = ("scripts/execute_notebook.py", "tests/notebooks.py")
+
+#: What the recorded half carries beside its digests.  A digest is a fold: it says two trees
+#: differ and never says where, and it can only be recomputed by whoever still has the formula
+#: that produced it.  These four are coordinates a reader acts on directly.
+#:
+#: :data:`RECORDED_IDENTITY` is the answer to a failure this repository has already had.  The
+#: stamp's first ``generator_sha256`` was a plain one-file digest.  The generator later became
+#: two files, so the stored value matched no checkout in history, and nothing saw it, because a
+#: stranded digest and a current one are the same 64 characters.  ``generator_files`` records
+#: the set that was folded, so the fast tier compares definitions rather than guessing.
+#:
+#: The reasoning is
+#: :mod:`tests.studies.evidence.manifest`'s: writing "working tree" records nothing, and what a
+#: record must add is the identification a reader needs to reproduce a run.
+RECORDED_IDENTITY = frozenset(
+    {"cleverly_commit", "cleverly_version", "cleverly_worktree_clean", "generator_files"}
+)
+
+#: What :func:`_git` returns when it cannot answer.  A tarball has no repository and a scratch
+#: tree has no history, and neither is a reason to fail a stamp.
+UNKNOWN = "unknown"
+
+
+def _git(*arguments: str, root: Path) -> str:
+    """Run one git command in ``root``, or return :data:`UNKNOWN` when it cannot run.
+
+    :mod:`tests.studies.evidence.manifest` holds the same three lines.  Importing them here
+    would pull that module's registry, and with it 1706 modules including ``numpy``,
+    ``pandas``, ``scipy`` and ``sklearn``.  This module is on the fast tier's import path and
+    on :mod:`scripts.execute_notebook`'s, so it stays free of the scientific stack.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN
+    return completed.stdout.strip()
 
 
 def _sha256(payload: bytes) -> str:
@@ -188,6 +240,29 @@ def execution_payload_digest(notebook: Any) -> str:
     return _canonical_json_digest(execution)
 
 
+def _recorded_identity(repository_root: Path) -> dict[str, Any]:
+    """Name the checkout that ran the notebook, in terms a reader can act on.
+
+    ``cleverly_worktree_clean`` is the honest qualifier on ``cleverly_commit``.  A notebook is
+    executed before the commit that lands it, so the recorded commit is the parent and the tree
+    was usually dirty.  ``False`` says the commit places the run rather than reproduces it.
+
+    ``cleverly_version`` names the installed package, and ``package_source_sha256`` names the
+    tree below ``repository_root``.  The editable install this repository uses makes them the
+    same package.  A scratch root separates them, and only the digest follows the root.
+    """
+    import cleverly
+
+    commit = _git("rev-parse", "HEAD", root=repository_root)
+    status = _git("status", "--porcelain", root=repository_root)
+    return {
+        "cleverly_commit": commit,
+        "cleverly_version": cleverly.__version__,
+        "cleverly_worktree_clean": status == "" if status != UNKNOWN else None,
+        "generator_files": list(GENERATOR_MODULES),
+    }
+
+
 def notebook_execution_stamp(
     notebook: Any,
     notebook_path: Path,
@@ -210,5 +285,6 @@ def notebook_execution_stamp(
                 root=repository_root,
             ),
             "package_source_sha256": _package_source_digest(repository_root),
+            **_recorded_identity(repository_root),
         },
     }

@@ -65,7 +65,10 @@ import pytest
 from tests.documents import NOTEBOOKS, READER_FACING, ROOT, python_blocks
 from tests.notebooks import (
     GATED_DIGESTS,
+    GENERATOR_MODULES,
     RECORDED_DIGESTS,
+    RECORDED_IDENTITY,
+    UNKNOWN,
     code_cells,
     notebook_execution_stamp,
 )
@@ -299,24 +302,43 @@ def test_every_notebook_identifies_the_checkout_that_ran_it(path: Path) -> None:
     These three digests name a run rather than a working tree, so a stamp rewritten without a
     re-execution carries them forward unchanged.  Recomputing them would make the notebook
     claim that a checkout which never ran it produced its outputs.
+
+    ``generator_files`` is the exception, and it is checked against the current definition
+    rather than carried.  A digest is only recomputable by whoever still has the formula behind
+    it, so a changed file set strands the value it produced: the stamp's first
+    ``generator_sha256`` folded one file, the generator became two, and the stored digest then
+    matched no checkout in history.  Nothing saw it, because a stranded digest and a live one
+    are the same 64 characters.  Comparing the recorded set to :data:`GENERATOR_MODULES` turns
+    that silence into an instruction.
     """
     notebook = nbformat.read(path, as_version=4)
     relative = path.relative_to(ROOT).as_posix()
     recorded = notebook.get("metadata", {}).get("cleverly_execution", {}).get("recorded", {})
 
-    assert set(recorded) == set(RECORDED_DIGESTS), (
+    assert set(recorded) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY), (
         f"{relative} records {sorted(recorded)} and the stamp defines "
-        f"{sorted(RECORDED_DIGESTS)}; restamp the notebook"
+        f"{sorted(set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY))}; restamp the notebook"
     )
     malformed = sorted(
         field
         for field, digest in recorded.items()
-        if not re.fullmatch(r"[0-9a-f]{64}", str(digest))
+        if field in RECORDED_DIGESTS and not re.fullmatch(r"[0-9a-f]{64}", str(digest))
     )
     assert not malformed, (
         f"{relative} records {malformed} as something other than a SHA-256 digest, so the "
         f"stamp no longer identifies the checkout that ran the notebook"
     )
+
+    assert recorded["generator_files"] == list(GENERATOR_MODULES), (
+        f"{relative} folded {recorded['generator_files']} into its generator digest and this "
+        f"checkout defines {list(GENERATOR_MODULES)}. The stored digest was produced by a "
+        f"formula that no longer exists, so it names no checkout. Re-execute the notebook "
+        f"rather than carrying the value forward"
+    )
+    assert str(recorded["cleverly_commit"]) == UNKNOWN or re.fullmatch(
+        r"[0-9a-f]{40}", str(recorded["cleverly_commit"])
+    ), f"{relative} records a commit that is neither a revision nor {UNKNOWN!r}"
+    assert isinstance(recorded["cleverly_version"], str) and recorded["cleverly_version"]
 
 
 def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
@@ -329,8 +351,10 @@ def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
     stamp = notebook_execution_stamp(nbformat.read(TWINS_NOTEBOOK, as_version=4), TWINS_NOTEBOOK)
 
     assert not GATED_DIGESTS & RECORDED_DIGESTS
+    assert not GATED_DIGESTS & RECORDED_IDENTITY
+    assert not RECORDED_DIGESTS & RECORDED_IDENTITY
     assert set(stamp["gated"]) == set(GATED_DIGESTS)
-    assert set(stamp["recorded"]) == set(RECORDED_DIGESTS)
+    assert set(stamp["recorded"]) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY)
 
 
 def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
