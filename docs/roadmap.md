@@ -64,7 +64,6 @@ The readiness labels rate published-method support, not programming effort:
 - **published support**: a paper derives the method and inference claim;
 - **source audit**: a published paper appears to cover it, but the exact construction must be
   matched and discrepancies resolved before implementation;
-- **theory-neutral**: engineering that preserves an already-derived estimator;
 - **waiting on published theory**: related methods exist, but not the requested composition or
   inference claim; it belongs only in the future investigations grid; and
 - **pending source read**: the governing result is identified but has not been read first-hand

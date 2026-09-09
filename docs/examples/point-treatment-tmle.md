@@ -313,11 +313,14 @@ evidence.
 ## How far to trust this
 
 Start with one assessment battery. It presents validation, diagnostics, and sensitivity together.
-It also identifies rows that need attention and operations that did not run.
+It leads with each returned result. It then inventories the checks and the operations that did not
+run by name, without their detail. Read `assessment.attention` for the failure and warning rows
+themselves.
 
 ```python
 assessment = result.assess()
 print(assessment.summary())
+print("needs attention:", tuple(item.name for item in assessment.attention))
 
 support = assessment.report("support")
 nuisance = assessment.report("nuisance_models")
@@ -427,7 +430,7 @@ in
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| assessment overview | which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
+| assessment overview | each returned descriptive result in full text, which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
 | retained diagnostics | that targeting converged, and how far positivity was strained | that the nuisance models are right |
 | sensitivity analysis | how large an unmeasured confounder would need to be | that no such confounder exists |
 | refutation | the estimate responds correctly to perturbations with a known answer | that the estimate is correct |

@@ -66,8 +66,12 @@ print(scores.summary())
 print(sensitivity.summary())
 ```
 
-Cache-only assessment never refits the estimator. Each capability reports whether it passed,
-failed, raised a warning, did not apply to the question, or lacked a required fitted artifact.
+Cache-only assessment never refits the estimator. Each capability reports one of seven statuses.
+A check that ran reports `passed`, `failed`, or `warning`. A descriptive analysis that defines no
+pass rule reports `completed`. An operation that did not run reports `deferred`, `not_applicable`,
+or `unavailable`. The
+[status contract](../technical-reference/validation-methods.md#the-status-contract) defines each
+one.
 
 ## Choose the next path
 
