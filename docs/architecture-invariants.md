@@ -184,6 +184,10 @@ arguments, then cost. Every gate above the cost gate refuses for a reason no fla
 report that named the cost first told the caller to pass `include_refits=True` for a row that also
 needs explicit `covariates`.
 
+A combined run injects its top-level seed before those gates, not after them. A deferred row is a
+request the caller can replay. A non-deterministic operation replays only with the seed the run
+would have used.
+
 A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
 run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
 An invoked operation that raises a capability refusal is also unavailable.

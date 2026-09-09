@@ -98,8 +98,11 @@ class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
 
     ``DEFERRED`` means that the operation can run after the caller supplies a
     required choice or cost opt-in. ``NOT_APPLICABLE`` means that the operation
-    does not apply to the fitted estimand. ``UNAVAILABLE`` means that the
-    operation applies, but its method, derivation, or stored artifacts cannot run it.
+    does not apply to the fitted estimand. ``UNAVAILABLE`` means that the operation
+    applies, but this fit cannot run it. Four causes reach that status: a missing
+    method, a missing derivation, a missing replay artifact, and a requested variant
+    that has no support. An operation that raises a capability refusal after the
+    combined report invoked it is unavailable for the same reason.
 
     Reach a status by name, as ``AssessmentStatus.PASSED``.
 
@@ -120,6 +123,52 @@ class AssessmentStatus(StrEnum):  # numpydoc ignore=PR01,PR02
     DEFERRED = "deferred"
     NOT_APPLICABLE = "not_applicable"
     UNAVAILABLE = "unavailable"
+
+
+# How a combined report presents one status.  The three sets below partition
+# ``AssessmentStatus``, and ``tests/unit/test_assessment_contract.py`` asserts that
+# partition, so a new member lands in exactly one of them rather than in none of them.
+# The three groupings were spelled inline at three call sites with nothing tying them
+# together, and adding ``DEFERRED`` reached two of the three by hand.
+#
+# Presentation policy belongs beside the enum rather than on it: which bucket a status
+# falls into is a decision ``AssessmentReport`` makes, not a property of the status.  A
+# member on a ``StrEnum``, beside a class attribute of the same shape, also reads as one
+# more status at every call site.
+
+#: A row the reader has to act on.  Both statuses come from a check that ran and reached a
+#: verdict, which is why ``WARNING`` is here and no omission is.
+_ATTENTION: frozenset[AssessmentStatus] = frozenset(
+    {AssessmentStatus.FAILED, AssessmentStatus.WARNING}
+)
+
+#: A row that produced no verdict, whether the caller, the fitted estimand, or the fit's
+#: artifacts are the reason.  These are omissions the report keeps visible.
+_OMISSIONS: frozenset[AssessmentStatus] = frozenset(
+    {
+        AssessmentStatus.DEFERRED,
+        AssessmentStatus.NOT_APPLICABLE,
+        AssessmentStatus.UNAVAILABLE,
+    }
+)
+
+#: A row that ran and asks nothing of the reader.  ``COMPLETED`` is a descriptive analysis
+#: with no pass criterion, and ``PASSED`` is a check whose condition holds.
+_SETTLED: frozenset[AssessmentStatus] = frozenset(
+    {AssessmentStatus.PASSED, AssessmentStatus.COMPLETED}
+)
+
+#: What stops :attr:`ValidationReport.passed`.  This one cuts across the three above rather
+#: than refining one of them: a ``WARNING`` is actionable and still passes, a
+#: ``NOT_APPLICABLE`` is an omission and still passes, and a ``DEFERRED`` required check is
+#: an unanswered question rather than evidence that validation succeeded.
+_BLOCKING: frozenset[AssessmentStatus] = frozenset(
+    {
+        AssessmentStatus.FAILED,
+        AssessmentStatus.DEFERRED,
+        AssessmentStatus.UNAVAILABLE,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -522,8 +571,14 @@ class AssessmentItem:
         Retained payload, including a legitimate None, or the private absence sentinel.
         Excluded from equality. Dataframes use immutable cached storage.
     arguments : mapping of str to Any
-        Effective invocation arguments, including resolved defaults and seeds.
-        Excluded from equality because argument values can contain arrays.
+        The invocation this row describes. A row whose operation ran, and a row whose
+        operation refused after it was invoked, carry the effective arguments, which
+        include the signature defaults and the resolved seed. A deferred row carries the
+        request as supplied, plus the combined run's seed when the operation accepts one.
+        It binds no signature default, because the default is what such a row refuses:
+        an ambiguous ``estimand="ate"`` recorded as effective would name an argument the
+        operation declines. Excluded from equality because argument values can contain
+        arrays.
     """
 
     name: str
@@ -760,15 +815,7 @@ class ValidationReport:
     @property
     def passed(self) -> bool:
         """Return whether every required check passed."""
-        return all(
-            item.status
-            not in {
-                AssessmentStatus.FAILED,
-                AssessmentStatus.DEFERRED,
-                AssessmentStatus.UNAVAILABLE,
-            }
-            for item in self.items
-        )
+        return all(item.status not in _BLOCKING for item in self.items)
 
     def __bool__(self) -> bool:
         return self.passed
@@ -866,18 +913,12 @@ class AssessmentReport:
     @property
     def attention(self) -> tuple[AssessmentItem, ...]:
         """Return rows with an explicit failure or warning."""
-        statuses = {AssessmentStatus.FAILED, AssessmentStatus.WARNING}
-        return tuple(item for _, item in self._presented() if item.status in statuses)
+        return tuple(item for _, item in self._presented() if item.status in _ATTENTION)
 
     @property
     def omissions(self) -> tuple[AssessmentItem, ...]:
         """Return rows that were deferred, not applicable, or unavailable."""
-        statuses = {
-            AssessmentStatus.DEFERRED,
-            AssessmentStatus.NOT_APPLICABLE,
-            AssessmentStatus.UNAVAILABLE,
-        }
-        return tuple(item for _, item in self._presented() if item.status in statuses)
+        return tuple(item for _, item in self._presented() if item.status in _OMISSIONS)
 
     def next_steps(self) -> tuple[str, ...]:
         """Return de-duplicated next steps in presentation order.
@@ -1330,6 +1371,11 @@ class _CapabilityFacade:
         then, on the very next call, to the argument it never mentioned. A refusal has to
         name the first thing that is wrong.
 
+        Each gate decides the sentence alone, and this method attaches the request once on
+        the way out. Two of the three branches used to copy ``arguments`` themselves and
+        the third dropped them, so a combined report published two omissions that named the
+        caller's request and one that did not.
+
         Parameters
         ----------
         capability : AssessmentCapability
@@ -1346,6 +1392,8 @@ class _CapabilityFacade:
         AssessmentItem or None
             The omission to report, or ``None`` when the operation may run.
         """
+        item: AssessmentItem | None
+        missing = tuple(name for name in capability.requires_arguments if name not in arguments)
         if capability.status is AssessmentStatus.DEFERRED and capability.requires_arguments:
             # A deferred row is refused by this request, not by the fit: the operation runs
             # once the caller names the argument the row declares.  Routed by status rather
@@ -1354,25 +1402,19 @@ class _CapabilityFacade:
             # ambiguous.  Testing membership alone let that spelling past both gates, into
             # the invocation, and out through the generic refusal handler as ``unavailable``
             # with no argument to act on, while the bare call reported ``deferred``.
-            return _missing_argument_item(
+            item = _missing_argument_item(
                 capability,
                 self._attribute,
                 capability.requires_arguments,
-                arguments,
                 reason=capability.reason,
             )
-        if not capability.available:
-            return _item_from_capability(capability)
-        missing = tuple(name for name in capability.requires_arguments if name not in arguments)
-        if missing:
-            return _missing_argument_item(capability, self._attribute, missing, arguments)
-        return _cost_refusal(
-            capability,
-            self._attribute,
-            include_refits,
-            include_retargets,
-            arguments,
-        )
+        elif not capability.available:
+            item = _item_from_capability(capability)
+        elif missing:
+            item = _missing_argument_item(capability, self._attribute, missing)
+        else:
+            item = _cost_refusal(capability, self._attribute, include_refits, include_retargets)
+        return None if item is None else replace(item, arguments=dict(arguments))
 
     def _run_all(
         self,
@@ -1397,6 +1439,14 @@ class _CapabilityFacade:
                     continue
                 operation_arguments = dict(supplied.get(declared.operation, {}))
                 capability = self._capability_for_arguments(declared.operation, operation_arguments)
+                if capability.accepts_random_state and random_state is not None:
+                    # Before the gates, not after them. The seed is part of the request for
+                    # every row that accepts one, and injecting it inside the invocation
+                    # branch left a deferred ``refute`` row reporting ``arguments == {}``
+                    # after ``run_all(random_state=7)``. That row is not deterministic, so a
+                    # caller replaying it from ``item.arguments`` reproduced a different
+                    # draw from the one the report would have taken.
+                    operation_arguments["random_state"] = random_state
                 skipped = self._skipped(
                     capability,
                     operation_arguments,
@@ -1407,8 +1457,6 @@ class _CapabilityFacade:
                     items.append(skipped)
                     continue
                 try:
-                    if capability.accepts_random_state and random_state is not None:
-                        operation_arguments["random_state"] = random_state
                     token = _RETAIN_PACKED.set(True)
                     try:
                         report = getattr(self, capability.operation)(**operation_arguments)
@@ -1611,7 +1659,6 @@ def _missing_argument_item(
     capability: AssessmentCapability,
     attribute: str,
     missing: tuple[str, ...],
-    arguments: Mapping[str, Any],
     *,
     reason: str | None = None,
 ) -> AssessmentItem:
@@ -1641,7 +1688,6 @@ def _missing_argument_item(
         AssessmentStatus.DEFERRED,
         reason or f"needs {phrase}, which a combined report has no basis to choose",
         (f"call result.{attribute}.{capability.operation}() directly with {needed}",),
-        arguments=dict(arguments),
     )
 
 
@@ -1650,7 +1696,6 @@ def _cost_refusal(
     attribute: str,
     include_refits: bool,
     include_retargets: bool,
-    arguments: Mapping[str, Any],
 ) -> AssessmentItem | None:
     """The skip a combined report owes an operation the caller has not paid for.
 
@@ -1678,7 +1723,6 @@ def _cost_refusal(
         AssessmentStatus.DEFERRED,
         f"not run by default because it {work}; pass {flag}=True",
         (f"call result.{attribute}.{capability.operation}() directly, or pass {flag}=True",),
-        arguments=dict(arguments),
     )
 
 
@@ -3190,7 +3234,7 @@ class SensitivityFacade(_CapabilityFacade):
             # bare call the row invited then raised.  ``_dispatch`` skips ``_require`` for
             # an explicit ``estimand``, so a caller who supplies one still runs.
             available = False
-            status = AssessmentStatus(error.status)
+            status = error.status
             reason = str(error)
             execution = "summarize"
             # The argument that lifts the deferral. Only a deferral has one: an

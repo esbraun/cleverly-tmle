@@ -455,7 +455,9 @@ presentation choice.
 | `not_applicable` | no such analysis exists for this scientific question |
 | `unavailable` | the analysis is meaningful, but its method, derivation, fitted artifact, or requested variant cannot run it |
 
-Deferred rows retain the required argument or flag in their next step. Known unsupported omissions
+Deferred rows retain the required argument or flag in their next step. They also retain the
+request the caller made, and the combined run's seed when the operation accepts one. Known
+unsupported omissions
 carry the capability's reason and remain `unavailable` or `not_applicable`. An expected refusal
 after invocation becomes `unavailable` and retains the bound invocation arguments. The report
 continues with other accepted operations. Structural errors still propagate.
@@ -1131,9 +1133,11 @@ The selected path depends on the reported contrast and retained artifacts.
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
+| several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-Several eligible contrasts require an explicit alias. Combined runs select availability and cost
-from that alias before applying the cost flags.
+Several eligible contrasts require an explicit alias, which is the `deferred` row above.
+[The status contract](#the-status-contract) states that rule for every operation that shares it.
+Combined runs select availability and cost from the alias before they apply the cost flags.
 
 Raw results compose arm identities forward from fitted treatment metadata.
 Explicit structured keys remain authoritative. No routing step parses display aliases.

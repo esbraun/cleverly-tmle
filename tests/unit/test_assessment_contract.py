@@ -30,10 +30,17 @@ from cleverly import (
     ValidationReport,
     load,
 )
+from cleverly._assessment_cache import _CACHE_GENERATIONS
 from cleverly.assessment import (
+    _ATTENTION,
+    _BLOCKING,
+    _OMISSIONS,
+    _SETTLED,
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
     SENSITIVITY_ROUTES,
+    AssessmentItem,
+    DiagnosticReport,
     LongitudinalDiagnostics,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
@@ -278,6 +285,16 @@ def test_default_validation_is_immutable_cache_only_and_never_refits(
     assert all(item.status in AssessmentStatus for item in report.items)
     assert not any("refute" in key for key in result.assessment_cache)
     assert {name: estimate.psi for name, estimate in result.estimates.items()} == before
+
+
+def test_a_deferred_required_validation_does_not_pass() -> None:
+    """A required check the caller deferred is not evidence that validation passed."""
+    report = ValidationReport(
+        (AssessmentItem("required", AssessmentStatus.DEFERRED, "waiting for a choice"),)
+    )
+
+    assert not report.passed
+    assert not bool(report)
 
 
 def test_combined_reports_distinguish_inapplicable_from_deferred(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -917,6 +934,18 @@ def _with_cache_generation(key: str, generation: int) -> str:
     return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
 
 
+def _with_previous_generation(key: str) -> str:
+    """Rewrite a current cache key as the generation directly below it.
+
+    Read from ``_CACHE_GENERATIONS`` rather than written as a literal. A seed one below the
+    current number is what puts a bump itself under test, and two bumps in a row each had
+    to be chased through hand-edited literals in three tests. A stale literal stops testing
+    the bump silently, because a miss on a generation nobody uses passes either way.
+    """
+    operation = key.split(":", 1)[0]
+    return _with_cache_generation(key, _CACHE_GENERATIONS[operation] - 1)
+
+
 def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     point_result, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
@@ -955,7 +984,7 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     # its own cache.
     generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
     previous_diagnostic_aggregate = {
-        _with_cache_generation(key, 6)
+        _with_previous_generation(key)
         for key in versioned
         if key.startswith("diagnostics.run_all:")
     }
@@ -985,18 +1014,6 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
     )
 
 
-def test_a_deferred_required_validation_does_not_pass() -> None:
-    """A required check the caller deferred is not evidence that validation passed."""
-    from cleverly.assessment import AssessmentItem
-
-    report = ValidationReport(
-        (AssessmentItem("required", AssessmentStatus.DEFERRED, "waiting for a choice"),)
-    )
-
-    assert not report.passed
-    assert not bool(report)
-
-
 def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
     longitudinal_result, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
@@ -1014,10 +1031,7 @@ def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
     }
 
     result.assessment_cache.clear()
-    stale = {
-        _with_cache_generation(key, 3 if key.startswith("diagnostics.support:") else 4)
-        for key in current
-    }
+    stale = {_with_previous_generation(key) for key in current}
     result.assessment_cache.update(dict.fromkeys(stale, "legacy cached report"))
     result.assessment_cache['diagnostics.stagewise:{"args":[],"kwargs":{}}'] = (
         "legacy stagewise report"
@@ -1043,7 +1057,7 @@ def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
 def test_the_validation_report_ignores_its_immediately_previous_generation(
     point_result, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
-    """A generation-four ``validate`` entry, which the seeds above cannot reach.
+    """The ``validate`` entry one generation below the current one.
 
     The unversioned and generation-one seeds miss whatever the current number is, so they
     hold while it stays anything above one and say nothing about a bump. Seeding the
@@ -1055,7 +1069,7 @@ def test_the_validation_report_ignores_its_immediately_previous_generation(
     assert len(keys) == 1
 
     result.assessment_cache.clear()
-    stale = _with_cache_generation(keys[0], 4)
+    stale = _with_previous_generation(keys[0])
     result.assessment_cache[stale] = "pre-generation validation report"
     restored = load(result.save(tmp_path / "previous-generation-validate.joblib"))
 
@@ -1174,13 +1188,17 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
                 )
 
     def test_benchmark_says_it_needs_covariates_rather_than_crashing(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        """A mapping that supplies something else still names the argument that is missing.
+
+        ``test_a_deferred_row_retains_the_request_it_did_not_run`` pins what the row then
+        carries. This one pins the sentence, on a request that is partly filled in.
+        """
         report = point_result.sensitivity.run_all(
             include_refits=True,
             arguments={"benchmark": {"random_state": 91}},
         )
         item = report["benchmark"]
         assert item.status is AssessmentStatus.DEFERRED
-        assert item.arguments == {"random_state": 91}
         assert "covariates" in item.detail
         assert any("benchmark" in step for step in item.next_steps)
 
@@ -1379,8 +1397,44 @@ def test_a_cost_flag_is_never_named_before_a_required_argument(point_result) -> 
         assert f"pass {flag}=True" in surface.run_all()[row.operation].detail
 
 
-def test_a_cost_deferral_retains_the_arguments_it_did_not_run(point_result) -> None:  # type: ignore[no-untyped-def]
-    """A cost gate preserves the exact request for later replay."""
+#: One deferral per gate and per surface, with the seed each row is owed. ``benchmark``
+#: is held by the required-argument gate on sensitivity and accepts the combined run's
+#: seed. ``truncation_curve`` is held by the cost gate on diagnostics and accepts none.
+#: The second row is the paired witness: an injection that reached every row, or no row,
+#: fails on one of the two.
+_DEFERRED_REQUESTS = [
+    pytest.param("sensitivity", "benchmark", {"include_refits": True}, {}, {"random_state": 91}),
+    pytest.param("diagnostics", "truncation_curve", {}, {"bounds": (0.02, 0.05)}, {}),
+]
+
+
+@pytest.mark.parametrize("facade,operation,flags,supplied,seed", _DEFERRED_REQUESTS)
+def test_a_deferred_row_retains_the_request_it_did_not_run(  # type: ignore[no-untyped-def]
+    point_result, facade: str, operation: str, flags: dict, supplied: dict, seed: dict
+) -> None:
+    """One property, both gates, both surfaces: the row carries what a replay needs.
+
+    The seed is the half that was structurally absent. ``run_all`` injected
+    ``random_state`` after the gates rather than before them, so a deferred row reported
+    the raw supplied mapping and no seed. A caller replaying that row from
+    ``item.arguments`` then drew a different sample from the one the report would have
+    taken, which is exactly what a non-deterministic operation must not do.
+    """
+    surface = getattr(point_result, facade)
+    assert surface.capability(operation).accepts_random_state == bool(seed)
+
+    item = surface.run_all(**flags, arguments={operation: dict(supplied)}, random_state=91)[
+        operation
+    ]
+
+    assert item.status is AssessmentStatus.DEFERRED
+    assert item.next_steps
+    assert dict(item.arguments) == {**supplied, **seed}
+    point_result.assessment_cache.clear()
+
+
+def test_paying_the_cost_lifts_the_deferral_and_keeps_the_request(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The flag runs the same request the deferred row named."""
     arguments = {"truncation_curve": {"bounds": (0.02, 0.05)}}
 
     deferred = point_result.diagnostics.run_all(arguments=arguments)["truncation_curve"]
@@ -1389,9 +1443,8 @@ def test_a_cost_deferral_retains_the_arguments_it_did_not_run(point_result) -> N
     ]
 
     assert deferred.status is AssessmentStatus.DEFERRED
-    assert deferred.arguments == arguments["truncation_curve"]
-    assert deferred.next_steps
     assert completed.status is AssessmentStatus.COMPLETED
+    assert completed.arguments["bounds"] == arguments["truncation_curve"]["bounds"]
 
 
 @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
@@ -1822,8 +1875,6 @@ def test_explicit_surface_retrieves_validation_owned_diagnostics(point_result, n
 def test_completed_none_payload_survives_retrieval_and_pickle(point_result, tmp_path):
     import joblib
 
-    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
-
     item = AssessmentItem(
         "tipping_gamma", AssessmentStatus.COMPLETED, "no tipping point", _report=None
     )
@@ -1897,8 +1948,6 @@ def test_refute_direct_aggregate_and_seed_replay_share_one_computation(point_res
 
 
 def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_result):
-    from cleverly.assessment import AssessmentItem, DiagnosticReport, ValidationReport
-
     repeated = dataclasses.replace(point_result, repeats=point_result.repeats * 2)
     sensitivity = repeated.sensitivity.run_all()
     warning = AssessmentItem("support", AssessmentStatus.WARNING, "positivity warning")
@@ -1908,6 +1957,58 @@ def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_resu
     assert "omitted_confounding" in [item.name for item in battery.omissions]
     assert "benchmark" in [item.name for item in battery.omissions]
     assert sensitivity["benchmark"].status is AssessmentStatus.DEFERRED
+
+
+def test_every_status_is_presented_by_exactly_one_grouping() -> None:
+    """A new member of the taxonomy lands in one bucket, and never in none of them.
+
+    ``assessment.py`` spelled three status groupings inline and nothing tied them
+    together, so an added member fell into zero of them silently: it stayed out of
+    ``attention``, out of ``omissions``, and out of the blocking set that decides
+    ``ValidationReport.passed``. It would then read as a clean row on every surface.
+    ``DEFERRED`` reached two of the three by hand.
+
+    The three presentation buckets partition the enum. The blocking set is a separate
+    claim and cuts across them, so it is checked by containment rather than by identity.
+    """
+    assert set(AssessmentStatus) == _ATTENTION | _OMISSIONS | _SETTLED
+    assert _ATTENTION.isdisjoint(_OMISSIONS)
+    assert _ATTENTION.isdisjoint(_SETTLED)
+    assert _OMISSIONS.isdisjoint(_SETTLED)
+    # Nothing a report presents as needing no action may fail validation, and a status
+    # that blocks has to be one a reader is shown as actionable or as an omission.
+    assert _BLOCKING <= _ATTENTION | _OMISSIONS
+    assert _BLOCKING.isdisjoint(_SETTLED)
+    # The nonzero witnesses, so the containments above cannot hold by being empty.
+    assert AssessmentStatus.WARNING in _ATTENTION - _BLOCKING
+    assert AssessmentStatus.NOT_APPLICABLE in _OMISSIONS - _BLOCKING
+    assert AssessmentStatus.DEFERRED in _OMISSIONS & _BLOCKING
+
+
+def test_every_cached_item_bearing_report_declares_a_cache_generation(point_result) -> None:  # type: ignore[no-untyped-def]
+    """A new aggregate cannot enter the cache without a row in the generation table.
+
+    A cached report that carries assessment items carries an interpretation, and an
+    interpretation changes. Without a generation the key never moves, so a result saved
+    before the change replays the old verdict for ever. The table is read from the cache a
+    real fit writes rather than from a list, so a fourth aggregate is covered on the day it
+    is added.
+    """
+    result = dataclasses.replace(point_result)
+    result.validate()
+    result.diagnostics.run_all()
+    result.sensitivity.run_all()
+    result.assess()
+
+    bearing = {
+        key.split(":", 1)[0]
+        for key, value in result.assessment_cache.items()
+        if isinstance(getattr(value, "items", None), tuple)
+        and all(isinstance(item, AssessmentItem) for item in value.items)
+        and value.items
+    }
+    assert bearing == {"diagnostics.run_all", "sensitivity.run_all", "validate"}
+    assert bearing <= set(_CACHE_GENERATIONS)
 
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])

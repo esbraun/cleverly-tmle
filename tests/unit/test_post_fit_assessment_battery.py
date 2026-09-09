@@ -309,19 +309,30 @@ def test_assessment_item_equality_does_not_compare_numpy_arguments() -> None:
     assert first == second
 
 
-@pytest.mark.parametrize(("backend", "module"), [("pandas", "pandas"), ("polars", "polars")])
-def test_deferred_status_has_backend_parity(backend: str, module: str) -> None:
-    """Both combined frame backends retain the new machine-readable status."""
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    "status", list(AssessmentStatus), ids=[row.value for row in AssessmentStatus]
+)
+def test_every_status_reaches_both_combined_frame_backends(
+    backend: str, status: AssessmentStatus
+) -> None:
+    """Both frame backends render the machine-readable status, for every member.
+
+    Written for ``DEFERRED`` alone, which said nothing about the other six and needed a
+    second edit for the next one. The taxonomy is the parametrize axis, so a new member is
+    covered on the day it is added. The second axis was ``module``, which never differed
+    from ``backend``, so the backend name is read once.
+    """
     from cleverly.assessment import DiagnosticReport
 
     report = DiagnosticReport(
-        (AssessmentItem("benchmark", AssessmentStatus.DEFERRED, "needs covariates"),),
+        (AssessmentItem("benchmark", status, "a detail this test does not read"),),
         backend=backend,
     )
     frame = report.to_frame()
 
-    assert type(frame).__module__.startswith(module)
-    assert list(frame["status"]) == ["deferred"]
+    assert type(frame).__module__.startswith(backend)
+    assert list(frame["status"]) == [status.value]
 
 
 def test_interpreters_and_capabilities_cover_each_other() -> None:

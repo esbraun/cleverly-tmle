@@ -224,12 +224,16 @@ intervention-specific report with the generic positivity function.
 Read the group row for the fitted clever covariate. Read the product row for a composed mechanism
 denominator. The report keeps these quantities separate because they answer different questions.
 
-Combined reports distinguish seven states. `passed` and `failed` belong to checks with an explicit
-verdict. `completed` means a descriptive analysis ran without an inferential verdict. `warning`
-uses an existing diagnostic rule.
+Combined reports carry one status per row.
+[The status contract](../technical-reference/validation-methods.md#the-status-contract) names every
+status. It is the canonical list. `passed` and `failed` belong to checks with an explicit verdict.
+`completed` means a descriptive analysis ran without an inferential verdict. `warning` uses an
+existing diagnostic rule.
 
 `deferred` means that the same operation can run after the caller supplies a required choice or
-cost opt-in. These rows keep their next step and remain in `omissions`.
+cost opt-in. These rows keep their next step and remain in `omissions`. They also keep the request
+you made, with the seed a combined run supplies to the operations that accept one. Pass that
+mapping back to the direct call to run the row you deferred.
 
 An ambiguous default estimand is one such choice. The operations below answer for one parameter
 and default to `estimand="ate"`. A multi-arm fit reports no bare `ate`, so the caller owns the

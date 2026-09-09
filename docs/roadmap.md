@@ -111,23 +111,9 @@ The rows below remain.
 | --- | --- |
 | report presentation | provide a compact, decision-first view. Keep all deferred and unsupported rows available without letting them hide actionable findings |
 
-The assessment taxonomy now includes `deferred`. It identifies an operation that can run after the
-caller supplies a required choice or opts into its cost. An ambiguous default parameter choice is
-also deferred when an explicit parameter makes the same operation run.
-
-`not_applicable` identifies a scientific question that has no matching analysis. `unavailable`
-identifies an operation that its method, derivation, stored artifact, or requested variant cannot
-run. An operation that raises an expected capability refusal after invocation remains unavailable.
-
-Deferred rows remain in `AssessmentReport.omissions`, beside unavailable and not-applicable rows.
-Their distinct status gives callers a machine-readable partition without changing the report
-presentation. Each row retains its invocation arguments and next step.
-
-Changed cache generations reject diagnostic and sensitivity aggregates that predate the new
-status. The contract tests move the same operation from deferred to completed after the caller
-acts. Paired artifact and method limitations remain unavailable. The tests cover an ambiguous
-E-value choice, both cost classes, required arguments, pandas and Polars frames, persistence
-replay, and complete-data fits. The pull-request diff contains no registered study artifact change.
+`deferred` closes the taxonomy gap. It separates a caller's outstanding choice from a limitation
+of the fit. [The status contract](technical-reference/validation-methods.md#the-status-contract)
+states what each status means, and which rows carry which one.
 
 The longitudinal nuisance report now covers only fits that the estimator made. Treatment and censoring
 models appear once per node because one shared model serves every regimen. Outcome and

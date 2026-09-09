@@ -4254,11 +4254,34 @@ def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
         )
 
 
+#: The rendered deferral for one declared argument and for two, with the fixtures that
+#: reach each. ``binary_mean_result`` repeats the singular wording on a second fit shape
+#: and ``continuous_gaussian_result`` repeats the plural, which is what makes each pair a
+#: witness rather than one case written twice.
+_ONE_ARGUMENT = (
+    "needs an explicit grid argument, which a combined report has no basis to choose",
+    ("call result.sensitivity.simulated_confounding() directly with grid",),
+)
+_TWO_ARGUMENTS = (
+    "needs explicit grid and estimand arguments, which a combined report has no basis to choose",
+    ("call result.sensitivity.simulated_confounding() directly with grid and estimand",),
+)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "detail", "next_steps"),
+    [
+        ("gaussian_result", *_ONE_ARGUMENT),
+        ("binary_mean_result", *_ONE_ARGUMENT),
+        ("binary_means_result", *_TWO_ARGUMENTS),
+        ("continuous_gaussian_result", *_TWO_ARGUMENTS),
+    ],
+)
 def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
-    gaussian_result: Any,
-    binary_mean_result: Any,
-    binary_means_result: Any,
-    continuous_gaussian_result: Any,
+    request: pytest.FixtureRequest,
+    fixture: str,
+    detail: str,
+    next_steps: tuple[str, ...],
 ) -> None:
     """Pin the rendered deferral, which ``requires_arguments`` alone does not cover.
 
@@ -4267,42 +4290,13 @@ def test_the_combined_report_reads_grammatically_for_one_and_for_two_arguments(
     argument". That is singular for two names, and it reads as one argument called
     "grid, estimand". The single-argument wording is unchanged, so this test pins both.
     """
+    result = request.getfixturevalue(fixture)
+    report = result.sensitivity.run_all(include_refits=True)
+    item = next(row for row in report.items if row.name == "simulated_confounding")
 
-    def rendered(result: Any) -> Any:
-        report = result.sensitivity.run_all(include_refits=True)
-        return next(item for item in report.items if item.name == "simulated_confounding")
-
-    binary = rendered(gaussian_result)
-    assert binary.status is AssessmentStatus.DEFERRED
-    assert binary.detail == (
-        "needs an explicit grid argument, which a combined report has no basis to choose"
-    )
-    assert binary.next_steps == (
-        "call result.sensitivity.simulated_confounding() directly with grid",
-    )
-
-    sole_mean = rendered(binary_mean_result)
-    assert sole_mean.status is AssessmentStatus.DEFERRED
-    assert sole_mean.detail == binary.detail
-    assert sole_mean.next_steps == binary.next_steps
-
-    several_means = rendered(binary_means_result)
-    assert several_means.status is AssessmentStatus.DEFERRED
-    assert several_means.detail == (
-        "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
-    )
-    assert several_means.next_steps == (
-        "call result.sensitivity.simulated_confounding() directly with grid and estimand",
-    )
-
-    continuous = rendered(continuous_gaussian_result)
-    assert continuous.status is AssessmentStatus.DEFERRED
-    assert continuous.detail == (
-        "needs explicit grid and estimand arguments, which a combined report has no basis to choose"
-    )
-    assert continuous.next_steps == (
-        "call result.sensitivity.simulated_confounding() directly with grid and estimand",
-    )
+    assert item.status is AssessmentStatus.DEFERRED
+    assert item.detail == detail
+    assert item.next_steps == next_steps
 
 
 def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_base(
