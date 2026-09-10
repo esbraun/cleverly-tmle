@@ -1034,6 +1034,33 @@ def test_a_positivity_report_pickled_before_group_leverage_restores_empty_mappin
     assert "Absolute-load concentration is greatest" not in restored.verdict()
 
 
+def test_the_legacy_pickle_helper_refuses_a_name_that_is_not_a_field(
+    score_load_records: dict[str, Any],
+) -> None:
+    """The helper's own mutation control, because a stale name fails it silently.
+
+    Every caller passes the names a past revision did not carry, and the helper drops
+    them from the state it pickles. A name that matches no attribute drops nothing, so
+    the caller gets a record of the *current* shape and its back-compatibility assertion
+    keeps passing against the shape it was written to exclude. Renaming a field is enough
+    to reach that: the call site still names the old field, and nothing else does.
+
+    ``_DefaultingUnpickle.check_pickle_backfill`` refuses a stale ``_PICKLE_BACKFILL`` key
+    for the same reason, and this helper does not inherit that protection, so it states
+    it itself.
+    """
+    record = score_load_records["regime"]
+    assert "score_load" in record.__dict__
+
+    with pytest.raises(KeyError, match="carries no such attribute: score_lode"):
+        _legacy(record, "score_lode", "score_load_omission")
+
+    # The valid half of that call still works, so the refusal is about the unknown name
+    # rather than about the helper having stopped dropping anything.
+    restored = _legacy(record, "score_load", "score_load_omission")
+    assert restored.score_load_omission == SCORE_LOAD_PREDATES
+
+
 # --------------------------------------------------------------------------------------
 # Backend parity
 # --------------------------------------------------------------------------------------

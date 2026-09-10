@@ -28,6 +28,7 @@ from cleverly.validation import (
     ReplicationFailure,
     refute,
 )
+from tests.pickles import FUNCTIONAL_TAMPERINGS
 
 
 def _small_rule(draws: int) -> EmpiricalInclusionRule:
@@ -393,16 +394,7 @@ class TestGeneratedOutcomeRefusals:
             refute(result, tests=("dummy_outcome",), n_replicates=1)
         assert result.estimator.calls == []
 
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [
-            ("missingness", "forged_delta"),
-            ("intermediate_name", "forged_z"),
-            ("treatment_levels", ("forged",)),
-            ("treatment_value", 1),
-            ("schema_version", 2),
-        ],
-    )
+    @pytest.mark.parametrize(("field", "value"), FUNCTIONAL_TAMPERINGS)
     def test_functional_metadata_tampering_is_refused_before_draw_or_refit(
         self,
         monkeypatch: pytest.MonkeyPatch,
