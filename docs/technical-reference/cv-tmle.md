@@ -76,6 +76,7 @@ and
 | --- | --- | --- |
 | `cross_fit=False` | one fold, no splitting. This is ordinary TMLE | **yes**. See [point-treatment TMLE](point-treatment-tmle.md) |
 | `n_folds=` | the outer split count. Default 10 | no |
+| `split_plan=` | replaces generated outer assignments. `n_folds` and `repeats` must match the plan | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
 | `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
@@ -108,6 +109,44 @@ Coordinatewise medians do not preserve identities among several estimands. Repea
 refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
 multiplier construction would use the retained central-draw curve. That curve supports marginal
 diagnostics; the split-adjusted variance above supplies the pointwise interval.
+
+## Reusable outer split plans
+
+Every point-treatment result exposes its realized outer assignments as `result.split_plan`.
+`CrossFitting(split_plan=...)` reuses those assignments instead of generating new ones. The caller
+must also set matching `n_folds` and `repeats` values.
+
+`SplitPlan(assignments=...)` stores one tuple of row-level fold labels per repeat. Its `n`,
+`n_folds`, and `n_repeats` properties describe those assignments. Labels align with input row
+positions, not pandas index labels or Polars row metadata.
+
+A clustered design applies one further rule. Every row from one cluster must receive the same fold
+label within each repeat. Reordering, adding, or removing rows requires a different plan.
+
+The plan controls only the outer nuisance split. Inner Super Learner folds still follow
+`learner_folds`. Collaborative TMLE selection folds still follow their repeat-specific seeds.
+
+Validation happens before nuisance fitting. It checks row count, repeat count, labels, required
+training arms, declared stratification, and whole-cluster assignment. The implementation rejects a
+supplied plan rather than repairing an invalid one.
+
+A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
+`split_plan=` is refused because supplied plans require cross-fitting.
+
+Point-treatment bootstrap samples do not preserve the original positional unit sequence. Targeted
+bootstrap inference therefore refuses a supplied plan. Longitudinal estimation also refuses it
+because its sequential fold contract is separate.
+
+Result serialization preserves the plan. `SplitPlan.fingerprint` and the result provenance cover
+all repeat assignments in order. Generated-versus-reused acceptance tests require exact fold,
+nuisance-prediction, point-estimate, and influence-curve identity.
+
+The acceptance matrix covers binary and multi-arm treatment, clustered and repeated fits, pandas
+and Polars inputs, serialization, and `n_jobs` changes. These checks establish deterministic reuse.
+They do not supply a new estimator or statistical guarantee.
+
+The registered studies below remain the applicable estimator evidence. Reusing a plan adds no
+validation-grid row because it changes neither the estimator nor its statistical assumptions.
 
 ## Validation issues special to this method
 

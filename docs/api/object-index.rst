@@ -47,6 +47,7 @@ categorized API tables.
    cleverly.DRTMLEMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
+   cleverly.SplitPlan
    cleverly.Targeting
    cleverly.Inference
    cleverly.Runtime

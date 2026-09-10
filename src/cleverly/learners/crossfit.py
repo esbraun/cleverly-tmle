@@ -22,23 +22,19 @@ every fold is not checkable as a *guarantee*: :func:`resolve_n_folds` caps the f
 to make it achievable, but a cluster is atomic, so ``StratifiedGroupKFold`` cannot always
 deliver it and an imbalanced split is still a usable one.
 
-Three objects, and the distinction between the first two is the point of the module.
-:class:`CrossFitPlan` is what a caller *declares*: a policy, made of numbers, that says
-nothing about any particular dataset.  :class:`Folds` is what that policy *realises* on
-one: an actual assignment of rows to folds, which depends on the row order and on the
-scikit-learn version that made it as much as on the seed -- which is why
-:mod:`cleverly.provenance` fingerprints the realisation separately from the seed, and why
-a fit records the plan it declared beside the fold count it got.  :func:`make_folds` is
-the map from one to the other, and calls :func:`check_integrity` on its way out, so every
-split this library builds -- the outer cross-fitting folds, Super Learner's inner folds,
-C-TMLE's selection folds -- is checked at construction without any of the three knowing
-about it.
+Four objects, and their distinctions are the point of the module. :class:`CrossFitPlan`
+is the policy a caller declares. :class:`SplitPlan` is an immutable, reusable record of
+every realized repeat. :class:`Folds` materializes one repeat for fitting, while
+:func:`make_folds` generates that materialization from a policy and data. The generated
+and supplied paths both check the assignments before nuisance fitting.
 """
 
 from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from numbers import Integral
+from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.model_selection import (
@@ -51,9 +47,13 @@ from sklearn.model_selection import (
 from .._typing import FloatArray, IntArray
 from ..exceptions import DataError
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 __all__ = [
     "CrossFitPlan",
     "Folds",
+    "SplitPlan",
     "check_integrity",
     "make_folds",
     "refuse_scheme",
@@ -180,6 +180,233 @@ class Folds:
     def is_single(self) -> bool:
         """Return whether this object contains one fold."""
         return self.n_folds == 1
+
+
+@dataclass(frozen=True)
+class SplitPlan:
+    """Reusable cross-fitting assignments for every repeat.
+
+    Parameters
+    ----------
+    assignments : tuple of tuple of int
+        Fold labels in repeat-major order. Each inner tuple has one label per row.
+
+    Attributes
+    ----------
+    n : int
+        Number of rows in each repeat.
+    n_folds : int
+        Number of contiguous, zero-based fold labels in each repeat.
+    n_repeats : int
+        Number of repeat assignments.
+    fingerprint : str
+        Fingerprint compatible with fitted-result provenance.
+
+    See Also
+    --------
+    CrossFitPlan : Policy that generates folds from data.
+    Folds : Mutable-array materialization of one repeat.
+
+    Examples
+    --------
+    >>> from cleverly import SplitPlan
+    >>> plan = SplitPlan(((0, 1, 0, 1),))
+    >>> plan.n_folds, plan.n_repeats
+    (2, 1)
+    >>> plan.to_folds()[0].test_index(0).tolist()
+    [0, 2]
+    """
+
+    assignments: tuple[tuple[int, ...], ...]
+
+    def __post_init__(self) -> None:
+        """Copy and validate the complete repeat-major assignment."""
+        raw = self.assignments
+        if isinstance(raw, np.ndarray):
+            if raw.ndim != 2:
+                raise DataError(
+                    "split-plan assignments must be a repeat-major two-dimensional "
+                    f"array; got shape {raw.shape}"
+                )
+            rows = tuple(raw)
+        else:
+            if isinstance(raw, (str, bytes)):
+                raise DataError("split-plan assignments must be a sequence of repeats")
+            try:
+                rows = tuple(raw)
+            except TypeError as exc:
+                raise DataError("split-plan assignments must be a sequence of repeats") from exc
+        if not rows:
+            raise DataError("split-plan assignments contain no repeats")
+
+        normalized: list[tuple[int, ...]] = []
+        expected_n: int | None = None
+        expected_folds: int | None = None
+        for repeat, row in enumerate(rows):
+            array = np.asarray(row)
+            if array.ndim != 1:
+                raise DataError(
+                    "each split-plan repeat must contain one fold label per row; "
+                    f"repeat {repeat} has shape {array.shape}"
+                )
+            values = tuple(array.tolist())
+            if not values:
+                raise DataError(f"split-plan repeat {repeat} is empty")
+            if any(
+                isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral)
+                for value in values
+            ):
+                raise DataError(
+                    "split-plan fold labels must be integers; "
+                    f"repeat {repeat} contains a non-integer label"
+                )
+            assignment = tuple(int(value) for value in values)
+            labels = sorted(set(assignment))
+            if labels != list(range(len(labels))):
+                raise DataError(
+                    "split-plan fold labels must be a contiguous zero-based range; "
+                    f"repeat {repeat} uses {labels}"
+                )
+            folds = Folds(
+                np.asarray(assignment, dtype=np.int64),
+                len(labels),
+            )
+            if expected_n is None:
+                expected_n = folds.n
+                expected_folds = folds.n_folds
+            elif folds.n != expected_n:
+                raise DataError(
+                    "all split-plan repeats must describe the same rows; "
+                    f"repeat 0 has {expected_n} rows but repeat {repeat} has {folds.n}"
+                )
+            elif folds.n_folds != expected_folds:
+                raise DataError(
+                    "all split-plan repeats must use the same number of folds; "
+                    f"repeat 0 uses {expected_folds} but repeat {repeat} uses "
+                    f"{folds.n_folds}"
+                )
+            normalized.append(assignment)
+        object.__setattr__(self, "assignments", tuple(normalized))
+
+    @property
+    def n(self) -> int:
+        """Return the number of rows in each repeat."""
+        return len(self.assignments[0])
+
+    @property
+    def n_folds(self) -> int:
+        """Return the number of folds in each repeat."""
+        return max(self.assignments[0]) + 1
+
+    @property
+    def n_repeats(self) -> int:
+        """Return the number of repeats."""
+        return len(self.assignments)
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the provenance-compatible fingerprint of every repeat."""
+        from ..provenance import fingerprint_array
+
+        return fingerprint_array(
+            *(np.asarray(assignment, dtype=np.int64) for assignment in self.assignments)
+        )
+
+    def to_folds(self) -> tuple[Folds, ...]:
+        """Return fresh mutable-array fold objects for every repeat.
+
+        Returns
+        -------
+        tuple of Folds
+            Independent materializations in repeat order.
+        """
+        return tuple(
+            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds)
+            for assignment in self.assignments
+        )
+
+    @classmethod
+    def from_folds(cls, folds: Iterable[Folds]) -> SplitPlan:
+        """Copy repeat assignments from realized folds.
+
+        Parameters
+        ----------
+        folds : iterable of Folds
+            Realized folds in repeat order.
+
+        Returns
+        -------
+        SplitPlan
+            Immutable copies of the assignments.
+        """
+        return cls(
+            tuple(
+                tuple(int(value) for value in np.asarray(draw.assignment).tolist())
+                for draw in folds
+            )
+        )
+
+    def validate(
+        self,
+        *,
+        n: int,
+        cluster: IntArray | None = None,
+        treatment: FloatArray | None = None,
+        strata: FloatArray | None = None,
+    ) -> tuple[Folds, ...]:
+        """Validate assignments against the data and return fresh folds.
+
+        Parameters
+        ----------
+        n : int
+            Number of data rows.
+        cluster : ndarray, optional
+            Cluster code for each row.
+        treatment : ndarray, optional
+            Categorical treatment code for each row.
+        strata : ndarray, optional
+            Requested stratification code for each row.
+
+        Returns
+        -------
+        tuple of Folds
+            Fresh fold realizations in repeat order.
+        """
+        if self.n != n:
+            raise DataError(f"split plan has {self.n} rows but the data have {n} rows")
+        all_vectors = (
+            ("cluster", cluster),
+            ("treatment arm", treatment),
+            ("stratum", strata),
+        )
+        for name, vector in all_vectors:
+            if vector is not None and np.asarray(vector).reshape(-1).shape[0] != n:
+                raise DataError(
+                    f"{name} has {np.asarray(vector).reshape(-1).shape[0]} rows "
+                    f"but the data have {n}"
+                )
+        support_vectors = (("treatment arm", treatment), ("stratum", strata))
+
+        realized = self.to_folds()
+        for repeat, folds in enumerate(realized):
+            check_integrity(folds, cluster=cluster)
+            training_sets = (
+                (np.arange(n, dtype=np.int64),)
+                if folds.is_single
+                else tuple(train for train, _ in folds)
+            )
+            for fold, train in enumerate(training_sets):
+                for name, vector in support_vectors:
+                    if vector is None:
+                        continue
+                    values = np.asarray(vector).reshape(-1)
+                    missing = np.setdiff1d(np.unique(values), np.unique(values[train]))
+                    if missing.size:
+                        raise DataError(
+                            f"split-plan repeat {repeat}, fold {fold} has no {name}(s) "
+                            f"{missing.tolist()} in its training complement"
+                        )
+        return realized
 
 
 def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
@@ -387,7 +614,8 @@ class CrossFitPlan:
     scheme : str
         Which family of split was built, resolved from what the data declared rather
         than chosen: ``"grouped"`` whenever ``id=`` named clusters, otherwise
-        ``"stratified"`` or ``"vfold"``.
+        ``"stratified"`` or ``"vfold"``. ``"supplied"`` means a caller provided
+        exact assignments, which are validated but not claimed to be balanced.
     stratify_by : tuple of str
         What the outer folds were balanced on, as user-facing names.  Empty when nothing
         was -- a continuous dose has no strata to balance.

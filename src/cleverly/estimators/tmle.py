@@ -131,7 +131,7 @@ from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
-from ..learners.crossfit import CrossFitPlan, Folds, make_folds
+from ..learners.crossfit import CrossFitPlan, Folds, SplitPlan, make_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
@@ -264,6 +264,9 @@ class TMLE:
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
+    split_plan:
+        Reusable outer-fold assignments in repeat-major order. This controls only the
+        outer folds, so ``random_state`` still controls learner and C-TMLE selection folds.
     repeats:
         How many independent draws of the whole cross-fitting split to combine. ``1``
         (default) is an ordinary fit, and is bit-for-bit an
@@ -383,6 +386,7 @@ class TMLE:
         learner_folds: int = 5,
         repeats: int = 1,
         stratify_folds: FoldStrata = "treatment",
+        split_plan: SplitPlan | None = None,
         g_bounds: GBounds = "auto",
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.9995,
@@ -430,6 +434,7 @@ class TMLE:
         self.learner_folds = learner_folds
         self.repeats = repeats
         self.stratify_folds = stratify_folds
+        self.split_plan = split_plan
         self.g_bounds = g_bounds
         self.q_bounds = q_bounds
         self.alpha = alpha
@@ -571,6 +576,26 @@ class TMLE:
             )
         if self.repeats < 1:
             raise ValueError(f"repeats must be at least 1; got {self.repeats}")
+        split_plan = getattr(self, "split_plan", None)
+        if split_plan is not None:
+            if not isinstance(split_plan, SplitPlan):
+                raise ValueError("split_plan must be a SplitPlan")
+            if not self.cross_fit or self.n_folds < 2:
+                raise ValueError("split_plan requires cross_fit=True with at least two folds")
+            if split_plan.n_folds != self.n_folds:
+                raise ValueError(
+                    f"split_plan uses {split_plan.n_folds} folds but n_folds is {self.n_folds}"
+                )
+            if split_plan.n_repeats != self.repeats:
+                raise ValueError(
+                    f"split_plan has {split_plan.n_repeats} repeats but repeats is {self.repeats}"
+                )
+            if self.n_bootstrap:
+                raise ValueError(
+                    "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
+                    "replicates duplicate sampled rows, while the supplied assignments "
+                    "identify only the original row positions"
+                )
         if self.repeats > 1 and not self.cross_fit:
             raise ValueError(
                 "repeats= takes the median estimate over independent draws of the "
@@ -694,8 +719,7 @@ class TMLE:
         """
         scaler = self._scaler(data)
         draws = []
-        for seed in self.crossfit_plan(data).seeds():
-            folds = self._folds(data, seed)
+        for folds, seed in self._repeat_draws(data):
             draws.append(
                 (
                     folds,
@@ -903,8 +927,8 @@ class TMLE:
             config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
-            seeds = self.crossfit_plan(data).seeds()
-            fold_draws = [self._folds(data, seed) for seed in seeds]
+            draws = self._repeat_draws(data)
+            fold_draws = [folds for folds, _ in draws]
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
             # -- describes the first draw.  It is then the *same* config for every draw,
@@ -912,7 +936,7 @@ class TMLE:
             # on which draw it is, or the R estimates would not be estimating one thing.
             config = self._config(data, estimands, scaler, fold_draws[0])
             nuisances = []
-            for index, (folds, seed) in enumerate(zip(fold_draws, seeds, strict=True)):
+            for index, (folds, seed) in enumerate(draws):
                 nuisance, draw_extra = self._nuisances(
                     data, folds, scaler, config, intermediate_value, seed=seed
                 )
@@ -1186,6 +1210,23 @@ class TMLE:
             cluster=data.cluster,
             random_state=plan.random_state if seed is None else seed,
         )
+
+    def _repeat_draws(self, data: CausalData) -> tuple[tuple[Folds, int | None], ...]:
+        """Realize and validate all outer draws before fitting any nuisance model."""
+        seeds = self.crossfit_plan(data).seeds()
+        supplied = getattr(self, "split_plan", None)
+        if supplied is None:
+            realized = tuple(self._folds(data, seed) for seed in seeds)
+            plan = SplitPlan.from_folds(realized)
+        else:
+            plan = supplied
+        folds = plan.validate(
+            n=data.n,
+            cluster=data.cluster,
+            treatment=None if data.is_continuous_treatment else data.treatment,
+            strata=self._fold_strata(data),
+        )
+        return tuple(zip(folds, seeds, strict=True))
 
     def _resolve_learner(
         self,
@@ -1844,14 +1885,21 @@ class TMLE:
         place too many, so :meth:`_folds` reads them off the plan.
         """
         cross_fit = self.cross_fit
-        if not cross_fit or data.is_continuous_treatment:
-            stratify_by: tuple[str, ...] = ()
+        stratify_by: tuple[str, ...]
+        if (
+            getattr(self, "split_plan", None) is not None
+            or not cross_fit
+            or data.is_continuous_treatment
+        ):
+            stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)
         else:
             stratify_by = (data.treatment_name, data.outcome_name)
         clustered = cross_fit and data.cluster is not None
-        if not cross_fit:
+        if getattr(self, "split_plan", None) is not None:
+            scheme = "supplied"
+        elif not cross_fit:
             scheme = "none"
         elif clustered and stratify_by:
             scheme = "stratified-grouped"
@@ -2571,11 +2619,11 @@ class TMLE:
         """
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
-        seeds = self.crossfit_plan(data).seeds()
-        fold_draws = [self._folds(data, seed) for seed in seeds]
+        draws = self._repeat_draws(data)
+        fold_draws = [folds for folds, _ in draws]
         config = self._config(data, estimands, scaler, fold_draws[0])
         per_repeat = []
-        for folds, seed in zip(fold_draws, seeds, strict=True):
+        for folds, seed in draws:
             nuisance, _ = self._nuisances(
                 data, folds, scaler, config, intermediate_value, seed=seed
             )

@@ -29,7 +29,7 @@ from ..inference.results import (
     smooth_contrast,
     sole_estimate,
 )
-from ..learners.crossfit import CrossFitPlan
+from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..utils.frames import emit_frame
@@ -562,6 +562,11 @@ class TMLEResult:
     def n_repeats(self) -> int:
         """How many draws of the cross-fitting split this fit combined."""
         return len(self.repeats)
+
+    @property
+    def split_plan(self) -> SplitPlan:
+        """Return immutable assignments for every fitted repeat."""
+        return SplitPlan.from_folds(repeat.folds for repeat in self.repeats)
 
     def repeat_spread(self) -> dict[str, float]:
         r"""Split spread of the estimate across the cross-fitting draws, per estimand.

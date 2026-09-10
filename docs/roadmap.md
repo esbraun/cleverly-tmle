@@ -16,16 +16,14 @@ post-fit coverage. Complete these rows in order before main-roadmap priority 1. 
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
 The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
-and RM8 carry an open source audit. RM3 raises no published-method question, because that row does
-not change an estimand, an estimator configuration, or fold arithmetic.
+and RM8 carry an open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.2 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.3 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.4 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.5 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.2 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.3 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.4 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -130,40 +128,6 @@ estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM3. Public reusable split plans
-
-Add a frozen public `SplitPlan`, distinct from the existing policy-only `CrossFitPlan`. Store
-repeat-major tuples of row-aligned, zero-based fold indices. Require every repeat to use one
-contiguous fold range and the same row and fold counts. Copy caller sequences into tuples so later
-caller mutation cannot change the plan or its fingerprint.
-
-Accept the plan as `CrossFitting(split_plan=...)`. Require `n_folds` and `repeats` to match the
-plan, and refuse `enabled=False` with a supplied plan. Keep `random_state` active for learner and
-C-TMLE selection folds. A supplied plan controls only the outer folds.
-
-Resolve every repeat before the first nuisance fit. Each row receives one validation fold. Rows in
-one declared cluster must receive the same fold. Every training complement must contain every
-declared treatment arm and every requested treatment-outcome stratum. Do not rebalance, cap, or
-repair a supplied plan.
-
-Expose the realized `SplitPlan` from every point-treatment result. Build it from all retained
-repeat folds, which trusted persistence already saves. Use the existing all-repeat fold fingerprint,
-and require the plan fingerprint to equal `Provenance.fold_fingerprint`.
-
-Keep the supplied-plan path point-treatment only in this item. Refuse it on longitudinal designs,
-because longitudinal validation needs node-specific support rules and its own acceptance tests.
-Also refuse a supplied plan with the targeted bootstrap. The bootstrap resamples row or cluster
-identities, and the current resampling record cannot map the original positional plan to them.
-
-Acceptance needs exact generated-versus-supplied identity for binary, multi-arm, clustered, and
-repeated fits. Compare every realized assignment, nuisance prediction, estimate, variance,
-influence curve, and fold-indexed diagnostic. Add immutable-value, malformed-plan, configuration,
-pre-fit refusal, pandas and Polars, persistence, and serial-versus-parallel tests.
-
-Update the public API, method guide, CV-TMLE reference, and cross-fitting tutorial. This capability
-changes no generated fold arithmetic and no fitted result under identical folds. No registered
-study applies unless implementation changes a generated path or a fitted array.
 
 ### RM4. Longitudinal truncation retargets
 

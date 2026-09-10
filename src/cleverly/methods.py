@@ -9,6 +9,7 @@ from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, Targ
 from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
+from .learners.crossfit import SplitPlan
 from .learners.library import _validate_learner
 
 __all__ = [
@@ -143,11 +144,14 @@ class CrossFitting:
         Pooled or fold-specific targeting scheme.
     fold_evaluation : bool, default=False
         Whether to retain fold-evaluated CV-TMLE estimates.
+    split_plan : SplitPlan, optional
+        Reusable outer-fold assignments in repeat-major order.
 
     See Also
     --------
     TMLEMethod : Method configuration this object is the splitting half of.
     Targeting : Whether the fluctuation is pooled or fitted per fold.
+    SplitPlan : Reusable outer-fold assignments accepted by this configuration.
     cleverly.learners.make_folds : The partition this configuration asks for.
 
     Examples
@@ -172,6 +176,25 @@ class CrossFitting:
     stratify_by: FoldStrata = "treatment"
     targeting_scheme: TargetingScheme = "pooled"
     fold_evaluation: bool = False
+    split_plan: SplitPlan | None = None
+
+    def __post_init__(self) -> None:
+        if self.split_plan is None:
+            return
+        if not isinstance(self.split_plan, SplitPlan):
+            raise MethodConfigurationError("split_plan must be a SplitPlan")
+        if not self.enabled or self.n_folds < 2:
+            raise MethodConfigurationError(
+                "split_plan requires enabled cross-fitting with at least two folds"
+            )
+        if self.split_plan.n_folds != self.n_folds:
+            raise MethodConfigurationError(
+                f"split_plan uses {self.split_plan.n_folds} folds but n_folds is {self.n_folds}"
+            )
+        if self.split_plan.n_repeats != self.repeats:
+            raise MethodConfigurationError(
+                f"split_plan has {self.split_plan.n_repeats} repeats but repeats is {self.repeats}"
+            )
 
 
 @dataclass(frozen=True)
@@ -417,6 +440,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "stratify_folds": "stratify_by",
         "targeting_scheme": "targeting_scheme",
         "cv_evaluation": "fold_evaluation",
+        "split_plan": "split_plan",
     },
     "targeting": {
         "fluctuation": "fluctuation",
@@ -449,7 +473,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 17 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -462,6 +486,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
+    ("cross_fitting", "split_plan", "split_plan"),
     ("targeting", "fluctuation", "fluctuation"),
     ("targeting", "algorithm", "targeting"),
     ("targeting", "nuisance_bound", "nuisance_bound"),
@@ -592,6 +617,7 @@ class TMLEMethod:
         targeting = self.targeting
         inference = self.inference
         runtime = self.runtime
+        split_plan = getattr(cross, "split_plan", None)
         common = {
             "outcome_learner": models.outcome_learner,
             "n_folds": cross.n_folds,
@@ -615,7 +641,11 @@ class TMLEMethod:
                 public_name
                 for group_name, field_name, public_name in _LONGITUDINAL_POINT_ONLY
                 if _differs_from_default(
-                    getattr(getattr(self, group_name), field_name),
+                    getattr(
+                        getattr(self, group_name),
+                        field_name,
+                        getattr(getattr(defaults, group_name), field_name),
+                    ),
                     getattr(getattr(defaults, group_name), field_name),
                 )
             ]
@@ -642,6 +672,11 @@ class TMLEMethod:
             return common
         if common["n_multiplier"] == "auto":
             common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
+        if split_plan is not None and inference.n_bootstrap:
+            raise MethodConfigurationError(
+                "split_plan cannot be combined with the targeted bootstrap because "
+                "bootstrap rows no longer have the original positional identities"
+            )
         common.update(
             {
                 "treatment_learner": models.treatment_learner,
@@ -653,6 +688,7 @@ class TMLEMethod:
                 "min_retain": models.min_retain,
                 "cross_fit": cross.enabled,
                 "repeats": cross.repeats,
+                "split_plan": split_plan,
                 "stratify_folds": cross.stratify_by,
                 "targeting_scheme": cross.targeting_scheme,
                 "cv_evaluation": cross.fold_evaluation,

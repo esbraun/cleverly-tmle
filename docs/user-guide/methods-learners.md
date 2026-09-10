@@ -118,6 +118,47 @@ row-level time ordering that no design role carries. A rolling-origin split nest
 sets, so no single fold holds out each row, and `Folds` stores exactly one fold per row. The
 rolling-origin refusal would survive a time index; it asks for a different storage contract.
 
+## Reuse an outer split
+
+Every point-treatment result records its realized outer folds as an immutable `split_plan`.
+Supply that plan to compare methods on exactly the same validation rows.
+
+```python
+reused_method = TMLEMethod(
+    models=method.models,
+    cross_fitting=CrossFitting(
+        n_folds=5,
+        learner_folds=3,
+        repeats=1,
+        split_plan=result.split_plan,
+    ),
+    targeting=method.targeting,
+    inference=method.inference,
+    runtime=method.runtime,
+)
+reused_result = effect.estimate(method=reused_method)
+assert reused_result.provenance.fold_fingerprint == result.provenance.fold_fingerprint
+```
+
+Set `n_folds` and `repeats` explicitly to the counts recorded by the plan. A mismatch raises
+`MethodConfigurationError` instead of changing the plan.
+
+Plan labels align by input row position, not by pandas or Polars index metadata. Reuse a plan only
+with the same rows in the same order. With a cluster role, every row from one cluster must share a
+fold within each repeat.
+
+A supplied plan controls only the outer nuisance split. `learner_folds` still controls inner model
+selection. Collaborative TMLE still constructs its selection folds from the repeat seed.
+
+Validation runs before nuisance fitting. It checks row and repeat counts, fold labels, required
+training arms, declared strata, and cluster integrity. The estimator refuses supplied plans for
+longitudinal fits and targeted bootstrap inference.
+
+Saving a result preserves `split_plan`. Provenance also records a fingerprint over every repeat's
+assignments. Exact generated-versus-reused tests cover point, multi-arm, clustered, repeated,
+pandas, Polars, serialization, and `n_jobs` behavior. Those tests establish computational identity,
+not new statistical guarantees.
+
 ## Targeting and bounds
 
 `g_bounds="auto"` chooses target-aware treatment-mechanism truncation. The bound changes the
