@@ -183,18 +183,13 @@ class CrossFitting:
             return
         if not isinstance(self.split_plan, SplitPlan):
             raise MethodConfigurationError("split_plan must be a SplitPlan")
-        if not self.enabled or self.n_folds < 2:
-            raise MethodConfigurationError(
-                "split_plan requires enabled cross-fitting with at least two folds"
-            )
-        if self.split_plan.n_folds != self.n_folds:
-            raise MethodConfigurationError(
-                f"split_plan uses {self.split_plan.n_folds} folds but n_folds is {self.n_folds}"
-            )
-        if self.split_plan.n_repeats != self.repeats:
-            raise MethodConfigurationError(
-                f"split_plan has {self.split_plan.n_repeats} repeats but repeats is {self.repeats}"
-            )
+        # One message source, two exception contracts: the engine raises ValueError for
+        # the same three refusals. See ``SplitPlan._policy_refusal``.
+        reason = self.split_plan._policy_refusal(
+            cross_fit=self.enabled, n_folds=self.n_folds, repeats=self.repeats
+        )
+        if reason is not None:
+            raise MethodConfigurationError(reason)
 
 
 @dataclass(frozen=True)
@@ -553,6 +548,20 @@ class TMLEMethod:
     runtime: Runtime = Runtime()
     name: str = "tmle"
 
+    def __post_init__(self) -> None:
+        """Refuse the one combination no single configuration group can see.
+
+        A cross-group rule belongs to the object that holds both groups, and it belongs at
+        construction: :meth:`estimator_kwargs` is a translation, and a refusal buried in a
+        translation fires later than the declaration that earned it.
+        ``DRTMLEMethod.__post_init__`` is the precedent.
+        """
+        if self.cross_fitting.split_plan is not None and self.inference.n_bootstrap:
+            raise MethodConfigurationError(
+                "split_plan cannot be combined with the targeted bootstrap because "
+                "bootstrap rows no longer have the original positional identities"
+            )
+
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.
 
@@ -617,7 +626,7 @@ class TMLEMethod:
         targeting = self.targeting
         inference = self.inference
         runtime = self.runtime
-        split_plan = getattr(cross, "split_plan", None)
+        split_plan = cross.split_plan
         common = {
             "outcome_learner": models.outcome_learner,
             "n_folds": cross.n_folds,
@@ -641,11 +650,7 @@ class TMLEMethod:
                 public_name
                 for group_name, field_name, public_name in _LONGITUDINAL_POINT_ONLY
                 if _differs_from_default(
-                    getattr(
-                        getattr(self, group_name),
-                        field_name,
-                        getattr(getattr(defaults, group_name), field_name),
-                    ),
+                    getattr(getattr(self, group_name), field_name),
                     getattr(getattr(defaults, group_name), field_name),
                 )
             ]
@@ -672,11 +677,6 @@ class TMLEMethod:
             return common
         if common["n_multiplier"] == "auto":
             common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
-        if split_plan is not None and inference.n_bootstrap:
-            raise MethodConfigurationError(
-                "split_plan cannot be combined with the targeted bootstrap because "
-                "bootstrap rows no longer have the original positional identities"
-            )
         common.update(
             {
                 "treatment_learner": models.treatment_learner,
@@ -871,6 +871,7 @@ class DRTMLEMethod(TMLEMethod):
     name: str = "drtmle"
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         _validate_learner(self.reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(self.reduced_treatment_learner, "reduced_treatment_learner")
 

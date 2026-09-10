@@ -131,10 +131,17 @@ from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
-from ..learners.crossfit import CrossFitPlan, Folds, SplitPlan, make_folds
+from ..learners.crossfit import (
+    CrossFitPlan,
+    Folds,
+    SplitPlan,
+    make_folds,
+    resolve_n_folds,
+)
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
+from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
 from ..targets.base import stratum_alias
@@ -576,20 +583,18 @@ class TMLE:
             )
         if self.repeats < 1:
             raise ValueError(f"repeats must be at least 1; got {self.repeats}")
-        split_plan = getattr(self, "split_plan", None)
+        split_plan = self.split_plan
         if split_plan is not None:
             if not isinstance(split_plan, SplitPlan):
                 raise ValueError("split_plan must be a SplitPlan")
-            if not self.cross_fit or self.n_folds < 2:
-                raise ValueError("split_plan requires cross_fit=True with at least two folds")
-            if split_plan.n_folds != self.n_folds:
-                raise ValueError(
-                    f"split_plan uses {split_plan.n_folds} folds but n_folds is {self.n_folds}"
-                )
-            if split_plan.n_repeats != self.repeats:
-                raise ValueError(
-                    f"split_plan has {split_plan.n_repeats} repeats but repeats is {self.repeats}"
-                )
+            # One message source for the two declarations that accept a plan, under two
+            # exception contracts: ``CrossFitting`` raises MethodConfigurationError and
+            # the engine raises ValueError.  See ``SplitPlan._policy_refusal``.
+            reason = split_plan._policy_refusal(
+                cross_fit=self.cross_fit, n_folds=self.n_folds, repeats=self.repeats
+            )
+            if reason is not None:
+                raise ValueError(reason)
             if self.n_bootstrap:
                 raise ValueError(
                     "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
@@ -757,12 +762,28 @@ class TMLE:
         refit -- :mod:`cleverly.validation.refute` reports the seed it used, so that a
         reader can -- supplies one here.  The estimator is not modified: the seed applies
         to a copy, and this instance keeps the ``random_state`` it was built with.
+
+        A supplied :class:`~cleverly.SplitPlan` reaches the refit *unbound* from the rows
+        it was realised on, and the copy is what makes that local too.  The binding exists
+        to catch a plan reused on other rows, where a label silently points at another
+        unit.  Every refit in this package is the same rows with a column replaced,
+        perturbed or dropped -- which is the exact condition
+        :meth:`~cleverly.SplitPlan.validate` names as safe to reuse labels under -- so
+        holding the fingerprint here would refuse the placebo and negative-control
+        refutations for a change that moves no row.  What a refit cannot do is change the
+        row *set*: the count check inside ``validate`` still refuses that, and
+        :func:`~cleverly.validation.refute` refuses the subsampling test up front.
         """
-        if random_state is None or random_state == self.random_state:
-            return self._fit_single(data, intermediate_value=intermediate_value)
-        seeded = copy.copy(self)
-        seeded.random_state = random_state
-        return seeded._fit_single(data, intermediate_value=intermediate_value)
+        estimator = self
+        plan = self.split_plan
+        if plan is not None and plan.source_fingerprint is not None:
+            estimator = copy.copy(self)
+            estimator.split_plan = SplitPlan(plan.assignments)
+        if random_state is not None and random_state != self.random_state:
+            if estimator is self:
+                estimator = copy.copy(self)
+            estimator.random_state = random_state
+        return estimator._fit_single(data, intermediate_value=intermediate_value)
 
     def _prepare(
         self,
@@ -1212,17 +1233,36 @@ class TMLE:
         )
 
     def _repeat_draws(self, data: CausalData) -> tuple[tuple[Folds, int | None], ...]:
-        """Realize and validate all outer draws before fitting any nuisance model."""
+        """Realize and validate all outer draws before fitting any nuisance model.
+
+        The supplied path checks the fold count against the count these data *resolve*
+        to, not against the count the caller declared.  Those differ whenever a cap fires:
+        a plan realised by a 10-fold declaration on data that support 3 holds 3, and
+        refusing it against the declaration would refuse this package's own record of its
+        own fit.  Declaration time can only rule out the direction no cap produces --
+        more folds than declared -- which ``SplitPlan._policy_refusal`` does.
+        """
         seeds = self.crossfit_plan(data).seeds()
-        supplied = getattr(self, "split_plan", None)
+        supplied = self.split_plan
         if supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
+            stratify = self._fold_strata(data)
+            resolved = resolve_n_folds(self.n_folds, data.n, stratify, cluster=data.cluster)
+            if supplied.n_folds != resolved:
+                raise DataError(
+                    f"split plan holds {supplied.n_folds} folds but these data resolve "
+                    f"{self.n_folds} declared folds to {resolved}. A supplied plan is the "
+                    "realised split, so it has to hold the folds this fit would run; "
+                    "regenerate the plan on these data, or declare the fold count the plan "
+                    "was realised under"
+                )
             folds = supplied.validate(
                 n=data.n,
                 cluster=data.cluster,
                 treatment=None if data.is_continuous_treatment else data.treatment,
-                strata=self._fold_strata(data),
+                stratify=stratify,
+                source_fingerprint=data_fingerprint(data),
             )
         return tuple(zip(folds, seeds, strict=True))
 
@@ -1881,21 +1921,25 @@ class TMLE:
         settings: whether clusters were declared, and whether the treatment has strata to
         balance at all.  Both decisions are made here and in :meth:`_folds`, which is one
         place too many, so :meth:`_folds` reads them off the plan.
+
+        ``stratify_by`` records what the folds were held to, which under a supplied plan
+        is what :meth:`SplitPlan.validate` checked rather than what a splitter balanced:
+        the plan's assignments have to carry every one of these values into every training
+        complement, which is the property balancing exists to produce.  ``scheme`` already
+        carries the fact that nothing was generated, so recording ``()`` here as well
+        would say the fit was held to nothing.
         """
         cross_fit = self.cross_fit
+        supplied = self.split_plan
         stratify_by: tuple[str, ...]
-        if (
-            getattr(self, "split_plan", None) is not None
-            or not cross_fit
-            or data.is_continuous_treatment
-        ):
+        if not cross_fit or data.is_continuous_treatment:
             stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)
         else:
             stratify_by = (data.treatment_name, data.outcome_name)
         clustered = cross_fit and data.cluster is not None
-        if getattr(self, "split_plan", None) is not None:
+        if supplied is not None:
             scheme = "supplied"
         elif not cross_fit:
             scheme = "none"

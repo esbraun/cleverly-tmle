@@ -849,6 +849,14 @@ _KNOWN_TESTS = (
     "bootstrap_measurement_error",
 )
 _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
+#: The refutations whose refit sees a different row set from the fit's own. ``subset`` drops
+#: rows, so the count changes; ``bootstrap_measurement_error`` resamples with replacement
+#: through :meth:`~cleverly.inference.bootstrap._BootstrapDesign.sample`, so the count is
+#: unchanged but a different unit sits at each position -- the same reason the targeted
+#: bootstrap refuses a supplied plan outright. Every other test here replaces or perturbs a
+#: column and keeps each row in its position, which is what makes a supplied
+#: :class:`~cleverly.SplitPlan` still apply.
+_ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
@@ -1511,6 +1519,29 @@ def refute(
         or n_replicates < 1
     ):
         raise ValueError("n_replicates must be positive and an integer")
+    # Before any refit, like the two validations below it. A fit that was given a
+    # SplitPlan cannot refit on a different row set: the plan holds one fold label per
+    # row of the original data, and there is no rule here for which labels a resampled
+    # row inherits. Left to the refit, ``subset`` gives the caller a row-count DataError
+    # naming a "split plan" they did not mention in this call, after paying for the tests
+    # that ran first, and ``bootstrap_measurement_error`` gives no error at all: its draw
+    # keeps the row count, so the labels land on resampled units and the refutation
+    # silently reports a split the fit never ran.
+    # ``getattr`` because ``result.estimator`` is whatever fitted the result: the
+    # sequential engine takes no plan and has no such attribute.
+    supplied_plan = getattr(estimator, "split_plan", None)
+    if supplied_plan is not None:
+        resampled = [name for name in requested if name in _ROW_SET_TESTS]
+        if resampled:
+            raise CapabilityError(
+                f"refutation test(s) {resampled} refit on rows this fit did not run, and "
+                f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
+                "the rows it was realised on, by position, so it cannot label a refit that "
+                "drops rows or draws them with replacement, and dropping the plan for those "
+                "refits would refute a different split from the one the fit ran. Drop "
+                f"{resampled} from tests=, or refit the result without split_plan= to refute "
+                "a fit whose folds are drawn from the data each time"
+            )
 
     processes: dict[str, GaussianIndependentOutcome | GaussianAdjustmentOutcome] = {
         "dummy_outcome": (GaussianIndependentOutcome() if dummy_outcome is None else dummy_outcome),
