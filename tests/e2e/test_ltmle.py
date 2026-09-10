@@ -1214,11 +1214,14 @@ class TestASurvivalOutcome:
         result, _ = fitted
         risk = result.curve(scale="risk")
         survival = result.curve(scale="survival")
+        assert set(risk["scale"]) == {"risk"}
+        assert set(survival["scale"]) == {"survival"}
         for position in range(len(risk)):
             row, mirrored = risk.iloc[position], survival.iloc[position]
-            assert row["estimand"] == mirrored["estimand"]
+            expected_name = str(row["estimand"]).replace("risk_regimen[", "survival_regimen[", 1)
+            assert mirrored["estimand"] == expected_name
             assert mirrored["std_err"] == pytest.approx(row["std_err"])
-            if row["scale"] == "level":
+            if str(row["estimand"]).startswith("risk_regimen["):
                 assert mirrored["psi"] == pytest.approx(1.0 - row["psi"])
                 assert mirrored["ci_lower"] == pytest.approx(1.0 - row["ci_upper"])
                 assert mirrored["ci_upper"] == pytest.approx(1.0 - row["ci_lower"])
@@ -1377,7 +1380,7 @@ class TestCompetingRisks:
     }
 
     @staticmethod
-    def _two_cause_frame(n: int = 1200, seed: int = 7) -> Any:
+    def _two_cause_frame(n: int = 1200, seed: int = 7, cluster_size: int | None = None) -> Any:
         """A survival frame split into two causes by a coin the fit cannot see.
 
         The coin is tossed **per unit**, not per node, and that is not a detail: the
@@ -1390,7 +1393,9 @@ class TestCompetingRisks:
         by the exact law, not by a simulation whose truth would have to be derived again
         here to say anything.
         """
-        frame, _ = make_longitudinal_survival(n=n, seed=seed)
+        frame, _ = make_longitudinal_survival(
+            n=n, seed=seed, **({} if cluster_size is None else {"cluster_size": cluster_size})
+        )
         rng = np.random.default_rng(seed)
         out = frame.copy()
         is_relapse = rng.integers(0, 2, size=len(frame)) == 0
@@ -1433,6 +1438,12 @@ class TestCompetingRisks:
         # name was built rather than splitting the name on the cause's separator.
         assert {"always", "never", "always vs never"} <= set(curve["regimen"])
 
+    def test_a_cause_complement_is_not_labelled_all_cause_survival(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        with pytest.raises(ValueError, match="1 - one cause's incidence is not all-cause survival"):
+            fitted.curve(scale="survival")
+
     def test_the_incidences_are_reported_not_renormalised(self, fitted: LongitudinalResult) -> None:
         """The causes sum to something near one, and the deviation is reported as such.
 
@@ -1445,6 +1456,45 @@ class TestCompetingRisks:
             assert 0.0 < float(value) < 1.2
         for value in total["excess"]:
             assert float(value) >= 0.0
+
+    @staticmethod
+    def _assert_total_standard_errors_match_the_joint_influence_covariance(
+        fitted: LongitudinalResult,
+    ) -> None:
+        totals = fitted.incidence_total()
+        for row in totals.itertuples(index=False):
+            names = [
+                f"cif_regimen[{row.regimen}, {cause} @ t={row.time}]"
+                for cause in fitted.config.causes
+            ]
+            summed = np.sum(
+                np.column_stack([fitted[name].influence_curve for name in names]), axis=1
+            )
+            if fitted.data.cluster is None:
+                variance = float(np.var(summed, ddof=1) / fitted.data.n)
+            else:
+                codes = np.asarray(fitted.data.cluster)
+                cluster_sums = np.asarray(
+                    [summed[codes == code].sum() for code in np.unique(codes)]
+                )
+                variance = float(
+                    cluster_sums.size * np.var(cluster_sums, ddof=1) / fitted.data.n**2
+                )
+            assert row.std_err == pytest.approx(float(np.sqrt(variance)))
+
+    def test_the_incidence_total_uses_the_iid_joint_influence_covariance(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        self._assert_total_standard_errors_match_the_joint_influence_covariance(fitted)
+
+    def test_the_incidence_total_uses_the_cluster_joint_influence_covariance(self) -> None:
+        clustered = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+            self._two_cause_frame(n=500, seed=13, cluster_size=5),
+            outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+            id="id",
+            **self.COMPETING_COLUMNS,
+        )
+        self._assert_total_standard_errors_match_the_joint_influence_covariance(clustered)
 
     def test_incidence_total_is_refused_on_a_single_event_fit(self) -> None:
         frame, _ = make_longitudinal_survival(n=400, seed=2)

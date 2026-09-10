@@ -20,12 +20,12 @@ The last two are the argument for registering the *guide* pages and not only the
 examples: both live on a page whose fences assume a ``study`` from the surrounding prose, so a
 check limited to documents that build their own data would have run neither.
 
-**What this checks and what it deliberately does not.**  This is a smoke check on
-*executability*: the assertion is that the block raises nothing.  Nothing here asserts an
-estimate, an interval, or a diagnostic verdict, and nothing here is statistical evidence --
-``docs/architecture-invariants.md`` keeps that rule, and behaviour shown in a guide still has to
-be covered by an ordinary fast test or a registered study. A documented example that runs is a
-much weaker claim than a documented example that is right, and only the weaker one is made here.
+**What this checks and what it deliberately does not.**  The general gate is a smoke check on
+*executability*: the assertion is that the block raises nothing.  A second, bounded gate runs four
+reviewed tutorials at their documented sizes.  Its explicit callbacks check identification
+metadata, display identities, and the seeded relations that those pages narrate.  This does not
+turn one seeded example into statistical evidence. ``docs/architecture-invariants.md`` keeps that
+rule, and method claims still need an ordinary fast test or a registered study.
 
 **The blocks are shrunk, and only in two declared ways.**  :class:`Shrink` rewrites the ``n=``
 argument of a ``make_*`` generator call and the ``density_bins=`` argument, and rewrites nothing
@@ -55,10 +55,12 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import nbformat
+import numpy as np
 import pytest
 
 from tests.documents import NOTEBOOKS, READER_FACING, ROOT, python_blocks
@@ -220,6 +222,233 @@ PRELUDES: dict[str, str] = {
 }
 
 TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
+
+
+# ---------------------------------------------------------------- semantic tutorial assertions
+
+
+def _missing_outcome_semantics(namespace: dict[str, Any]) -> None:
+    """The survey question reports the observation factor its fitted score uses.
+
+    The same documented-size run also witnesses the tutorial's interval and sensitivity claims.
+    """
+    effect = namespace["effect"]
+    fitted = namespace["full"]
+    expression = effect.functional.expression
+    assumptions = " ".join(effect.identification.assumptions).lower()
+    nuisances = effect.identification.required_nuisances
+    summary = effect.summary()
+
+    assert "responded=1" in expression
+    assert "missingness at random" in assumptions
+    assert "response positivity" in assumptions
+    assert "missingness_mechanism" in nuisances
+    assert fitted.nuisance.missingness is not None
+    assert expression in summary
+    assert "missingness_mechanism" in summary
+    assert "E_W[E(Y | A=a, W)] and the declared smooth contrast" not in summary
+
+    truth = namespace["truth"]["ate"]
+    complete_case = namespace["complete_case"]["ate"]
+    full = fitted["ate"]
+    assert complete_case.psi > truth
+    assert not complete_case.ci[0] <= truth <= complete_case.ci[1]
+    assert full.ci[0] <= truth <= full.ci[1]
+
+    mild_truth = namespace["mild_truth"]["ate"]
+    mild = namespace["mild"]["ate"]
+    assert mild.ci[0] <= mild_truth <= mild.ci[1]
+
+    box_study = namespace["box_study"]
+    box_method = namespace["box_method"]
+    risk_ratio = box_study.identify(namespace["RiskRatio"](reference=0)).estimate(
+        method=box_method
+    )["rr"]
+    odds_ratio = box_study.identify(namespace["OddsRatio"](reference=0)).estimate(
+        method=box_method
+    )["or"]
+    assert odds_ratio.psi > risk_ratio.psi > 1.0
+    assert namespace["tipping_gamma"] == pytest.approx(1.30, abs=0.02)
+
+
+def _multi_arm_identification_semantics(namespace: dict[str, Any]) -> None:
+    """The arm-mean question names its actual support instead of a binary surrogate."""
+    effect = namespace["arms"]
+    fitted = namespace["arm_result"]
+    levels = tuple(namespace["study"].data.treatment_levels)
+    positivity = " ".join(
+        assumption
+        for assumption in effect.identification.assumptions
+        if "positivity" in assumption.lower()
+    )
+    summary = effect.summary()
+
+    assert len(levels) == 3, "the tutorial no longer witnesses multi-arm identification"
+    assert fitted.nuisance.propensity.values.shape[1] == len(levels)
+    for level in levels:
+        assert str(level) in positivity
+    assert "treatment_mechanism" in summary
+    assert "P(A = 1 | W)" not in summary
+    assert "both counterfactual means" not in summary
+
+    population = namespace["population"]
+    assert population[0] < population[1] < population[2]
+    assert population[2] - population[1] > population[1] - population[0]
+
+    projection = namespace["projection"]
+    trend = namespace["trend_result"]
+    for name, target in zip(
+        ("msm[(intercept)]", "msm[assigned contacts]"), projection, strict=True
+    ):
+        assert trend[name].ci[0] <= target <= trend[name].ci[1]
+
+    saturated = namespace["saturated_result"]
+    mappings = {
+        "msm[(intercept)]": namespace["arm_result"]["ey[low]"],
+        "msm[medium vs low]": namespace["arm_contrasts"]["ate[medium vs low]"],
+        "msm[high vs low]": namespace["arm_contrasts"]["ate[high vs low]"],
+    }
+    for name, counterpart in mappings.items():
+        coefficient = saturated[name]
+        assert coefficient.psi == pytest.approx(counterpart.psi, rel=1e-12, abs=1e-12)
+        np.testing.assert_allclose(
+            coefficient.influence_curve,
+            counterpart.influence_curve,
+            rtol=1e-12,
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(coefficient.ci, counterpart.ci, rtol=1e-12, atol=1e-12)
+
+
+def _survival_output_semantics(namespace: dict[str, Any]) -> None:
+    """The survival view and incidence total keep their public numerical meanings."""
+    from cleverly.inference.cluster import influence_covariance
+
+    result = namespace["exit_result"]
+    risk = result.curve(scale="risk")
+    survival = namespace["survival_curve"]
+    assert len(risk) == len(survival) > 0
+    assert set(risk["scale"]) == {"risk"}
+    assert set(survival["scale"]) == {"survival"}
+    assert all(str(name).startswith("risk_regimen[") for name in risk["estimand"])
+    assert all(str(name).startswith("survival_regimen[") for name in survival["estimand"])
+    assert not any(str(name).startswith("risk_regimen[") for name in survival["estimand"])
+    np.testing.assert_allclose(survival["psi"], 1.0 - risk["psi"], rtol=0.0, atol=1e-14)
+    np.testing.assert_allclose(survival["ci_lower"], 1.0 - risk["ci_upper"], rtol=0.0, atol=1e-14)
+    np.testing.assert_allclose(survival["ci_upper"], 1.0 - risk["ci_lower"], rtol=0.0, atol=1e-14)
+    np.testing.assert_array_equal(survival["std_err"], risk["std_err"])
+
+    contrast = namespace["exit_contrast"]
+    risk_difference = contrast.curve(scale="risk")
+    survival_difference = contrast.curve(scale="survival")
+    assert set(risk_difference["scale"]) == {"risk"}
+    assert set(survival_difference["scale"]) == {"survival"}
+    assert all(str(name).startswith("ate_regimen[") for name in survival_difference["estimand"])
+    assert not any(
+        str(name).startswith(("risk_regimen[", "survival_regimen["))
+        for name in survival_difference["estimand"]
+    )
+    np.testing.assert_allclose(
+        survival_difference["psi"], -risk_difference["psi"], rtol=0.0, atol=1e-14
+    )
+    np.testing.assert_allclose(
+        survival_difference["ci_lower"], -risk_difference["ci_upper"], rtol=0.0, atol=1e-14
+    )
+    np.testing.assert_allclose(
+        survival_difference["ci_upper"], -risk_difference["ci_lower"], rtol=0.0, atol=1e-14
+    )
+    np.testing.assert_array_equal(survival_difference["std_err"], risk_difference["std_err"])
+
+    retention = survival.set_index(["regimen", "time"])
+    assert retention.loc[("always", 2), "psi"] > retention.loc[("never", 2), "psi"]
+    exit_t1 = contrast["ate_regimen[always vs never @ t=1]"]
+    exit_t2 = contrast["ate_regimen[always vs never @ t=2]"]
+    assert exit_t1.psi < 0.0 and exit_t2.psi < 0.0
+    assert abs(exit_t2.psi) > abs(exit_t1.psi)
+
+    events = namespace["event_result"]
+    relapse_t1 = events["ate_regimen[always vs never, relapse @ t=1]"]
+    relapse_t2 = events["ate_regimen[always vs never, relapse @ t=2]"]
+    assert relapse_t1.psi < 0.0 and relapse_t2.psi < 0.0
+    assert abs(relapse_t2.psi) < abs(relapse_t1.psi)
+    assert relapse_t2.ci[0] <= 0.0 <= relapse_t2.ci[1]
+
+    event_truth = namespace["event_truth"]
+    assert event_truth["ate_regimen[always vs never, relapse @ t=1]"] < 0.0
+    assert event_truth["ate_regimen[always vs never, relapse @ t=2]"] > 0.0
+
+    death_t1 = events["ate_regimen[always vs never, death @ t=1]"]
+    death_t2 = events["ate_regimen[always vs never, death @ t=2]"]
+    assert death_t1.psi < 0.0 and death_t2.psi < 0.0
+    assert abs(death_t2.psi) > abs(death_t1.psi)
+
+    exit_support = namespace["exit_diagnostics"].report("support").to_frame()
+    event_support = namespace["event_diagnostics"].report("support").to_frame()
+    assert len(exit_support) == 6
+    assert len(event_support) == 12
+
+    competing = namespace["event_levels"]
+    with pytest.raises(ValueError, match="not all-cause survival"):
+        competing.curve(scale="survival")
+    totals = namespace["incidence_totals"]
+    index = competing.parameter_index or {}
+    for row in totals.itertuples(index=False):
+        names = [
+            name
+            for name, (regimen, _cause, horizon) in index.items()
+            if regimen == row.regimen and horizon == row.time
+        ]
+        assert len(names) == len(competing.config.causes)
+        curve = np.sum(np.column_stack([competing[name].influence_curve for name in names]), axis=1)
+        covariance = influence_covariance(curve.reshape(-1, 1), cluster=competing.data.cluster)
+        expected = float(np.sqrt(covariance[0, 0]))
+        old_extra_scaling = expected / np.sqrt(competing.data.n)
+        assert row.std_err == pytest.approx(expected, rel=1e-12, abs=0.0)
+        assert row.std_err != pytest.approx(old_extra_scaling, rel=1e-6, abs=0.0)
+
+
+def _collaborative_summary_semantics(namespace: dict[str, Any]) -> None:
+    """A selector report describes its loss without assigning causal roles to omissions."""
+    selection = namespace["selection"]
+    assert selection.selected_covariates == ()
+
+    summary = selection.summary().lower()
+    assert "cross-validated" in summary and "loss" in summary
+    assert "does not determine why" in summary
+    for unsupported in ("bias", "variance", "confounder", "instrument"):
+        assert unsupported not in summary
+
+    weak_selection = namespace["weak_selection"]
+    assert "baseline_readiness" in weak_selection.selected_covariates
+    assert "queue_lottery_position" not in weak_selection.selected_covariates
+    assert namespace["weak_collaborative"]["ate"].std_error < (
+        0.5 * namespace["weak_plain"]["ate"].std_error
+    )
+    assert namespace["nuisance"].treatment_role == "collaborative_working_model"
+
+
+#: These tutorials make seeded output claims that need more than the shrunken smoke gate. The
+#: narrower map makes each semantic assertion an explicit review decision instead of a prose
+#: heuristic.
+TUTORIAL_SEMANTIC_ASSERTIONS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "docs/examples/collaborative-tmle.md": _collaborative_summary_semantics,
+    "docs/examples/longitudinal-survival.md": _survival_output_semantics,
+    "docs/examples/msm-projections.md": _multi_arm_identification_semantics,
+    "docs/examples/survey-nonresponse.md": _missing_outcome_semantics,
+}
+
+
+def test_every_tutorial_semantic_assertion_names_one_reviewed_runtime_example() -> None:
+    """The bounded semantic gate names only reviewed and registered tutorials."""
+    expected = {
+        "docs/examples/collaborative-tmle.md",
+        "docs/examples/longitudinal-survival.md",
+        "docs/examples/msm-projections.md",
+        "docs/examples/survey-nonresponse.md",
+    }
+    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) == expected
+    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) <= set(PRELUDES)
+    assert all(callable(assertion) for assertion in TUTORIAL_SEMANTIC_ASSERTIONS.values())
 
 
 def documented() -> set[str]:
@@ -481,3 +710,23 @@ def test_every_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> 
             exec(shrunk(code, name), namespace)
         except Exception as error:  # pragma: no cover - the failure is the message
             pytest.fail(f"{name} raised {type(error).__name__}: {error}")
+
+
+@pytest.mark.parametrize("relative", sorted(TUTORIAL_SEMANTIC_ASSERTIONS), ids=lambda name: name)
+def test_tutorial_semantics_at_documented_size(
+    relative: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Reviewed seeded tutorials satisfy their claims at the displayed sample size."""
+    monkeypatch.chdir(tmp_path)
+    document = ROOT / relative
+    namespace: dict[str, Any] = {"__name__": "__doc_semantic_example__"}
+    exec(compile(PRELUDES[relative], f"<prelude for {relative}>", "exec"), namespace)
+
+    for line, code in python_blocks(document):
+        name = f"{relative}:{line}"
+        try:
+            exec(compile(code, name, "exec"), namespace)
+        except Exception as error:  # pragma: no cover - the failure is the message
+            pytest.fail(f"{name} raised {type(error).__name__}: {error}")
+
+    TUTORIAL_SEMANTIC_ASSERTIONS[relative](namespace)

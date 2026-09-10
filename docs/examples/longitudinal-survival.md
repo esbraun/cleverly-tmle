@@ -127,7 +127,7 @@ Read the same fit on the retention scale.
 
 ```python
 survival_curve = exit_result.curve(scale="survival")
-print(survival_curve[["regimen", "time", "psi", "ci_lower", "ci_upper"]])
+print(survival_curve[["estimand", "regimen", "time", "psi", "ci_lower", "ci_upper", "scale"]])
 ```
 
 `curve()` returns one row per regimen per horizon, with a `time` column that `to_frame()` does not
@@ -135,12 +135,11 @@ carry. The survival scale is not a relabelling. For a level it reports $1 - F$, 
 estimate and the interval. For a contrast it negates the estimate, and it negates **and swaps** the
 interval bounds. The standard error is the same either way.
 
-The current helper leaves `estimand` and `scale` labelled as risk and level after this
-transformation. This example omits those two incorrect label columns. The display defect is recorded
-in [RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+The level rows use `survival_regimen[...]`, and the `scale` column records `survival`. A contrast
+keeps its generic `ate_regimen[...]` name and uses the same `survival` scale value.
 
 At the documented sample size the retention curve separates. Patients assigned navigation in both
-periods stay enrolled at a visibly higher rate by the second period.
+periods stay enrolled at a higher rate by the second period.
 
 **Horizons are the fit's own time points, not days.** `horizons=(1, 2)` names the two declared plan
 periods. Asking for a horizon outside `1..T` is refused rather than interpolated.
@@ -260,16 +259,18 @@ event_levels = event_study.identify(
 ).estimate(method=event_method)
 print(event_levels.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 incidence_totals = event_levels.incidence_total()
-print(incidence_totals[["regimen", "time", "total", "excess"]])
+print(incidence_totals[["regimen", "time", "total", "std_err", "excess"]])
 ```
 
 `incidence_total()` sums the causes per regimen per horizon. It does not renormalise them onto a
 simplex, because that would move each cause off the score equation the fit just solved. The `excess`
 column is what a renormalisation would have hidden.
+The standard error uses the covariance of the summed cause-specific influence curves. The
+calculation preserves the fit's cluster structure.
 
-The helper's current `std_err` divides an already mean-scaled covariance by the sample size a second
-time. This example omits that invalid column. The formula and its missing test are recorded in
-[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+The complement of one cause-specific incidence is not event-free survival. Therefore,
+`event_levels.curve(scale="survival")` refuses the request. Use `incidence_total()` to inspect the
+sum across causes.
 
 ## The failure mode: asking the fit to remove a competing cause
 

@@ -28,6 +28,7 @@ from .msm import MSM, MSMSet
 from .targets import TARGETS
 from .targets.base import Identification, arm_alias, parameter_name, stratum_alias
 from .utils.frames import as_frame
+from .utils.records import _DefaultingUnpickle
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
@@ -1208,7 +1209,7 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
 
 
 @dataclass(frozen=True)
-class BackdoorMeanContrast:
+class BackdoorMeanContrast(_DefaultingUnpickle):
     """Store a normalized observed-data functional for an estimator adapter.
 
     Users normally receive this object through :meth:`CausalStudy.identify`.
@@ -1237,6 +1238,12 @@ class BackdoorMeanContrast:
         Fixed intermediate level for a controlled direct effect.
     longitudinal : bool
         Whether the functional uses sequential identification.
+    missingness : str or None
+        Outcome-observation indicator used by the observed-data regression.
+    intermediate_name : str or None
+        Intermediate column fixed by a controlled direct effect.
+    treatment_levels : tuple
+        Declared treatment levels, in the data container's stable order.
     """
 
     outcome: Any
@@ -1250,15 +1257,30 @@ class BackdoorMeanContrast:
     msm: MSM | None = None
     intermediate: float | None = None
     longitudinal: bool = False
+    missingness: str | None = None
+    intermediate_name: str | None = None
+    treatment_levels: tuple[Any, ...] = ()
 
     @property
     def expression(self) -> str:
         """Return a readable expression for the identified functional."""
         if self.longitudinal:
             return "sequential g-formula under the declared treatment regimen"
+        conditions = [f"{self.treatment}=a"]
+        if self.intermediate is not None:
+            name = self.intermediate_name or "Z"
+            conditions.append(f"{name}={self.intermediate:g}")
+        if self.missingness is not None:
+            conditions.append(f"{self.missingness}=1")
+        conditions.append("W")
+        regression = f"E({self.outcome} | {', '.join(conditions)})"
+        support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
         if self.axis == "arm":
-            return "E_W[E(Y | A=a, W)] and the declared smooth contrast"
-        return f"identified {self.axis}-indexed plug-in functional with influence correction"
+            return f"E_W[{regression}]{support} and the declared smooth contrast"
+        return (
+            f"identified {self.axis}-indexed plug-in functional of {regression}{support} "
+            "with influence correction"
+        )
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1326,137 @@ class ParameterKey:
     def treatment(self) -> Any:
         """Return ``value`` as the backward-compatible treatment label."""
         return self.value
+
+
+def _point_positivity(design: PointTreatment, data: CausalData) -> str:
+    """State treatment support for the exposure this study actually declares."""
+    if design.treatment_kind == "continuous":
+        return (
+            "positivity for the evaluated doses: the conditional treatment density is "
+            "positive wherever the target functional gives a dose positive weight"
+        )
+    return (
+        f"positivity: P({design.treatment} = a | W) > 0 almost surely for every "
+        f"supported treatment level a in {list(data.treatment_levels)!r}"
+    )
+
+
+def _point_identification(
+    base: Identification,
+    design: PointTreatment,
+    data: CausalData,
+    estimand: PointEstimand,
+    axis: str,
+) -> Identification:
+    """Bind registered theory to the treatment levels and active design mechanisms.
+
+    The target registry owns estimand-level theory.  A study owns the treatment support
+    and whether outcome observation or an intermediate variable enters that theory.  A
+    fresh record combines the two so identifying one study cannot mutate another target's
+    shared registry entry.
+    """
+    if isinstance(estimand, ControlledDirectEffect):
+        direct = True
+        level = float(estimand.intermediate)
+    else:
+        direct = False
+        level = None
+    assumptions: list[str] = []
+    for item in base.assumptions:
+        if item.startswith(("with delta=:", "with intermediate=:")):
+            continue
+        if direct and item.startswith("consistency:"):
+            assumptions.append(
+                f"consistency: {design.outcome} = {design.outcome}(a, {level:g}) when "
+                f"{design.treatment} = a and {design.intermediate} = {level:g}"
+            )
+            continue
+        if direct and item.startswith("no unmeasured confounding:"):
+            assumptions.extend(
+                (
+                    "no unmeasured treatment confounding: Y(a, z) is independent of A given W",
+                    "no unmeasured intermediate confounding: Y(a, z) is independent of Z "
+                    "given (A, W)",
+                )
+            )
+            continue
+        if item.startswith("positivity: 0 < P(A = 1 | W) < 1"):
+            assumptions.append(_point_positivity(design, data))
+            if direct:
+                assumptions.append(
+                    f"intermediate positivity at {design.intermediate} = {level:g}: "
+                    f"P({design.intermediate} = {level:g} | {design.treatment} = a, W) > 0 "
+                    "almost surely for every supported treatment level a"
+                )
+            continue
+        assumptions.append(item)
+
+    nuisances = list(base.required_nuisances)
+    missingness = design.missingness
+    if direct:
+        nuisances.append("intermediate_mechanism")
+    if missingness is not None:
+        assumptions.append(
+            f"missingness at random for {missingness}: {design.outcome} is independent "
+            f"of {missingness} given ({design.treatment}, W)"
+        )
+        if axis == "shift":
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
+                "shift sends an observed dose"
+            )
+        else:
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = a, W) > 0 almost surely wherever the target "
+                "functional evaluates arm a"
+            )
+        if direct:
+            assumptions.append(
+                f"observation-mechanism restriction: {missingness} is independent of "
+                f"{design.intermediate} given ({design.treatment}, W), so the fitted "
+                f"response mechanism excludes {design.intermediate}"
+            )
+        nuisances.append("missingness_mechanism")
+
+    dr_condition = base.dr_condition
+    if direct:
+        mechanism = "g * q_z" + (" * pi" if missingness is not None else "")
+        dr_condition = (
+            "consistent if either Qbar(A, z, W) is consistent or the full mechanism "
+            f"product {mechanism} is consistent"
+        )
+    return Identification(
+        assumptions=tuple(assumptions),
+        required_nuisances=tuple(nuisances),
+        dr_condition=dr_condition,
+        references=base.references,
+    )
+
+
+def _matches_registered_point_identification(
+    actual: Identification,
+    registered: Identification,
+    identified: Any,
+    data: CausalData,
+    axis: str,
+) -> bool:
+    """Match either a legacy registry record or its exact design-bound successor."""
+    functional = getattr(identified, "functional", None)
+    legacy_functional = (
+        getattr(functional, "missingness", None) is None
+        and getattr(functional, "intermediate_name", None) is None
+        and getattr(functional, "treatment_levels", ()) == ()
+    )
+    if actual == registered and legacy_functional:
+        return True
+    study = getattr(identified, "_study", None)
+    design = getattr(study, "design", None)
+    if type(design) is not PointTreatment:
+        return False
+    expected = _point_identification(registered, design, data, identified.estimand, axis)
+    return actual == expected
 
 
 _LONGITUDINAL_IDENTIFICATION = Identification(
@@ -1443,11 +1596,18 @@ class ExplicitAdjustmentProvider:
             intermediate=estimand.intermediate
             if isinstance(estimand, ControlledDirectEffect)
             else None,
+            missingness=design.missingness,
+            intermediate_name=design.intermediate,
+            treatment_levels=(
+                () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
+            ),
         )
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=TARGETS[target].identification,
+            identification=_point_identification(
+                TARGETS[target].identification, design, data, estimand, axis
+            ),
             provider=self,
             _study=study,
         )
@@ -1745,6 +1905,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             f"{self.estimand.definition}\n"
             f"identified by {self.provider.name}: {self.functional.expression}\n"
             f"adjustment/history: {list(self.functional.adjustment)}\n"
+            f"required nuisances: {list(self.identification.required_nuisances)}\n"
             f"assumptions:\n{assumptions}"
         )
 
@@ -1759,6 +1920,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
+            "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
         )
 

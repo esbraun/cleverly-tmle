@@ -244,6 +244,7 @@ nuisance = assessment.report("nuisance_models")
 print("treatment role:", nuisance.treatment_role)
 print(nuisance.summary())
 print("selected covariates:", nuisance.selection.selected_covariates)
+print(nuisance.selection.summary())
 ```
 
 The role prints as `collaborative_working_model`. The AUC and calibration values describe the
@@ -251,10 +252,8 @@ selected working denominator, not assignment given the complete adjustment set. 
 selection path and support report. [Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality)
 defines the retained findings.
 
-The current `selection.summary()` footer describes omitted variables as a bias-variance trade. The
-selector only observes targeted cross-validated loss, so this example does not print that causal
-interpretation. Its replacement is tracked in
-[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+The selection footer states the targeted cross-validated loss that chose the candidate. It does not
+assign a causal role to any omitted variable or decompose bias and variance.
 
 One limitation is structural and belongs in every report of a collaborative fit.
 

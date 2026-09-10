@@ -2,8 +2,10 @@
 
 import dataclasses
 import inspect
+import pickle
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -33,7 +35,7 @@ from cleverly import (
 )
 from cleverly.data import CausalData, validate
 from cleverly.data.validate import RANDOMIZED_INTERCEPT
-from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
@@ -44,9 +46,20 @@ from cleverly.methods import (
     SHORTCUTS,
 )
 from cleverly.msm import MSM
-from cleverly.study import _LONGITUDINAL_IDENTIFICATION
+from cleverly.study import (
+    _LONGITUDINAL_IDENTIFICATION,
+    _matches_registered_point_identification,
+)
 from cleverly.targets.builtin import BUILTIN_TARGETS
-from tests.conftest import FAST_KWARGS
+from tests import discrete_law_cde, discrete_law_mar
+from tests.conftest import (
+    FAST_KWARGS,
+    OracleDirectOutcome,
+    OracleIntermediate,
+    OracleMissingness,
+    OracleOutcome,
+    OracleTreatment,
+)
 
 
 def _study() -> CausalStudy:
@@ -59,6 +72,17 @@ def _study() -> CausalStudy:
             adjustment=("W1", "W2", "W3", "W4"),
         ),
     )
+
+
+def _fitted_nuisance_names(result: Any) -> tuple[str, ...]:
+    """Map fitted point-treatment artifacts to the public identification vocabulary."""
+    nuisance = result.nuisance
+    names = ["outcome_regression", "treatment_mechanism"]
+    if nuisance.intermediate is not None:
+        names.append("intermediate_mechanism")
+    if nuisance.missingness is not None:
+        names.append("missingness_mechanism")
+    return tuple(names)
 
 
 def test_the_design_is_immutable_and_requires_an_identification_declaration() -> None:
@@ -229,6 +253,7 @@ def test_the_reserved_intercept_column_survives_the_constant_sweep() -> None:
 def test_identification_is_inspectable_before_estimation() -> None:
     effect = _study().identify(ATE())
     assert effect.functional.adjustment == ("W1", "W2", "W3", "W4")
+    assert effect.functional.treatment_levels == (0, 1)
     assert effect.identification.required_nuisances == (
         "outcome_regression",
         "treatment_mechanism",
@@ -236,6 +261,163 @@ def test_identification_is_inspectable_before_estimation() -> None:
     summary = effect.summary()
     assert "E_W[E(Y | A=a, W)" in summary
     assert "no unmeasured confounding" in summary
+    assert "0" in summary and "1" in summary
+    assert "required nuisances" in summary
+
+    result = effect.estimate(**FAST_KWARGS)
+    assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
+
+
+def test_multi_arm_identification_names_every_level_and_fitted_mechanism() -> None:
+    frame, _ = make_multi_arm(n=180, seed=17)
+    effect = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+    ).identify(ATE(reference="low"))
+
+    assert effect.functional.treatment_levels == ("high", "low", "medium")
+    summary = effect.summary()
+    for level in effect.functional.treatment_levels:
+        assert repr(level) in summary
+    assert "P(A = 1 | W)" not in summary
+    assert "both counterfactual means" not in summary
+    assert "treatment_mechanism" in summary
+
+    result = effect.estimate(**FAST_KWARGS)
+    assert result.nuisance.propensity.values.shape == (len(frame), 3)
+    assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
+
+
+def test_missing_outcome_identification_matches_the_observed_data_fit() -> None:
+    law = discrete_law_mar.DiscreteLaw()
+    effect = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
+    ).identify(ATE())
+
+    assert effect.functional.missingness == "Delta"
+    assert "E_W[E(Y | A=a, Delta=1, W)]" in effect.functional.expression
+    assert any("missingness at random" in item for item in effect.identification.assumptions)
+    assert any("response positivity" in item for item in effect.identification.assumptions)
+    assert effect.identification.required_nuisances == (
+        "outcome_regression",
+        "treatment_mechanism",
+        "missingness_mechanism",
+    )
+    assert "missingness_mechanism" in effect.summary()
+
+    result = effect.estimate(
+        outcome_learner=OracleOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+    assert result.nuisance.missingness is not None
+    assert result.nuisance.missingness.shape == (result.data.n, 2)
+    assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
+
+
+@pytest.mark.parametrize("level", [0.0, 1.0])
+def test_cde_identification_matches_each_fitted_score_factor(level: float) -> None:
+    law = discrete_law_cde.DiscreteLaw()
+    effect = CausalStudy(
+        discrete_law_cde.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+            intermediate="Z",
+        ),
+    ).identify(ControlledDirectEffect(intermediate=level))
+
+    assert effect.functional.intermediate == level
+    assert effect.functional.intermediate_name == "Z"
+    assert f"Z={level:g}" in effect.functional.expression
+    assert "Delta=1" in effect.functional.expression
+    assumptions = effect.identification.assumptions
+    assert any("unmeasured treatment confounding" in item for item in assumptions)
+    assert any("unmeasured intermediate confounding" in item for item in assumptions)
+    assert any(f"intermediate positivity at Z = {level:g}" in item for item in assumptions)
+    assert any("missingness at random" in item for item in assumptions)
+    assert any("response positivity" in item for item in assumptions)
+    assert any("observation-mechanism restriction" in item for item in assumptions)
+    assert effect.identification.required_nuisances == (
+        "outcome_regression",
+        "treatment_mechanism",
+        "intermediate_mechanism",
+        "missingness_mechanism",
+    )
+
+    result = effect.estimate(
+        outcome_learner=OracleDirectOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        intermediate_learner=OracleIntermediate(law),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+    assert result.nuisance.intermediate_density(level, 0.0) is not None
+    assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
+
+
+def test_identification_functional_metadata_survives_pickle_and_backfills() -> None:
+    effect = _study().identify(ATE())
+    restored = pickle.loads(pickle.dumps(effect.functional))
+    assert restored == effect.functional
+    assert restored.expression == effect.functional.expression
+
+    state = effect.functional.__dict__.copy()
+    for field in ("missingness", "intermediate_name", "treatment_levels"):
+        state.pop(field)
+    legacy = object.__new__(type(effect.functional))
+    legacy.__setstate__(state)
+    assert legacy.missingness is None
+    assert legacy.intermediate_name is None
+    assert legacy.treatment_levels == ()
+
+
+def test_design_bound_identification_provenance_requires_the_complete_record() -> None:
+    effect = _study().identify(ATE())
+    assert effect._study is not None
+    registered = next(target for target in BUILTIN_TARGETS if target.name == "ate").identification
+    assert _matches_registered_point_identification(
+        effect.identification, registered, effect, effect._study.data, effect.functional.axis
+    )
+    # A fresh functional declares its support, so swapping its dynamic record for the
+    # generic registry template is not a legacy compatibility case.
+    assert not _matches_registered_point_identification(
+        registered, registered, effect, effect._study.data, effect.functional.axis
+    )
+
+    state = effect.functional.__dict__.copy()
+    for field in ("missingness", "intermediate_name", "treatment_levels"):
+        state.pop(field)
+    legacy_functional = object.__new__(type(effect.functional))
+    legacy_functional.__setstate__(state)
+    legacy_effect = dataclasses.replace(effect, functional=legacy_functional)
+    assert _matches_registered_point_identification(
+        registered,
+        registered,
+        legacy_effect,
+        effect._study.data,
+        effect.functional.axis,
+    )
+
+    altered_assumptions = dataclasses.replace(
+        effect.identification, assumptions=("same citations, different claim",)
+    )
+    altered_nuisances = dataclasses.replace(
+        effect.identification, required_nuisances=("outcome_regression",)
+    )
+    for altered in (altered_assumptions, altered_nuisances):
+        assert altered.references == registered.references
+        assert not _matches_registered_point_identification(
+            altered, registered, effect, effect._study.data, effect.functional.axis
+        )
 
 
 def test_point_treatment_targets_state_no_interference_separately() -> None:

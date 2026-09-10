@@ -712,7 +712,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["regimen"].append(regimen.label)
                 rows["time"].append(int(horizon))
                 rows["total"].append(total)
-                rows["std_err"].append(float(np.sqrt(variance[0, 0] / self.data.n)))
+                rows["std_err"].append(float(np.sqrt(variance[0, 0])))
                 rows["excess"].append(max(0.0, total - 1.0))
         return self.data.frame_like(rows)
 
@@ -750,6 +750,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ``scale="risk"`` reports what the fit estimated, the cumulative risk
         :math:`F(t)` and the risk difference between regimens at each horizon.
         ``scale="survival"`` reports :math:`S(t) = 1 - F(t)` instead.
+        The ``scale`` column names this requested view. A competing-risk fit refuses
+        the survival view because event-free survival is the complement of the sum of
+        its cause-specific incidences, not the complement of one cause.
 
         The map from one to the other is **not** one rule.  For a level,
         :math:`S = 1 - F`: the estimate is mirrored about a half and so is its interval.
@@ -792,6 +795,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "time point -- outcome=[...] -- to estimate a cumulative risk at every "
                 "horizon; result.to_frame() is the report for this fit"
             )
+        if scale == "survival" and self.data.is_competing:
+            raise ValueError(
+                "a competing-risk fit reports one cumulative incidence per cause, and "
+                "1 - one cause's incidence is not all-cause survival. Event-free survival "
+                "is 1 - the sum of the cause-specific incidences; use incidence_total() to "
+                "inspect that sum"
+            )
         competing = self.data.is_competing
         rows: dict[str, list[Any]] = {
             "estimand": [],
@@ -819,7 +829,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 psi, low, high = 1.0 - estimate.psi, 1.0 - high, 1.0 - low
             else:
                 psi, low, high = -estimate.psi, -high, -low
-            rows["estimand"].append(name)
+            reported_name = (
+                name.replace("risk_regimen[", "survival_regimen[", 1)
+                if scale == "survival" and name.startswith("risk_regimen[")
+                else name
+            )
+            rows["estimand"].append(reported_name)
             rows["regimen"].append(label)
             if competing:
                 rows["cause"].append(cause)
@@ -828,7 +843,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["std_err"].append(estimate.std_error)
             rows["ci_lower"].append(float(low))
             rows["ci_upper"].append(float(high))
-            rows["scale"].append(estimate.scale)
+            rows["scale"].append(scale)
         return self.data.frame_like(rows)
 
     def coefficients(self, scale: str = "link") -> Any:

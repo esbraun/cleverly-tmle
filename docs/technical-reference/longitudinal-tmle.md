@@ -136,6 +136,11 @@ a **cause-specific numerator** against an **all-cause survival factor**. A unit 
 competing cause contributes a zero and carries nothing forward. It is no more available to have
 this cause's event than one that already had it.
 
+`curve(scale="survival")` derives a labelled survival view from a single-event risk curve. It
+mirrors level intervals and negates contrast intervals. A competing-risk fit refuses this view,
+because one minus a cause-specific incidence is not all-cause survival. `incidence_total()` instead
+sums the cause-specific influence curves and reports their joint standard error.
+
 What does **not** change is the positivity story. Being event-free is part of the history and not
 an intervened node, so it enters the *indicator* of the clever covariate and never its denominator.
 The cumulative product is still over the $2T$ treatment and censoring factors. The causes share
