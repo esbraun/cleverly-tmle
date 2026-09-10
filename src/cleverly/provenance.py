@@ -31,12 +31,19 @@ import numpy as np
 from .utils.records import _DefaultingUnpickle
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from .data.causal_data import CausalData
     from .learners.crossfit import Folds
 
-__all__ = ["Provenance", "build", "fingerprint_array", "record"]
+__all__ = [
+    "Provenance",
+    "build",
+    "data_fingerprint",
+    "fingerprint_array",
+    "fold_fingerprint",
+    "record",
+]
 
 #: Length of the hex digests.  Eight bytes is far past what is needed to tell two
 #: datasets apart in a workflow, and short enough to read out loud.
@@ -60,6 +67,52 @@ def fingerprint_array(*arrays: Any) -> str:
         hasher.update(str(values.dtype).encode())
         hasher.update(values.tobytes())
     return hasher.hexdigest()
+
+
+def fold_fingerprint(draws: Iterable[Any]) -> str:
+    """A stable digest of one or more fold assignments.
+
+    The one place the fold digest is defined, called by :func:`record` for a fit's own
+    draws and by :attr:`~cleverly.SplitPlan.fingerprint` for a reusable record of the
+    same draws.  A plan read off a result has to fingerprint equal to the provenance of
+    the fit that produced it, or the two are not comparable and a caller cannot tell
+    whether a second fit ran the split the first one did.  Nothing but calling one
+    function twice makes that true: :func:`fingerprint_array` folds in the dtype, so a
+    plan's tuples and a fit's ``int64`` arrays would digest differently on their own.
+    Every input is cast to ``int64`` here for that reason.
+
+    Parameters
+    ----------
+    draws : iterable
+        One fold assignment per repeat, in fit order. Each is anything
+        :func:`numpy.asarray` reads as a one-dimensional integer vector.
+
+    Returns
+    -------
+    str
+        The hex digest of every draw, in order.
+    """
+    return fingerprint_array(*(np.asarray(draw, dtype=np.int64) for draw in draws))
+
+
+def data_fingerprint(data: CausalData) -> str:
+    """A stable digest of the arrays a point-treatment fit reads.
+
+    The one place the data digest is defined, so that
+    :attr:`Provenance.data_fingerprint` and the source a :class:`~cleverly.SplitPlan`
+    binds itself to are the same number rather than two computations of it.
+
+    Parameters
+    ----------
+    data : CausalData
+        Prepared data for a point-treatment fit.
+
+    Returns
+    -------
+    str
+        The hex digest of the outcome, the treatment and the covariates.
+    """
+    return fingerprint_array(data.outcome, data.treatment, data.covariates)
 
 
 def _version(name: str) -> str:
@@ -232,8 +285,8 @@ def record(
         n=data.n,
         n_covariates=len(data.covariate_names),
         n_clusters=None if data.cluster is None else int(np.unique(data.cluster).size),
-        data_fingerprint=fingerprint_array(data.outcome, data.treatment, data.covariates),
-        fold_fingerprint=fingerprint_array(*(draw.assignment for draw in draws)),
+        data_fingerprint=data_fingerprint(data),
+        fold_fingerprint=fold_fingerprint(draw.assignment for draw in draws),
         random_state=random_state,
         run_id=run_id,
     )

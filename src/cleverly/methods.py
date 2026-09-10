@@ -9,6 +9,7 @@ from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, Targ
 from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
+from .learners.crossfit import SplitPlan
 from .learners.library import _validate_learner
 
 __all__ = [
@@ -143,11 +144,14 @@ class CrossFitting:
         Pooled or fold-specific targeting scheme.
     fold_evaluation : bool, default=False
         Whether to retain fold-evaluated CV-TMLE estimates.
+    split_plan : SplitPlan, optional
+        Reusable outer-fold assignments in repeat-major order.
 
     See Also
     --------
     TMLEMethod : Method configuration this object is the splitting half of.
     Targeting : Whether the fluctuation is pooled or fitted per fold.
+    SplitPlan : Reusable outer-fold assignments accepted by this configuration.
     cleverly.learners.make_folds : The partition this configuration asks for.
 
     Examples
@@ -172,6 +176,20 @@ class CrossFitting:
     stratify_by: FoldStrata = "treatment"
     targeting_scheme: TargetingScheme = "pooled"
     fold_evaluation: bool = False
+    split_plan: SplitPlan | None = None
+
+    def __post_init__(self) -> None:
+        if self.split_plan is None:
+            return
+        if not isinstance(self.split_plan, SplitPlan):
+            raise MethodConfigurationError("split_plan must be a SplitPlan")
+        # One message source, two exception contracts: the engine raises ValueError for
+        # the same three refusals. See ``SplitPlan._policy_refusal``.
+        reason = self.split_plan._policy_refusal(
+            cross_fit=self.enabled, n_folds=self.n_folds, repeats=self.repeats
+        )
+        if reason is not None:
+            raise MethodConfigurationError(reason)
 
 
 @dataclass(frozen=True)
@@ -417,6 +435,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "stratify_folds": "stratify_by",
         "targeting_scheme": "targeting_scheme",
         "cv_evaluation": "fold_evaluation",
+        "split_plan": "split_plan",
     },
     "targeting": {
         "fluctuation": "fluctuation",
@@ -449,7 +468,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 17 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -462,6 +481,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
+    ("cross_fitting", "split_plan", "split_plan"),
     ("targeting", "fluctuation", "fluctuation"),
     ("targeting", "algorithm", "targeting"),
     ("targeting", "nuisance_bound", "nuisance_bound"),
@@ -528,6 +548,20 @@ class TMLEMethod:
     runtime: Runtime = Runtime()
     name: str = "tmle"
 
+    def __post_init__(self) -> None:
+        """Refuse the one combination no single configuration group can see.
+
+        A cross-group rule belongs to the object that holds both groups, and it belongs at
+        construction: :meth:`estimator_kwargs` is a translation, and a refusal buried in a
+        translation fires later than the declaration that earned it.
+        ``DRTMLEMethod.__post_init__`` is the precedent.
+        """
+        if self.cross_fitting.split_plan is not None and self.inference.n_bootstrap:
+            raise MethodConfigurationError(
+                "split_plan cannot be combined with the targeted bootstrap because "
+                "bootstrap rows no longer have the original positional identities"
+            )
+
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.
 
@@ -592,6 +626,7 @@ class TMLEMethod:
         targeting = self.targeting
         inference = self.inference
         runtime = self.runtime
+        split_plan = cross.split_plan
         common = {
             "outcome_learner": models.outcome_learner,
             "n_folds": cross.n_folds,
@@ -653,6 +688,7 @@ class TMLEMethod:
                 "min_retain": models.min_retain,
                 "cross_fit": cross.enabled,
                 "repeats": cross.repeats,
+                "split_plan": split_plan,
                 "stratify_folds": cross.stratify_by,
                 "targeting_scheme": cross.targeting_scheme,
                 "cv_evaluation": cross.fold_evaluation,
@@ -835,6 +871,7 @@ class DRTMLEMethod(TMLEMethod):
     name: str = "drtmle"
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         _validate_learner(self.reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(self.reduced_treatment_learner, "reduced_treatment_learner")
 

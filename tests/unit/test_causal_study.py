@@ -1112,7 +1112,7 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 17 point-only fields in the shared configuration. Sixteen used to be
+    These are the 18 point-only fields in the shared configuration. Sixteen used to be
     accepted and omitted from the longitudinal kwargs; ``repeats`` alone had a bespoke
     refusal. Pinning the whole list prevents a future field from disappearing just because
     the two engine signatures differ.

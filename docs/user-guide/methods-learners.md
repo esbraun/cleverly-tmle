@@ -118,6 +118,38 @@ row-level time ordering that no design role carries. A rolling-origin split nest
 sets, so no single fold holds out each row, and `Folds` stores exactly one fold per row. The
 rolling-origin refusal would survive a time index; it asks for a different storage contract.
 
+## Reuse an outer split
+
+Every point-treatment result records its realized outer folds as an immutable `split_plan`.
+Supply that plan to compare methods on exactly the same validation rows.
+
+```python
+reused_method = TMLEMethod(
+    models=method.models,
+    cross_fitting=CrossFitting(
+        n_folds=5,
+        learner_folds=3,
+        repeats=1,
+        split_plan=result.split_plan,
+    ),
+    targeting=method.targeting,
+    inference=method.inference,
+    runtime=method.runtime,
+)
+reused_result = effect.estimate(method=reused_method)
+assert reused_result.provenance.fold_fingerprint == result.provenance.fold_fingerprint
+```
+
+Set `repeats` to the repeat count the plan records. Set `n_folds` to the count the plan was
+declared under, which can exceed the plan's own fold count when the data capped it. A declaration
+the plan cannot serve raises `MethodConfigurationError` instead of changing the plan.
+
+A plan read off a result is bound to the rows that produced it, by position. Reuse it on those
+rows, in that order.
+
+[Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
+the whole contract: the counts, the row binding, what validation checks, and every refusal.
+
 ## Targeting and bounds
 
 `g_bounds="auto"` chooses target-aware treatment-mechanism truncation. The bound changes the

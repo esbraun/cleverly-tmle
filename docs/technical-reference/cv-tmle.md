@@ -76,6 +76,7 @@ and
 | --- | --- | --- |
 | `cross_fit=False` | one fold, no splitting. This is ordinary TMLE | **yes**. See [point-treatment TMLE](point-treatment-tmle.md) |
 | `n_folds=` | the outer split count. Default 10 | no |
+| `split_plan=` | replaces generated outer assignments with a realized plan. See [reusable outer split plans](#reusable-outer-split-plans) for the counts it must match and the rows it is bound to | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
 | `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
@@ -108,6 +109,89 @@ Coordinatewise medians do not preserve identities among several estimands. Repea
 refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
 multiplier construction would use the retained central-draw curve. That curve supports marginal
 diagnostics; the split-adjusted variance above supplies the pointwise interval.
+
+## Reusable outer split plans
+
+Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
+them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. This
+section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
+and the [tutorial](../examples/cross-fitting.md#reuse-the-same-outer-split) link here rather than
+restating it.
+
+A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and
+`n_repeats` properties describe those assignments.
+
+**A fold label is a row position.** It is not a pandas index label, and it is not Polars row
+metadata. A plan is therefore meaningful only for the rows it was realized on. Reorder those rows,
+and every label points at a different unit while the row count still agrees.
+
+A plan read off a result carries the data fingerprint of the fit that produced it, under
+`source_fingerprint`. Validation compares that value with the fingerprint of the data in hand. It
+refuses a plan whose fingerprint differs. A plan you build by hand carries `None` and binds to no
+data. Rebuild an unbound plan with `SplitPlan(plan.assignments)` to reuse the labels on other rows
+deliberately.
+
+A clustered design applies one further rule. Every row from one cluster must receive the same fold
+label within each repeat.
+
+**A cap makes the declared fold count and the realized fold count differ.** The resolver caps the
+count at the rarest stratum, and again at the cluster count. The declaration is therefore an upper
+bound on the plan, and it is the only rule that reads a fold count.
+
+| when | what it checks | what it refuses |
+| --- | --- | --- |
+| you construct `CrossFitting` | the plan's fold count against the declared `n_folds` | a plan holding more folds than the declaration. No cap produces that direction |
+| before nuisance fitting | the plan's labels against the data in hand | a plan whose folds cannot serve these rows |
+
+So `n_folds=10` on data carrying four clusters realizes a four-fold plan, and `n_folds=10` accepts
+that plan back. The fit still records the declared 10, under `config.crossfit.n_folds`. The fit
+resolves no fold count for a supplied plan, because it generates no split. A rare stratum must
+reach every training complement, and it need not appear once in every fold. The `repeats` count
+must equal the plan's repeat count exactly.
+
+The plan controls only the outer nuisance split. Inner Super Learner folds still follow
+`learner_folds`. Collaborative TMLE selection folds still follow their repeat-specific seeds.
+
+Validation happens before nuisance fitting. It checks row count, repeat count, label contiguity,
+required training arms, requested stratification, and whole-cluster assignment. The implementation
+rejects a supplied plan rather than repairing an invalid one. The `SplitPlan.validate` method names
+the balancing vector `stratify=`, as `make_folds` does, because `strata` is the survey design role.
+A fit then records the values validation held the folds to, under `config.crossfit.stratify_by`,
+and it records `scheme="supplied"` for the fact that nothing was generated.
+
+[Scope and refusals](scope-and-refusals.md) indexes what a supplied plan refuses. The refutation
+battery is the entry worth reading here. A refutation refits, and a supplied plan can only label
+the rows it was realized on.
+
+| refutation | what its refit does to the rows | under a supplied plan |
+| --- | --- | --- |
+| `subset` | drops rows | refused |
+| `bootstrap_measurement_error` | draws rows with replacement | refused |
+| `placebo` | replaces the treatment column | runs |
+| `random_common_cause` | adds a covariate column | runs |
+
+`refute()` raises `CapabilityError` for the two refused operations before it refits anything.
+The refusal reads the requested operation rather than the row count. A bootstrap draw holds the
+declared number of rows, so a count check cannot see it. A battery run under
+`assess_result(..., include_refits=True)` reports the refusal as an `unavailable` row and runs the
+rest of the battery.
+
+A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
+`split_plan=` is refused because supplied plans require cross-fitting.
+
+Point-treatment bootstrap samples do not preserve the original positional unit sequence. Targeted
+bootstrap inference therefore refuses a supplied plan. Longitudinal estimation also refuses it
+because its sequential fold contract is separate.
+
+Result serialization preserves the plan. The `SplitPlan.fingerprint` property and the result
+provenance read one shared fold digest, so a reused plan and its fit compare directly.
+Generated-versus-reused acceptance tests require exact fold, nuisance-prediction, point-estimate,
+and influence-curve identity.
+
+Those checks establish deterministic reuse. They do not supply a new estimator or a statistical
+guarantee. The registered studies below remain the applicable estimator evidence. Reusing a plan
+adds no validation-grid row because it changes neither the estimator nor its statistical
+assumptions.
 
 ## Validation issues special to this method
 

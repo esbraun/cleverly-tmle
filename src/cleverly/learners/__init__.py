@@ -18,6 +18,7 @@ from ._threads import (
 from .crossfit import (
     CrossFitPlan,
     Folds,
+    SplitPlan,
     check_integrity,
     make_folds,
     refuse_scheme,
@@ -39,6 +40,7 @@ __all__ = [
     "CrossFitPlan",
     "DensityDiagnostics",
     "Folds",
+    "SplitPlan",
     "SuperLearner",
     "SuperLearnerDiagnostics",
     "accepts_groups",

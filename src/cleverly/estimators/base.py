@@ -29,7 +29,7 @@ from ..inference.results import (
     smooth_contrast,
     sole_estimate,
 )
-from ..learners.crossfit import CrossFitPlan
+from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..utils.frames import emit_frame
@@ -128,10 +128,10 @@ class TMLEConfig:
     parameter_axis: ParameterAxis = "arm"
     #: The fold policy the caller *declared*, as against ``n_folds`` above, which is the
     #: count the fit actually ran.  The two come apart without leaving a trace otherwise:
-    #: ``resolve_n_folds`` caps the count at the rarest stratum and ``make_folds`` caps it
-    #: again at the cluster count, each with a warning that is gone by the time anyone
-    #: reads the result.  Defaulted so that every existing construction and
-    #: ``dataclasses.replace`` keeps working untouched.
+    #: ``resolve_n_folds`` caps the count at the rarest stratum and again at the cluster
+    #: count, each with a warning that is gone by the time anyone reads the result.
+    #: Defaulted so that every existing construction and ``dataclasses.replace`` keeps
+    #: working untouched.
     crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
 
     # Read-through to the spec, so the settings appear once and cannot drift.
@@ -562,6 +562,25 @@ class TMLEResult:
     def n_repeats(self) -> int:
         """How many draws of the cross-fitting split this fit combined."""
         return len(self.repeats)
+
+    @property
+    def split_plan(self) -> SplitPlan:
+        """Return immutable assignments for every fitted repeat.
+
+        Bound to the rows that produced it, through the same data fingerprint
+        :attr:`provenance` records.  A fold label is a *position*, so a plan is only
+        meaningful for the rows it was realised on: reuse it on reordered rows, or on
+        rows a refutation replaced, and every label points at a different unit while the
+        row count still agrees.  :meth:`~cleverly.SplitPlan.validate` refuses that, and a
+        caller who means to reuse the labels on other rows says so by rebuilding an
+        unbound plan from :attr:`~cleverly.SplitPlan.assignments`.
+        """
+        return SplitPlan.from_folds(
+            (repeat.folds for repeat in self.repeats),
+            source_fingerprint=(
+                None if self.provenance is None else self.provenance.data_fingerprint
+            ),
+        )
 
     def repeat_spread(self) -> dict[str, float]:
         r"""Split spread of the estimate across the cross-fitting draws, per estimand.

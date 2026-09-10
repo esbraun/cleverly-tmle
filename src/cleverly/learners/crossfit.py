@@ -22,7 +22,7 @@ every fold is not checkable as a *guarantee*: :func:`resolve_n_folds` caps the f
 to make it achievable, but a cluster is atomic, so ``StratifiedGroupKFold`` cannot always
 deliver it and an imbalanced split is still a usable one.
 
-Three objects, and the distinction between the first two is the point of the module.
+Four objects, and the distinction between the first two is the point of the module.
 :class:`CrossFitPlan` is what a caller *declares*: a policy, made of numbers, that says
 nothing about any particular dataset.  :class:`Folds` is what that policy *realises* on
 one: an actual assignment of rows to folds, which depends on the row order and on the
@@ -33,12 +33,27 @@ the map from one to the other, and calls :func:`check_integrity` on its way out,
 split this library builds -- the outer cross-fitting folds, Super Learner's inner folds,
 C-TMLE's selection folds -- is checked at construction without any of the three knowing
 about it.
+
+:class:`SplitPlan` is the fourth, and it exists because that realisation is the thing a
+second fit has to be handed: an immutable, reusable record of every realised repeat, which
+a caller reads off one result and gives to the next.  Handing back the seed would not do
+it, for the reason above.  The generated and the supplied paths both check the assignments
+before any nuisance is fitted, by different routes -- :func:`make_folds` checks what it
+built, and :meth:`SplitPlan.validate` checks what it was given against the data it is
+about to label.
 """
 
 from __future__ import annotations
 
 import warnings
+
+# Imported at run time rather than under ``TYPE_CHECKING``: ``Sequence`` appears in a
+# dataclass field annotation, and a documentation build that resolves those annotations
+# needs the name to exist.
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from numbers import Integral
+from typing import Any
 
 import numpy as np
 from sklearn.model_selection import (
@@ -54,6 +69,7 @@ from ..exceptions import DataError
 __all__ = [
     "CrossFitPlan",
     "Folds",
+    "SplitPlan",
     "check_integrity",
     "make_folds",
     "refuse_scheme",
@@ -182,6 +198,330 @@ class Folds:
         return self.n_folds == 1
 
 
+@dataclass(frozen=True, repr=False)
+class SplitPlan:
+    """Reusable cross-fitting assignments for every repeat.
+
+    Parameters
+    ----------
+    assignments : sequence of sequence of int, or ndarray
+        Fold labels in repeat-major order, one label per row in each repeat. Any nested
+        sequence is accepted, and a two-dimensional integer array is read as one row per
+        repeat. The value is copied into nested tuples, so the plan does not change when
+        the source does.
+    source_fingerprint : str or None, default=None
+        The data fingerprint the labels were realised on, as
+        :attr:`~cleverly.Provenance.data_fingerprint` records it.
+        :attr:`~cleverly.estimators.TMLEResult.split_plan` fills it in, and
+        :meth:`validate` then refuses data that fingerprint differently. ``None`` is a
+        plan bound to no data, which is what a hand-built plan is.
+
+    Attributes
+    ----------
+    n : int
+    n_folds : int
+    n_repeats : int
+    fingerprint : str
+
+    See Also
+    --------
+    cleverly.learners.CrossFitPlan : Policy that generates folds from data.
+    cleverly.learners.Folds : Mutable-array materialization of one repeat.
+
+    Examples
+    --------
+    >>> from cleverly import SplitPlan
+    >>> plan = SplitPlan(((0, 1, 0, 1),))
+    >>> plan.n_folds, plan.n_repeats
+    (2, 1)
+    >>> plan.to_folds()[0].test_index(0).tolist()
+    [0, 2]
+    """
+
+    assignments: Sequence[Sequence[int]] | Sequence[IntArray] | IntArray
+    source_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        """Copy and validate the complete repeat-major assignment.
+
+        The rule this enforces on a repeat is stronger than the one
+        :meth:`Folds.__post_init__` enforces on an assignment, so it is checked here and
+        not delegated: contiguous zero-based labels already imply that no label falls
+        outside the fold range and that no fold is empty.  What it adds is the message --
+        a plan is a *record*, and a caller who mistyped one needs the repeat named.
+        :meth:`to_folds` builds the ``Folds`` when there is a use for one.
+        """
+        if self.source_fingerprint is not None and not isinstance(self.source_fingerprint, str):
+            raise DataError(
+                "split-plan source_fingerprint must be a provenance digest string or None; "
+                f"got {type(self.source_fingerprint).__name__}"
+            )
+        raw = self.assignments
+        if isinstance(raw, np.ndarray):
+            if raw.ndim != 2:
+                raise DataError(
+                    "split-plan assignments must be a repeat-major two-dimensional "
+                    f"array; got shape {raw.shape}"
+                )
+            rows = tuple(raw)
+        else:
+            if isinstance(raw, (str, bytes)):
+                raise DataError("split-plan assignments must be a sequence of repeats")
+            try:
+                rows = tuple(raw)
+            except TypeError as exc:
+                raise DataError("split-plan assignments must be a sequence of repeats") from exc
+        if not rows:
+            raise DataError("split-plan assignments contain no repeats")
+
+        normalized: list[tuple[int, ...]] = []
+        expected_n: int | None = None
+        expected_folds: int | None = None
+        for repeat, row in enumerate(rows):
+            array = np.asarray(row)
+            if array.ndim != 1:
+                raise DataError(
+                    "each split-plan repeat must contain one fold label per row; "
+                    f"repeat {repeat} has shape {array.shape}"
+                )
+            values = tuple(array.tolist())
+            if not values:
+                raise DataError(f"split-plan repeat {repeat} is empty")
+            if any(
+                isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral)
+                for value in values
+            ):
+                raise DataError(
+                    "split-plan fold labels must be integers; "
+                    f"repeat {repeat} contains a non-integer label"
+                )
+            assignment = tuple(int(value) for value in values)
+            labels = sorted(set(assignment))
+            if labels != list(range(len(labels))):
+                raise DataError(
+                    "split-plan fold labels must be a contiguous zero-based range; "
+                    f"repeat {repeat} uses {labels}"
+                )
+            if expected_n is None:
+                expected_n = len(assignment)
+                expected_folds = len(labels)
+            elif len(assignment) != expected_n:
+                raise DataError(
+                    "all split-plan repeats must describe the same rows; "
+                    f"repeat 0 has {expected_n} rows but repeat {repeat} has {len(assignment)}"
+                )
+            elif len(labels) != expected_folds:
+                raise DataError(
+                    "all split-plan repeats must use the same number of folds; "
+                    f"repeat 0 uses {expected_folds} but repeat {repeat} uses {len(labels)}"
+                )
+            normalized.append(assignment)
+        object.__setattr__(self, "assignments", tuple(normalized))
+
+    @property
+    def n(self) -> int:
+        """Return the number of rows in each repeat."""
+        return len(self.assignments[0])
+
+    @property
+    def n_folds(self) -> int:
+        """Return the number of folds in each repeat."""
+        return max(self.assignments[0]) + 1
+
+    @property
+    def n_repeats(self) -> int:
+        """Return the number of repeats."""
+        return len(self.assignments)
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the provenance-compatible fingerprint of every repeat."""
+        from ..provenance import fold_fingerprint
+
+        return fold_fingerprint(self.assignments)
+
+    def __repr__(self) -> str:
+        """Return a summary rather than every label.
+
+        A plan holds one label per row per repeat, so the generated ``__repr__`` prints
+        the whole dataset back: 150 KB for a 50,000-row plan, in a traceback or a
+        notebook cell that asked for one line.  What identifies a plan is its shape and
+        its fingerprint, and both are here.
+        """
+        bound = "" if self.source_fingerprint is None else f", source={self.source_fingerprint}"
+        return (
+            f"SplitPlan(n={self.n}, n_folds={self.n_folds}, n_repeats={self.n_repeats}, "
+            f"fingerprint={self.fingerprint}{bound})"
+        )
+
+    def to_folds(self) -> tuple[Folds, ...]:
+        """Return fresh mutable-array fold objects for every repeat.
+
+        Returns
+        -------
+        tuple of Folds
+            Independent materializations in repeat order.
+        """
+        return tuple(
+            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds)
+            for assignment in self.assignments
+        )
+
+    @classmethod
+    def from_folds(
+        cls, folds: Iterable[Folds], *, source_fingerprint: str | None = None
+    ) -> SplitPlan:
+        """Copy repeat assignments from realized folds.
+
+        Parameters
+        ----------
+        folds : iterable of Folds
+            Realized folds in repeat order.
+        source_fingerprint : str or None, default=None
+            The data fingerprint these folds were realised on. ``None`` leaves the plan
+            bound to no data.
+
+        Returns
+        -------
+        SplitPlan
+            Immutable copies of the assignments.
+        """
+        return cls(
+            tuple(draw.assignment for draw in folds),
+            source_fingerprint=source_fingerprint,
+        )
+
+    def _policy_refusal(self, *, cross_fit: bool, n_folds: int, repeats: int) -> str | None:
+        """Return why this plan cannot serve a declared fold policy, or ``None``.
+
+        One message source for two callers with two exception contracts:
+        :class:`~cleverly.CrossFitting` raises
+        :class:`~cleverly.exceptions.MethodConfigurationError` and the engine raises
+        :class:`ValueError`, and neither should paraphrase the other.
+
+        The fold count is compared as an upper bound rather than for equality, because
+        the count a fit *ran* is the count it *declared* capped at what the data support:
+        :func:`resolve_n_folds` caps at the rarest stratum and again at the cluster count.
+        A plan realised under a cap therefore holds fewer folds than the declaration that
+        produced it, and refusing that here would refuse a plan this package itself
+        wrote. More folds than declared is the direction no cap can produce, and it is
+        the only fold-count question a declaration can answer without the data. Whether
+        the labels can serve a particular dataset is :meth:`validate`'s question, and
+        :meth:`~cleverly.estimators.TMLE._repeat_draws` asks it there.
+
+        Parameters
+        ----------
+        cross_fit : bool
+            Whether the declaration enables cross-fitting.
+        n_folds : int
+            Outer folds the declaration asks for.
+        repeats : int
+            Independent draws the declaration asks for.
+
+        Returns
+        -------
+        str or None
+            The reason to refuse, or ``None`` when the plan can serve the policy.
+        """
+        if not cross_fit or n_folds < 2:
+            return "split_plan requires enabled cross-fitting with at least two folds"
+        if self.n_folds > n_folds:
+            return (
+                f"split_plan uses {self.n_folds} folds but n_folds is {n_folds}; a supplied "
+                "plan may hold fewer folds than the declaration, because the data can cap "
+                "the count, and never more"
+            )
+        if self.n_repeats != repeats:
+            return f"split_plan has {self.n_repeats} repeats but repeats is {repeats}"
+        return None
+
+    def validate(
+        self,
+        *,
+        n: int,
+        cluster: IntArray | None = None,
+        treatment: FloatArray | None = None,
+        stratify: FloatArray | None = None,
+        source_fingerprint: str | None = None,
+    ) -> tuple[Folds, ...]:
+        """Validate assignments against the data and return fresh folds.
+
+        Parameters
+        ----------
+        n : int
+            Number of data rows.
+        cluster : ndarray, optional
+            Cluster code for each row.
+        treatment : ndarray, optional
+            Categorical treatment code for each row.
+        stratify : ndarray, optional
+            Requested stratification code for each row. Named as in :func:`make_folds`,
+            which balances on the same vector; ``strata`` is the survey design role
+            :attr:`~cleverly.data.CausalData.strata` carries.
+        source_fingerprint : str or None, default=None
+            Fingerprint of the data being validated. Compared with
+            :attr:`source_fingerprint` when both are present.
+
+        Returns
+        -------
+        tuple of Folds
+            Fresh fold realizations in repeat order.
+        """
+        if self.n != n:
+            raise DataError(f"split plan has {self.n} rows but the data have {n} rows")
+        if (
+            self.source_fingerprint is not None
+            and source_fingerprint is not None
+            and self.source_fingerprint != source_fingerprint
+        ):
+            raise DataError(
+                f"split plan was realised on data fingerprinting {self.source_fingerprint}, "
+                f"and these data fingerprint {source_fingerprint}. A plan labels rows by "
+                "position, so a reordering, a replaced column or an added covariate leaves "
+                "every label pointing at a different unit, and the row count cannot see it. "
+                "Fit without split_plan= to draw a split for these data, or, when the rows "
+                "are the same units in the same order, hand over SplitPlan(plan.assignments) "
+                "to reuse the labels unbound"
+            )
+        # Each vector is read once here rather than once per (repeat x fold): none of them
+        # changes as the loop below walks the folds, and neither does the set of values a
+        # training complement has to contain.
+        prepared: dict[str, Any] = {}
+        for name, vector in (
+            ("cluster", cluster),
+            ("treatment arm", treatment),
+            ("stratum", stratify),
+        ):
+            if vector is None:
+                continue
+            values = np.asarray(vector).reshape(-1)
+            if values.shape[0] != n:
+                raise DataError(f"{name} has {values.shape[0]} rows but the data have {n}")
+            prepared[name] = values
+        # The cluster vector is checked by ``check_integrity`` rather than for support:
+        # a cluster is atomic, so it is meant to be absent from the folds it is not in.
+        codes = prepared.pop("cluster", None)
+        support = tuple((name, values, np.unique(values)) for name, values in prepared.items())
+
+        realized = self.to_folds()
+        for repeat, folds in enumerate(realized):
+            check_integrity(folds, cluster=codes)
+            training_sets = (
+                (np.arange(n, dtype=np.int64),)
+                if folds.is_single
+                else tuple(train for train, _ in folds)
+            )
+            for fold, train in enumerate(training_sets):
+                for name, values, present in support:
+                    missing = np.setdiff1d(present, np.unique(values[train]))
+                    if missing.size:
+                        raise DataError(
+                            f"split-plan repeat {repeat}, fold {fold} has no {name}(s) "
+                            f"{missing.tolist()} in its training complement"
+                        )
+        return realized
+
+
 def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
     """Check the prohibition that needs a vector beside the assignment.
 
@@ -196,9 +536,10 @@ def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
     ``StratifiedGroupKFold`` both guarantee it -- which is the point: the one place the
     guarantee is this library's own is the ``_grouped_splitter`` fallback for
     scikit-learn before 1.6, and a post-condition is what turns that from a hope into a
-    checked claim.  Also exposed for the two holders of a :class:`Folds` that
-    :func:`make_folds` never saw: a result reloaded from disk, and a caller who built one
-    by hand.
+    checked claim.  Also exposed for the three holders of a :class:`Folds` that
+    :func:`make_folds` never saw: a result reloaded from disk, a caller who built one by
+    hand, and a :class:`SplitPlan` handed back to a later fit, which
+    :meth:`SplitPlan.validate` puts through this check once per repeat.
 
     Stratum coverage is deliberately *not* checked here.  Every stratum in every fold is
     guaranteed only when the strata alone constrain the split -- ``resolve_n_folds`` caps
@@ -234,12 +575,45 @@ def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
         )
 
 
-def resolve_n_folds(n_folds: int, n: int, stratify: FloatArray | None = None) -> int:
+def resolve_n_folds(
+    n_folds: int,
+    n: int,
+    stratify: FloatArray | None = None,
+    *,
+    cluster: IntArray | None = None,
+) -> int:
     """Cap the requested number of folds at what the data can support.
 
     A stratified split needs at least one member of the rarer class per fold, so
     the cap is the rarer class count.  Silently exceeding it would raise deep
     inside scikit-learn, or worse, produce a fold with a single treatment arm.
+
+    A cluster is atomic, so a grouped split cannot make more folds than there are
+    clusters, and ``cluster`` applies that second cap.  Both caps live here rather than
+    one here and one in :func:`make_folds`, so that one function answers "how many folds
+    can a generated split make on these data" and every generated split asks it once.
+
+    This is a question about a split that is about to be *generated*.  A supplied
+    :class:`SplitPlan` is not held to the count it returns: a plan may hold more folds
+    than this, because a rare stratum has to reach every training complement rather than
+    appear once per fold, and :meth:`SplitPlan.validate` checks that property on the
+    labels themselves.
+
+    Parameters
+    ----------
+    n_folds : int
+        Folds requested.
+    n : int
+        Number of observations.
+    stratify : ndarray or None
+        Labels the split must balance, usually the treatment indicator.
+    cluster : ndarray or None
+        Cluster codes, when every row of a cluster must land in the same fold.
+
+    Returns
+    -------
+    int
+        The fold count the data support, at most ``n_folds``.
     """
     if n_folds < 2:
         raise ValueError(f"n_folds must be at least 2 for cross-fitting; got {n_folds}")
@@ -260,6 +634,17 @@ def resolve_n_folds(n_folds: int, n: int, stratify: FloatArray | None = None) ->
             UserWarning,
             stacklevel=2,
         )
+    if cluster is not None:
+        n_groups = int(np.unique(cluster).size)
+        if n_groups < resolved:
+            warnings.warn(
+                f"reducing n_folds from {resolved} to {n_groups}: only {n_groups} clusters",
+                UserWarning,
+                stacklevel=2,
+            )
+            resolved = n_groups
+        if resolved < 2:
+            raise ValueError("cluster-respecting cross-fitting needs at least 2 clusters")
     return resolved
 
 
@@ -295,21 +680,11 @@ def make_folds(
     if n < 2:
         raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
     seed = _as_seed(random_state)
-    resolved = resolve_n_folds(n_folds, n, stratify)
+    resolved = resolve_n_folds(n_folds, n, stratify, cluster=cluster)
     x = np.zeros((n, 1))
     assignment = np.empty(n, dtype=np.int64)
 
     if cluster is not None:
-        n_groups = int(np.unique(cluster).size)
-        if n_groups < resolved:
-            warnings.warn(
-                f"reducing n_folds from {resolved} to {n_groups}: only {n_groups} clusters",
-                UserWarning,
-                stacklevel=2,
-            )
-            resolved = n_groups
-        if resolved < 2:
-            raise ValueError("cluster-respecting cross-fitting needs at least 2 clusters")
         if stratify is not None:
             splitter = StratifiedGroupKFold(n_splits=resolved, shuffle=True, random_state=seed)
             iterator = splitter.split(x, np.asarray(stratify), groups=cluster)
@@ -363,10 +738,9 @@ class CrossFitPlan:
     Every field is a number or a string, so a plan is comparable, hashable and
     serialisable, and says nothing about any particular dataset.  What a plan realises on
     one is a :class:`Folds`, and the two can differ: :func:`resolve_n_folds` caps
-    ``n_folds`` at the rarest stratum and :func:`make_folds` caps it again at the cluster
-    count, both with a warning at fit time and no trace afterwards.  Recording the plan
-    beside the realised count is what makes "why did my 10-fold fit run 3 folds?"
-    answerable from a saved result.
+    ``n_folds`` at the rarest stratum and again at the cluster count, both with a warning
+    at fit time and no trace afterwards.  Recording the plan beside the realised count is
+    what makes "why did my 10-fold fit run 3 folds?" answerable from a saved result.
 
     Built from the estimator's own keyword arguments by
     :meth:`~cleverly.estimators.tmle.TMLE.crossfit_plan` and held on
@@ -385,15 +759,21 @@ class CrossFitPlan:
         not what makes a prediction out of fold, and its stratum is the learner's own
         target -- the treatment for the mechanism, the outcome for the regression.
     scheme : str
-        Which family of split was built, resolved from what the data declared rather
-        than chosen: ``"grouped"`` whenever ``id=`` named clusters, otherwise
-        ``"stratified"`` or ``"vfold"``.
+        Which family of split the fit used.  ``"supplied"`` means a caller handed over
+        exact assignments and nothing was generated.  Every other value is resolved from
+        what the data declared rather than chosen: ``"grouped"`` whenever ``id=`` named
+        clusters, otherwise ``"stratified"`` or ``"vfold"``.
     stratify_by : tuple of str
-        What the outer folds were balanced on, as user-facing names.  Empty when nothing
-        was -- a continuous dose has no strata to balance.
+        What the outer folds were checked against, as user-facing names.  Under a
+        generated scheme the split was balanced on these; under ``"supplied"`` the
+        assignments were checked for every one of these values in every training
+        complement, which is the property balancing exists to give.  Empty when there was
+        nothing to balance, as for a continuous dose.
     random_state : int or None
-        Seed for the split.  Not enough to reproduce it on its own; see
-        :mod:`cleverly.provenance`.
+        Seed for generated outer splits and repeat-specific learner state. Under
+        ``scheme="supplied"``, the assignments ignore it while learner and collaborative
+        selection folds remain seeded. A seed is not enough to reproduce a generated
+        split on its own; see :mod:`cleverly.provenance`.
     repeats : int
         How many independent draws of the whole split the fit combines by median. ``1`` is
         an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,

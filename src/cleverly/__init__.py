@@ -52,7 +52,7 @@ from .exceptions import (
     WeightingWarning,
 )
 from .inference import ParameterEstimate
-from .learners import SuperLearner
+from .learners import SplitPlan, SuperLearner
 from .methods import (
     CollaborativeTMLEMethod,
     CrossFitting,
@@ -152,6 +152,7 @@ __all__ = [
     "Replayability",
     "RiskRatio",
     "Runtime",
+    "SplitPlan",
     "StudyProtocol",
     "SuperLearner",
     "TMLEMethod",

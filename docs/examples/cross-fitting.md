@@ -250,9 +250,46 @@ in exactly one generated fold. A companion case rigs a noiseless law. A nearest-
 there reproduces a held-out row exactly when a same-cluster row trained it, and never otherwise.
 Those assertions are array equality and array inequality, so leakage is not a matter of degree.
 
-`CrossFitting` currently generates folds from `random_state`. It does not yet accept a public
-prespecified fold plan. The [remediation roadmap](../roadmap.md#rm3-public-reusable-split-plans)
-records that API gap.
+## Reuse the same outer split
+
+Return to the unclustered `cross_fitted` result above. It drew one outer split. A second fit can
+run on exactly those validation rows, which is what you want when you compare two methods rather
+than two splits.
+
+Every point-treatment result exposes its realized outer folds as `split_plan`. Pass that plan back
+through `CrossFitting`, with a declaration the plan can serve.
+
+```python
+import numpy as np
+
+reused = effect.estimate(
+    method=TMLEMethod(
+        models=boosted,
+        cross_fitting=CrossFitting(
+            n_folds=5,
+            repeats=1,
+            split_plan=cross_fitted.split_plan,
+        ),
+        runtime=Runtime(random_state=34, n_jobs=1),
+    )
+)
+assert reused.provenance.fold_fingerprint == cross_fitted.provenance.fold_fingerprint
+assert reused["ate"].psi == cross_fitted["ate"].psi
+assert np.array_equal(
+    reused["ate"].influence_curve,
+    cross_fitted["ate"].influence_curve,
+)
+```
+
+The three assertions hold exactly. The reused fit repeats the folds, the point estimate, and the
+influence curve of the first fit, digit for digit.
+
+That is reproducible wiring for this fit. It adds no evidence about bias, coverage, or efficiency.
+
+A plan labels rows by position, so it belongs to these rows in this order. The plan also records
+which data it came from. A fit on other data is refused rather than given the wrong labels.
+[Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
+the contract and every refusal, including the two refutation tests a supplied plan refuses.
 
 ## A second construction over the same folds
 

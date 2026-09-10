@@ -154,6 +154,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "RiskRatio",
         "Replayability",
         "Runtime",
+        "SplitPlan",
         "StudyProtocol",
         "SuperLearner",
         "TMLEMethod",
