@@ -33,6 +33,52 @@ class _LegacyPickle:
         return (_blank, (self._record_class,), self._state)
 
 
+def legacy_state(record: Any, *dropped: str) -> dict[str, Any]:
+    """Return ``record``'s pickle state as if ``dropped`` did not exist when it was written.
+
+    Parameters
+    ----------
+    record : Any
+        A live record whose instance dictionary describes the current shape.
+    *dropped : str
+        Names the older pickle did not carry. Each one has to be an attribute the live
+        record does carry.
+
+    Returns
+    -------
+    dict of str to Any
+        The instance dictionary with those names removed.
+
+    Raises
+    ------
+    KeyError
+        When a name in ``dropped`` is not an attribute of ``record``. The filter below
+        would drop nothing for such a name, so the helper would hand back a state of the
+        *current* shape and the caller's back-compatibility assertion would keep passing
+        against it. ``_DefaultingUnpickle.check_pickle_backfill`` refuses a stale
+        ``_PICKLE_BACKFILL`` key for that reason, and a rename reaches this helper the
+        same way: ``legacy_state(record, "treatment_value")`` still builds a valid state
+        after ``treatment_value`` is renamed, and the test that pins the legacy branch
+        then replays the current shape as the old one.
+
+    Notes
+    -----
+    A nested artifact needs the state rather than a restored record, because the old
+    pickle it stands in for carried one legacy state per level. So this is the guard and
+    :func:`legacy_without` is the one-level convenience over it. Filtering
+    ``vars(record)`` at the call site instead is what this function exists to stop: that
+    form carries no guard, and three call sites wrote it out before.
+    """
+    absent = sorted(set(dropped) - set(vars(record)))
+    if absent:
+        raise KeyError(
+            f"{type(record).__name__} carries no such attribute: {', '.join(absent)}; "
+            "a renamed field needs its caller renamed with it, or this helper drops "
+            "nothing and the test replays the current shape as if it were the old one"
+        )
+    return {name: value for name, value in vars(record).items() if name not in dropped}
+
+
 def legacy_without(record: Any, *dropped: str) -> Any:
     """Unpickle ``record`` as if ``dropped`` did not exist when it was written.
 
@@ -48,28 +94,8 @@ def legacy_without(record: Any, *dropped: str) -> Any:
     -------
     Any
         The record restored from a state with those names removed.
-
-    Raises
-    ------
-    KeyError
-        When a name in ``dropped`` is not an attribute of ``record``. The filter below
-        would drop nothing for such a name, so the helper would hand back a record of the
-        *current* shape and the caller's back-compatibility assertion would keep passing
-        against it. ``_DefaultingUnpickle.check_pickle_backfill`` refuses a stale
-        ``_PICKLE_BACKFILL`` key for that reason, and a rename reaches this helper the
-        same way: ``legacy_without(record, "treatment_value")`` still builds a valid
-        pickle after ``treatment_value`` is renamed, and the test that pins the legacy
-        branch then replays the current shape as the old one.
     """
-    absent = sorted(set(dropped) - set(record.__dict__))
-    if absent:
-        raise KeyError(
-            f"{type(record).__name__} carries no such attribute: {', '.join(absent)}; "
-            "a renamed field needs its caller renamed with it, or this helper drops "
-            "nothing and the test replays the current shape as if it were the old one"
-        )
-    state = {name: value for name, value in record.__dict__.items() if name not in dropped}
-    return pickle.loads(pickle.dumps(_LegacyPickle(type(record), state)))
+    return pickle.loads(pickle.dumps(_LegacyPickle(type(record), legacy_state(record, *dropped))))
 
 
 #: The fields :class:`~cleverly.study.BackdoorMeanContrast` carried before the

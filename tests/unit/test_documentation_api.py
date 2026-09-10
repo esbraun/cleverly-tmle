@@ -42,6 +42,7 @@ EXAMPLE_TARGETS = (
     "cleverly.CausalStudy",
     "cleverly.PointTreatment",
     "cleverly.LongitudinalTreatment",
+    "cleverly.StudyProtocol",
     "cleverly.IdentifiedEffect",
     # Estimands.
     "cleverly.ATE",
