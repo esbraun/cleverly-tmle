@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly import CapabilityError
 from tests.conftest import fast_tmle
 
 
@@ -21,7 +22,10 @@ def _missing_frame() -> pd.DataFrame:
 
 
 def test_an_explicit_observed_mean_target_refuses_missing_outcomes() -> None:
-    with pytest.raises(NotImplementedError, match="natural-course mean"):
+    # CapabilityError, because docs/architecture-invariants.md requires a
+    # method-configuration failure to derive from CleverlyError.  The refusal is built
+    # once, in cleverly.targets.population_intervention, for all three call sites.
+    with pytest.raises(CapabilityError, match="natural-course mean"):
         fast_tmle(estimands=("ey_obs",)).fit(
             _missing_frame(),
             outcome="Y",

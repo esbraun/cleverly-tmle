@@ -101,6 +101,7 @@ from .._typing import (
 )
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..exceptions import (
+    CapabilityError,
     ConvergenceWarning,
     DataError,
     PositivityWarning,
@@ -137,6 +138,10 @@ from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
 from ..targets.base import stratum_alias
+from ..targets.population_intervention import (
+    POPULATION_INTERVENTION_TARGETS,
+    population_intervention_refusal,
+)
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
@@ -853,24 +858,23 @@ class TMLE:
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
-        population_intervention = {"ey_obs", "par", "paf"}.intersection(estimands)
+        population_intervention = POPULATION_INTERVENTION_TARGETS.intersection(estimands)
         if (
             population_intervention
             and self.estimands == "all"
             and (data.has_missing_outcome or data.has_intermediate)
         ):
             estimands = tuple(name for name in estimands if name not in population_intervention)
-            population_intervention = set()
+            population_intervention = frozenset()
         if population_intervention and data.has_missing_outcome:
-            raise NotImplementedError(
-                f"{sorted(population_intervention)} do not yet support delta=: under MAR "
-                "the natural-course mean E[Y] needs an additional outcome/missingness "
-                "score equation; using complete cases would estimate a different "
-                "parameter. docs/roadmap.md RM7 tracks this stop for the natural-course "
-                "mean, and docs/roadmap.md RM8 tracks it for par and paf."
-            )
+            raise population_intervention_refusal(population_intervention, declaration="delta=")
         if population_intervention and data.has_intermediate:
-            raise NotImplementedError(
+            # A ``CleverlyError`` like the ``delta=`` refusal three lines above, and for
+            # the reason docs/architecture-invariants.md gives: a caller must not have to
+            # catch an implementation-language exception beside a library one for two
+            # refusals of the same shape. The reason differs, so the sentence is written
+            # here rather than built by ``population_intervention_refusal``.
+            raise CapabilityError(
                 f"{sorted(population_intervention)} do not yet support intermediate=: "
                 "combining the natural course with a controlled mediator intervention "
                 "needs a separately identified population-intervention parameter"

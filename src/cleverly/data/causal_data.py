@@ -786,23 +786,40 @@ class CausalData:
     def missingness_design(self) -> FloatArray:
         """``[A, W]`` -- the conditioning set for ``P(Delta = 1 | A, W)``.
 
-        Missingness at random is assumed to hold given treatment and baseline
-        covariates: among units with the same ``(A, W)``, whether the outcome was
-        recorded carries no information about what it would have been.
-        :func:`~cleverly.sensitivity.missingness_tilt` makes that a dial rather than a
-        premise.
+        Missingness at random is the assumption, and the composition decides which form
+        of it the estimand needs.  Without an intermediate variable the form is
+        ``Y`` independent of ``Delta`` given ``(A, W)``: among units with the same
+        ``(A, W)``, whether the outcome was recorded carries no information about what it
+        would have been.  :func:`~cleverly.sensitivity.missingness_tilt` makes that a dial
+        rather than a premise.
 
-        Note the intermediate variable is deliberately *not* in this design, and that is
-        a modelling assumption rather than an oversight.  Conditioning on ``Z`` would be
-        right if missingness were a consequence of the intermediate, but then the
-        estimand would need a sequential (longitudinal) factorisation that this
-        point-treatment estimator does not implement.  As it stands, combining
-        ``delta=`` with ``intermediate=`` assumes ``Delta`` is not caused by ``Z`` --
-        equivalently that ``Delta`` is independent of ``Z`` given ``(A, W)``, which
-        holds in particular when the outcome's recording is decided before ``Z`` is
-        realised.  Where that is implausible, the estimand belongs to an ``ltmle``-style
-        longitudinal analysis; see :class:`cleverly.longitudinal.LTMLE` and its recipes in
-        ``docs/user-guide/longitudinal.md``.
+        With ``intermediate=`` the estimand is a controlled direct effect, whose outcome
+        regression conditions on ``Z``.  Two restrictions then replace that single
+        pairwise one, and :mod:`cleverly.estimators.direct_effect` lists both under its
+        assumption 5:
+
+        * ``Y`` is independent of ``Delta`` given ``(A, Z, W)``, which identifies
+          ``E(Y | A = a, Z = z, Delta = 1, W)`` from the recorded outcomes;
+        * ``Delta`` is independent of ``Z`` given ``(A, W)``, which makes
+          ``P(Delta = 1 | A, W)`` the response model the influence function reads, and
+          keeps ``Z`` out of this design.
+
+        The pairwise statements do not imply the first restriction, so the conditional
+        form is the one to check.  ``tests/unit/test_cde_identification_contract.py``
+        exhibits an equiprobable law over ``(Y, Z, Delta)`` with ``Delta = Y XOR Z``.
+        There ``Y`` and ``Z`` are each independent of ``Delta``, and yet
+        ``E(Y | Z = z, Delta = 1) = 1 - z`` while ``E(Y | Z = z) = 0.5``, so the recorded
+        outcomes identify none of the regressions the estimand is built from.
+
+        The second restriction is a modelling assumption rather than an oversight.
+        Conditioning on ``Z`` would be right if missingness were a consequence of the
+        intermediate, but then the estimand would need a sequential (longitudinal)
+        factorisation that this point-treatment estimator does not implement.  Combining
+        ``delta=`` with ``intermediate=`` therefore assumes ``Delta`` is not caused by
+        ``Z``, which holds in particular when the outcome's recording is decided before
+        ``Z`` is realised.  Where that is implausible, the estimand belongs to an
+        ``ltmle``-style longitudinal analysis; see :class:`cleverly.longitudinal.LTMLE`
+        and its recipes in ``docs/user-guide/longitudinal.md``.
 
         :mod:`cleverly.estimators.direct_effect` states the rest of the assumptions this
         one belongs to, and derives the influence function they identify.

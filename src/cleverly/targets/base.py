@@ -50,11 +50,20 @@ from ..inference.influence import (
     unscale,
 )
 from ..utils.bounds import OutcomeScaler
+from .population_intervention import (
+    POPULATION_INTERVENTION_TARGETS,
+    population_intervention_refusal,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     pass
 
 __all__ = [
+    "INTERMEDIATE_MECHANISM",
+    "MISSINGNESS_MECHANISM",
+    "OUTCOME_REGRESSION",
+    "POINT_NUISANCES",
+    "TREATMENT_MECHANISM",
     "Identification",
     "Target",
     "TargetContext",
@@ -158,6 +167,28 @@ def parameter_stem(name: str) -> str:
     sweep re-targets.
     """
     return name.split("[", 1)[0]
+
+
+#: The nuisance estimate an outcome regression is recorded under.
+OUTCOME_REGRESSION = "outcome_regression"
+#: The nuisance estimate a treatment mechanism is recorded under.
+TREATMENT_MECHANISM = "treatment_mechanism"
+#: The nuisance estimate an intermediate mechanism P(Z = z | A, W) is recorded under.
+INTERMEDIATE_MECHANISM = "intermediate_mechanism"
+#: The nuisance estimate a response mechanism P(Delta = 1 | A, W) is recorded under.
+MISSINGNESS_MECHANISM = "missingness_mechanism"
+
+#: Every name a point-treatment :class:`Identification` may put in
+#: ``required_nuisances``, declared here beside the record that carries them.  Two of the
+#: four are added by a study rather than by a registered target, and inventing their
+#: spelling there left the vocabulary split across two modules with nothing comparing the
+#: halves.
+POINT_NUISANCES = (
+    OUTCOME_REGRESSION,
+    TREATMENT_MECHANISM,
+    INTERMEDIATE_MECHANISM,
+    MISSINGNESS_MECHANISM,
+)
 
 
 @dataclass(frozen=True)
@@ -380,12 +411,12 @@ class TargetContext:
         complete-case parameter.
         """
         if not np.all(self.observed):
-            raise ValueError(
-                "ey_obs, par and paf do not yet support delta=: under missingness at "
-                "random E[Y] needs its own outcome/missingness score equation, and the "
-                "complete-case mean is a different parameter; docs/roadmap.md RM7 "
-                "tracks this stop for ey_obs, and docs/roadmap.md RM8 tracks it for "
-                "par and paf"
+            # Every target reading this property is refused together, because the context
+            # is shared by the group and does not know which of the three asked.  The
+            # raised CapabilityError is still a ValueError, which is what lets a fold that
+            # declares ``undefined_when`` keep dropping ``paf`` on a zero-risk subsample.
+            raise population_intervention_refusal(
+                POPULATION_INTERVENTION_TARGETS, declaration="delta="
             )
         y = np.asarray(self.scaled, dtype=float)
         w = np.asarray(self.weights, dtype=float)
