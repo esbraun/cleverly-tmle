@@ -99,11 +99,43 @@ why a complete-case frame would already have thrown information away.
 
 ## Design and identification
 
-The design places every column at its node. `time_varying` is a sequence with one entry per node, so
-the empty first entry says there is no time-varying covariate before discharge.
+The design places every column at its node. `time_varying` has one entry per node. The empty first
+entry says there is no time-varying covariate before discharge.
 
 ```python
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast, StudyProtocol
+
+protocol = StudyProtocol(
+    target_population=(
+        "Adults discharged home from a participating hospital during the enrollment period"
+    ),
+    eligibility=(
+        "Age 18 years or older",
+        "Discharged alive",
+        "Discharged home from a participating hospital",
+    ),
+    time_zero="Hospital discharge, after baseline measurement and before first assignment",
+    treatment_strategies=(
+        "Offer navigation at discharge and day seven",
+        "Offer no navigation at either decision",
+    ),
+    treatment_versions=(
+        "The declared discharge and day-seven navigation contacts",
+        "Usual discharge support without navigation contacts",
+    ),
+    outcome="Top-box patient-reported transition score",
+    horizon="30 days after discharge",
+    intercurrent_event_handling=(
+        "Use the transition score regardless of readmission",
+        "Analyze each navigation offer regardless of completed contacts",
+    ),
+    interference_unit="Individual patient",
+    assumption_rationale=(
+        "Recorded history covers the measured common causes at each decision",
+        "Version records support consistency at both navigation decisions",
+        "Reserved navigator capacity supports no interference between patients",
+    ),
+)
 
 study = CausalStudy(
     frame,
@@ -115,6 +147,7 @@ study = CausalStudy(
         censoring=("tracked_day7", "tracked_day30"),
         cluster="navigator_team",
     ),
+    protocol=protocol,
 )
 plan = RegimeContrast({"always": 1, "never": 0}, reference="never")
 effect = study.identify(plan)
@@ -122,6 +155,9 @@ print(effect.summary())
 for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
+
+The identification summary renders the stored protocol. The typed `RegimeContrast` still owns the
+mathematical comparison between the two treatment plans.
 
 The placement of `unresolved_transition_issues` is the scientific decision on this page. It is declared as
 time-varying at the second node. That single statement tells the estimator to condition on it when
@@ -168,6 +204,30 @@ result = effect.estimate(method=sequential)
 print(result.summary())
 print("population contrast:", truth["ate_regimen[always vs never]"])
 ```
+
+The result summary renders the complete protocol and its fingerprint. The method settings remain
+a separate record and cannot be changed by protocol text.
+
+Save and load the fit to verify that the complete record survives the artifact round trip:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from cleverly import load
+
+with TemporaryDirectory() as directory:
+    saved = Path(directory) / "repeated-navigation.joblib"
+    result.save(saved)
+    restored = load(saved)
+    restored_protocol = restored.identified_effect.protocol
+    assert restored_protocol is not None
+    print("\n".join(restored_protocol.summary_lines()))
+    assert restored_protocol.fingerprint == restored.provenance.protocol_fingerprint
+```
+
+Use a maintained path instead of a temporary directory for a real audit artifact. Load only
+joblib files you trust, and keep the dependency versions compatible.
 
 Every reported parameter carries a structured key rather than only a display label.
 

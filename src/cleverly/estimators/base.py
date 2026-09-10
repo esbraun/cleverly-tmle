@@ -1155,6 +1155,8 @@ class TMLEResult:
         ]
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines())
+        else:
+            facts.append("causal study protocol: absent")
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
         if data.is_weighted:

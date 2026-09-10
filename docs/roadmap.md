@@ -16,17 +16,16 @@ post-fit coverage. Complete these rows in order before main-roadmap priority 1. 
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
 The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
-and RM8 carry an open source audit. RM2 and RM3 raise no published-method question, because
-neither row changes an estimand, an estimator configuration, or fold arithmetic.
+and RM8 carry an open source audit. RM3 raises no published-method question, because that row does
+not change an estimand, an estimator configuration, or fold arithmetic.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
-| 0.2 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.3 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.4 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.5 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.6 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.2 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.3 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.4 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.5 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -131,43 +130,6 @@ estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM2. First-class causal study protocol record
-
-Add a frozen public `StudyProtocol` record. It stores the target population, eligibility, time
-zero, treatment strategies, treatment versions, outcome, horizon, intercurrent-event handling,
-interference unit, and assumption rationale. Normalize sequence inputs to tuples and reject blank
-text or unmatched strategy and version counts.
-
-The field vocabulary combines three sources. Hernán and Robins define the
-[target-trial components](https://miguelhernan.org/whatifbook).
-[ICH E9(R1)](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf)
-defines intercurrent-event handling. VanderWeele and Hernán explain why
-[treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/) matter to a causal
-question. The record is not a complete target-trial protocol or ICH estimand. The typed estimand
-retains the contrast, and the method retains the analysis configuration.
-
-Give the record a schema version, a JSON-compatible normalized form, and a BLAKE2b fingerprint of
-canonical UTF-8 JSON. `CausalStudy` accepts an optional record. The study stamps it onto every
-`IdentifiedEffect`, including effects from a custom identification provider.
-
-Persist the full record once through `IdentifiedEffect`. Add its digest to `Provenance` without
-changing the data or fold fingerprints. Attach both after the engine fit, so protocol text cannot
-change an estimand, an estimator configuration, a nuisance fit, or fold arithmetic.
-
-Render the record in identification and result summaries. An effect or result without the record
-must state `causal study protocol: absent`. Backfill both new persistence fields when an older
-trusted artifact loads.
-
-Acceptance needs stable list-to-tuple normalization and fingerprint tests. A treatment-version
-change must change only the protocol fingerprint across otherwise identical fits. Point and
-longitudinal round trips must retain the complete record and digest. Legacy point and longitudinal
-artifacts must load and report the absent record.
-
-Update one point-treatment tutorial and one longitudinal tutorial to construct and render their
-saved protocol. Update the workflow and API pages to define the boundary between protocol, design,
-estimand, identification, and method. No registered study applies because this work cannot change a
-fitted array or inferential verdict.
 
 ### RM3. Public reusable split plans
 

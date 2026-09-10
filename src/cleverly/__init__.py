@@ -65,6 +65,7 @@ from .methods import (
     Targeting,
     TMLEMethod,
 )
+from .protocol import StudyProtocol
 from .provenance import Provenance
 from .study import (
     ATC,
@@ -151,6 +152,7 @@ __all__ = [
     "Replayability",
     "RiskRatio",
     "Runtime",
+    "StudyProtocol",
     "SuperLearner",
     "TMLEMethod",
     "Targeting",

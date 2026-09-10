@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .utils.records import _DefaultingUnpickle
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
 
@@ -69,7 +71,7 @@ def _version(name: str) -> str:
 
 
 @dataclass(frozen=True)
-class Provenance:
+class Provenance(_DefaultingUnpickle):
     """Enough to tell whether two results came from the same place.
 
     Parameters
@@ -108,6 +110,8 @@ class Provenance:
         Identifier the caller supplied.
     package_versions : dict of str to str
         Versions of the learner libraries used.
+    protocol_fingerprint : str or None
+        Digest of the causal study protocol. ``None`` means the fit carried no record.
     """
 
     cleverly_version: str
@@ -122,6 +126,7 @@ class Provenance:
     random_state: int | None = None
     run_id: str | None = None
     package_versions: dict[str, str] = field(default_factory=dict)
+    protocol_fingerprint: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
@@ -163,6 +168,8 @@ class Provenance:
         ]
         if self.run_id:
             lines.append(f"run_id: {self.run_id}")
+        if self.protocol_fingerprint is not None:
+            lines.append(f"protocol {self.protocol_fingerprint}")
         return lines
 
 
