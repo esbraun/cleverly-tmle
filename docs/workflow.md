@@ -32,12 +32,10 @@ protocol = StudyProtocol(
 )
 ```
 
-This record combines selected vocabulary from the
-[target-trial components](https://miguelhernan.org/whatifbook),
-[ICH E9(R1)](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf),
-and the literature on
-[treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/). It is not a complete
-target-trial protocol or proof of ICH estimand compliance.
+The record combines selected vocabulary from the target-trial literature, the ICH E9(R1) estimand
+addendum, and the work on treatment versions.
+[Study protocol vocabulary](references.md#study-protocol-vocabulary) names the three sources and
+states the scope of the record.
 
 ## 2. Declare the observed-data design
 
@@ -64,6 +62,8 @@ study = CausalStudy(
 An empty adjustment set is an identification claim. Set `randomized=True` when randomization, not
 omission, justifies it.
 
+### Who owns what
+
 Each public object keeps one responsibility:
 
 | object | owns | does not own |
@@ -74,8 +74,11 @@ Each public object keeps one responsibility:
 | identification | the observed-data functional, assumptions, nuisances, and remainder condition | the evidence that assumptions hold in this study |
 | typed method | learners, cross-fitting, targeting, inference, and runtime settings | the causal question or identification argument |
 
-`CausalStudy` stamps the optional protocol onto the identified effect and each fitted result. A
-summary states `causal study protocol: absent` when the study has no protocol record.
+`CausalStudy` stamps the optional study protocol onto the identified effect and onto each fitted
+result. The identification summary and the result summary both render the record, one field per
+line. The result summary also prints `protocol digest <digest>` in its provenance block, beside the
+data and fold digests of the same fit. Both summaries print `causal study protocol: absent` when the
+study carried no record.
 
 ## 3. Choose a typed estimand
 
@@ -149,5 +152,7 @@ result.save("analysis.joblib")
 ```
 
 The joblib artifact stores the complete fitted result, including estimator configuration and
-nuisance-model objects. Load only trusted artifacts in a compatible Python environment. See
-[results, inference, and assessment](user-guide/results-assessment.md) for replayability rules.
+nuisance-model objects. An artifact written before `StudyProtocol` still loads, and its summary
+states `causal study protocol: absent`. See
+[persistence and replayability](user-guide/results-assessment.md#persistence-and-replayability)
+for the trust boundary, the version rules, and the replay each restored artifact supports.

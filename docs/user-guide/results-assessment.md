@@ -815,4 +815,20 @@ The joblib artifact contains the complete result graph, including nuisance estim
 so successfully restored results retain refit-based assessment. Joblib uses pickle internally:
 loading can execute arbitrary code, so load only trusted artifacts in an environment with
 compatible cleverly, sklearn, Python, and third-party estimator versions. Legacy `.npz` results
-must be loaded with the cleverly version that created them.
+must be loaded with the cleverly version that created them. This page states the trust boundary
+for the whole package, and the tutorials point here rather than restating it.
+
+`load()` checks no fingerprint. It recomputes neither the data digest, nor the fold digest, nor the
+study protocol digest, and it compares none of them. The trust boundary is the file, so a digest on
+a restored artifact records what the original fit ran on and nothing more.
+
+A restored result reports its study protocol in two places. `restored.identified_effect.protocol`
+holds the descriptive record, and `restored.provenance.protocol_fingerprint` holds the digest of
+that record. The summary renders the record one field per line, and it prints the digest once in
+the provenance block.
+
+A trusted point or longitudinal artifact written before `StudyProtocol` still loads. Its summary
+states `causal study protocol: absent`, and its `protocol_fingerprint` is `None`. To record the
+study context for such an analysis, pass `protocol=` to `CausalStudy` and fit the original data
+again. A summary that states `causal study protocol: record not retained` reports a third case
+instead: the fit ran under a record, and that record did not reach this summary.

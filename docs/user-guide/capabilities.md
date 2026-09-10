@@ -33,11 +33,16 @@ can become a release claim.
 
 ## Extending the package
 
-The public protocols are `Estimand`, `IdentificationProvider`, `EstimationMethod`, and
-`CausalResult`.
+The public typing protocols are `Estimand`, `IdentificationProvider`, `EstimationMethod`, and
+`CausalResult`. A study protocol is a different thing: `StudyProtocol` is a record the analyst
+writes, and the [data and study design guide](data-design.md#the-study-protocol-record) describes
+it.
 
 - A custom provider returns an `IdentifiedEffect` only when it can name the observed-data
   functional and its assumptions.
+- A custom provider cannot set the study protocol. `CausalStudy.identify` replaces the `protocol`
+  field of the returned effect with the study's own record. The record describes the observed study
+  rather than the identification strategy.
 - A custom method declares which functionals it supports and returns a result with stable
   parameter keys.
 - A new registered analytic target needs the oracle, Gateaux, remainder, and mutation evidence

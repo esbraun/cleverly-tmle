@@ -63,14 +63,11 @@ workload becomes dominated by joins, grouping, IO, or conversion rather than est
 
 ## Public causal workflow
 
-The beginner-facing computational path is `CausalStudy -> identify -> estimate`. `StudyProtocol`
-owns the study context and assumption rationale. A design owns observed column roles. A typed
-estimand owns the mathematical contrast and intervention metadata.
-
-An `IdentifiedEffect` owns the observed-data functional and assumptions. A typed method owns
-learning and runtime configuration.
-The protocol can describe strategies in study language, but it cannot override another object's
-contract. Do not reintroduce root engine constructors or a parallel string-driven convenience path.
+The beginner-facing computational path is `CausalStudy -> identify -> estimate`. Each public
+object owns one part of the analysis, and [who owns what](workflow.md#who-owns-what) states the
+split. No object may override another object's contract. A `StudyProtocol` describes strategies in
+study language, and it sets neither the contrast, nor the column roles, nor the learners. Do not
+reintroduce root engine constructors or a parallel string-driven convenience path.
 
 One public question must normalize to one evidenced engine request. *Reconsider when* a distinct
 audience has a workflow that cannot use these contracts without losing information. The
@@ -132,6 +129,13 @@ the fitted arrays, estimator configuration, analysis data, and nuisance-estimato
 Loading therefore has pickle's arbitrary-code-execution risk and is restricted to trusted
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
+
+A study protocol reaches that result as two separate things. The descriptive record rides on
+`IdentifiedEffect`, and only its digest enters `Provenance`. The data and fold fingerprints stay
+protocol-free, so a record that changes no array moves neither of them. A protocol-free artifact
+therefore loads and states absence rather than failing. *Reconsider when* a reader must compare two
+study protocol records from their digests alone. That needs the canonical record in the provenance
+payload, and a migration for every stored artifact.
 
 A saved object round-trips the records it holds, and never a value it derived from them. Both
 `TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.

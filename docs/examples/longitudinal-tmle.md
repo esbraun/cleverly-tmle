@@ -156,8 +156,8 @@ for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
 
-The identification summary renders the stored protocol. The typed `RegimeContrast` still owns the
-mathematical comparison between the two treatment plans.
+The identification summary renders the stored study protocol record. The typed `RegimeContrast`
+still owns the mathematical comparison between the two treatment plans.
 
 The placement of `unresolved_transition_issues` is the scientific decision on this page. It is declared as
 time-varying at the second node. That single statement tells the estimator to condition on it when
@@ -174,8 +174,8 @@ The assumptions change shape from the point-treatment case.
 | --- | --- |
 | exchangeability | sequential. It must hold at every node, given the recorded history at that node |
 | positivity | cumulative. Every patient needs a positive probability of following the plan **and** remaining observable, through both nodes |
-| consistency | each decision uses the declared protocol version, and later treatment remains defined under maintained follow-up |
-| no interference | one patient's assignments do not change another patient's protocol or outcome |
+| consistency | each decision uses the declared treatment version, and later treatment remains defined under maintained follow-up |
+| no interference | one patient's assignments do not change another patient's navigation offer or outcome |
 
 Cumulative positivity is the one that bites. Two navigation nodes and two observation nodes
 multiply into one probability, and that product can be small even when no single factor is.
@@ -205,8 +205,9 @@ print(result.summary())
 print("population contrast:", truth["ate_regimen[always vs never]"])
 ```
 
-The result summary renders the complete protocol and its fingerprint. The method settings remain
-a separate record and cannot be changed by protocol text.
+The result summary renders the complete study protocol record. Its provenance block carries the
+digest of that record, and the summary prints the digest exactly once. The method settings stay a
+separate record, and study protocol text cannot change them.
 
 Save and load the fit to verify that the complete record survives the artifact round trip:
 
@@ -226,8 +227,9 @@ with TemporaryDirectory() as directory:
     assert restored_protocol.fingerprint == restored.provenance.protocol_fingerprint
 ```
 
-Use a maintained path instead of a temporary directory for a real audit artifact. Load only
-joblib files you trust, and keep the dependency versions compatible.
+Use a maintained path instead of a temporary directory for a real audit artifact.
+[Persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability)
+states the trust boundary for a load and the versions it needs.
 
 Every reported parameter carries a structured key rather than only a display label.
 

@@ -14,6 +14,27 @@ were cited for had been transcribed into [the DR-TMLE contract](technical-refere
 `DRTMLE` sources below carry page numbers where the rest carry none. A path to a file only a
 previous reader had is not a citation; a page number is.
 
+## Study protocol vocabulary
+
+`StudyProtocol` records the study context of one analysis. These three sources supply its field
+vocabulary. The record is not a complete target-trial protocol, and it is not a claim of ICH
+estimand compliance. A record can state a claim. It is not itself an estimand.
+
+- Hernán & Robins (2020), [*Causal Inference: What
+  If*](https://miguelhernan.org/whatifbook), CRC Press. The target-trial components name the
+  eligibility criteria, time zero, the treatment strategies, the outcome, and the follow-up
+  period. The `target_population`, `eligibility`, `time_zero`, `treatment_strategies`, `outcome`,
+  and `horizon` fields record them.
+- ICH E9(R1) (2019), [*Addendum on estimands and sensitivity analysis in clinical trials to the
+  guideline on statistical principles for clinical
+  trials*](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf).
+  The addendum names the attributes of an estimand and asks each trial to state its handling of
+  intercurrent events. The `intercurrent_event_handling` field records that statement.
+- VanderWeele & Hernán (2013), [*Causal inference under multiple versions of
+  treatment*](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/), *Journal of Causal Inference*
+  1(1):1-20. The paper states what a contrast means when one treatment label covers several
+  versions. The `treatment_versions` field records the version attached to each strategy.
+
 ## Targeted learning, in general
 
 - van der Laan & Rubin (2006), [*Targeted Maximum Likelihood Learning*](https://doi.org/10.2202/1557-4679.1043),

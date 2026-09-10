@@ -11,6 +11,24 @@ The input must have one row per independent observational unit unless `cluster=`
 at which inference is independent. Missing values are supported only in roles whose design
 explicitly models missingness; a missing adjustment or treatment value is not silently imputed.
 
+## The study protocol record
+
+Pass `protocol=StudyProtocol(...)` to `CausalStudy` when the analysis needs a durable record of its
+scientific context. The record runs from the target population to the assumption rationale, and
+`StudyProtocol` documents each of its ten fields. The argument is optional, and every other part of
+the workflow behaves the same way without it.
+
+`CausalStudy` stamps the record onto the identified effect and onto each fitted result, so a summary
+reports the study context beside the estimate. The record describes the study and configures
+nothing. The design still owns the column roles, and the typed estimand still owns the contrast.
+[Step 1 of the workflow](../workflow.md#1-formulate-the-causal-question) shows a complete record,
+and [study protocol vocabulary](../references.md#study-protocol-vocabulary) names its sources.
+
+The constructor strips surrounding whitespace from each text field and then validates it. It
+refuses a wrong type with `TypeError`, such as one string where a sequence of strings belongs. It
+refuses content the schema cannot state with `DataError`. Blank text, a control character, and a
+strategy list and a version list of different lengths are all refused that way.
+
 ## Point treatment
 
 ```python

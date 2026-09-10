@@ -10,7 +10,7 @@ influence curve, and the algorithm.
 
 ## The applied question
 
-A regional health plan offers adults a **standard transition-navigation protocol** before they
+A regional health plan offers adults a **standard transition-navigation service** before they
 leave a hospital for home. Assignment means an offer of a bedside plan and two scheduled contacts
 within 30 days. It does not mean that the patient completed every contact.
 
@@ -143,8 +143,8 @@ for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
 
-The identification summary renders the protocol that `CausalStudy` stored on the effect. The
-typed `ATE` still owns the contrast and its reference arm.
+The identification summary renders the study protocol record that `CausalStudy` stored on the
+effect. The typed `ATE` still owns the contrast and its reference arm.
 
 `identify` returns the assumptions that carry the causal reading. Four apply here.
 
@@ -163,9 +163,9 @@ No unmeasured confounding needs a causal argument. For example, an unrecorded di
 judgement that affects both assignment and recovery would violate it. No estimator on this page repairs that
 failure. Restrict eligibility or redesign assignment when the argument is not credible.
 
-The synthetic law needs only four covariates. A real protocol should also evaluate pre-assignment
-site, navigator-team, calendar, language-access, and discharge-destination causes. Add them when the
-causal review places them on a common-cause path.
+The synthetic law needs only four covariates. A real study protocol should also evaluate
+pre-assignment site, navigator-team, calendar, language-access, and discharge-destination causes.
+Add them when the causal review places them on a common-cause path.
 
 ## Estimate
 
@@ -196,8 +196,9 @@ print("95% CI:", estimate.ci)
 print("population ATE:", truth["ate"])
 ```
 
-The result summary renders the same complete protocol and its fingerprint. It also reports the
-method configuration separately, because protocol text cannot configure a fit.
+The result summary renders the same study protocol record. Its provenance block carries the digest
+of that record, and the summary prints the digest exactly once. The summary reports the method
+configuration separately, because study protocol text cannot configure a fit.
 
 Both nuisances use a gradient-boosted learner because the law is nonlinear. Cross-fitting separates
 each nuisance prediction from the row used to evaluate it. The
@@ -506,8 +507,9 @@ with TemporaryDirectory() as directory:
 
 `replayability` says which operations the restored artifact can still perform. The saved assessment
 cache retains reports that ran before the save. A new nuisance refit still needs the analysis data.
-Use a maintained path instead of a temporary directory for a real audit artifact. Load only joblib
-files you trust, and keep the dependency versions compatible.
+Use a maintained path instead of a temporary directory for a real audit artifact.
+[Persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability)
+states the trust boundary for a load and the versions it needs.
 
 ## Where to go next
 
