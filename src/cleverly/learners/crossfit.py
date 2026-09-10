@@ -620,8 +620,10 @@ class CrossFitPlan:
         What the outer folds were balanced on, as user-facing names.  Empty when nothing
         was -- a continuous dose has no strata to balance.
     random_state : int or None
-        Seed for the split.  Not enough to reproduce it on its own; see
-        :mod:`cleverly.provenance`.
+        Seed for generated outer splits and repeat-specific learner state. Under
+        ``scheme="supplied"``, the assignments ignore it while learner and collaborative
+        selection folds remain seeded. A seed is not enough to reproduce a generated
+        split on its own; see :mod:`cleverly.provenance`.
     repeats : int
         How many independent draws of the whole split the fit combines by median. ``1`` is
         an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
