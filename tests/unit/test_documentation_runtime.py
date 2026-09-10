@@ -322,14 +322,28 @@ def _multi_arm_identification_semantics(namespace: dict[str, Any]) -> None:
 
 def _survival_output_semantics(namespace: dict[str, Any]) -> None:
     """The survival view and incidence total keep their public numerical meanings."""
-    from cleverly.inference.cluster import influence_covariance
-
     result = namespace["exit_result"]
     risk = result.curve(scale="risk")
     survival = namespace["survival_curve"]
+    keys = set(result.estimates)
     assert len(risk) == len(survival) > 0
-    assert set(risk["scale"]) == {"risk"}
-    assert set(survival["scale"]) == {"survival"}
+
+    # Three columns, three separate jobs, so all three are pinned.  ``view`` records the
+    # view the caller asked for, ``scale`` keeps the ``to_frame()`` vocabulary that tells a
+    # level row from a contrast row, and ``parameter`` carries the key the row came from.
+    # One column carrying two of those meanings is what this frame stopped doing.
+    assert set(risk["view"]) == {"risk"}
+    assert set(survival["view"]) == {"survival"}
+    assert set(risk["scale"]) == {"level"}
+    assert set(survival["scale"]) == {"level"}
+    assert list(risk["parameter"]) == list(survival["parameter"])
+    assert set(survival["parameter"]) <= keys
+    # The risk view reports what the fit estimated, so its ``estimand`` is its own key.
+    assert list(risk["estimand"]) == list(risk["parameter"])
+    # The survival view reports a quantity the fit never estimated under that name, which
+    # is the reason ``parameter`` exists: ``result[row.parameter]`` is defined here and
+    # ``result[row.estimand]`` is not.
+    assert not set(survival["estimand"]) & keys
     assert all(str(name).startswith("risk_regimen[") for name in risk["estimand"])
     assert all(str(name).startswith("survival_regimen[") for name in survival["estimand"])
     assert not any(str(name).startswith("risk_regimen[") for name in survival["estimand"])
@@ -339,10 +353,18 @@ def _survival_output_semantics(namespace: dict[str, Any]) -> None:
     np.testing.assert_array_equal(survival["std_err"], risk["std_err"])
 
     contrast = namespace["exit_contrast"]
+    contrast_keys = set(contrast.estimates)
     risk_difference = contrast.curve(scale="risk")
     survival_difference = contrast.curve(scale="survival")
-    assert set(risk_difference["scale"]) == {"risk"}
-    assert set(survival_difference["scale"]) == {"survival"}
+    assert set(risk_difference["view"]) == {"risk"}
+    assert set(survival_difference["view"]) == {"survival"}
+    assert set(risk_difference["scale"]) == {"difference"}
+    assert set(survival_difference["scale"]) == {"difference"}
+    # A contrast is the same parameter up to a sign under either view, so here the
+    # ``estimand`` is the key and the two columns agree.  That is the half of the rule the
+    # level rows above break, and pinning both halves is what makes the rule visible.
+    assert list(survival_difference["estimand"]) == list(survival_difference["parameter"])
+    assert set(survival_difference["parameter"]) <= contrast_keys
     assert all(str(name).startswith("ate_regimen[") for name in survival_difference["estimand"])
     assert not any(
         str(name).startswith(("risk_regimen[", "survival_regimen["))
@@ -388,10 +410,23 @@ def _survival_output_semantics(namespace: dict[str, Any]) -> None:
     assert len(event_support) == 12
 
     competing = namespace["event_levels"]
+    # The page says a fit that declares two or more causes refuses the survival view, and
+    # this fit declares two.  A one-cause fit is the other side of that rule and is pinned
+    # in ``tests/e2e/test_ltmle.py``; here the declaration is what the assertion reads.
+    assert len(competing.config.causes) == 2
     with pytest.raises(ValueError, match="not all-cause survival"):
         competing.curve(scale="survival")
+
+    # The reported standard error is derived here from the influence curves alone, and not
+    # from ``influence_covariance``, which is the helper the reported line itself calls: a
+    # recomputation through that helper would assert it against itself and would pass with
+    # the helper wrong.  This fit declares no cluster column, so the independent formula is
+    # the iid one, and the assertion below states that rather than reading it off the fit.
+    # ``tests/e2e/test_ltmle.py`` carries the clustered derivation and its own witness that
+    # the two formulas separate, so repeating it here would only copy that test.
     totals = namespace["incidence_totals"]
     index = competing.parameter_index or {}
+    assert competing.data.cluster is None
     for row in totals.itertuples(index=False):
         names = [
             name
@@ -400,8 +435,9 @@ def _survival_output_semantics(namespace: dict[str, Any]) -> None:
         ]
         assert len(names) == len(competing.config.causes)
         curve = np.sum(np.column_stack([competing[name].influence_curve for name in names]), axis=1)
-        covariance = influence_covariance(curve.reshape(-1, 1), cluster=competing.data.cluster)
-        expected = float(np.sqrt(covariance[0, 0]))
+        expected = float(np.sqrt(np.var(curve, ddof=1) / competing.data.n))
+        # The nonzero control: the reported value divided by another root n is what the
+        # ``/n`` bug produced, and it fails this line if it comes back.
         old_extra_scaling = expected / np.sqrt(competing.data.n)
         assert row.std_err == pytest.approx(expected, rel=1e-12, abs=0.0)
         assert row.std_err != pytest.approx(old_extra_scaling, rel=1e-6, abs=0.0)
@@ -415,8 +451,10 @@ def _collaborative_summary_semantics(namespace: dict[str, Any]) -> None:
     summary = selection.summary().lower()
     assert "cross-validated" in summary and "loss" in summary
     assert "does not determine why" in summary
+    # Whole words, because a substring test reads a footer that says "covariance" as a
+    # footer that says "variance", and the report would then fail for a word it never used.
     for unsupported in ("bias", "variance", "confounder", "instrument"):
-        assert unsupported not in summary
+        assert not re.search(rf"\b{unsupported}\b", summary)
 
     weak_selection = namespace["weak_selection"]
     assert "baseline_readiness" in weak_selection.selected_covariates
@@ -439,16 +477,14 @@ TUTORIAL_SEMANTIC_ASSERTIONS: dict[str, Callable[[dict[str, Any]], None]] = {
 
 
 def test_every_tutorial_semantic_assertion_names_one_reviewed_runtime_example() -> None:
-    """The bounded semantic gate names only reviewed and registered tutorials."""
-    expected = {
-        "docs/examples/collaborative-tmle.md",
-        "docs/examples/longitudinal-survival.md",
-        "docs/examples/msm-projections.md",
-        "docs/examples/survey-nonresponse.md",
-    }
-    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) == expected
+    """The bounded semantic gate names only documents the smoke gate already registers.
+
+    A copied list of the registry's own keys asserts nothing, so this checks the one
+    relation the registry does not state about itself: every semantic callback names a
+    document :data:`PRELUDES` knows how to run.  Which tutorials belong here is a review
+    decision, and ``docs/architecture-invariants.md`` records it.
+    """
     assert set(TUTORIAL_SEMANTIC_ASSERTIONS) <= set(PRELUDES)
-    assert all(callable(assertion) for assertion in TUTORIAL_SEMANTIC_ASSERTIONS.values())
 
 
 def documented() -> set[str]:
@@ -692,24 +728,47 @@ def test_every_published_figure_has_a_non_image_companion(path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
-def test_every_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> None:
-    """Each document's fences, in order, in one namespace, from a scratch directory.
+def _run_document(
+    relative: str,
+    tmp_path: Path,
+    monkeypatch: Any,
+    *,
+    transform: Callable[[str, str], Any],
+    module_name: str,
+) -> dict[str, Any]:
+    """Run one document's prelude and fences, in order, in one returned namespace.
 
     The scratch directory matters: several examples end by calling ``result.save(...)``, and a
     check that littered the working tree would be its own kind of failure.
+
+    The two gates below differ in ``transform`` alone, which is the whole difference between
+    them: the smoke gate shrinks each block and the semantic gate compiles it as written.
+    ``module_name`` names the namespace each gate builds, so a traceback says which one ran.
     """
     monkeypatch.chdir(tmp_path)
     document = ROOT / relative
-    namespace: dict[str, Any] = {"__name__": "__doc_example__"}
+    namespace: dict[str, Any] = {"__name__": module_name}
     exec(compile(PRELUDES[relative], f"<prelude for {relative}>", "exec"), namespace)
 
     for line, code in python_blocks(document):
         name = f"{relative}:{line}"
         try:
-            exec(shrunk(code, name), namespace)
+            exec(transform(code, name), namespace)
         except Exception as error:  # pragma: no cover - the failure is the message
             pytest.fail(f"{name} raised {type(error).__name__}: {error}")
+    return namespace
+
+
+@pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
+def test_every_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> None:
+    """Every registered document's fences run at the shrunken size and raise nothing."""
+    _run_document(
+        relative,
+        tmp_path,
+        monkeypatch,
+        transform=shrunk,
+        module_name="__doc_example__",
+    )
 
 
 @pytest.mark.parametrize("relative", sorted(TUTORIAL_SEMANTIC_ASSERTIONS), ids=lambda name: name)
@@ -717,16 +776,11 @@ def test_tutorial_semantics_at_documented_size(
     relative: str, tmp_path: Path, monkeypatch: Any
 ) -> None:
     """Reviewed seeded tutorials satisfy their claims at the displayed sample size."""
-    monkeypatch.chdir(tmp_path)
-    document = ROOT / relative
-    namespace: dict[str, Any] = {"__name__": "__doc_semantic_example__"}
-    exec(compile(PRELUDES[relative], f"<prelude for {relative}>", "exec"), namespace)
-
-    for line, code in python_blocks(document):
-        name = f"{relative}:{line}"
-        try:
-            exec(compile(code, name, "exec"), namespace)
-        except Exception as error:  # pragma: no cover - the failure is the message
-            pytest.fail(f"{name} raised {type(error).__name__}: {error}")
-
+    namespace = _run_document(
+        relative,
+        tmp_path,
+        monkeypatch,
+        transform=lambda code, name: compile(code, name, "exec"),
+        module_name="__doc_semantic_example__",
+    )
     TUTORIAL_SEMANTIC_ASSERTIONS[relative](namespace)

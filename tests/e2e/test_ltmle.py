@@ -21,6 +21,7 @@ from cleverly.datasets import (
 )
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
+from cleverly.longitudinal.estimator import _level_head
 from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
@@ -1214,14 +1215,18 @@ class TestASurvivalOutcome:
         result, _ = fitted
         risk = result.curve(scale="risk")
         survival = result.curve(scale="survival")
-        assert set(risk["scale"]) == {"risk"}
-        assert set(survival["scale"]) == {"survival"}
+        # ``view`` is the requested view; ``scale`` is what ``to_frame`` means by the
+        # word, so the two reports of one object do not disagree about one column name.
+        assert set(risk["view"]) == {"risk"}
+        assert set(survival["view"]) == {"survival"}
+        assert list(risk["scale"]) == list(survival["scale"])
+        assert list(risk["scale"]) == ["level"] * 4 + ["difference"] * 2
         for position in range(len(risk)):
             row, mirrored = risk.iloc[position], survival.iloc[position]
-            expected_name = str(row["estimand"]).replace("risk_regimen[", "survival_regimen[", 1)
-            assert mirrored["estimand"] == expected_name
             assert mirrored["std_err"] == pytest.approx(row["std_err"])
-            if str(row["estimand"]).startswith("risk_regimen["):
+            # Branch on the column, not on the name: the comment in ``curve()`` refuses
+            # recovering a parameter's kind by matching a prefix, and so does this.
+            if row["scale"] == "level":
                 assert mirrored["psi"] == pytest.approx(1.0 - row["psi"])
                 assert mirrored["ci_lower"] == pytest.approx(1.0 - row["ci_upper"])
                 assert mirrored["ci_upper"] == pytest.approx(1.0 - row["ci_lower"])
@@ -1229,6 +1234,82 @@ class TestASurvivalOutcome:
                 assert mirrored["psi"] == pytest.approx(-row["psi"])
                 assert mirrored["ci_lower"] == pytest.approx(-row["ci_upper"])
                 assert mirrored["ci_upper"] == pytest.approx(-row["ci_lower"])
+
+    def test_the_survival_view_renames_a_level_and_not_a_contrast(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """The literal names, written out rather than derived by the rule under test.
+
+        A test that applies the production transformation to the production output
+        witnesses nothing: a wrong rename rule would pass it twice.  ``1 - F`` is
+        event-free survival and says so; a difference of survivals is the same parameter
+        as the difference of risks up to a sign, so it keeps its ``ate_regimen`` name.
+        """
+        result, _ = fitted
+        risk = result.curve(scale="risk")
+        survival = result.curve(scale="survival")
+        assert list(risk["estimand"]) == [
+            "risk_regimen[always @ t=1]",
+            "risk_regimen[always @ t=2]",
+            "risk_regimen[never @ t=1]",
+            "risk_regimen[never @ t=2]",
+            "ate_regimen[always vs never @ t=1]",
+            "ate_regimen[always vs never @ t=2]",
+        ]
+        assert list(survival["estimand"]) == [
+            "survival_regimen[always @ t=1]",
+            "survival_regimen[always @ t=2]",
+            "survival_regimen[never @ t=1]",
+            "survival_regimen[never @ t=2]",
+            "ate_regimen[always vs never @ t=1]",
+            "ate_regimen[always vs never @ t=2]",
+        ]
+
+    def test_the_level_vocabulary_refuses_a_complement_it_cannot_name(self) -> None:
+        """The one combination the table has no name for, refused rather than answered.
+
+        ``curve()`` reaches ``_level_head`` with ``survival=True`` only, so the request is
+        unreachable from the public surface today.  The function is nevertheless the one
+        place the level vocabulary lives: asked for the complement of a fit that estimates
+        a mean, it returned ``ey_regimen``, which is the risk name under a survival
+        request rather than a refusal.  A second caller would have inherited that answer.
+        """
+        assert _level_head(survival=False, competing=False, complement=False) == "ey_regimen"
+        assert _level_head(survival=True, competing=False, complement=True) == "survival_regimen"
+        with pytest.raises(CapabilityError, match="no complement to name"):
+            _level_head(survival=False, competing=False, complement=True)
+
+    def test_the_curve_carries_the_key_of_the_estimate_it_derived(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """``parameter`` is a key of the result; on the survival view ``estimand`` is not.
+
+        The asymmetry is deliberate and is the price of naming a complement correctly:
+        the fit never estimated anything called ``survival_regimen[...]``.  A caller that
+        wants the estimate behind a row reads ``parameter``, which is defined on every
+        row of either view.
+        """
+        result, _ = fitted
+        risk = result.curve(scale="risk")
+        survival = result.curve(scale="survival")
+        assert list(risk["parameter"]) == list(risk["estimand"])
+        assert list(survival["parameter"]) == list(risk["estimand"])
+        for row in risk.itertuples(index=False):
+            assert row.parameter in result
+            assert row.psi == pytest.approx(result[row.parameter].psi)
+        for row in survival.itertuples(index=False):
+            assert row.parameter in result
+            source = result[row.parameter].psi
+            expected = 1.0 - source if row.scale == "level" else -source
+            assert row.psi == pytest.approx(expected)
+        levels = survival[survival["scale"] == "level"]
+        assert len(levels) == 4
+        for name in levels["estimand"]:
+            assert name not in result
+        contrasts = survival[survival["scale"] == "difference"]
+        assert len(contrasts) == 2
+        for name in contrasts["estimand"]:
+            assert name in result
 
     def test_the_curve_carries_the_time_and_the_frame_does_not(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]
@@ -1441,8 +1522,58 @@ class TestCompetingRisks:
     def test_a_cause_complement_is_not_labelled_all_cause_survival(
         self, fitted: LongitudinalResult
     ) -> None:
+        """The diagnosis *and* the remedy.
+
+        A refusal that names only what is wrong leaves the caller where it found them.
+        Pinning the second clause is what stops the remedy being deleted as a stray
+        sentence, which the diagnosis alone would not notice.
+        """
         with pytest.raises(ValueError, match="1 - one cause's incidence is not all-cause survival"):
             fitted.curve(scale="survival")
+        with pytest.raises(ValueError, match=r"use incidence_total\(\) to inspect that sum"):
+            fitted.curve(scale="survival")
+
+    def test_one_declared_cause_reports_the_survival_view(self) -> None:
+        """The refusal is about the arithmetic, not about how the outcome was declared.
+
+        ``outcome={"death": [...]}`` declares competing risks with one cause, and
+        ``test_one_cause_reproduces_the_single_event_fit`` pins that fit as bit for bit
+        the ``outcome=[...]`` one.  With one cause the sum over causes *is* that cause's
+        incidence, so its complement is event-free survival and refusing it would refuse
+        a supported composition.  Two declarations of the same data would then disagree
+        about what an identical fit may report.
+        """
+        frame, _ = make_longitudinal_survival(n=400, seed=2)
+        one_cause = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+            frame, outcome={"death": ["Y1", "Y2"]}, **self.COMPETING_COLUMNS
+        )
+        assert one_cause.data.is_competing
+        risk = one_cause.curve(scale="risk")
+        survival = one_cause.curve(scale="survival")
+        assert list(risk["estimand"]) == [
+            "cif_regimen[always, death @ t=1]",
+            "cif_regimen[always, death @ t=2]",
+            "cif_regimen[never, death @ t=1]",
+            "cif_regimen[never, death @ t=2]",
+            "ate_regimen[always vs never, death @ t=1]",
+            "ate_regimen[always vs never, death @ t=2]",
+        ]
+        assert list(survival["estimand"]) == [
+            "survival_regimen[always, death @ t=1]",
+            "survival_regimen[always, death @ t=2]",
+            "survival_regimen[never, death @ t=1]",
+            "survival_regimen[never, death @ t=2]",
+            "ate_regimen[always vs never, death @ t=1]",
+            "ate_regimen[always vs never, death @ t=2]",
+        ]
+        assert list(survival["parameter"]) == list(risk["estimand"])
+        # The same numbers the single-event declaration reports, and the same maps.
+        single = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+            frame, outcome=["Y1", "Y2"], **self.COMPETING_COLUMNS
+        )
+        np.testing.assert_allclose(
+            survival["psi"].to_numpy(), single.curve(scale="survival")["psi"].to_numpy()
+        )
 
     def test_the_incidences_are_reported_not_renormalised(self, fitted: LongitudinalResult) -> None:
         """The causes sum to something near one, and the deviation is reported as such.
@@ -1459,8 +1590,17 @@ class TestCompetingRisks:
 
     @staticmethod
     def _assert_total_standard_errors_match_the_joint_influence_covariance(
-        fitted: LongitudinalResult,
+        fitted: LongitudinalResult, *, expect_clustered: bool
     ) -> None:
+        """The formula the caller declares, and a witness that the branch it took is that one.
+
+        Without ``expect_clustered`` this helper picks its formula from the fit and then
+        asserts the fit agrees with the pick, which is true whichever branch runs.  The
+        clustered test would then degrade silently into a second copy of the iid test the
+        day the fixture stops carrying a cluster column, and a degraded correctness check
+        reads exactly like a passing one.
+        """
+        assert (fitted.data.cluster is None) is not expect_clustered
         totals = fitted.incidence_total()
         for row in totals.itertuples(index=False):
             names = [
@@ -1470,8 +1610,9 @@ class TestCompetingRisks:
             summed = np.sum(
                 np.column_stack([fitted[name].influence_curve for name in names]), axis=1
             )
-            if fitted.data.cluster is None:
-                variance = float(np.var(summed, ddof=1) / fitted.data.n)
+            independent = float(np.var(summed, ddof=1) / fitted.data.n)
+            if not expect_clustered:
+                variance = independent
             else:
                 codes = np.asarray(fitted.data.cluster)
                 cluster_sums = np.asarray(
@@ -1480,12 +1621,17 @@ class TestCompetingRisks:
                 variance = float(
                     cluster_sums.size * np.var(cluster_sums, ddof=1) / fitted.data.n**2
                 )
+                # The nonzero witness: the two formulas are separable on this fixture, so
+                # the clustered assertion below is not one the iid formula also satisfies.
+                assert variance != pytest.approx(independent, rel=1e-3)
             assert row.std_err == pytest.approx(float(np.sqrt(variance)))
 
     def test_the_incidence_total_uses_the_iid_joint_influence_covariance(
         self, fitted: LongitudinalResult
     ) -> None:
-        self._assert_total_standard_errors_match_the_joint_influence_covariance(fitted)
+        self._assert_total_standard_errors_match_the_joint_influence_covariance(
+            fitted, expect_clustered=False
+        )
 
     def test_the_incidence_total_uses_the_cluster_joint_influence_covariance(self) -> None:
         clustered = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
@@ -1494,7 +1640,9 @@ class TestCompetingRisks:
             id="id",
             **self.COMPETING_COLUMNS,
         )
-        self._assert_total_standard_errors_match_the_joint_influence_covariance(clustered)
+        self._assert_total_standard_errors_match_the_joint_influence_covariance(
+            clustered, expect_clustered=True
+        )
 
     def test_incidence_total_is_refused_on_a_single_event_fit(self) -> None:
         frame, _ = make_longitudinal_survival(n=400, seed=2)

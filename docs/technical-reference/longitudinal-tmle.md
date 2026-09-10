@@ -136,10 +136,23 @@ a **cause-specific numerator** against an **all-cause survival factor**. A unit 
 competing cause contributes a zero and carries nothing forward. It is no more available to have
 this cause's event than one that already had it.
 
-`curve(scale="survival")` derives a labelled survival view from a single-event risk curve. It
-mirrors level intervals and negates contrast intervals. A competing-risk fit refuses this view,
-because one minus a cause-specific incidence is not all-cause survival. `incidence_total()` instead
-sums the cause-specific influence curves and reports their joint standard error.
+`curve(scale="survival")` reports the complement of a risk curve. It mirrors a level interval and
+it negates a contrast interval. A fit that declares two or more causes refuses this view, because
+one minus a cause-specific incidence is not all-cause survival. A fit that declares one cause
+reports the view, because the sum over the causes is that one incidence. `incidence_total()` sums
+the cause-specific influence curves and reports their joint standard error.
+
+Two vocabularies describe a row of the curve. Each vocabulary gets its own column.
+
+| column | values | what it says |
+| --- | --- | --- |
+| `scale` | `level`, `difference` | the word `to_frame()` uses for the same idea |
+| `view` | `risk`, `survival` | the view the caller requested |
+| `estimand` | a parameter name | the name of the quantity the row reports |
+| `parameter` | a key of the result | the estimate the row derives from |
+
+On the survival view a level row reports the name `survival_regimen[...]`. The fit holds no
+estimate under that name. Read the `parameter` column to get the estimate behind any row.
 
 What does **not** change is the positivity story. Being event-free is part of the history and not
 an intervened node, so it enters the *indicator* of the clever covariate and never its denominator.
