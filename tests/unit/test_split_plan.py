@@ -38,6 +38,7 @@ def _method(
     repeats: int = 1,
     n_jobs: int = 1,
     n_bootstrap: int = 0,
+    fold_evaluation: bool = False,
 ) -> TMLEMethod:
     return TMLEMethod(
         models=ModelSpec(
@@ -48,6 +49,7 @@ def _method(
             n_folds=N_FOLDS,
             learner_folds=2,
             repeats=repeats,
+            fold_evaluation=fold_evaluation,
             split_plan=split_plan,
         ),
         inference=Inference(simultaneous=False, n_bootstrap=n_bootstrap),
@@ -353,6 +355,38 @@ def test_generated_and_supplied_repeated_plans_are_exactly_identical() -> None:
     assert supplied.split_plan.n_repeats == supplied.n_repeats == 3
     assert supplied.config.crossfit.scheme == "supplied"
     assert supplied.config.crossfit.stratify_by == ()
+
+
+def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None:
+    frame, _ = make_nonlinear_ate(n=180, seed=21)
+    effect = _effect(frame)
+    generated = effect.estimate(method=_method(fold_evaluation=True))
+    supplied = effect.estimate(
+        method=_method(split_plan=generated.split_plan, fold_evaluation=True)
+    )
+
+    _assert_same_fit(generated, supplied)
+    expected = generated.cv_targeting
+    actual = supplied.cv_targeting
+    assert expected is not None
+    assert actual is not None
+    assert actual.n_folds == expected.n_folds
+    assert actual.fold_sizes == expected.fold_sizes
+    assert actual.fold_estimates == expected.fold_estimates
+    assert actual.epsilon == expected.epsilon
+    assert actual.fold_epsilon == expected.fold_epsilon
+    assert actual.variance == expected.variance
+    assert actual.repeats == expected.repeats
+    assert actual.backend == expected.backend
+    for report in ("pooled", "canonical"):
+        expected_estimates = getattr(expected, report)
+        actual_estimates = getattr(actual, report)
+        assert actual_estimates.keys() == expected_estimates.keys()
+        for name, estimate in expected_estimates.items():
+            compared = actual_estimates[name]
+            assert compared.psi == estimate.psi
+            assert compared.variance == estimate.variance
+            np.testing.assert_array_equal(compared.influence_curve, estimate.influence_curve)
 
 
 def test_the_realized_plan_and_fingerprint_survive_result_persistence() -> None:
