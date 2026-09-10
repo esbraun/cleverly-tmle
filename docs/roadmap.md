@@ -134,18 +134,40 @@ grid.
 
 ### RM2. First-class causal study protocol record
 
-Add an immutable protocol object to `CausalStudy`. It records the target population, eligibility,
-time zero, treatment strategies and versions, outcome and horizon, intercurrent-event handling,
-interference unit, and the analyst's assumption rationale. Column roles stay in `PointTreatment`
-and `LongitudinalTreatment`; the protocol explains the causal question those roles encode.
+Add a frozen public `StudyProtocol` record. It stores the target population, eligibility, time
+zero, treatment strategies, treatment versions, outcome, horizon, intercurrent-event handling,
+interference unit, and assumption rationale. Normalize sequence inputs to tuples and reject blank
+text or unmatched strategy and version counts.
 
-Carry the protocol through identification, result provenance, summaries, and trusted persistence.
-Fingerprint it so two fits that use different treatment versions cannot share one study identity.
-Do not let descriptive metadata change an estimand or an estimator configuration.
+The field vocabulary combines three sources. Hernán and Robins define the
+[target-trial components](https://miguelhernan.org/whatifbook).
+[ICH E9(R1)](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf)
+defines intercurrent-event handling. VanderWeele and Hernán explain why
+[treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/) matter to a causal
+question. The record is not a complete target-trial protocol or ICH estimand. The typed estimand
+retains the contrast, and the method retains the analysis configuration.
 
-Acceptance needs round-trip and backward-compatibility tests, a stable normalized form, and one
-point and one longitudinal tutorial that render the saved protocol. Existing results without a
-protocol must still load and state that the record is absent.
+Give the record a schema version, a JSON-compatible normalized form, and a BLAKE2b fingerprint of
+canonical UTF-8 JSON. `CausalStudy` accepts an optional record. The study stamps it onto every
+`IdentifiedEffect`, including effects from a custom identification provider.
+
+Persist the full record once through `IdentifiedEffect`. Add its digest to `Provenance` without
+changing the data or fold fingerprints. Attach both after the engine fit, so protocol text cannot
+change an estimand, an estimator configuration, a nuisance fit, or fold arithmetic.
+
+Render the record in identification and result summaries. An effect or result without the record
+must state `causal study protocol: absent`. Backfill both new persistence fields when an older
+trusted artifact loads.
+
+Acceptance needs stable list-to-tuple normalization and fingerprint tests. A treatment-version
+change must change only the protocol fingerprint across otherwise identical fits. Point and
+longitudinal round trips must retain the complete record and digest. Legacy point and longitudinal
+artifacts must load and report the absent record.
+
+Update one point-treatment tutorial and one longitudinal tutorial to construct and render their
+saved protocol. Update the workflow and API pages to define the boundary between protocol, design,
+estimand, identification, and method. No registered study applies because this work cannot change a
+fitted array or inferential verdict.
 
 ### RM3. Public reusable split plans
 
