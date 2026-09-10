@@ -133,18 +133,37 @@ grid.
 
 ### RM3. Public reusable split plans
 
-Add a public immutable split-plan object and accept it through `CrossFitting`. It records one fold
-label per independent unit and per repeat. It validates row count, repeat count, treatment support,
-stratification claims, and whole-cluster assignment before nuisance fitting.
+Add a frozen public `SplitPlan`, distinct from the existing policy-only `CrossFitPlan`. Store
+repeat-major tuples of row-aligned, zero-based fold indices. Require every repeat to use one
+contiguous fold range and the same row and fold counts. Copy caller sequences into tuples so later
+caller mutation cannot change the plan or its fingerprint.
 
-Persist the realized plan and its fingerprint with the result. Equivalent generated and supplied
-plans must produce identical nuisance predictions, estimates, and influence curves. Their
-diagnostic fold labels must also agree. Refuse a plan that splits a declared cluster or leaves a
-required training arm empty.
+Accept the plan as `CrossFitting(split_plan=...)`. Require `n_folds` and `repeats` to match the
+plan, and refuse `enabled=False` with a supplied plan. Keep `random_state` active for learner and
+C-TMLE selection folds. A supplied plan controls only the outer folds.
 
-This capability changes no fold arithmetic. Acceptance needs exact generated-versus-supplied
-identity tests for point, multi-arm, and clustered fits, plus serialization and parallel-invariance
-checks.
+Resolve every repeat before the first nuisance fit. Each row receives one validation fold. Rows in
+one declared cluster must receive the same fold. Every training complement must contain every
+declared treatment arm and every requested treatment-outcome stratum. Do not rebalance, cap, or
+repair a supplied plan.
+
+Expose the realized `SplitPlan` from every point-treatment result. Build it from all retained
+repeat folds, which trusted persistence already saves. Use the existing all-repeat fold fingerprint,
+and require the plan fingerprint to equal `Provenance.fold_fingerprint`.
+
+Keep the supplied-plan path point-treatment only in this item. Refuse it on longitudinal designs,
+because longitudinal validation needs node-specific support rules and its own acceptance tests.
+Also refuse a supplied plan with the targeted bootstrap. The bootstrap resamples row or cluster
+identities, and the current resampling record cannot map the original positional plan to them.
+
+Acceptance needs exact generated-versus-supplied identity for binary, multi-arm, clustered, and
+repeated fits. Compare every realized assignment, nuisance prediction, estimate, variance,
+influence curve, and fold-indexed diagnostic. Add immutable-value, malformed-plan, configuration,
+pre-fit refusal, pandas and Polars, persistence, and serial-versus-parallel tests.
+
+Update the public API, method guide, CV-TMLE reference, and cross-fitting tutorial. This capability
+changes no generated fold arithmetic and no fitted result under identical folds. No registered
+study applies unless implementation changes a generated path or a fitted array.
 
 ### RM4. Longitudinal truncation retargets
 
