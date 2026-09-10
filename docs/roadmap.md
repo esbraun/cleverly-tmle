@@ -13,18 +13,20 @@ published theory do not enter this sequence.
 
 The examples are executable, but their review exposed gaps in the public study record and in
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
-still needs its own contract and evidence, even when it appears in this top-priority queue. The
-"next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7, and
-RM8 carry an open source audit.
+still needs its own contract and evidence, even when it appears in this top-priority queue.
+
+The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
+and RM8 carry an open source audit. RM2 and RM3 raise no published-method question, because
+neither row changes an estimand, an estimator configuration, or fold arithmetic.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.2 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
-| 0.3 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.4 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.5 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.6 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.7 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
+| 0.2 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.3 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.4 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.5 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.6 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
