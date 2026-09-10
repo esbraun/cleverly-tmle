@@ -140,24 +140,15 @@ reused_result = effect.estimate(method=reused_method)
 assert reused_result.provenance.fold_fingerprint == result.provenance.fold_fingerprint
 ```
 
-Set `n_folds` and `repeats` explicitly to the counts recorded by the plan. A mismatch raises
-`MethodConfigurationError` instead of changing the plan.
+Set `repeats` to the repeat count the plan records. Set `n_folds` to the count the plan was
+declared under, which can exceed the plan's own fold count when the data capped it. A declaration
+the plan cannot serve raises `MethodConfigurationError` instead of changing the plan.
 
-Plan labels align by input row position, not by pandas or Polars index metadata. Reuse a plan only
-with the same rows in the same order. With a cluster role, every row from one cluster must share a
-fold within each repeat.
+A plan read off a result is bound to the rows that produced it, by position. Reuse it on those
+rows, in that order.
 
-A supplied plan controls only the outer nuisance split. `learner_folds` still controls inner model
-selection. Collaborative TMLE still constructs its selection folds from the repeat seed.
-
-Validation runs before nuisance fitting. It checks row and repeat counts, fold labels, required
-training arms, declared strata, and cluster integrity. The estimator refuses supplied plans for
-longitudinal fits and targeted bootstrap inference.
-
-Saving a result preserves `split_plan`. Provenance also records a fingerprint over every repeat's
-assignments. Exact generated-versus-reused tests cover point, multi-arm, clustered, repeated,
-pandas, Polars, serialization, and `n_jobs` behavior. Those tests establish computational identity,
-not new statistical guarantees.
+[Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
+the whole contract: the counts, the row binding, what validation checks, and every refusal.
 
 ## Targeting and bounds
 

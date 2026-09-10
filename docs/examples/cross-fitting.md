@@ -250,8 +250,14 @@ in exactly one generated fold. A companion case rigs a noiseless law. A nearest-
 there reproduces a held-out row exactly when a same-cluster row trained it, and never otherwise.
 Those assertions are array equality and array inequality, so leakage is not a matter of degree.
 
-Every point-treatment result exposes its realized outer folds as `split_plan`. Reuse that plan when
-another fit must use the same validation rows. The declared counts must match the plan.
+## Reuse the same outer split
+
+Return to the unclustered `cross_fitted` result above. It drew one outer split. A second fit can
+run on exactly those validation rows, which is what you want when you compare two methods rather
+than two splits.
+
+Every point-treatment result exposes its realized outer folds as `split_plan`. Pass that plan back
+through `CrossFitting`, with a declaration the plan can serve.
 
 ```python
 import numpy as np
@@ -275,16 +281,15 @@ assert np.array_equal(
 )
 ```
 
-The labels align with the input's row positions, not its index values. Keep the same rows in the
-same order when reusing a plan. For clustered data, every row from one cluster must keep one label
-within each repeat.
+The three assertions hold exactly. The reused fit repeats the folds, the point estimate, and the
+influence curve of the first fit, digit for digit.
 
-The plan controls only the outer split. It does not replace learner folds or collaborative
-selection folds. Validation rejects count mismatches, missing training arms, missing requested
-strata in a training complement, and split clusters before any nuisance learner fits.
+That is reproducible wiring for this fit. It adds no evidence about bias, coverage, or efficiency.
 
-The exact checks above establish reproducible wiring for this fit. They do not add evidence about
-bias, coverage, or efficiency.
+A plan labels rows by position, so it belongs to these rows in this order. The plan also records
+which data it came from. A fit on other data is refused rather than given the wrong labels.
+[Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
+the contract and every refusal, including the refutation test a supplied plan refuses.
 
 ## A second construction over the same folds
 

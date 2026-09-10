@@ -1274,6 +1274,17 @@ A refuter refits the nuisance models once for each replication. The three defaul
 five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
 default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
 
+A fit that declared `split_plan=` refuses two of these operations. A supplied plan labels the rows
+it was realized on, by position. It cannot label a refit that drops rows or draws them with
+replacement. So `refute()` raises `CapabilityError` for `subset` and for
+`bootstrap_measurement_error` before it refits anything, and it names both the plan and the test.
+
+A `bootstrap_measurement_error` draw holds the declared number of rows, so only the request
+identifies it. The `placebo` and `random_common_cause` operations still run, because each one
+replaces a column and leaves every row in its position. A `run_all(include_refits=True)` battery
+records the refusal as an `unavailable` row and continues to the rest of the battery. See
+[reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the table.
+
 `refute()` draws its randomization from the seed of the fit, unless the caller passes
 `random_state`. A fit that carries a seed gives the same refutation on every call. A fit that
 carries no seed gives a different refutation on every call.
