@@ -295,6 +295,15 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
     error = "simulated_confounding found inconsistent fixed-policy parameter metadata"
     if axis is None or type(typed) is not _FIXED_TARGET_TYPES[key.estimand]:
         raise CapabilityError(error)
+    # Preserve the declaration-specific refusal before the central provenance matcher.
+    # Both are metadata-only checks: no policy callback, latent draw, or refit runs here.
+    if axis == "regime" and (
+        not _same_items(getattr(typed, "regimens", ()), functional.interventions)
+        or getattr(typed, "reference", None) != functional.reference
+    ):
+        raise CapabilityError(f"{error}: regime declarations disagree")
+    if axis == "msm" and getattr(typed, "model", None) is not functional.msm:
+        raise CapabilityError(f"{error}: MSM declarations disagree")
     registered = check_registered_target(result, key, axis, error)
     check_replay_declaration(result, key, error)
     check_only_declared_axis(

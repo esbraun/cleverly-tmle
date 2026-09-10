@@ -65,6 +65,7 @@ from cleverly.learners.density import ConditionalDensity
 from cleverly.sensitivity import positivity_report
 from cleverly.sensitivity.positivity import PositivityReport
 from tests.conftest import fast_tmle
+from tests.pickles import legacy_without as _legacy
 
 #: The three intervention axes, in the order their reports declare them.
 GROUPS = ("regime", "mtp", "ipsi")
@@ -938,36 +939,6 @@ def test_cached_intervention_loads_replay_after_persistence(
     assert {name: row.score_load for name, row in _rows(restored, group).items()} == {
         name: row.score_load for name, row in _rows(result, group).items()
     }
-
-
-def _blank(record_class: type) -> Any:
-    """Build an uninitialised record for the unpickler to fill from a state."""
-    return object.__new__(record_class)
-
-
-class _LegacyPickle:
-    """Pickles as ``record_class`` carrying ``state`` and nothing else.
-
-    The point is to reach ``__setstate__`` the way an old pickle reaches it, rather than by
-    calling it. ``__reduce__`` returns a builder, its arguments, and a state, and it is the
-    *unpickler* that applies that state -- through ``__setstate__`` when the class defines
-    one. A test that calls ``__setstate__`` by hand proves the method works and proves
-    nothing about whether unpickling routes through it, so deleting the method outright
-    still passed.
-    """
-
-    def __init__(self, record_class: type, state: dict[str, Any]) -> None:
-        self._record_class = record_class
-        self._state = state
-
-    def __reduce__(self) -> tuple[Any, ...]:
-        return (_blank, (self._record_class,), self._state)
-
-
-def _legacy(record: Any, *dropped: str) -> Any:
-    """Unpickle ``record`` as if ``dropped`` had not existed when it was written."""
-    state = {name: value for name, value in record.__dict__.items() if name not in dropped}
-    return pickle.loads(pickle.dumps(_LegacyPickle(type(record), state)))
 
 
 @pytest.fixture(scope="module")

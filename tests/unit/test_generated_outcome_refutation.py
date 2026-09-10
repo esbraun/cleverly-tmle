@@ -18,12 +18,12 @@ from cleverly import ATC, ATE, ATT, CausalStudy, PointTreatment, SuperLearner
 from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.study import BackdoorMeanContrast, ExplicitAdjustmentProvider, ParameterKey
-from cleverly.targets import TARGETS
+from cleverly.study import ParameterKey
 from cleverly.validation import (
     DEFAULT_OUTCOME_REPLICATES,
     EmpiricalInclusionRule,
     GaussianAdjustmentOutcome,
+    GaussianIndependentOutcome,
     GaussianNoise,
     ReplicationFailure,
     refute,
@@ -114,22 +114,26 @@ def _eligible_result(*, estimator: Any = None, backend: str | None = None) -> An
 
 def _result_for(data: CausalData, estimator: Any) -> Any:
     """Wrap prepared rows in the structured provenance a generated outcome requires."""
-    functional = BackdoorMeanContrast(
-        outcome="Y",
-        treatment="A",
-        adjustment=data.covariate_names,
-        target="ate",
+    effect = CausalStudy(
+        data,
+        design=PointTreatment(
+            outcome=data.outcome_name,
+            treatment=data.treatment_name,
+            adjustment=data.covariate_names,
+        ),
+    ).identify(ATE())
+    identified = SimpleNamespace(
+        estimand=effect.estimand,
+        functional=effect.functional,
+        identification=effect.identification,
+        provider=effect.provider,
+        _study=effect._study,
     )
     return _Result(
         estimator=estimator,
         estimates={"ate": SimpleNamespace(psi=2.0, std_error=0.1)},
         data=data,
-        identified_effect=SimpleNamespace(
-            estimand=ATE(),
-            functional=functional,
-            identification=TARGETS["ate"].identification,
-            provider=ExplicitAdjustmentProvider(),
-        ),
+        identified_effect=identified,
         parameter_keys={"ate": ParameterKey("ate", "ate", value=1, reference=0)},
         intermediate_value=None,
     )
@@ -386,6 +390,35 @@ class TestGeneratedOutcomeRefusals:
             result.identified_effect.functional, target="att"
         )
         with pytest.raises(CapabilityError, match="inconsistent registered target provenance"):
+            refute(result, tests=("dummy_outcome",), n_replicates=1)
+        assert result.estimator.calls == []
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("missingness", "forged_delta"),
+            ("intermediate_name", "forged_z"),
+            ("treatment_levels", ("forged",)),
+            ("treatment_value", 1),
+            ("schema_version", 2),
+        ],
+    )
+    def test_functional_metadata_tampering_is_refused_before_draw_or_refit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        field: str,
+        value: Any,
+    ) -> None:
+        result = _eligible_result()
+        result.identified_effect.functional = replace(
+            result.identified_effect.functional, **{field: value}
+        )
+
+        def forbidden_draw(*args: Any, **kwargs: Any) -> Any:
+            pytest.fail("generated-outcome provenance must be checked before drawing")
+
+        monkeypatch.setattr(GaussianIndependentOutcome, "draw", forbidden_draw)
+        with pytest.raises(CapabilityError, match="registered identification artifact"):
             refute(result, tests=("dummy_outcome",), n_replicates=1)
         assert result.estimator.calls == []
 

@@ -3725,6 +3725,28 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("missingness", "forged_delta"),
+        ("intermediate_name", "forged_z"),
+        ("treatment_levels", ("forged",)),
+        ("treatment_value", 1),
+        ("schema_version", 2),
+    ],
+)
+def test_functional_metadata_tampering_refuses_before_latent_draw_or_refit(
+    gaussian_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: Any,
+) -> None:
+    result = _with_functional(gaussian_result, **{field: value})
+    forbid_draw_and_refit(monkeypatch, result.estimator)
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(result, grid=_grid())
+
+
+@pytest.mark.parametrize(
     ("change", "message"),
     [
         ("multi-arm", "category-valued perturbation law"),

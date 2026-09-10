@@ -345,11 +345,11 @@ One family of estimands is refused under `missingness=`, and the refusal is wort
 plan a report. The attributable fraction needs a binary outcome, so ask it of the top-box study.
 
 ```python
-from cleverly import PopulationAttributableFraction
+from cleverly import CapabilityError, PopulationAttributableFraction
 
 try:
     box_study.identify(PopulationAttributableFraction(reference=0)).estimate(method=box_method)
-except NotImplementedError as error:
+except CapabilityError as error:
     print("refused:", error)
 ```
 

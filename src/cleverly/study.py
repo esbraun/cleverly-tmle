@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
@@ -1244,6 +1244,12 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
         Intermediate column fixed by a controlled direct effect.
     treatment_levels : tuple
         Declared treatment levels, in the data container's stable order.
+    treatment_value : Any or None
+        One retained treatment level for a targeted counterfactual mean.
+    schema_version : int
+        Version of the design-bound identification record. Zero denotes a record
+        restored from before this discriminator was persisted; retained metadata
+        and identification distinguish static legacy from transitional records.
     """
 
     outcome: Any
@@ -1260,25 +1266,77 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
     missingness: str | None = None
     intermediate_name: str | None = None
     treatment_levels: tuple[Any, ...] = ()
+    treatment_value: Any = None
+    schema_version: int = 1
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"schema_version": 0}
 
     @property
     def expression(self) -> str:
         """Return a readable expression for the identified functional."""
         if self.longitudinal:
             return "sequential g-formula under the declared treatment regimen"
-        conditions = [f"{self.treatment}=a"]
-        if self.intermediate is not None:
-            name = self.intermediate_name or "Z"
-            conditions.append(f"{name}={self.intermediate:g}")
-        if self.missingness is not None:
-            conditions.append(f"{self.missingness}=1")
-        conditions.append("W")
-        regression = f"E({self.outcome} | {', '.join(conditions)})"
+
+        def regression(arm: Any = "a") -> str:
+            conditions = [f"{self.treatment}={arm}"]
+            if self.intermediate is not None:
+                name = self.intermediate_name or "Z"
+                conditions.append(f"{name}={self.intermediate:g}")
+            if self.missingness is not None:
+                conditions.append(f"{self.missingness}=1")
+            conditions.append("W")
+            return f"E({self.outcome} | {', '.join(conditions)})"
+
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
         if self.axis == "arm":
-            return f"E_W[{regression}]{support} and the declared smooth contrast"
+            reference = (
+                self.reference
+                if self.reference is not None
+                else (self.treatment_levels[0] if self.treatment_levels else "reference")
+            )
+            comparisons = tuple(level for level in self.treatment_levels if level != reference)
+            comparison_domain = f" for a in {list(comparisons)!r}" if comparisons else ""
+
+            def marginal_mean(arm: Any) -> str:
+                return f"E_W[{regression(arm)}]"
+
+            if self.target == "ey_obs":
+                return f"E({self.outcome}) under the observed treatment course"
+            if self.target == "att":
+                return (
+                    f"E_{{W | {self.treatment}=a}}[{regression('a')} - "
+                    f"{regression(repr(reference))}]{comparison_domain}"
+                )
+            if self.target == "atc":
+                return (
+                    f"E_{{W | {self.treatment}={reference!r}}}[{regression('a')} - "
+                    f"{regression(repr(reference))}]{comparison_domain}"
+                )
+            if self.target in {"par", "paf"}:
+                counterfactual = marginal_mean(repr(reference))
+                if self.target == "par":
+                    return f"E({self.outcome}) - {counterfactual}"
+                return f"1 - {counterfactual} / E({self.outcome})"
+            if self.target in {"ey", "ey1", "ey0"}:
+                selected = self.treatment_value
+                if selected is None and self.target in {"ey1", "ey0"} and self.treatment_levels:
+                    selected = self.treatment_levels[1 if self.target == "ey1" else 0]
+                if selected is not None:
+                    return marginal_mean(repr(selected))
+                return f"{marginal_mean('a')}{support}"
+            if self.target == "ate":
+                return f"{marginal_mean('a')} - {marginal_mean(repr(reference))}{comparison_domain}"
+            if self.target == "rr":
+                return f"{marginal_mean('a')} / {marginal_mean(repr(reference))}{comparison_domain}"
+            if self.target == "or":
+                mean_a = marginal_mean("a")
+                mean_r = marginal_mean(repr(reference))
+                return (
+                    f"({mean_a} / (1 - {mean_a})) / ({mean_r} / (1 - {mean_r})){comparison_domain}"
+                )
+            return f"{marginal_mean('a')}{support}"
         return (
-            f"identified {self.axis}-indexed plug-in functional of {regression}{support} "
+            f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
             "with influence correction"
         )
 
@@ -1328,16 +1386,96 @@ class ParameterKey:
         return self.value
 
 
-def _point_positivity(design: PointTreatment, data: CausalData) -> str:
-    """State treatment support for the exposure this study actually declares."""
+def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
+    """Return the engine estimand and target selected by one typed point question."""
+    actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+    target = actual.name
+    if (
+        isinstance(actual, CounterfactualMean)
+        and actual.treatment is not None
+        and data.is_binary_treatment
+        and actual.treatment in data.treatment_levels
+    ):
+        code = float(data.treatment_levels.index(actual.treatment))
+        target = "ey1" if code == 1.0 else "ey0"
+    return actual, target
+
+
+def _point_reference(estimand: PointEstimand, data: CausalData) -> Any:
+    """Resolve the reference arm used by a point-treatment functional."""
+    actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+    declared = getattr(actual, "reference", None)
+    return data.treatment_levels[0] if declared is None else declared
+
+
+def _point_positivity(
+    design: PointTreatment,
+    data: CausalData,
+    estimand: PointEstimand,
+    target: str,
+) -> str:
+    """State exactly the treatment support the selected target requires."""
     if design.treatment_kind == "continuous":
         return (
             "positivity for the evaluated doses: the conditional treatment density is "
             "positive wherever the target functional gives a dose positive weight"
         )
+    actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+    reference = _point_reference(estimand, data)
+    if target == "att":
+        return (
+            f"positivity for the reference arm within each comparison population: "
+            f"P({design.treatment} = {reference!r} | W) > 0 wherever "
+            f"P({design.treatment} = a | W) > 0, for every comparison arm a"
+        )
+    if target == "atc":
+        return (
+            f"positivity for each comparison arm within the reference population: "
+            f"P({design.treatment} = a | W) > 0 wherever "
+            f"P({design.treatment} = {reference!r} | W) > 0, for every comparison arm a"
+        )
+    selected = actual.treatment if isinstance(actual, CounterfactualMean) else None
+    if target in {"ey1", "ey0"} and selected is None:
+        selected = data.treatment_levels[1 if target == "ey1" else 0]
+    if selected is not None:
+        return (
+            f"positivity for the evaluated arm: P({design.treatment} = {selected!r} | W) "
+            "> 0 almost surely"
+        )
+    if target in {"par", "paf"}:
+        return (
+            f"positivity for the reference intervention: P({design.treatment} = "
+            f"{reference!r} | W) > 0 almost surely"
+        )
     return (
         f"positivity: P({design.treatment} = a | W) > 0 almost surely for every "
         f"supported treatment level a in {list(data.treatment_levels)!r}"
+    )
+
+
+def _point_mechanism_scope(
+    design: PointTreatment,
+    data: CausalData,
+    estimand: PointEstimand,
+    target: str,
+) -> str:
+    """Describe the exact arm/population cells needed from q_z or pi."""
+    actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+    reference = _point_reference(estimand, data)
+    if target == "att":
+        return f"for b in {{a, {reference!r}}} wherever P({design.treatment} = a | W) > 0"
+    if target == "atc":
+        return (
+            f"for b in {{a, {reference!r}}} wherever P({design.treatment} = {reference!r} | W) > 0"
+        )
+    selected = actual.treatment if isinstance(actual, CounterfactualMean) else None
+    if target in {"ey1", "ey0"} and selected is None:
+        selected = data.treatment_levels[1 if target == "ey1" else 0]
+    if selected is not None:
+        return f"at b = {selected!r} almost surely over the target population"
+    return (
+        f"for every supported treatment level b in {list(data.treatment_levels)!r} "
+        "almost surely over the target population"
     )
 
 
@@ -1347,6 +1485,7 @@ def _point_identification(
     data: CausalData,
     estimand: PointEstimand,
     axis: str,
+    target: str,
 ) -> Identification:
     """Bind registered theory to the treatment levels and active design mechanisms.
 
@@ -1365,6 +1504,25 @@ def _point_identification(
     for item in base.assumptions:
         if item.startswith(("with delta=:", "with intermediate=:")):
             continue
+        if target == "ey_obs" and not item.startswith("the observed outcome is complete"):
+            continue
+        if target in {"att", "atc"} and item.startswith("positivity is only needed"):
+            continue
+        if item.startswith("the conditioning event"):
+            if target == "att":
+                assumptions.append(
+                    f"the conditioning event has positive probability: "
+                    f"P({design.treatment} = a) > 0 for every comparison arm a"
+                )
+            elif target == "atc":
+                reference = _point_reference(estimand, data)
+                assumptions.append(
+                    f"the reference conditioning event has positive probability: "
+                    f"P({design.treatment} = {reference!r}) > 0"
+                )
+            else:
+                assumptions.append(item)
+            continue
         if direct and item.startswith("consistency:"):
             assumptions.append(
                 f"consistency: {design.outcome} = {design.outcome}(a, {level:g}) when "
@@ -1381,30 +1539,43 @@ def _point_identification(
             )
             continue
         if item.startswith("positivity: 0 < P(A = 1 | W) < 1"):
-            assumptions.append(_point_positivity(design, data))
+            if target != "ey_obs":
+                assumptions.append(_point_positivity(design, data, estimand, target))
             if direct:
+                scope = _point_mechanism_scope(design, data, estimand, target)
                 assumptions.append(
                     f"intermediate positivity at {design.intermediate} = {level:g}: "
-                    f"P({design.intermediate} = {level:g} | {design.treatment} = a, W) > 0 "
-                    "almost surely for every supported treatment level a"
+                    f"P({design.intermediate} = {level:g} | {design.treatment} = b, W) > 0 "
+                    f"{scope}"
                 )
             continue
         assumptions.append(item)
 
-    nuisances = list(base.required_nuisances)
+    nuisances = [] if target == "ey_obs" else list(base.required_nuisances)
     missingness = design.missingness
     if direct:
         nuisances.append("intermediate_mechanism")
-    if missingness is not None:
+    if missingness is not None and target not in {"ey_obs", "par", "paf"}:
+        conditioning = (
+            f"({design.treatment}, {design.intermediate}, W)"
+            if direct
+            else f"({design.treatment}, W)"
+        )
         assumptions.append(
             f"missingness at random for {missingness}: {design.outcome} is independent "
-            f"of {missingness} given ({design.treatment}, W)"
+            f"of {missingness} given {conditioning}"
         )
         if axis == "shift":
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
                 "shift sends an observed dose"
+            )
+        elif direct or target in {"att", "atc", "ey", "ey1", "ey0"}:
+            scope = _point_mechanism_scope(design, data, estimand, target)
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = b, W) > 0 {scope}"
             )
         else:
             assumptions.append(
@@ -1419,8 +1590,15 @@ def _point_identification(
                 f"response mechanism excludes {design.intermediate}"
             )
         nuisances.append("missingness_mechanism")
+    if target == "paf":
+        assumptions.append(
+            f"the natural-course risk E({design.outcome}) is strictly positive, so the "
+            "attributable fraction is defined"
+        )
 
     dr_condition = base.dr_condition
+    if target == "ey_obs":
+        dr_condition = "the complete-data empirical mean has no nuisance-model remainder"
     if direct:
         mechanism = "g * q_z" + (" * pi" if missingness is not None else "")
         dr_condition = (
@@ -1435,6 +1613,47 @@ def _point_identification(
     )
 
 
+def _point_functional(
+    design: PointTreatment,
+    data: CausalData,
+    estimand: PointEstimand,
+) -> BackdoorMeanContrast:
+    """Construct the canonical design-bound functional for one point estimand."""
+    actual, target = _point_target(estimand, data)
+    registered = TARGETS.get(target)
+    if registered is None:
+        raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+    interventions: tuple[Any, ...] = ()
+    msm = None
+    if isinstance(actual, (RegimeMean, RegimeContrast)):
+        interventions = tuple(actual.regimens)
+    elif isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
+        interventions = tuple(actual.shifts)
+    elif isinstance(actual, (IncrementalMean, IncrementalEffect)):
+        interventions = tuple(actual.interventions)
+    elif isinstance(actual, MSMProjection):
+        msm = actual.model
+    return BackdoorMeanContrast(
+        outcome=design.outcome,
+        treatment=design.treatment,
+        adjustment=tuple(design.adjustment),
+        target=target,
+        axis=registered.parameter_axis,
+        reference=getattr(actual, "reference", None),
+        interventions=interventions,
+        msm=msm,
+        intermediate=(
+            estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
+        ),
+        missingness=design.missingness,
+        intermediate_name=design.intermediate,
+        treatment_levels=(
+            () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
+        ),
+        treatment_value=(actual.treatment if isinstance(actual, CounterfactualMean) else None),
+    )
+
+
 def _matches_registered_point_identification(
     actual: Identification,
     registered: Identification,
@@ -1442,20 +1661,47 @@ def _matches_registered_point_identification(
     data: CausalData,
     axis: str,
 ) -> bool:
-    """Match either a legacy registry record or its exact design-bound successor."""
+    """Match a complete current record or an explicitly backfilled legacy record."""
     functional = getattr(identified, "functional", None)
-    legacy_functional = (
-        getattr(functional, "missingness", None) is None
-        and getattr(functional, "intermediate_name", None) is None
-        and getattr(functional, "treatment_levels", ()) == ()
-    )
-    if actual == registered and legacy_functional:
-        return True
     study = getattr(identified, "_study", None)
     design = getattr(study, "design", None)
-    if type(design) is not PointTreatment:
+    if type(functional) is not BackdoorMeanContrast or type(design) is not PointTreatment:
         return False
-    expected = _point_identification(registered, design, data, identified.estimand, axis)
+    try:
+        expected_functional = _point_functional(design, data, identified.estimand)
+    except (AttributeError, CapabilityError, DataError, TypeError, ValueError):
+        return False
+    expected_registered = TARGETS[expected_functional.target]
+    if registered != expected_registered.identification or axis != expected_functional.axis:
+        return False
+    expected = _point_identification(
+        registered,
+        design,
+        data,
+        identified.estimand,
+        expected_functional.axis,
+        expected_functional.target,
+    )
+    schema = getattr(functional, "schema_version", None)
+    if schema == 0:
+        static_legacy = replace(
+            expected_functional,
+            missingness=None,
+            intermediate_name=None,
+            treatment_levels=(),
+            treatment_value=None,
+            schema_version=0,
+        )
+        transitional = replace(
+            expected_functional,
+            treatment_value=None,
+            schema_version=0,
+        )
+        return (functional == static_legacy and actual == registered) or (
+            functional == transitional and actual == expected
+        )
+    if schema != 1 or functional != expected_functional:
+        return False
     return actual == expected
 
 
@@ -1513,19 +1759,27 @@ class ExplicitAdjustmentProvider:
         assert isinstance(design, PointTreatment)
         data = study.data
         assert isinstance(data, CausalData)
-        actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
-        target = actual.name
-        if isinstance(actual, CounterfactualMean) and actual.treatment is not None:
-            if actual.treatment not in data.treatment_levels:
-                raise DataError(
-                    f"treatment {actual.treatment!r} is not available; "
-                    f"choose from {list(data.treatment_levels)}"
-                )
-            if data.is_binary_treatment:
-                code = float(data.treatment_levels.index(actual.treatment))
-                target = "ey1" if code == 1.0 else "ey0"
+        actual, target = _point_target(estimand, data)
+        if (
+            isinstance(actual, CounterfactualMean)
+            and actual.treatment is not None
+            and actual.treatment not in data.treatment_levels
+        ):
+            raise DataError(
+                f"treatment {actual.treatment!r} is not available; "
+                f"choose from {list(data.treatment_levels)}"
+            )
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+        if design.missingness is not None and target in {"ey_obs", "par", "paf"}:
+            roadmap = "RM7" if target == "ey_obs" else "RM8"
+            raise CapabilityError(
+                f"{type(actual).__name__} does not yet support "
+                "PointTreatment(missingness=...): under MAR the natural-course mean "
+                "E[Y] needs an additional outcome/missingness score equation, and using "
+                f"complete cases would identify a different parameter. docs/roadmap.md {roadmap} "
+                "tracks this identification boundary."
+            )
         axis = TARGETS[target].parameter_axis
         # The rule is about the parameter *axis*, not about a list of target names.  Naming
         # targets refused `msm` -- whose axis is `msm`, indexed by working-model term, and
@@ -1574,39 +1828,12 @@ class ExplicitAdjustmentProvider:
                 "a design with intermediate= must identify ControlledDirectEffect explicitly"
             )
 
-        interventions: tuple[Any, ...] = ()
-        msm = None
-        if isinstance(actual, (RegimeMean, RegimeContrast)):
-            interventions = tuple(actual.regimens)
-        elif isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
-            interventions = tuple(actual.shifts)
-        elif isinstance(actual, (IncrementalMean, IncrementalEffect)):
-            interventions = tuple(actual.interventions)
-        elif isinstance(actual, MSMProjection):
-            msm = actual.model
-        functional = BackdoorMeanContrast(
-            outcome=design.outcome,
-            treatment=design.treatment,
-            adjustment=tuple(design.adjustment),
-            target=target,
-            axis=axis,
-            reference=reference,
-            interventions=interventions,
-            msm=msm,
-            intermediate=estimand.intermediate
-            if isinstance(estimand, ControlledDirectEffect)
-            else None,
-            missingness=design.missingness,
-            intermediate_name=design.intermediate,
-            treatment_levels=(
-                () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
-            ),
-        )
+        functional = _point_functional(design, data, estimand)
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
             identification=_point_identification(
-                TARGETS[target].identification, design, data, estimand, axis
+                TARGETS[target].identification, design, data, estimand, axis, target
             ),
             provider=self,
             _study=study,

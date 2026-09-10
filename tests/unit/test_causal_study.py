@@ -14,12 +14,15 @@ import sklearn.linear_model
 
 import cleverly
 from cleverly import (
+    ATC,
     ATE,
+    ATT,
     CapabilityError,
     CausalStudy,
     CleverlyError,
     CollaborativeTMLEMethod,
     ControlledDirectEffect,
+    CounterfactualMean,
     CrossFitting,
     DataError,
     DRTMLEMethod,
@@ -27,9 +30,14 @@ from cleverly import (
     MethodConfigurationError,
     ModelSpec,
     MSMProjection,
+    NaturalCourseMean,
+    OddsRatio,
     PointTreatment,
+    PopulationAttributableFraction,
+    PopulationAttributableRisk,
     RegimeContrast,
     RegimeMean,
+    RiskRatio,
     Runtime,
     TMLEMethod,
 )
@@ -60,6 +68,7 @@ from tests.conftest import (
     OracleOutcome,
     OracleTreatment,
 )
+from tests.pickles import _LegacyPickle, legacy_without
 
 
 def _study() -> CausalStudy:
@@ -370,17 +379,22 @@ def test_identification_functional_metadata_survives_pickle_and_backfills() -> N
     assert restored == effect.functional
     assert restored.expression == effect.functional.expression
 
-    state = effect.functional.__dict__.copy()
-    for field in ("missingness", "intermediate_name", "treatment_levels"):
-        state.pop(field)
-    legacy = object.__new__(type(effect.functional))
-    legacy.__setstate__(state)
+    legacy = legacy_without(
+        effect.functional,
+        "missingness",
+        "intermediate_name",
+        "treatment_levels",
+        "treatment_value",
+        "schema_version",
+    )
     assert legacy.missingness is None
     assert legacy.intermediate_name is None
     assert legacy.treatment_levels == ()
+    assert legacy.treatment_value is None
+    assert legacy.schema_version == 0
 
 
-def test_design_bound_identification_provenance_requires_the_complete_record() -> None:
+def test_design_bound_identification_provenance_requires_the_complete_record(tmp_path) -> None:
     effect = _study().identify(ATE())
     assert effect._study is not None
     registered = next(target for target in BUILTIN_TARGETS if target.name == "ate").identification
@@ -393,16 +407,34 @@ def test_design_bound_identification_provenance_requires_the_complete_record() -
         registered, registered, effect, effect._study.data, effect.functional.axis
     )
 
-    state = effect.functional.__dict__.copy()
-    for field in ("missingness", "intermediate_name", "treatment_levels"):
-        state.pop(field)
-    legacy_functional = object.__new__(type(effect.functional))
-    legacy_functional.__setstate__(state)
-    legacy_effect = dataclasses.replace(effect, functional=legacy_functional)
+    state = {
+        name: value
+        for name, value in effect.functional.__dict__.items()
+        if name
+        not in {
+            "missingness",
+            "intermediate_name",
+            "treatment_levels",
+            "treatment_value",
+            "schema_version",
+        }
+    }
+    legacy_effect = dataclasses.replace(
+        effect,
+        functional=_LegacyPickle(type(effect.functional), state),
+        identification=registered,
+    )
+    result = effect.estimate(**FAST_KWARGS)
+    legacy_result = dataclasses.replace(result, identified_effect=legacy_effect)
+    restored = cleverly.load(legacy_result.save(tmp_path / "legacy-identification.joblib"))
+    restored_effect = restored.identified_effect
+    assert restored_effect.functional.schema_version == 0
+    assert restored_effect.functional.treatment_value is None
+    assert "identified by explicit-adjustment" in restored_effect.summary()
     assert _matches_registered_point_identification(
         registered,
         registered,
-        legacy_effect,
+        restored_effect,
         effect._study.data,
         effect.functional.axis,
     )
@@ -418,6 +450,215 @@ def test_design_bound_identification_provenance_requires_the_complete_record() -
         assert not _matches_registered_point_identification(
             altered, registered, effect, effect._study.data, effect.functional.axis
         )
+
+
+def test_transitional_design_bound_pickle_remains_valid_but_stale_cde_mar_does_not() -> None:
+    effect = _study().identify(ATE())
+    assert effect._study is not None
+    transitional_state = {
+        name: value
+        for name, value in effect.functional.__dict__.items()
+        if name not in {"treatment_value", "schema_version"}
+    }
+    restored = pickle.loads(
+        pickle.dumps(
+            dataclasses.replace(
+                effect,
+                functional=_LegacyPickle(type(effect.functional), transitional_state),
+            )
+        )
+    )
+    registered = next(target for target in BUILTIN_TARGETS if target.name == "ate").identification
+    assert restored.functional.schema_version == 0
+    assert restored.functional.treatment_levels == (0, 1)
+    assert _matches_registered_point_identification(
+        restored.identification,
+        registered,
+        restored,
+        effect._study.data,
+        effect.functional.axis,
+    )
+
+    cde = CausalStudy(
+        discrete_law_cde.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+            intermediate="Z",
+        ),
+    ).identify(ControlledDirectEffect(intermediate=0.0))
+    assert cde._study is not None
+    stale_assumptions = tuple(
+        item.replace("given (A, Z, W)", "given (A, W)")
+        if item.startswith("missingness at random")
+        else item
+        for item in cde.identification.assumptions
+    )
+    stale = dataclasses.replace(
+        cde,
+        functional=legacy_without(cde.functional, "treatment_value", "schema_version"),
+        identification=dataclasses.replace(cde.identification, assumptions=stale_assumptions),
+    )
+    cde_registered = next(
+        target for target in BUILTIN_TARGETS if target.name == "ate"
+    ).identification
+    assert not _matches_registered_point_identification(
+        stale.identification,
+        cde_registered,
+        stale,
+        cde._study.data,
+        stale.functional.axis,
+    )
+
+
+def test_arm_functionals_and_positivity_are_target_specific() -> None:
+    study = _study()
+    att = study.identify(ATT())
+    atc = study.identify(ATC())
+    selected = study.identify(CounterfactualMean(treatment=1))
+    natural = study.identify(NaturalCourseMean())
+    par = study.identify(PopulationAttributableRisk())
+    paf = study.identify(PopulationAttributableFraction())
+    ate = study.identify(ATE())
+    rr = study.identify(RiskRatio())
+    odds = study.identify(OddsRatio())
+
+    assert "E_{W | A=a}" in att.functional.expression
+    assert att.functional.expression.endswith("for a in [1]")
+    assert "reference arm within each comparison population" in " ".join(
+        att.identification.assumptions
+    )
+    assert "E_{W | A=0}" in atc.functional.expression
+    assert atc.functional.expression.endswith("for a in [1]")
+    assert "comparison arm within the reference population" in " ".join(
+        atc.identification.assumptions
+    )
+    for effect in (att, atc):
+        assert not any(
+            "every supported treatment level" in item for item in effect.identification.assumptions
+        )
+
+    assert selected.functional.expression == "E_W[E(Y | A=1, W)]"
+    assert "smooth contrast" not in selected.functional.expression
+    assert any(
+        "positivity for the evaluated arm" in item for item in selected.identification.assumptions
+    )
+
+    assert natural.functional.expression == "E(Y) under the observed treatment course"
+    assert natural.identification.required_nuisances == ()
+    assert not any("positivity" in item for item in natural.identification.assumptions)
+    assert par.functional.expression == "E(Y) - E_W[E(Y | A=0, W)]"
+    assert paf.functional.expression == "1 - E_W[E(Y | A=0, W)] / E(Y)"
+    for effect in (par, paf):
+        assert effect.identification.required_nuisances == (
+            "outcome_regression",
+            "treatment_mechanism",
+        )
+        assert any(
+            "positivity for the reference intervention" in item
+            for item in effect.identification.assumptions
+        )
+    assert any(
+        "natural-course risk E(Y) is strictly positive" in item
+        for item in paf.identification.assumptions
+    )
+    assert ate.functional.expression == "E_W[E(Y | A=a, W)] - E_W[E(Y | A=0, W)] for a in [1]"
+    assert rr.functional.expression == "E_W[E(Y | A=a, W)] / E_W[E(Y | A=0, W)] for a in [1]"
+    assert odds.functional.expression == (
+        "(E_W[E(Y | A=a, W)] / (1 - E_W[E(Y | A=a, W)])) / "
+        "(E_W[E(Y | A=0, W)] / (1 - E_W[E(Y | A=0, W)])) for a in [1]"
+    )
+
+
+def test_multi_arm_att_and_atc_name_their_distinct_target_populations() -> None:
+    frame, _ = make_multi_arm(n=180, seed=41)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+    )
+    att = study.identify(ATT(reference="low"))
+    atc = study.identify(ATC(reference="low"))
+
+    assert "E_{W | A=a}" in att.functional.expression
+    assert att.functional.expression.endswith("for a in ['high', 'medium']")
+    assert "A='low'" in att.functional.expression
+    assert "E_{W | A='low'}" in atc.functional.expression
+    assert atc.functional.expression.endswith("for a in ['high', 'medium']")
+    assert "A=a" in atc.functional.expression
+    assert "P(A = 'low' | W) > 0 wherever P(A = a | W) > 0" in " ".join(
+        att.identification.assumptions
+    )
+    assert "P(A = a) > 0 for every comparison arm a" in " ".join(att.identification.assumptions)
+    assert "P(A = a | W) > 0 wherever P(A = 'low' | W) > 0" in " ".join(
+        atc.identification.assumptions
+    )
+    assert "P(A = 'low') > 0" in " ".join(atc.identification.assumptions)
+
+    selected = study.identify(CounterfactualMean(treatment="medium"))
+    assert selected.functional.treatment_value == "medium"
+    assert selected.functional.expression == "E_W[E(Y | A='medium', W)]"
+    assert "for a in" not in selected.functional.expression
+    assert "P(A = 'medium' | W) > 0" in " ".join(selected.identification.assumptions)
+    assert not any(
+        "every supported treatment level" in item for item in selected.identification.assumptions
+    )
+
+
+@pytest.mark.parametrize(
+    ("contrast", "population"),
+    [(ATT(), "P(A = a | W) > 0"), (ATC(), "P(A = 0 | W) > 0")],
+)
+def test_cde_conditional_mechanism_positivity_names_both_arms_and_population(
+    contrast: Any,
+    population: str,
+) -> None:
+    effect = CausalStudy(
+        discrete_law_cde.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+            intermediate="Z",
+        ),
+    ).identify(ControlledDirectEffect(intermediate=0.0, contrast=contrast))
+    intermediate = next(
+        item
+        for item in effect.identification.assumptions
+        if item.startswith("intermediate positivity")
+    )
+    response = next(
+        item for item in effect.identification.assumptions if item.startswith("response positivity")
+    )
+    for item in (intermediate, response):
+        assert "b in {a, 0}" in item
+        assert population in item
+
+
+@pytest.mark.parametrize(
+    ("estimand", "roadmap"),
+    [
+        (NaturalCourseMean(), "RM7"),
+        (PopulationAttributableRisk(), "RM8"),
+        (PopulationAttributableFraction(), "RM8"),
+    ],
+)
+def test_missing_population_interventions_refuse_at_identification_boundary(
+    estimand: Any,
+    roadmap: str,
+) -> None:
+    with pytest.raises(CapabilityError, match=rf"score equation.*{roadmap}"):
+        CausalStudy(
+            discrete_law_mar.frame(),
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=("W",),
+                missingness="Delta",
+            ),
+        ).identify(estimand)
 
 
 def test_point_treatment_targets_state_no_interference_separately() -> None:
