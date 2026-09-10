@@ -4,17 +4,17 @@
 
 You want to fit the nuisances with a flexible learner. A gradient-boosted outcome regression and a
 random-forest propensity fit the data well, and an ordinary TMLE built on them can report an
-interval that is too narrow. The reason is not overfitting in the usual sense. It is that the
-theory behind the interval assumes the nuisance estimators come from a class that is not too rich,
-and a modern learner does not satisfy that assumption.
+interval that is too narrow. The reason is not overfitting in the usual sense. Classical theory
+controls an empirical-process term with complexity conditions such as a Donsker condition. Rich,
+adaptively tuned learners need not satisfy those conditions.
 
-Cross-fitting removes that assumption. Every nuisance prediction used for an observation is
-produced by a model that never saw the observation.
+Cross-fitting avoids that empirical-process reliance under its remaining conditions. Every initial
+nuisance prediction used for an observation comes from a model that never saw the observation.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| flexible learners for either nuisance | the empirical-process term is controlled without a Donsker condition on the nuisance estimators | one nuisance fit per fold, multiplied by the learner library |
-| you want the package default | cross-fitting is on by default, at ten outer folds and five learner folds | the two fold layers multiply. Ten by five is fifty model fits per library candidate |
+| flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
+| you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
 | clustered data | clusters stay intact in every split | fewer effective folds than rows suggest |
 
@@ -24,7 +24,7 @@ interval, and folds address one of them.
 | condition | what supplies it |
 | --- | --- |
 | the empirical-process term is negligible | cross-fitting |
-| positivity bounds the clever covariate | the `g_bounds` truncation, and your design |
+| the inverse mechanism stays controlled | support in the study design. The `g_bounds` truncation only regularises the fitted denominator |
 | the estimated influence curve converges in $L_2$ | your learners |
 | the second-order remainder is $o_P(n^{-1/2})$ by a **product rate** on both nuisances | your learners, and nothing the fluctuation can do |
 
@@ -76,7 +76,7 @@ and
 | --- | --- | --- |
 | `cross_fit=False` | one fold, no splitting. This is ordinary TMLE | **yes**. See [point-treatment TMLE](point-treatment-tmle.md) |
 | `n_folds=` | the outer split count. Default 10 | no |
-| `learner_folds=` | model-selection folds inside an outer training set. Default 5 | no |
+| `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
 | `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |

@@ -383,7 +383,9 @@ class TargetContext:
             raise ValueError(
                 "ey_obs, par and paf do not yet support delta=: under missingness at "
                 "random E[Y] needs its own outcome/missingness score equation, and the "
-                "complete-case mean is a different parameter"
+                "complete-case mean is a different parameter; docs/roadmap.md RM7 "
+                "tracks this stop for ey_obs, and docs/roadmap.md RM8 tracks it for "
+                "par and paf"
             )
         y = np.asarray(self.scaled, dtype=float)
         w = np.asarray(self.weights, dtype=float)

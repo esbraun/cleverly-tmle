@@ -514,7 +514,8 @@ class TMLE:
                 "are -- a regime assigns an arm from W alone, a shift moves the dose the "
                 "unit actually received, and an incremental intervention tilts the odds "
                 "of the mechanism that was already there -- and one fluctuation cannot "
-                "solve their score equations at once. Fit them separately."
+                "solve their score equations at once. Fit them separately. "
+                "docs/roadmap.md F17 tracks this stop."
             )
         if self.incremental and self.g_bounds != "auto":
             raise ValueError(
@@ -543,7 +544,7 @@ class TMLE:
                 f"{other} replaces what those means are; one fluctuation cannot solve "
                 "both. A working model over declared regimes is a coherent estimand and "
                 "is not implemented -- its design would have to be indexed by regime "
-                "rather than by arm."
+                "rather than by arm. docs/roadmap.md F17 tracks this stop."
             )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -864,7 +865,9 @@ class TMLE:
             raise NotImplementedError(
                 f"{sorted(population_intervention)} do not yet support delta=: under MAR "
                 "the natural-course mean E[Y] needs an additional outcome/missingness "
-                "score equation; using complete cases would estimate a different parameter"
+                "score equation; using complete cases would estimate a different "
+                "parameter. docs/roadmap.md RM7 tracks this stop for the natural-course "
+                "mean, and docs/roadmap.md RM8 tracks it for par and paf."
             )
         if population_intervention and data.has_intermediate:
             raise NotImplementedError(

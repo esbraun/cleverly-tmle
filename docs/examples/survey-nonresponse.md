@@ -41,17 +41,17 @@ covariate as the exposure.
 | --- | --- | --- |
 | outcomes missing for reasons you recorded | the full-population estimand, identified under missingness at random given the recorded variables and the arm | a response model on top of the assignment model |
 | response depends on the exposure | the two mechanisms compose into one factor, so the arm-dependence is handled rather than assumed away | positivity is now needed for the **product** of the two mechanisms, not for either alone |
-| you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the assignment model and the response model are both right" |
+| you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the product of the assignment and response mechanisms is right" |
 
 That last row is the one to read twice. Double robustness in the complete-data case gives you two
-independent chances. Here the second chance requires two models to be right together, so it is a
-weaker guarantee than it looks.
+independent chances. Here the second chance requires the joint mechanism product. Consistency of
+both models is a sufficient route, although their errors can cancel in special cases.
 
-The alternative that fails is the obvious one. Dropping the non-respondents and fitting the usual
-analysis is consistent only when a correctly specified outcome regression can extrapolate from
-respondents to everyone. When the outcome surface has curvature the model cannot reach, and
-respondents carry a shifted covariate distribution, the extrapolation is wrong in a direction
-nothing in the fit reveals.
+Dropping non-respondents changes the population over which the outcome regression is averaged. A
+correct conditional regression on respondent rows does not recover the eligible-population ATE
+when response shifts the effect-modifier distribution. Special effect structures can make the two
+population averages coincide. This generator also adds outcome curvature that the main-effects
+complete-case regression cannot represent.
 
 ## The data
 
@@ -87,14 +87,19 @@ refuses a missing outcome that carries no indicator.
 | response also depends on the arm | navigation changes who answers, so the respondent pool differs between realized arms |
 | the outcome surface has curvature a main-effects model cannot reach | a linear regression fitted to respondents extrapolates the wrong shape to everyone else |
 
-The response rate in this law is higher than many real transition surveys. What drives the bias is the
-mechanism rather than the rate, so the demonstration holds at a realistic rate too and is only
-noisier.
+The response rate in this law is higher than many real transition surveys. Response rate alone does
+not determine selection bias. Changing the response mechanism can alter its direction and size, not
+only its noise.
 
 ## Design and identification
 
 The response indicator is a **design role**, like the outcome and the exposure. Declaring it is what
 tells the estimator that the missing rows are part of the population.
+
+The current identification object omits the response mechanism, MAR, and response positivity from
+its printed summary. Treat that as a reporting gap, not permission to omit them. Until
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) closes it, put the
+missing-outcome assumptions beside the generated identification record.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -110,12 +115,17 @@ study = CausalStudy(
 )
 effect = study.identify(ATE(reference=0))
 
+missing_outcome_assumptions = (
+    "Missing at random given the arm and recorded response predictors",
+    "Positive probability of the arm-response mechanism throughout the target population",
+)
 print(effect.summary())
 for assumption in effect.identification.assumptions:
     print("-", assumption)
+print("required missing-outcome addendum:")
+for assumption in missing_outcome_assumptions:
+    print("-", assumption)
 ```
-
-The assumptions gain one, and one of the old ones changes shape.
 
 | assumption | what it means here |
 | --- | --- |
@@ -142,7 +152,7 @@ method = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         missingness_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=71, n_jobs=1),
 )
 full = effect.estimate(method=method)
@@ -171,15 +181,18 @@ complete_case = (
 )
 
 
-def show(label, result):
+def show(label, result, target):
     point = result["ate"]
     low, high = point.ci
-    covered = low <= truth["ate"] <= high
-    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covered}")
+    covered = low <= target <= high
+    print(
+        f"{label:22s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  "
+        f"CI=({low:.3f}, {high:.3f})  covers={covered}"
+    )
 
 
-show("complete cases only", complete_case)
-show("missingness declared", full)
+show("complete cases only", complete_case, truth["ate"])
+show("missingness declared", full, truth["ate"])
 print("population ATE:", truth["ate"])
 print("rows used:", len(respondents), "of", len(frame))
 ```
@@ -227,10 +240,10 @@ print(f"mild law, complete cases: psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f
 print("population ATE:", mild_truth["ate"])
 ```
 
-At `strength=1.0` the complete-case fit lands on the truth because this law has special linear and
-effect structures. Do not generalize that result. Even under MAR, averaging a correct conditional
-outcome model over respondents can target their covariate distribution instead of the eligible
-population when effects vary.
+At `strength=1.0` the complete-case estimate is close to the truth in this fixed draw. This law has
+special linear and effect structures at that setting. Do not generalize the result. Even under MAR,
+averaging a correct conditional outcome model over respondents can target their covariate
+distribution instead of the eligible population when effects vary.
 
 A full-population plug-in fit can learn from respondents and predict for every eligible patient's
 baseline record. The complete-case code above discards those records. Declaring the response
@@ -272,7 +285,7 @@ box_method = TMLEMethod(
         treatment_learner=LogisticRegression(max_iter=1000),
         missingness_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=72, n_jobs=1),
 )
 for estimand, key in (
@@ -287,8 +300,8 @@ for estimand, key in (
 
 Three readings of one comparison. The difference is in percentage points of top-box. The risk ratio
 is the multiplicative version a program scorecard uses. The odds ratio is larger than the risk ratio
-here, as it always is when the outcome is common, and reporting it as though it were a rate ratio
-would overstate the change.
+here. The effect increases a common outcome, so the odds ratio lies farther above one. Reporting it
+as though it were a rate ratio would overstate the change.
 
 The ratio parameters are built on the log scale, so their intervals are asymmetric around the point
 estimate. That is correct rather than a display artefact.
@@ -323,8 +336,8 @@ print(missingness_curve)
 print("tipping gamma:", tipping_gamma)
 ```
 
-The assessment collects validation, diagnostics, and sensitivity in one report. It also retains
-the detailed reports, so the support table remains available without another computation.
+The combined assessment collects validation, diagnostics, and sensitivity in one object. It also
+retains the detailed reports, so the support table remains available without another computation.
 
 Positivity is now a statement about the product of two mechanisms. A patient with a middling
 chance of navigation and response can still have a small product. The clever covariate divides by
@@ -363,7 +376,7 @@ one fit.
 | the nuisance report | held-out fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
 | the score-equation report | the targeting solved the composed score | that missingness at random holds |
 | the MNAR tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |
-| the mild-law comparison | that the bias needs curvature plus a sharpening mechanism, not merely missingness | which of the two cases your own data is in |
+| the mild-law comparison | the complete-case contrast is close to the eligible-population effect at one setting of this synthetic law | whether the same coincidence holds in another population |
 | the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control | that missingness at random holds in this survey |
 | the [randomized missing-outcome DR-TMLE study](../technical-reference/method-evidence/randomized-missing-outcome-dr-tmle.md) | corrected inference under two drift directions and a direct five-reduction score-reduction mutation | observational-treatment DR-TMLE or internal parity with R's joint mechanism |
 | the evidence manifest | exact-law, Gateaux, remainder, and mutation checks for the randomized missing-outcome construction | empirical support for missingness at random |
@@ -376,6 +389,6 @@ conditional on an argument about the mailing process, not on the fit alone.
 
 ## Where to go next
 
-Non-response is one mechanism removing patients from view. Disenrollment is another, and it acts
-over time rather than once. Read [retention and competing risks](longitudinal-survival.md) for the
-version where leaving the plan is the outcome.
+Non-response is one mechanism removing patients from view. Plan exit is another, and it acts over
+time rather than once. Read [time-to-event outcomes](longitudinal-survival.md) for the version
+where plan exit is the outcome.

@@ -25,26 +25,25 @@ navigator teams.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| a large approved baseline set | an assignment model selected by cross-validated loss on the targeted estimate, so an instrument can be left out | one nuisance fit per candidate along the selection path |
-| near-positivity failure driven by strong assignment predictors | a less adaptive model, when the data says a less adaptive one estimates better | selection is data-dependent, and the reported interval does not account for it |
-| the outcome regression is already good | the empty assignment model is a legitimate choice, and the selector will make it | that is not evidence the search discriminates |
+| a large approved baseline set | an assignment model selected by cross-validated loss on the targeted outcome regression, so an instrument can be left out | one nuisance fit per candidate along the selection path |
+| near-positivity failure driven by strong assignment predictors | a less adaptive model when its targeted loss is better | selection is data-dependent, and the reported interval does not account for it |
+| the outcome regression is already good | the empty assignment model is a legitimate candidate | selecting it is not evidence that the search discriminates |
 
-Three variable roles matter, and only one belongs in the assignment model for free.
+Variable roles guide the causal review. They do not mechanically determine the denominator that a
+collaborative selector chooses.
 
-| role | predicts assignment? | affects the score? | belongs in the assignment model? |
+| role | predicts assignment? | affects the score? | how to handle it |
 | --- | --- | --- | --- |
-| confounder | yes | yes | yes. Omitting it biases the estimate |
-| instrument | yes, strongly | no | **no**. Including it inflates variance and removes no bias |
-| outcome predictor | no | yes | it helps the outcome regression, not the assignment model |
+| confounder | yes | yes | include it in the study design. The standard guarantee for omitting it from a collaborative denominator requires the outcome regression to handle the residual bias |
+| instrument | yes, strongly | no | do not include it for confounding control. It can reduce precision |
+| outcome predictor | no | yes | use it in the outcome regression. It need not enter the assignment model |
 
-An instrument is the dangerous one. It does not confound, so including it leaves the bias exactly
-where it was. It does predict assignment, so including it pushes propensity scores toward zero and
-one. The clever covariate divides by those propensities. A small denominator makes a large clever
-covariate, and the variance of the estimate follows.
+An instrument does not close a common-cause path. A strong instrument can push fitted propensity
+scores toward zero and one without removing confounding. The resulting clever covariate can become
+more variable and reduce precision.
 
-A model chosen by predictive loss will take the instrument, because an instrument is precisely what
-predicts assignment best. Collaborative TMLE scores its candidates against the targeted estimate
-instead.
+A model chosen by treatment-prediction loss tends to take a strong instrument. Collaborative TMLE
+scores its candidates against the targeted outcome-regression loss instead.
 
 ## The data
 
@@ -128,7 +127,7 @@ models = ModelSpec(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
 )
-folds = CrossFitting(n_folds=3, learner_folds=2)
+folds = CrossFitting(n_folds=3)
 runtime = Runtime(random_state=44, n_jobs=1)
 
 collaborative = effect.estimate(
@@ -183,24 +182,18 @@ show("collaborative TMLE", collaborative)
 print("population ATE:", truth["ate"])
 ```
 
-### Why this comparison is not yet evidence
+### Why this comparison needs a control
 
-Look again at the selected covariate set printed above. With a correctly specified outcome model,
-the selector chose the **empty** assignment model.
-
-That is the right choice rather than a defect. When the outcome regression already captures the
-conditional mean, an empty assignment model minimizes the cross-validated loss, and the collaborative
-criterion says so. It also means the comparison above proves nothing about whether the search can
-demonstrate useful selection. A selector that always selects nothing would win it too.
-
-The technical entry makes this point about its own validation, and the same caution belongs in an
-applied reading.
+With a correctly specified outcome model, the selector chooses the **empty** assignment model on
+this law. That choice can minimize the targeted cross-validated loss. It does not show that the
+search can distinguish a confounder from an instrument, because a selector that always chose the
+empty model would give the same result.
 
 ### The comparison that does discriminate
 
-Test the search where selecting nothing is wrong. Reduce the outcome model to a constant. The
-assignment model now has to carry the whole adjustment, so omitting the confounder is no longer
-harmless.
+Use a deliberate stress control where selecting nothing is wrong. Reduce the outcome model to a
+constant, so the assignment model must carry the adjustment. This is a test of the selector, not a
+recommended production outcome model.
 
 ```python
 from sklearn.dummy import DummyRegressor
@@ -240,52 +233,44 @@ above. The selection result does not prove that either variable has its declared
 
 ## How far to trust this
 
-Use a diagnostic-only combined report here. Sensitivity analysis does not answer whether the
-collaborative selector chose a useful assignment model.
+Start with the combined assessment. Sensitivity analysis cannot determine whether the selector
+chose a useful assignment model, so inspect the selection and support reports next.
 
 ```python
-diagnostics = collaborative.diagnostics.run_all()
-print(diagnostics.summary())
-print(diagnostics.report("support").summary())
-print(diagnostics.report("score_equations").summary())
-nuisance = diagnostics.report("nuisance_models")
+assessment = collaborative.assess()
+print(assessment.summary())
+print(assessment.report("support").summary())
+nuisance = assessment.report("nuisance_models")
 print("treatment role:", nuisance.treatment_role)
 print(nuisance.summary())
-print(nuisance.selection.summary())
+print("selected covariates:", nuisance.selection.selected_covariates)
 ```
 
-The role prints as `collaborative_working_model`, and the summary states it in words. The AUC and
-calibration values describe the selected denominator. They do not describe assignment given the
-complete adjustment set.
+The role prints as `collaborative_working_model`. The AUC and calibration values describe the
+selected working denominator, not assignment given the complete adjustment set. Read them with the
+selection path and support report. [Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality)
+defines the retained findings.
 
-That role drops two claims and no others. The report drops the claim that a low AUC means limited
-confounding, and it drops the calibration-slope claim about this model. It keeps the high-AUC
-positivity finding, because the selected mechanism is the denominator the clever covariate divides
-by. It also keeps the super-learner mean-weight finding, which describes a learner library.
-[Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality) gives
-the rule as a table. Read the retained values with the selection and the support report.
+The current `selection.summary()` footer describes omitted variables as a bias-variance trade. The
+selector only observes targeted cross-validated loss, so this example does not print that causal
+interpretation. Its replacement is tracked in
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
 
 One limitation is structural and belongs in every report of a collaborative fit.
 
-**The reported interval does not account for the selection.** The candidate model was chosen using
-the data, and the influence curve is computed as if it had been fixed in advance. The technical
-entry records this among its declared limits, and no diagnostic on the fit can repair it.
+**The reported interval does not account for the selection.** The data chose the candidate model.
+The influence curve is then computed as if that model had been fixed in advance. The technical
+entry records this limit, and no diagnostic on the fit can repair it.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the diagnostic overview | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
+| the combined assessment | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
 | the support report | how far the propensity reached into the tails, before and after selection | that the selected model is the right one |
 | the nuisance report | selected-model metrics, model role, and the retained selection | whether low AUC means limited confounding after collaborative selection |
-| the score-equation report | the pooled targeting continued from the selected candidate and converged | anything about the selection |
 | the retained selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |
-| the registered studies | the selectors recover known truths and match R `ctmle` where a comparator exists | calibrated inference while selection is load-bearing. No cell asks for it |
 
-The evidence rows are
-[selector-based point-treatment C-TMLE](../technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
-and
-[outcome-adaptive point-treatment C-TMLE](../technical-reference/method-evidence/outcome-adaptive-point-treatment-c-tmle.md).
-Both declare their limits in their own rows, including that parity is binary, two-arm, and not
-cross-fitted.
+The [collaborative TMLE technical entry](../technical-reference/collaborative-tmle.md) links the
+registered studies and states their limits.
 
 ## Where to go next
 
@@ -294,7 +279,7 @@ expect one nuisance to be inconsistent however you choose it, read [DR-TMLE](dr-
 adjustment set is small and you would include all of it, the plain
 [point-treatment TMLE](point-treatment-tmle.md) is the right entry.
 
-Two compositions are refused rather than approximated. Collaborative TMLE has no longitudinal
-derivation, so it cannot evaluate navigation across two decision times. It is also wrong by construction
-on an incremental fit, because each candidate assignment model would define a different estimand, and
-the search would then select between estimands rather than between estimators.
+The current library refuses two compositions. It has no registered longitudinal C-TMLE
+implementation. It also has no validated selector path for an incremental target, whose definition
+depends on the treatment mechanism. These are current support boundaries, not claims that no method
+can be derived.

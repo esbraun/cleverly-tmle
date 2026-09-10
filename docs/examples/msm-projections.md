@@ -28,8 +28,10 @@ A slope is a summary, and it must be defined before it is estimated. The questio
 really asking is this. Among all straight lines in assigned contacts, which one comes closest to the
 true counterfactual response surface? That line is the estimand.
 
-Each cadence uses the same script, contact window, and access rules. Only the number of assigned
-contacts changes. This restriction supports consistency. Reserved capacity supports no interference.
+This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
+treatment, which is now one of three cadences. Each cadence uses the same script, contact window,
+and access rules, and only the number of assigned contacts changes. That restriction supports
+consistency.
 
 ## Why this method
 
@@ -43,10 +45,9 @@ causal response surface, and the estimand is well defined whether or not the wor
 | a cadence you want to summarize as a trend | a slope, with an influence curve and an interval | a model linear in the arm reads the arm as a dose, so non-numeric labels are refused |
 | effect modification by a baseline variable | an interaction term in the working design | the design must be full rank on the realized cells |
 
-The alternative that fails here is the familiar one. Fitting a linear regression of the experience
-score on assigned contacts and the covariates gives a slope whose meaning depends on that regression
-being correct. If it is wrong, the coefficient is not the projection of anything, and it changes
-when you add a term.
+An ordinary outcome regression answers a different question. Its coefficient is an observed-data
+regression projection. It equals the declared marginal causal projection only under additional
+model conditions.
 
 The projection is different. It is a functional of the true law, defined by the working model and a
 weight. It has a value whether or not the working model is close, and that value is what the
@@ -88,7 +89,7 @@ The design is an ordinary point-treatment design. A multi-arm exposure is an exp
 two levels, and nothing about the design changes.
 
 ```python
-from cleverly import CausalStudy, CounterfactualMean, PointTreatment
+from cleverly import ATE, CausalStudy, CounterfactualMean, PointTreatment
 
 study = CausalStudy(
     frame,
@@ -101,6 +102,11 @@ study = CausalStudy(
 arms = study.identify(CounterfactualMean())
 print(arms.summary())
 ```
+
+The printed identification record states positivity in its binary form. It reads
+`0 < P(A = 1 | W) < 1`, and it says that both counterfactual means are supported. This law has
+three arms, so read the line as a positive probability of every cadence at every covariate value.
+[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) tracks the fix.
 
 Start with the per-arm report, because the projection is a summary *of it*. A board that cannot
 interpret the arm means cannot interpret their projection either.
@@ -115,7 +121,7 @@ method = TMLEMethod(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=3, learner_folds=2),
+    cross_fitting=CrossFitting(n_folds=3),
     runtime=Runtime(random_state=61, n_jobs=1),
 )
 arm_result = arms.estimate(method=method)
@@ -182,8 +188,8 @@ print(trend_result.to_frame()[["estimand", "psi"]])
 ```
 
 The estimated coefficients sit near the projection of the *population* means onto the same working
-model. They do not sit near any straight line through the true surface, because no straight line
-passes through all three points.
+model. The line does not interpolate all three arm means. It minimizes their total squared
+deviation under the declared uniform weight.
 
 That is the whole idea. The estimand is the projection, and the estimator recovers it. Read the
 slope as "the best linear summary of the cadence response under a uniform weight", not as "the
@@ -204,7 +210,7 @@ The projection says nothing about a cadence nobody used.
 ## The control: a saturated working model
 
 A saturated model has one free parameter per arm. It cannot be misspecified, and it must therefore
-reproduce the per-arm report exactly.
+represent the three marginal arm means exactly.
 
 ```python
 saturated = MSM(
@@ -218,13 +224,15 @@ saturated = MSM(
     terms=("(intercept)", "medium vs low", "high vs low"),
 )
 saturated_result = study.identify(MSMProjection(saturated)).estimate(method=method)
+arm_contrasts = study.identify(ATE(reference="low")).estimate(method=method)
 print(saturated_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print(arm_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
+print(arm_contrasts.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-The intercept equals the `low` arm's mean. The two remaining coefficients equal the two contrasts
-against it. The agreement holds at the point estimate and at the influence curve, so the intervals
-match as well.
+The intercept matches the `low` arm mean. The other coefficients match the `medium` versus `low`
+and `high` versus `low` contrasts. Their influence curves and intervals match the same linear
+transformation of the arm report.
 
 This is the check that says the projection machinery is a reparameterisation rather than a different
 analysis. When the working model can represent the surface exactly, the projection *is* the surface.
@@ -235,17 +243,15 @@ saturated model and get the arm report under a single heading.
 ## How far to trust this
 
 ```python
-diagnostics = trend_result.diagnostics.run_all(include_retargets=True)
-print(diagnostics.summary())
+assessment = trend_result.assess(include_retargets=True)
+print(assessment.summary())
 
-support = diagnostics.report("support")
-scores = diagnostics.report("score_equations")
-nuisances = diagnostics.report("nuisance_models")
-curve = diagnostics.report("truncation_curve")
+support = assessment.report("support")
+scores = assessment.report("score_equations")
+curve = assessment.report("truncation_curve")
 
 print(support.summary())
 print(scores.summary())
-print(nuisances.summary())
 print(
     curve.loc[
         curve["estimand"] == "msm[assigned contacts]",
@@ -262,9 +268,8 @@ print(
 )
 ```
 
-The combined report runs the moderate truncation retarget because `include_retargets=True`. It does
-not run refutations, which would refit nuisance models. Its truncation row gives one signed movement
-range for each coefficient. It measures that movement from the coefficient's own fitted estimate.
+The combined assessment runs the truncation retarget because `include_retargets=True`. Its curve
+shows how each coefficient moves as the fitted treatment mechanism is bounded more tightly.
 
 With the identity link the clever covariate has one column per term, so the score equation is one
 per coefficient rather than one per arm. The score report reflects that, and it is the right place
@@ -274,11 +279,11 @@ Positivity is a three-arm statement here. Every patient needs a positive probabi
 the working model reads. A support report showing a near-empty cell means the trend is being carried
 by extrapolation into a cadence that kind of patient never received.
 
-The aggregate support row warns here, and the trigger is truncation. It reports 1.2% of units
-clipped, which is above the 1% the report treats as material. It also reports a 44.8% minimum
-effective sample size, which it states and does not grade. The retained report adds the
-arm-specific weight concentration behind both numbers. Read the slope's truncation curve separately
-because the two coefficients have different meanings.
+The aggregate support row warns here, and truncation is the trigger. It counts 37 clipped units,
+which is 1.23% of the sample and above the 1% that moves the verdict from adequate to strain. The
+`high` arm carries the narrowest Kish-equivalent weight count, at 0.448 of its nominal rows. The
+support row states that share as concentration and grades nothing. Read the slope's truncation
+curve separately because the two coefficients have different meanings.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
@@ -286,36 +291,21 @@ because the two coefficients have different meanings.
 | the score-equation report | one solved score per coefficient | that the working model resembles the truth |
 | the support report | whether every cadence the design reads was actually observed | that the coefficient answers the board's question |
 | the truncation curve | whether the slope is stable across declared mechanism bounds | support for a cadence outside the observed range |
-| the nuisance report | held-out fit and calibration measures for the fitted nuisances | that the working model is a useful summary |
-| the registered projection studies | point and ordinary longitudinal coefficients recover known truths, match the same external parameters, and pass robustness, calibration, targeting, and projection-measure controls | non-identity links, continuous doses, adaptive weights, or cross-fitted longitudinal coefficient inference |
 
-The scientific evidence is the point `msm` row and the longitudinal MSM rows in the
-[evidence manifest](../technical-reference/evidence.md#the-table). The registered
-[point](../technical-reference/method-evidence/point-treatment-msm-projection.md) and
-[longitudinal](../technical-reference/method-evidence/ordinary-longitudinal-msm-projection.md)
-studies add repeated-sampling evidence. R `ltmleMSM` differs in projection scale and is not a
-parity oracle.
+The [MSM projections technical entry](../technical-reference/msm-projections.md) links the
+registered studies and states their evidence limits.
 
-One composition is refused. `msm=` cannot be combined with `interventions=` or `shifts=`, because one
-fluctuation solves one set of score equations. A fit reporting parameters from two axes would put two
-of them under one heading.
-
-## Stress a binary or continuous projection
-
-The simulated-common-cause surface supports ordinary-TMLE MSM coefficients for binary and continuous treatments.
-It accepts the built-in identity, log, and logit links. Each cell reports a difference on the stored coefficient scale.
-Continuous-dose cells keep the integration grid fixed and recompute the design and weights at the perturbed observed doses.
-
-This tutorial uses three treatment arms, so its surface remains refused pending a category-valued perturbation law.
-A binary or continuous analysis selects one full `msm[...]` alias through `estimand=`.
-See the [surface contract](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface) for the source audit, tests, and remaining refusals.
-The diagnostic adds no interval claim to the projection studies above.
+The current point-treatment library fits one parameter axis at a time. A working model summarizes
+the counterfactual means with one score equation per term. A separate intervention policy or shift
+replaces what those means are, so one fluctuation cannot solve both sets of score equations.
+[F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) waits for a published joint
+targeting and inference result.
 
 ## Where to go next
 
-The same projection works over regimens and horizons in a longitudinal fit, where the design callable
-receives the horizon as well as the label. `MSM.linear` is refused there too, and for a stronger
-reason: a regimen is a sequence of decisions, and no arithmetic on its name summarizes it. Read
+The same projection works over regimens and horizons in a longitudinal fit. Its design callable
+receives the horizon as well as the label. `MSM.linear` is refused there too. A regimen is a
+sequence of decisions, and no arithmetic on its name summarizes it. Read
 [longitudinal TMLE](longitudinal-tmle.md) and
-[retention and competing risks](longitudinal-survival.md) first. The projection summarizes the
+[time-to-event outcomes](longitudinal-survival.md) first. The projection summarizes the
 parameters those pages estimate one at a time.

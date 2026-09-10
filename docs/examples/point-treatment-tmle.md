@@ -37,12 +37,13 @@ navigator teams.
 | the nuisance functions are not linear | flexible learners fit both nuisances, and the estimate stays a plug-in | a valid interval needs a product rate on the two nuisances |
 | you want an interval you can report | the interval comes from the targeted influence curve | positivity must hold, and a support report cannot verify it |
 
-Two familiar alternatives fail here, for different reasons.
+Two familiar alternatives have different limitations here.
 
-A regression of the transition score on navigation and the four covariates reports a coefficient. That
-coefficient equals the average treatment effect only if the outcome model is correct and the effect
-is constant. Neither holds here. The number changes when you add an interaction term, and nothing in
-the output tells you which version answers the question.
+A regression of the transition score on navigation and the four covariates reports a coefficient.
+That coefficient does not generally equal the average treatment effect. A correct additive outcome
+model with a constant effect is one condition that makes them equal, but neither feature holds here.
+The number changes when you add an interaction term, and the output does not define the target
+population average.
 
 Inverse-probability weighting avoids the outcome model. A small fitted propensity can give one row
 a large weight. That row can then have a large effect on the estimate.
@@ -118,12 +119,12 @@ for assumption in effect.identification.assumptions:
 | no unmeasured confounding | the recorded baseline variables block every common cause of assignment and the score | no |
 | positivity | each baseline profile has some chance of an offer and of usual support | partly, through the support report |
 
-Only positivity leaves a direct trace in the observed treatment support. The program supports
-consistency with one protocol and version log. It reserves navigator capacity and records
-contamination to support no interference.
+Only positivity leaves a direct trace in the observed treatment support. This page keeps the
+[shared study design](index.md#the-shared-study-design) and changes nothing in it. That design
+states how the program supports consistency and no interference.
 
-Exchangeability needs a causal argument. For example, an unrecorded discharge-team judgement that
-affects both assignment and recovery would violate it. No estimator on this page repairs that
+No unmeasured confounding needs a causal argument. For example, an unrecorded discharge-team
+judgement that affects both assignment and recovery would violate it. No estimator on this page repairs that
 failure. Restrict eligibility or redesign assignment when the argument is not credible.
 
 The synthetic law needs only four covariates. A real protocol should also evaluate pre-assignment
@@ -145,7 +146,7 @@ flexible = TMLEMethod(
         outcome_learner=HistGradientBoostingRegressor(random_state=21),
         treatment_learner=HistGradientBoostingClassifier(random_state=21),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     inference=Inference(alpha=0.05),
     runtime=Runtime(random_state=21, n_jobs=1),
 )
@@ -159,12 +160,13 @@ print("95% CI:", estimate.ci)
 print("population ATE:", truth["ate"])
 ```
 
-Both nuisances use a gradient-boosted learner, because the law is nonlinear. Cross-fitting is on,
-because a flexible learner needs it. The [cross-fitting tutorial](cross-fitting.md) shows what
-happens when you leave it off.
+Both nuisances use a gradient-boosted learner because the law is nonlinear. Cross-fitting separates
+each nuisance prediction from the row used to evaluate it. The
+[cross-fitting tutorial](cross-fitting.md) shows why that separation matters for flexible learners.
 
 The interval is built from the targeted influence curve. It is not the outcome model's own standard
-error. It already accounts for the fact that both nuisances were estimated.
+error. Its validity remains conditional on support, nuisance convergence, the product-rate
+condition, and the declared dependence structure.
 
 ## Which population is the number about?
 
@@ -209,7 +211,7 @@ simple = TMLEMethod(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=23, n_jobs=1),
 )
 spread_results = {}
@@ -268,16 +270,13 @@ those features by construction. Three more fits show the resulting finite-sample
 def fit(outcome_learner, treatment_learner, label):
     method = TMLEMethod(
         models=ModelSpec(outcome_learner=outcome_learner, treatment_learner=treatment_learner),
-        cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+        cross_fitting=CrossFitting(n_folds=5),
         runtime=Runtime(random_state=21, n_jobs=1),
     )
     point = effect.estimate(method=method)["ate"]
     low, high = point.ci
-    contains_truth = low <= truth["ate"] <= high
-    print(
-        f"{label:24s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  "
-        f"contains truth={contains_truth}"
-    )
+    covers = low <= truth["ate"] <= high
+    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covers}")
 
 
 fit(
@@ -312,7 +311,7 @@ evidence.
 
 ## How far to trust this
 
-Start with one assessment battery. It presents validation, diagnostics, and sensitivity together.
+Start with the combined assessment. It presents validation, diagnostics, and sensitivity together.
 It leads with each returned result. It then inventories the checks and the operations that did not
 run by name, without their detail. Read `assessment.attention` for the failure and warning rows
 themselves.
@@ -386,9 +385,9 @@ refitted = result.assess(include_refits=True)
 print(refitted.report("refute").summary())
 ```
 
-A placebo exposure should give roughly zero. A random common cause should change nothing. A subset
-refit should scatter around the original estimate. A test that fails is evidence of a problem. A
-test that passes is not evidence of correctness.
+A placebo exposure should give roughly zero. A random common cause should cause limited movement.
+A subset refit should scatter around the original estimate. Unexpected movement calls for review,
+but a stable result is not evidence of correctness.
 
 This fit sets `random_state=21`, so the refuter inherits that seed and repeats the same report.
 
@@ -416,9 +415,9 @@ check = CoverageStudy(
 print(check.run().summary())
 ```
 
-This runs on `linear_dgp`, where a GLM is correctly specified for both nuisances. It reports a bias
-near zero and a coverage near 0.95. That is the baseline. With correct nuisances the estimator
-recovers the truth, and its interval means what it says.
+This runs on `linear_dgp`, where a GLM is correctly specified for both nuisances. The expected
+large-sample pattern is small bias and coverage near 0.95. This short run shows the workflow, not a
+coverage guarantee.
 
 Forty replications is a demonstration rather than evidence. The registered study behind this method
 runs 1,600 replications on two laws. It is published test by test in the
@@ -466,13 +465,9 @@ Load only joblib files you trust, and keep the dependency versions compatible.
 
 ## Where to go next
 
-| the next question | read |
-| --- | --- |
-| flexible learners, and patients nested in navigator teams | [CV-TMLE and cross-fitting](cross-fitting.md) |
-| which baseline variables belong in the assignment model | [collaborative TMLE](collaborative-tmle.md) |
-| an interval when the assignment model is known to be crude | [DR-TMLE](dr-tmle.md) |
-| a rule, a dose change, or an odds tilt instead of "offer to everyone" | [intervention axes](interventions.md) |
-| most patients never returned the survey | [survey non-response](survey-nonresponse.md) |
-| navigation at more than one decision time | [longitudinal TMLE](longitudinal-tmle.md) |
-| leaving the plan is the outcome, and one cause is administrative | [retention and competing risks](longitudinal-survival.md) |
-| three navigation cadences summarized as a trend | [MSM projections](msm-projections.md) |
+This page treated discharges as independent rows. Read
+[CV-TMLE and cross-fitting](cross-fitting.md) for the same question at network scale, where patients
+share navigator teams. If your worry is instead which baseline variables belong in the assignment
+model, read [collaborative TMLE](collaborative-tmle.md).
+
+The [examples index](index.md#the-program) lists every tutorial in the program.
