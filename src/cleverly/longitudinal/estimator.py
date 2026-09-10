@@ -1057,6 +1057,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         facts = list(self.config.describe())
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines())
+        else:
+            facts.append("causal study protocol: absent")
         if self.data.cluster is not None:
             facts.append(
                 f"clusters = {self.data.n_clusters} ({self.data.cluster_name}, "

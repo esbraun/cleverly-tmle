@@ -16,17 +16,16 @@ post-fit coverage. Complete these rows in order before main-roadmap priority 1. 
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
 The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
-and RM8 carry an open source audit. RM2 and RM3 raise no published-method question, because
-neither row changes an estimand, an estimator configuration, or fold arithmetic.
+and RM8 carry an open source audit. RM3 raises no published-method question, because that row does
+not change an estimand, an estimator configuration, or fold arithmetic.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
-| 0.2 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.3 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.4 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.5 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.6 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.2 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.3 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.4 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.5 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -131,21 +130,6 @@ estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM2. First-class causal study protocol record
-
-Add an immutable protocol object to `CausalStudy`. It records the target population, eligibility,
-time zero, treatment strategies and versions, outcome and horizon, intercurrent-event handling,
-interference unit, and the analyst's assumption rationale. Column roles stay in `PointTreatment`
-and `LongitudinalTreatment`; the protocol explains the causal question those roles encode.
-
-Carry the protocol through identification, result provenance, summaries, and trusted persistence.
-Fingerprint it so two fits that use different treatment versions cannot share one study identity.
-Do not let descriptive metadata change an estimand or an estimator configuration.
-
-Acceptance needs round-trip and backward-compatibility tests, a stable normalized form, and one
-point and one longitudinal tutorial that render the saved protocol. Existing results without a
-protocol must still load and state that the record is absent.
 
 ### RM3. Public reusable split plans
 

@@ -93,7 +93,39 @@ The design says which column plays which role. The estimand says which contrast 
 are separate on purpose, so changing the estimator later cannot change the question.
 
 ```python
-from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly import ATE, CausalStudy, PointTreatment, StudyProtocol
+
+protocol = StudyProtocol(
+    target_population=(
+        "Adults discharged home from a participating hospital during the enrollment period"
+    ),
+    eligibility=(
+        "Age 18 years or older",
+        "Discharged alive",
+        "Discharged home from a participating hospital",
+    ),
+    time_zero="Hospital discharge, after baseline measurement and before navigation assignment",
+    treatment_strategies=(
+        "Offer standard transition navigation",
+        "Provide usual discharge support",
+    ),
+    treatment_versions=(
+        "Bedside transition plan and two scheduled navigator contacts within 30 days",
+        "No access to the transition-navigation offer",
+    ),
+    outcome="Standardized patient-reported transition score",
+    horizon="30 days after discharge",
+    intercurrent_event_handling=(
+        "Use the transition score regardless of readmission",
+        "Analyze the offer regardless of completed contacts",
+    ),
+    interference_unit="Individual patient",
+    assumption_rationale=(
+        "The recorded baseline variables cover the measured common causes",
+        "The standardized offer and version records support consistency",
+        "Reserved navigator capacity and access controls support no interference",
+    ),
+)
 
 study = CausalStudy(
     frame,
@@ -102,6 +134,7 @@ study = CausalStudy(
         treatment="transition_navigation",
         adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
     ),
+    protocol=protocol,
 )
 effect = study.identify(ATE(reference=0))
 
@@ -109,6 +142,9 @@ print(effect.summary())
 for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
+
+The identification summary renders the protocol that `CausalStudy` stored on the effect. The
+typed `ATE` still owns the contrast and its reference arm.
 
 `identify` returns the assumptions that carry the causal reading. Four apply here.
 
@@ -159,6 +195,9 @@ print("standard error:", estimate.std_error)
 print("95% CI:", estimate.ci)
 print("population ATE:", truth["ate"])
 ```
+
+The result summary renders the same complete protocol and its fingerprint. It also reports the
+method configuration separately, because protocol text cannot configure a fit.
 
 Both nuisances use a gradient-boosted learner because the law is nonlinear. Cross-fitting separates
 each nuisance prediction from the row used to evaluate it. The
@@ -445,23 +484,30 @@ stamp, so the assessment above replays without refitting. A program that reports
 that.
 
 ```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from cleverly import load
+
 for capability in result.diagnostics.capabilities:
     print(capability.operation, capability.cost, capability.execution)
 
-result.save("transition-navigation-ate.joblib")
-```
-
-```python
-from cleverly import load
-
-restored = load("transition-navigation-ate.joblib")
-print(restored.replayability)
-print(restored.assess().summary())
+with TemporaryDirectory() as directory:
+    saved = Path(directory) / "transition-navigation-ate.joblib"
+    result.save(saved)
+    restored = load(saved)
+    restored_protocol = restored.identified_effect.protocol
+    assert restored_protocol is not None
+    print("\n".join(restored_protocol.summary_lines()))
+    assert restored_protocol.fingerprint == restored.provenance.protocol_fingerprint
+    print(restored.replayability)
+    print(restored.assess().summary())
 ```
 
 `replayability` says which operations the restored artifact can still perform. The saved assessment
 cache retains reports that ran before the save. A new nuisance refit still needs the analysis data.
-Load only joblib files you trust, and keep the dependency versions compatible.
+Use a maintained path instead of a temporary directory for a real audit artifact. Load only joblib
+files you trust, and keep the dependency versions compatible.
 
 ## Where to go next
 

@@ -25,6 +25,7 @@ from .methods import (
     TMLEMethod,
 )
 from .msm import MSM, MSMSet
+from .protocol import StudyProtocol
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -84,6 +85,7 @@ __all__ = [
     "RegimeContrast",
     "RegimeMean",
     "RiskRatio",
+    "StudyProtocol",
 ]
 
 
@@ -2222,11 +2224,14 @@ class CausalStudy:
         Observed study data. Pandas and Polars dataframes are supported.
     design : PointTreatment or LongitudinalTreatment
         Column roles and treatment-time structure.
+    protocol : StudyProtocol or None
+        Scientific study protocol. ``None`` records that no protocol was supplied.
 
     Attributes
     ----------
     data : CausalData or LongitudinalData
     design : PointTreatment or LongitudinalTreatment
+    protocol : StudyProtocol or None
 
     See Also
     --------
@@ -2249,9 +2254,22 @@ class CausalStudy:
     'ate'
     """
 
-    def __init__(self, data: Any, *, design: PointTreatment | LongitudinalTreatment) -> None:
+    # An artifact written before StudyProtocol has no instance value. The class fallback
+    # makes its public property report absence after trusted unpickling.
+    _protocol: StudyProtocol | None = None
+
+    def __init__(
+        self,
+        data: Any,
+        *,
+        design: PointTreatment | LongitudinalTreatment,
+        protocol: StudyProtocol | None = None,
+    ) -> None:
+        if protocol is not None and not isinstance(protocol, StudyProtocol):
+            raise TypeError("protocol must be a StudyProtocol or None")
         self._design = design
         self._data = design.prepare(data)
+        self._protocol = protocol
 
     @property
     def design(self) -> PointTreatment | LongitudinalTreatment:
@@ -2262,6 +2280,11 @@ class CausalStudy:
     def data(self) -> CausalData | LongitudinalData:
         """Return the validated internal data representation."""
         return self._data
+
+    @property
+    def protocol(self) -> StudyProtocol | None:
+        """Return the scientific study protocol, if one was supplied."""
+        return self._protocol
 
     def identify(
         self,
@@ -2323,7 +2346,8 @@ class CausalStudy:
                     else ""
                 )
             )
-        return (provider or ExplicitAdjustmentProvider()).identify(self, estimand)
+        effect = (provider or ExplicitAdjustmentProvider()).identify(self, estimand)
+        return replace(effect, protocol=self.protocol, _study=self)
 
     def estimate(
         self,
@@ -2351,7 +2375,7 @@ class CausalStudy:
 
 
 @dataclass(frozen=True)
-class IdentifiedEffect:  # numpydoc ignore=PR01
+class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
     """Bind an estimand to a functional and its identification assumptions.
 
     Parameters
@@ -2364,6 +2388,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         Assumptions, nuisance requirements, and remainder condition.
     provider : IdentificationProvider
         Provider that performed identification.
+    protocol : StudyProtocol or None
+        Scientific study protocol stamped by :class:`CausalStudy`.
 
     See Also
     --------
@@ -2402,6 +2428,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     functional: BackdoorMeanContrast
     identification: Identification
     provider: IdentificationProvider
+    protocol: StudyProtocol | None = None
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
 
     def available_methods(self) -> tuple[MethodAvailability, ...]:
@@ -2468,12 +2495,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
+        protocol = (
+            ("causal study protocol: absent",)
+            if self.protocol is None
+            else self.protocol.summary_lines()
+        )
         return (
             f"{self.estimand.definition}\n"
             f"identified by {self.provider.name}: {self.functional.expression}\n"
             f"adjustment/history: {list(self.functional.adjustment)}\n"
             f"required nuisances: {list(self.identification.required_nuisances)}\n"
-            f"assumptions:\n{assumptions}"
+            f"assumptions:\n{assumptions}\n" + "\n".join(protocol)
         )
 
     def summary_lines(self) -> tuple[str, ...]:
@@ -2484,11 +2516,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         tuple of str
             The same facts as lines, for a result summary to append.
         """
+        protocol = (
+            ("causal study protocol: absent",)
+            if self.protocol is None
+            else self.protocol.summary_lines()
+        )
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
+            *protocol,
         )
 
     def estimate(
@@ -2618,6 +2656,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         return replace(
             raw,
             identified_effect=self,
+            provenance=(
+                None
+                if raw.provenance is None
+                else replace(
+                    raw.provenance,
+                    protocol_fingerprint=(
+                        None if self.protocol is None else self.protocol.fingerprint
+                    ),
+                )
+            ),
             method=method,
             parameter_keys=self._point_parameter_keys(raw),
         )
@@ -2772,6 +2820,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         return replace(
             raw,
             identified_effect=self,
+            provenance=replace(
+                raw.provenance,
+                protocol_fingerprint=(None if self.protocol is None else self.protocol.fingerprint),
+            ),
             method=method,
             parameter_keys=self._longitudinal_parameter_keys(raw),
         )

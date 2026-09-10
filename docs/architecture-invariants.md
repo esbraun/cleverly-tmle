@@ -63,13 +63,18 @@ workload becomes dominated by joins, grouping, IO, or conversion rather than est
 
 ## Public causal workflow
 
-The beginner-facing computational path is `CausalStudy -> identify -> estimate`. A design owns
-column roles, a typed estimand owns the causal question, an `IdentifiedEffect` owns the observed-data
-functional and assumptions, and a typed method owns learning and runtime configuration. Do not
-reintroduce root engine constructors or a parallel string-driven convenience path: one public
-question must normalize to one evidenced engine request. *Reconsider when* a distinct audience has
-a workflow that cannot be expressed through these contracts without losing information, and the
-alternative still converges to the same structured identification and result records.
+The beginner-facing computational path is `CausalStudy -> identify -> estimate`. `StudyProtocol`
+owns the study context and assumption rationale. A design owns observed column roles. A typed
+estimand owns the mathematical contrast and intervention metadata.
+
+An `IdentifiedEffect` owns the observed-data functional and assumptions. A typed method owns
+learning and runtime configuration.
+The protocol can describe strategies in study language, but it cannot override another object's
+contract. Do not reintroduce root engine constructors or a parallel string-driven convenience path.
+
+One public question must normalize to one evidenced engine request. *Reconsider when* a distinct
+audience has a workflow that cannot use these contracts without losing information. The
+alternative must still converge to the same structured identification and result records.
 
 An estimation method is named, never selected from the data. `estimate(method=...)` carries a
 fixed default preset, which is a declaration rather than a choice. What is excluded is picking an

@@ -5,10 +5,39 @@ question or an implausible identification argument, so those decisions precede l
 
 ## 1. Formulate the causal question
 
-State the population, treatment strategy, outcome, time horizon, and contrast. Decide whether the
-target is an arm contrast, a mean under a regime, a modified treatment policy, an incremental
-intervention, an MSM projection, or a longitudinal quantity. A printed label such as “ATE” is not
-enough if the reference arm or target population is ambiguous.
+State the population, treatment strategy, outcome, time horizon, and contrast. Choose the target
+family. It can be an arm contrast, a regime mean, a treatment policy, an incremental intervention,
+an MSM projection, or a longitudinal quantity. A label such as “ATE” is insufficient when the
+reference arm or target population is ambiguous.
+
+Store the study context in a `StudyProtocol` when the analysis needs a durable record:
+
+```python
+from cleverly import StudyProtocol
+
+protocol = StudyProtocol(
+    target_population="Adults discharged home from participating hospitals",
+    eligibility=("Adult at discharge", "Discharged alive", "Discharged home"),
+    time_zero="Hospital discharge, before navigation assignment",
+    treatment_strategies=("Offer navigation", "Provide usual discharge support"),
+    treatment_versions=("Bedside plan and two scheduled contacts", "No navigation offer"),
+    outcome="Thirty-day patient-reported transition score",
+    horizon="30 days after discharge",
+    intercurrent_event_handling=("Use the score regardless of readmission",),
+    interference_unit="Patient",
+    assumption_rationale=(
+        "Baseline adjustment covers the measured common causes of assignment and outcome",
+        "Reserved navigator capacity supports the no-interference argument",
+    ),
+)
+```
+
+This record combines selected vocabulary from the
+[target-trial components](https://miguelhernan.org/whatifbook),
+[ICH E9(R1)](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf),
+and the literature on
+[treatment versions](https://pmc.ncbi.nlm.nih.gov/articles/PMC4219328/). It is not a complete
+target-trial protocol or proof of ICH estimand compliance.
 
 ## 2. Declare the observed-data design
 
@@ -28,11 +57,25 @@ study = CausalStudy(
         weights="sampling_weight",
         cluster="household",
     ),
+    protocol=protocol,
 )
 ```
 
 An empty adjustment set is an identification claim. Set `randomized=True` when randomization, not
 omission, justifies it.
+
+Each public object keeps one responsibility:
+
+| object | owns | does not own |
+| --- | --- | --- |
+| `StudyProtocol` | the population, eligibility, timing, strategies, versions, outcome, follow-up, intercurrent-event handling, interference unit, and assumption rationale | the estimand contrast or analysis configuration |
+| study design | observed column roles and treatment-time structure | the scientific rationale for those choices |
+| typed estimand | the mathematical contrast, intervention, and target-specific metadata | observed column roles or learner choices |
+| identification | the observed-data functional, assumptions, nuisances, and remainder condition | the evidence that assumptions hold in this study |
+| typed method | learners, cross-fitting, targeting, inference, and runtime settings | the causal question or identification argument |
+
+`CausalStudy` stamps the optional protocol onto the identified effect and each fitted result. A
+summary states `causal study protocol: absent` when the study has no protocol record.
 
 ## 3. Choose a typed estimand
 

@@ -9,6 +9,7 @@ categorized API tables.
    :nosignatures:
 
    cleverly.CausalStudy
+   cleverly.StudyProtocol
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
    cleverly.Estimand
