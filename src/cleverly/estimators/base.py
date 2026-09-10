@@ -30,6 +30,7 @@ from ..inference.results import (
     sole_estimate,
 )
 from ..learners.crossfit import CrossFitPlan
+from ..protocol import protocol_lines
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..utils.frames import emit_frame
@@ -1156,7 +1157,14 @@ class TMLEResult:
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines())
         else:
-            facts.append("causal study protocol: absent")
+            # A recorded digest with no identification metadata is not absence: the fit ran
+            # under a study protocol and the descriptive record did not reach this summary.
+            facts.extend(
+                protocol_lines(
+                    None,
+                    None if self.provenance is None else self.provenance.protocol_fingerprint,
+                )
+            )
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
         if data.is_weighted:

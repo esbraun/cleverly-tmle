@@ -20,9 +20,10 @@ What it deliberately does not record:
 from __future__ import annotations
 
 import hashlib
+import json
 import platform
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -31,12 +32,13 @@ import numpy as np
 from .utils.records import _DefaultingUnpickle
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from .data.causal_data import CausalData
     from .learners.crossfit import Folds
+    from .protocol import StudyProtocol
 
-__all__ = ["Provenance", "build", "fingerprint_array", "record"]
+__all__ = ["Provenance", "build", "fingerprint_array", "fingerprint_payload", "record"]
 
 #: Length of the hex digests.  Eight bytes is far past what is needed to tell two
 #: datasets apart in a workflow, and short enough to read out loud.
@@ -60,6 +62,26 @@ def fingerprint_array(*arrays: Any) -> str:
         hasher.update(str(values.dtype).encode())
         hasher.update(values.tobytes())
     return hasher.hexdigest()
+
+
+def fingerprint_payload(payload: Mapping[str, Any]) -> tuple[str, str]:
+    """The canonical JSON text of a record, and a stable digest of that text.
+
+    Parameters
+    ----------
+    payload : mapping
+        A JSON-compatible mapping, such as a record's ``to_dict()``.
+
+    Returns
+    -------
+    tuple of str
+        The canonical UTF-8 JSON text, then the BLAKE2b digest of its UTF-8 bytes.
+    """
+    # ``ensure_ascii=False`` is part of the canonical form rather than a display choice.
+    # Escaping a non-ASCII character instead writes different bytes, so every digest a
+    # record has ever reported would move the day the flag flipped.
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return text, hashlib.blake2b(text.encode("utf-8"), digest_size=_DIGEST_BYTES).hexdigest()
 
 
 def _version(name: str) -> str:
@@ -112,6 +134,13 @@ class Provenance(_DefaultingUnpickle):
         Versions of the learner libraries used.
     protocol_fingerprint : str or None
         Digest of the causal study protocol. ``None`` means the fit carried no record.
+
+    Notes
+    -----
+    :func:`cleverly.load` re-verifies none of these digests. Each one records what the fit
+    that wrote the artifact saw, and a joblib artifact is trusted input in this package, so
+    a digest is evidence to compare against a fresh fit rather than a checksum the file
+    runs against itself.
     """
 
     cleverly_version: str
@@ -154,6 +183,29 @@ class Provenance(_DefaultingUnpickle):
         """
         return cls(**payload)
 
+    def with_protocol(self, protocol: StudyProtocol | None) -> Provenance:
+        """Return a copy carrying the digest of one causal study protocol.
+
+        Parameters
+        ----------
+        protocol : StudyProtocol or None
+            Record the fit ran under. ``None`` stamps no digest.
+
+        Returns
+        -------
+        Provenance
+            A copy whose ``protocol_fingerprint`` is that record's digest, or ``None``.
+
+        Notes
+        -----
+        Only the digest enters this record. The descriptive protocol rides on
+        :class:`~cleverly.IdentifiedEffect`, so a result can answer "was this the same
+        study protocol?" without the provenance record growing study text.
+        """
+        return replace(
+            self, protocol_fingerprint=None if protocol is None else protocol.fingerprint
+        )
+
     def describe(self) -> list[str]:
         """Lines for :meth:`~cleverly.TMLEResult.summary`.
 
@@ -169,7 +221,7 @@ class Provenance(_DefaultingUnpickle):
         if self.run_id:
             lines.append(f"run_id: {self.run_id}")
         if self.protocol_fingerprint is not None:
-            lines.append(f"protocol {self.protocol_fingerprint}")
+            lines.append(f"protocol digest {self.protocol_fingerprint}")
         return lines
 
 

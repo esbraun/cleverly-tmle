@@ -2,37 +2,80 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+import unicodedata
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
-__all__ = ["StudyProtocol"]
+from .exceptions import DataError
+from .provenance import fingerprint_payload
+from .utils.records import _DefaultingUnpickle
 
-_DIGEST_BYTES = 8
+__all__ = ["StudyProtocol", "protocol_lines"]
+
+#: Version of the normalized record schema.  A module constant rather than a field, so a
+#: record cannot be constructed claiming a schema this package does not implement.
+_SCHEMA_VERSION = 1
+
+#: Field-metadata values naming the two validated kinds.  ``__post_init__``,
+#: :meth:`StudyProtocol.to_dict` and :meth:`StudyProtocol.summary_lines` all walk
+#: :func:`dataclasses.fields`, so declaring a field is what validates, serializes and
+#: reports it.  The two hand-written name tuples this replaces went stale silently: a
+#: field left out of them was stored unvalidated.
+_TEXT = "text"
+_TEXT_SEQUENCE = "text_sequence"
+
+#: The one line a summary prints when no study protocol was recorded.
+_ABSENT = "causal study protocol: absent"
 
 
-def _text(name: str, value: str) -> None:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be non-blank text")
+def _text(name: str, value: object) -> str:
+    """Return one text field stripped of surrounding whitespace, or refuse it."""
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be text, not {type(value).__name__}")
+    stripped = value.strip()
+    if not stripped:
+        raise DataError(f"{name} must be non-blank text")
+    # Both refusals below run at construction rather than at fingerprint time.  A record
+    # that raises only when somebody asks for its digest is a record whose digest is not a
+    # property of the record, and the study that stored it has already finished.
+    try:
+        stripped.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise DataError(
+            f"{name} must be text that encodes as UTF-8; the value carries an unpaired "
+            "surrogate, which has no canonical JSON form and so no digest"
+        ) from error
+    control = next((item for item in stripped if unicodedata.category(item) == "Cc"), None)
+    if control is not None:
+        raise DataError(
+            f"{name} must not carry the control character {control!r}; it would split one "
+            "summary line into two and read as two different facts"
+        )
+    return stripped
 
 
-def _text_tuple(name: str, values: Sequence[str]) -> tuple[str, ...]:
+def _text_tuple(name: str, values: object) -> tuple[str, ...]:
+    """Return one sequence field as a tuple of normalized entries, or refuse it."""
     if isinstance(values, (str, bytes)):
         raise TypeError(f"{name} must be a sequence of text entries, not one text value")
     if not isinstance(values, Sequence):
-        raise TypeError(f"{name} must be an ordered sequence of text entries")
-    normalized = tuple(values)
+        # A numpy array and a pandas Index are both refused here, and deliberately: the
+        # record states a declared order of text, and an array also carries a dtype that
+        # can turn an entry into a truncated or numeric value on the way in.
+        raise TypeError(
+            f"{name} must be an ordered sequence of text entries, such as a list or a "
+            "tuple; a set, a mapping, a one-shot iterator, a numpy array and a pandas "
+            f"Index are all refused; got {type(values).__name__}"
+        )
+    normalized = tuple(_text(f"{name}[{index}]", value) for index, value in enumerate(values))
     if not normalized:
-        raise ValueError(f"{name} must contain at least one entry")
-    for index, value in enumerate(normalized):
-        _text(f"{name}[{index}]", value)
+        raise DataError(f"{name} must contain at least one entry")
     return normalized
 
 
 @dataclass(frozen=True)
-class StudyProtocol:  # numpydoc ignore=PR02
+class StudyProtocol(_DefaultingUnpickle):
     """Record the scientific protocol that gives a causal question its context.
 
     Parameters
@@ -57,8 +100,10 @@ class StudyProtocol:  # numpydoc ignore=PR02
         Unit within which interference may occur.
     assumption_rationale : sequence of str
         Study-specific rationale for the identification assumptions.
+
+    Attributes
+    ----------
     schema_version : int
-        Version of this normalized record schema.
 
     See Also
     --------
@@ -71,6 +116,11 @@ class StudyProtocol:  # numpydoc ignore=PR02
     This hybrid record uses target-trial and ICH estimand vocabulary. It is not a
     complete target-trial protocol or a complete ICH estimand. The typed estimand stores
     the contrast, and the method stores the analysis configuration.
+
+    Every text field is stripped of surrounding whitespace and then validated. The class
+    refuses a wrong type with :class:`TypeError`, and refused content with
+    :class:`~cleverly.DataError`. The split is the difference between a caller who passed
+    the wrong kind of object and a caller who passed a record the schema cannot state.
 
     Examples
     --------
@@ -91,35 +141,51 @@ class StudyProtocol:  # numpydoc ignore=PR02
     16
     """
 
-    target_population: str
-    eligibility: Sequence[str]
-    time_zero: str
-    treatment_strategies: Sequence[str]
-    treatment_versions: Sequence[str]
-    outcome: str
-    horizon: str
-    intercurrent_event_handling: Sequence[str]
-    interference_unit: str
-    assumption_rationale: Sequence[str]
-    schema_version: int = field(default=1, init=False)
-    CURRENT_SCHEMA_VERSION: ClassVar[int] = 1
+    target_population: str = field(metadata={"kind": _TEXT})
+    eligibility: Sequence[str] = field(metadata={"kind": _TEXT_SEQUENCE})
+    time_zero: str = field(metadata={"kind": _TEXT})
+    treatment_strategies: Sequence[str] = field(metadata={"kind": _TEXT_SEQUENCE})
+    treatment_versions: Sequence[str] = field(metadata={"kind": _TEXT_SEQUENCE})
+    outcome: str = field(metadata={"kind": _TEXT})
+    horizon: str = field(metadata={"kind": _TEXT})
+    intercurrent_event_handling: Sequence[str] = field(metadata={"kind": _TEXT_SEQUENCE})
+    interference_unit: str = field(metadata={"kind": _TEXT})
+    assumption_rationale: Sequence[str] = field(metadata={"kind": _TEXT_SEQUENCE})
+
+    #: Summary label for each reported field, in report order.  Written out rather than
+    #: derived from the field name, because ``name.replace("_", " ")`` cannot produce
+    #: "intercurrent-event handling" and these lines are read by a person.
+    _LABELS: ClassVar[dict[str, str]] = {
+        "target_population": "target population",
+        "eligibility": "eligibility",
+        "time_zero": "time zero",
+        "treatment_strategies": "treatment strategies",
+        "treatment_versions": "treatment versions",
+        "outcome": "outcome",
+        "horizon": "horizon",
+        "intercurrent_event_handling": "intercurrent-event handling",
+        "interference_unit": "interference unit",
+        "assumption_rationale": "assumption rationale",
+    }
 
     def __post_init__(self) -> None:
-        for name in ("target_population", "time_zero", "outcome", "horizon", "interference_unit"):
-            _text(name, getattr(self, name))
-        for name in (
-            "eligibility",
-            "treatment_strategies",
-            "treatment_versions",
-            "intercurrent_event_handling",
-            "assumption_rationale",
-        ):
-            object.__setattr__(self, name, _text_tuple(name, getattr(self, name)))
+        for spec in fields(self):
+            kind = spec.metadata.get("kind")
+            value = getattr(self, spec.name)
+            if kind == _TEXT:
+                object.__setattr__(self, spec.name, _text(spec.name, value))
+            elif kind == _TEXT_SEQUENCE:
+                object.__setattr__(self, spec.name, _text_tuple(spec.name, value))
         if len(self.treatment_strategies) != len(self.treatment_versions):
-            raise ValueError(
+            raise DataError(
                 "treatment_strategies and treatment_versions must contain the same number "
                 "of entries"
             )
+
+    @property
+    def schema_version(self) -> int:
+        """Return the version of this normalized record schema."""
+        return _SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         """Return the stable JSON-compatible normalized form.
@@ -129,19 +195,14 @@ class StudyProtocol:  # numpydoc ignore=PR02
         dict
             A mapping with sequences represented as JSON arrays.
         """
-        return {
-            "target_population": self.target_population,
-            "eligibility": list(self.eligibility),
-            "time_zero": self.time_zero,
-            "treatment_strategies": list(self.treatment_strategies),
-            "treatment_versions": list(self.treatment_versions),
-            "outcome": self.outcome,
-            "horizon": self.horizon,
-            "intercurrent_event_handling": list(self.intercurrent_event_handling),
-            "interference_unit": self.interference_unit,
-            "assumption_rationale": list(self.assumption_rationale),
-            "schema_version": self.schema_version,
-        }
+        payload: dict[str, Any] = {}
+        for spec in fields(self):
+            value = getattr(self, spec.name)
+            payload[spec.name] = list(value) if isinstance(value, tuple) else value
+        # The schema version is a property rather than a field, so the walk cannot reach
+        # it, and the serialized form has to carry it for `from_dict` to check.
+        payload["schema_version"] = self.schema_version
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> StudyProtocol:
@@ -158,24 +219,20 @@ class StudyProtocol:  # numpydoc ignore=PR02
             Validated immutable protocol record.
         """
         values = dict(payload)
-        schema_version = values.pop("schema_version", cls.CURRENT_SCHEMA_VERSION)
-        if schema_version != cls.CURRENT_SCHEMA_VERSION:
-            raise ValueError(
-                f"schema_version must be {cls.CURRENT_SCHEMA_VERSION}; got {schema_version}"
-            )
+        schema_version = values.pop("schema_version", _SCHEMA_VERSION)
+        if schema_version != _SCHEMA_VERSION:
+            raise DataError(f"schema_version must be {_SCHEMA_VERSION}; got {schema_version}")
         return cls(**values)
 
     @property
     def canonical_json(self) -> str:
         """Return canonical UTF-8 JSON text used by :attr:`fingerprint`."""
-        return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return fingerprint_payload(self.to_dict())[0]
 
     @property
     def fingerprint(self) -> str:
         """Return the BLAKE2b digest of the canonical UTF-8 JSON record."""
-        return hashlib.blake2b(
-            self.canonical_json.encode("utf-8"), digest_size=_DIGEST_BYTES
-        ).hexdigest()
+        return fingerprint_payload(self.to_dict())[1]
 
     def summary_lines(self) -> tuple[str, ...]:
         """Return every protocol field as readable summary lines.
@@ -183,18 +240,45 @@ class StudyProtocol:  # numpydoc ignore=PR02
         Returns
         -------
         tuple of str
-            Full protocol record and fingerprint, one fact per line.
+            The complete protocol record, one fact per line.
+
+        Notes
+        -----
+        The digest is not repeated here. Every other digest this package reports is
+        rendered on the provenance line, and :meth:`cleverly.Provenance.describe` reports
+        this one there.
         """
-        return (
-            f"causal study protocol: schema {self.schema_version}; {self.fingerprint}",
-            f"target population: {self.target_population}",
-            f"eligibility: {list(self.eligibility)}",
-            f"time zero: {self.time_zero}",
-            f"treatment strategies: {list(self.treatment_strategies)}",
-            f"treatment versions: {list(self.treatment_versions)}",
-            f"outcome: {self.outcome}",
-            f"horizon: {self.horizon}",
-            f"intercurrent-event handling: {list(self.intercurrent_event_handling)}",
-            f"interference unit: {self.interference_unit}",
-            f"assumption rationale: {list(self.assumption_rationale)}",
-        )
+        lines = [f"causal study protocol: schema {self.schema_version}"]
+        for name, label in self._LABELS.items():
+            value = getattr(self, name)
+            lines.append(f"{label}: {', '.join(value) if isinstance(value, tuple) else value}")
+        return tuple(lines)
+
+
+def protocol_lines(protocol: StudyProtocol | None, digest: str | None = None) -> tuple[str, ...]:
+    """Return the study-protocol lines of one summary.
+
+    Parameters
+    ----------
+    protocol : StudyProtocol or None
+        Record to report. ``None`` means the caller holds no record.
+    digest : str or None
+        Digest the fit recorded, read only when ``protocol`` is ``None``.
+
+    Returns
+    -------
+    tuple of str
+        Every protocol field as one line, or the single line that says why no field is
+        reported.
+
+    Notes
+    -----
+    A digest with no record is a third state rather than absence. It says the fit ran
+    under a protocol and that the descriptive record did not survive to this summary, so
+    reporting absence there would contradict the digest on the provenance line.
+    """
+    if protocol is not None:
+        return protocol.summary_lines()
+    if digest is None:
+        return (_ABSENT,)
+    return (f"causal study protocol: record not retained; digest {digest}",)

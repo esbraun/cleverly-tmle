@@ -87,6 +87,7 @@ from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM
+from ..protocol import protocol_lines
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -1058,7 +1059,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines())
         else:
-            facts.append("causal study protocol: absent")
+            # A recorded digest with no identification metadata is not absence: the fit ran
+            # under a study protocol and the descriptive record did not reach this summary.
+            facts.extend(protocol_lines(None, self.provenance.protocol_fingerprint))
         if self.data.cluster is not None:
             facts.append(
                 f"clusters = {self.data.n_clusters} ({self.data.cluster_name}, "

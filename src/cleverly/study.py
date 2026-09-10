@@ -25,7 +25,7 @@ from .methods import (
     TMLEMethod,
 )
 from .msm import MSM, MSMSet
-from .protocol import StudyProtocol
+from .protocol import StudyProtocol, protocol_lines
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -85,7 +85,6 @@ __all__ = [
     "RegimeContrast",
     "RegimeMean",
     "RiskRatio",
-    "StudyProtocol",
 ]
 
 
@@ -2237,6 +2236,7 @@ class CausalStudy:
     --------
     PointTreatment : The design declaration for treatment given once.
     LongitudinalTreatment : The design declaration for time-varying treatment.
+    StudyProtocol : The scientific record the ``protocol=`` argument accepts.
     IdentifiedEffect : What :meth:`identify` returns.
 
     Examples
@@ -2255,7 +2255,10 @@ class CausalStudy:
     """
 
     # An artifact written before StudyProtocol has no instance value. The class fallback
-    # makes its public property report absence after trusted unpickling.
+    # makes its public property report absence after trusted unpickling.  It is a third
+    # restore mechanism beside a field default and `_DefaultingUnpickle` because
+    # `CausalStudy` is not a dataclass: there are no `dataclasses.fields` for the mixin to
+    # walk, so a class attribute is the only thing an absent instance entry falls back to.
     _protocol: StudyProtocol | None = None
 
     def __init__(
@@ -2320,6 +2323,11 @@ class CausalStudy:
         -----
         Pass a typed estimand such as ``ATE()``. String aliases are refused with a
         :class:`CapabilityError` so the failure identifies the required public object.
+
+        The study stamps its own :class:`StudyProtocol` onto the returned effect and binds
+        itself as the source. Both values override whatever ``provider`` set, because the
+        protocol is a fact about the observed study rather than about the identification
+        strategy.
 
         Examples
         --------
@@ -2495,17 +2503,12 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
-        protocol = (
-            ("causal study protocol: absent",)
-            if self.protocol is None
-            else self.protocol.summary_lines()
-        )
         return (
             f"{self.estimand.definition}\n"
             f"identified by {self.provider.name}: {self.functional.expression}\n"
             f"adjustment/history: {list(self.functional.adjustment)}\n"
             f"required nuisances: {list(self.identification.required_nuisances)}\n"
-            f"assumptions:\n{assumptions}\n" + "\n".join(protocol)
+            f"assumptions:\n{assumptions}\n" + "\n".join(protocol_lines(self.protocol))
         )
 
     def summary_lines(self) -> tuple[str, ...]:
@@ -2516,17 +2519,12 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         tuple of str
             The same facts as lines, for a result summary to append.
         """
-        protocol = (
-            ("causal study protocol: absent",)
-            if self.protocol is None
-            else self.protocol.summary_lines()
-        )
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
-            *protocol,
+            *protocol_lines(self.protocol),
         )
 
     def estimate(
@@ -2656,15 +2654,11 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         return replace(
             raw,
             identified_effect=self,
+            # Only this path guards: ``TMLEResult.provenance`` is optional and
+            # ``LongitudinalResult.provenance`` is not, so a point fit that recorded no
+            # provenance has nothing to stamp the study protocol onto.
             provenance=(
-                None
-                if raw.provenance is None
-                else replace(
-                    raw.provenance,
-                    protocol_fingerprint=(
-                        None if self.protocol is None else self.protocol.fingerprint
-                    ),
-                )
+                None if raw.provenance is None else raw.provenance.with_protocol(self.protocol)
             ),
             method=method,
             parameter_keys=self._point_parameter_keys(raw),
@@ -2820,10 +2814,7 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         return replace(
             raw,
             identified_effect=self,
-            provenance=replace(
-                raw.provenance,
-                protocol_fingerprint=(None if self.protocol is None else self.protocol.fingerprint),
-            ),
+            provenance=raw.provenance.with_protocol(self.protocol),
             method=method,
             parameter_keys=self._longitudinal_parameter_keys(raw),
         )
