@@ -315,19 +315,43 @@ generates every sample and fits the Python side to completion before it hands th
 the R container. The two are the same work on the same cores, so overlapping them would leave both
 contending for a machine neither can have. The fast suite leaves inner parallelism alone.
 
-Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
-a unit, integration, or end-to-end test in the fast tier, or by a registered validation study, and
-no assertion about an estimate, an interval or a diagnostic verdict may rest on a documented
-example. Evidence manifests such as `docs/technical-reference/evidence.md` remain
-test-enforced source registries.
+Documentation examples are not statistical evidence. A unit, integration, or end-to-end test in
+the fast tier must cover the behavior a guide shows, or a registered validation study must cover
+it. A documented example never supplies the evidence for an estimate, an interval, or a diagnostic
+verdict, whatever a runtime gate reads off that example. Evidence manifests such as
+`docs/technical-reference/evidence.md` remain test-enforced source registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
-executes the registered documents' fences and asserts only that nothing raises; it asserts nothing
-about any number, which is what keeps the rule above intact. *Reconsider when* the check stops
-paying for its runtime. It exists because compiling a fence cannot see a name the package does not
-have. Five shipped examples were broken that way at once: two on a renamed attribute, two calling
-`.summary()` on reports that expose `to_frame()`, and one passing a float where an assignment
-density is required. Every one of them rendered as ordinary, copyable code.
+executes the registered documents' fences. It runs two gates, and the table states what each one
+covers.
+
+| gate | documents | sample size | what it asserts |
+| --- | --- | --- | --- |
+| `test_every_example_runs` | every entry in `PRELUDES` | shrunk to `SMALL_N` | nothing raises |
+| `test_tutorial_semantics_at_documented_size` | the four entries in `TUTORIAL_SEMANTIC_ASSERTIONS` | the size the page prints | one reviewed callback for that page |
+
+The smoke gate asserts no number. It exists because compiling a fence cannot see a name the
+package does not have. Six shipped examples were broken that way at once: two on a renamed
+attribute, two calling `.summary()` on reports that expose `to_frame()`, one passing a float where
+an assignment density is required, and one stratifying on a column the design does not adjust for.
+Every one of them rendered as ordinary, copyable code. *Reconsider when* the check stops paying
+for its runtime.
+
+The semantic gate does assert numbers. It stays inside the rule above because of what it asserts
+them about: each callback checks that a page reports its own output correctly. A callback reads
+identification metadata and summary strings, exact display identities such as
+`survival = 1 - risk`, and the direction, ordering, and coverage that the page narrates at the
+page's own seed. An identity holds in every sample. A seeded relation holds in the one sample the
+reader sees, so the callback detects a page that contradicts itself and certifies no method. A
+method claim still needs an ordinary fast test or a registered study.
+
+The gate is bounded by review rather than by a heuristic. Each callback lives in the test module
+and not in the document, so a rewritten page cannot grant itself a numeric gate.
+`test_every_tutorial_semantic_assertion_names_one_reviewed_runtime_example` pins the registry to
+the four reviewed tutorials, and this second pass runs them unshrunk, which is the cost that keeps
+the registry small. *Reconsider when* a callback needs a looser tolerance to keep passing. A
+relation that moves under a supported change is a sampling claim, and it belongs in a registered
+study.
 
 A reader-facing notebook stores outputs, so its fast check is necessarily narrower. The stamp
 detects a code, output, or stamp-field edit after stamping. It does not prove that the code produced

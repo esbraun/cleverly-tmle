@@ -103,10 +103,8 @@ arms = study.identify(CounterfactualMean())
 print(arms.summary())
 ```
 
-The printed identification record states positivity in its binary form. It reads
-`0 < P(A = 1 | W) < 1`, and it says that both counterfactual means are supported. This law has
-three arms, so read the line as a positive probability of every cadence at every covariate value.
-[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) tracks the fix.
+The printed positivity condition names `high`, `low`, and `medium`. Each level needs a positive
+probability at every covariate value where the target places mass.
 
 Start with the per-arm report, because the projection is a summary *of it*. A board that cannot
 interpret the arm means cannot interpret their projection either.
@@ -187,9 +185,9 @@ print("estimated:")
 print(trend_result.to_frame()[["estimand", "psi"]])
 ```
 
-The estimated coefficients sit near the projection of the *population* means onto the same working
-model. The line does not interpolate all three arm means. It minimizes their total squared
-deviation under the declared uniform weight.
+In this fixed draw, each coefficient interval contains the projection of the *population* means
+onto the same working model. The line does not interpolate all three arm means. It minimizes their
+total squared deviation under the declared uniform weight.
 
 That is the whole idea. The estimand is the projection, and the estimator recovers it. Read the
 slope as "the best linear summary of the cadence response under a uniform weight", not as "the

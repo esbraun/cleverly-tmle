@@ -13,19 +13,20 @@ published theory do not enter this sequence.
 
 The examples are executable, but their review exposed gaps in the public study record and in
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
-still needs its own contract and evidence, even when it appears in this top-priority queue. The
-"next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7, and
-RM8 carry an open source audit, and the other rows raise no published-method question.
+still needs its own contract and evidence, even when it appears in this top-priority queue.
+
+The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
+and RM8 carry an open source audit. RM2 and RM3 raise no published-method question, because
+neither row changes an estimand, an estimator configuration, or fold arithmetic.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Identification contracts and semantic example gates | implement and test defects | missing-outcome identification omits its functional, MAR, and response positivity; multi-arm summaries state binary positivity; survival outputs carry incorrect labels or standard errors; the collaborative selection footer reads omitted candidates as a causal bias-variance trade; the runtime gate cannot check printed claims | [RM1](#rm1-identification-contracts-and-semantic-example-gates) |
-| 0.2 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
-| 0.3 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
-| 0.4 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
-| 0.5 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.6 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.7 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | First-class causal study protocol record | design, implement, and validate | eligibility, time zero, treatment versions, follow-up, and assumption arguments exist only in prose and are absent from the saved result | [RM2](#rm2-first-class-causal-study-protocol-record) |
+| 0.2 | Public reusable split plans | design, implement, and validate | grouped folds are generated correctly, but a user cannot supply and validate a prespecified assignment through `CrossFitting` | [RM3](#rm3-public-reusable-split-plans) |
+| 0.3 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.4 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
+| 0.5 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.6 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -130,46 +131,6 @@ estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM1. Identification contracts and semantic example gates
-
-Four tutorials defer five defects to this row. The table names each one and the page it is
-deferred from.
-
-| defect | where a reader meets it |
-| --- | --- |
-| a missing-outcome identification record omits its observed-data functional, MAR, and response positivity | [survey non-response](examples/survey-nonresponse.md) |
-| a multi-arm summary states binary positivity | [MSM projections](examples/msm-projections.md) |
-| `curve(scale="survival")` returns risk-labelled rows with transformed values | [time-to-event outcomes](examples/longitudinal-survival.md) |
-| `incidence_total()` divides the already mean-scaled influence covariance by the sample size again | [time-to-event outcomes](examples/longitudinal-survival.md) |
-| the collaborative selection footer reads omitted candidates as a causal bias-variance trade | [collaborative TMLE](examples/collaborative-tmle.md) |
-
-The row also adds the semantic gates that would have caught each defect.
-
-Make identification depend on the estimand and the declared design roles. A point-treatment
-summary must name every supported treatment level. With `missingness=`, it must print the
-observed-data functional and add MAR, response positivity, and the response nuisance. With
-`intermediate=`, it must add the level-specific intermediate and observation conditions that the
-fitted score uses.
-
-Correct the longitudinal display helpers. `curve(scale="survival")` must return survival-labelled
-rows, not risk-labelled rows with transformed values. `incidence_total()` must take the square root
-of the already mean-scaled influence covariance without dividing by the sample size again. Add exact
-transformation, covariance, and machine-readable label tests.
-
-Replace the collaborative-selection summary's causal bias-variance footer with a description of the
-quantity the selector observes: targeted cross-validated loss. Test the public summary under a law
-where omitted candidates have different causal roles, so presentation cannot imply a decomposition
-the selector did not estimate.
-
-Add tests at the public `CausalStudy.identify()` boundary for binary, multi-arm, missing-outcome,
-and controlled-direct-effect designs. Each test must compare the printed functional, assumptions,
-and required nuisances with the fitted mechanism factors. Add semantic assertions for
-sample-specific tutorial claims that remain after the documentation review. Fence execution alone
-is not evidence for a reported direction, diagnostic value, or equality.
-
-This row changes no fitted result. Acceptance requires byte-identical estimates and influence
-curves for the existing example seeds, plus the documentation gate and fast suite.
 
 ### RM2. First-class causal study protocol record
 

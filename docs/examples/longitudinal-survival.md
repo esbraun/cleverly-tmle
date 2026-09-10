@@ -127,20 +127,34 @@ Read the same fit on the retention scale.
 
 ```python
 survival_curve = exit_result.curve(scale="survival")
+print(survival_curve[["estimand", "parameter", "scale", "view"]])
 print(survival_curve[["regimen", "time", "psi", "ci_lower", "ci_upper"]])
 ```
 
 `curve()` returns one row per regimen per horizon, with a `time` column that `to_frame()` does not
-carry. The survival scale is not a relabelling. For a level it reports $1 - F$, mirroring the
-estimate and the interval. For a contrast it negates the estimate, and it negates **and swaps** the
-interval bounds. The standard error is the same either way.
+carry. The two prints show the same rows in the same order. The survival scale is not a
+relabelling. For a level it reports $1 - F$, mirroring the estimate and the interval. For a
+contrast it negates the estimate, and it negates **and swaps** the interval bounds. The standard
+error is the same either way.
 
-The current helper leaves `estimand` and `scale` labelled as risk and level after this
-transformation. This example omits those two incorrect label columns. The display defect is recorded
-in [RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+Four columns name each row, and each one answers a different question.
+
+| column | what it records | on this frame |
+| --- | --- | --- |
+| `estimand` | the name of the quantity the row reports | `survival_regimen[always @ t=1]` |
+| `parameter` | the key of the estimate the row comes from | `risk_regimen[always @ t=1]` |
+| `scale` | `level` or `difference`, the vocabulary `to_frame()` also uses | `level` |
+| `view` | the view you asked for | `survival` |
+
+The level rows show why the frame carries two names. This fit never estimated a parameter called
+`survival_regimen[always @ t=1]`, so `exit_result[row.estimand]` raises a `KeyError`. It did
+estimate `risk_regimen[always @ t=1]`, so `exit_result[row.parameter]` returns that estimate. A
+contrast row keeps its generic `ate_regimen[...]` name under both views. A risk difference and a
+survival difference are the same parameter up to a sign. On a contrast row the two columns
+therefore hold the same key.
 
 At the documented sample size the retention curve separates. Patients assigned navigation in both
-periods stay enrolled at a visibly higher rate by the second period.
+periods stay enrolled at a higher rate by the second period.
 
 **Horizons are the fit's own time points, not days.** `horizons=(1, 2)` names the two declared plan
 periods. Asking for a horizon outside `1..T` is refused rather than interpolated.
@@ -260,16 +274,20 @@ event_levels = event_study.identify(
 ).estimate(method=event_method)
 print(event_levels.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 incidence_totals = event_levels.incidence_total()
-print(incidence_totals[["regimen", "time", "total", "excess"]])
+print(incidence_totals[["regimen", "time", "total", "std_err", "excess"]])
 ```
 
 `incidence_total()` sums the causes per regimen per horizon. It does not renormalise them onto a
 simplex, because that would move each cause off the score equation the fit just solved. The `excess`
 column is what a renormalisation would have hidden.
+The standard error uses the covariance of the summed cause-specific influence curves. The
+calculation preserves the fit's cluster structure.
 
-The helper's current `std_err` divides an already mean-scaled covariance by the sample size a second
-time. This example omits that invalid column. The formula and its missing test are recorded in
-[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates).
+Event-free survival is the complement of the **sum** of the cause-specific incidences. The
+complement of one cause-specific incidence is a different quantity. A fit that declares two or more
+causes therefore refuses `curve(scale="survival")`, and this fit declares two. Use
+`incidence_total()` to inspect the sum across causes. A fit that declares one cause reports the
+survival view, because there the sum is that one incidence.
 
 ## The failure mode: asking the fit to remove a competing cause
 

@@ -28,7 +28,7 @@ from cleverly.validation.longitudinal import (
 )
 from cleverly.validation.nuisance import NuisanceModelReport
 from tests.conftest import FAST_KWARGS
-from tests.unit.test_intervention_load_diagnostics import _legacy
+from tests.pickles import legacy_without as _legacy
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
 #: The columns :meth:`LongitudinalNuisanceDiagnostics.to_frame` writes for every report,

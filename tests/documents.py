@@ -7,10 +7,14 @@ a new guide added under ``docs/`` would be covered by one of them and not the ot
 nothing would say so.
 
 Three modules now, since :mod:`tests.unit.test_documentation_runtime` *executes* the
-reader-facing subset rather than only compiling it.  That does not make examples an
-executable tier in the sense ``docs/architecture-invariants.md`` rules out: the runtime check
-asserts that nothing raises and asserts nothing about any number, so an example is still
-explanatory material and still not statistical evidence.
+reader-facing subset rather than only compiling it.  That module runs two gates over this
+set.  Its smoke gate asserts that a block raises nothing, and asserts nothing about any
+number.  Its bounded semantic gate does assert numbers, and asserts them about one thing
+only: whether a reviewed page reports its own output correctly, through a display identity
+or through a relation the page narrates at its own seed.  Neither gate makes an example
+statistical evidence, which is the rule ``docs/architecture-invariants.md`` states.  A
+documented example never supplies the evidence for an estimate, an interval or a diagnostic
+verdict, whatever a runtime gate reads off that example.
 
 :data:`READER_FACING` is a *second* set and not a widening of the first.  The three modules
 above ask "where is the Python", so they want markdown and nothing else;

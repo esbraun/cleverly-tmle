@@ -17,9 +17,48 @@ import numpy as np
 from .._typing import FloatArray
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import ParameterEstimate, atc_estimate, att_estimate
-from .base import Identification, Target, TargetContext, parameter_name
+from .base import (
+    OUTCOME_REGRESSION,
+    TREATMENT_MECHANISM,
+    Identification,
+    Target,
+    TargetContext,
+    parameter_name,
+)
 
-__all__ = ["BUILTIN_TARGETS"]
+__all__ = [
+    "BUILTIN_TARGETS",
+    "COMPLETE_OUTCOME_PREFIX",
+    "CONDITIONING_EVENT_PREFIX",
+    "CONSISTENCY_PREFIX",
+    "DR_DESIGN_CONDITIONAL_CLAUSE",
+    "DR_MECHANISM_HEAD",
+    "INTERMEDIATE_CAVEAT_PREFIX",
+    "MISSINGNESS_CAVEAT_PREFIX",
+    "NO_CONFOUNDING_PREFIX",
+    "REFERENCE_ONLY_POSITIVITY_PREFIX",
+    "TWO_ARM_POSITIVITY_PREFIX",
+]
+
+#: The opening words of the assumptions a study rewrites when a design narrows them.
+#:
+#: :class:`~cleverly.targets.Identification` says its assumptions are written "for a
+#: reader, not for a parser", and :mod:`cleverly.study` nevertheless has to find the
+#: sentence a narrower design replaces.  It matches on these prefixes, which is a
+#: dependency on wording; exported here so the dependency points at this module rather
+#: than at eight string literals copied into another one.  Rewording a sentence below its
+#: prefix is free.  Rewording the prefix itself now fails
+#: ``tests/unit/test_cde_identification_contract.py``, where each constant is checked to
+#: match exactly one assumption of the target that owns it, instead of silently
+#: cancelling the substitution.
+CONSISTENCY_PREFIX = "consistency:"
+NO_CONFOUNDING_PREFIX = "no unmeasured confounding:"
+TWO_ARM_POSITIVITY_PREFIX = "positivity: 0 < P(A = 1 | W) < 1"
+CONDITIONING_EVENT_PREFIX = "the conditioning event"
+REFERENCE_ONLY_POSITIVITY_PREFIX = "positivity is only needed"
+MISSINGNESS_CAVEAT_PREFIX = "with delta=:"
+INTERMEDIATE_CAVEAT_PREFIX = "with intermediate=:"
+COMPLETE_OUTCOME_PREFIX = "the observed outcome is complete"
 
 _POSITIVITY = (
     "positivity: 0 < P(A = 1 | W) < 1 almost surely, so both counterfactual "
@@ -36,14 +75,30 @@ _POINT_TREATMENT = (
     *_POSITIVITY,
 )
 
+#: The opening clause of every ``dr_condition`` whose mechanism half is the treatment
+#: mechanism alone.  A design that declares a response mechanism or fixes an intermediate
+#: makes that half a product, so :mod:`cleverly.study` writes its own opening clause in
+#: place of this one and keeps whatever the registered sentence says after it.
+DR_MECHANISM_HEAD = "consistent if either Qbar(A, W) or g(W) is consistent"
+
+#: The clause a registered ``dr_condition`` writes when the mechanism half depends on
+#: mechanisms the registry cannot see.  A study sees them, so :mod:`cleverly.study`
+#: *resolves* this clause: it states the product the declared design needs and drops the
+#: condition.  What a registered sentence says outside the clause is a fact about the
+#: estimand rather than about the design -- the extra conditioning-event term ``att`` and
+#: ``atc`` carry, and the projection note ``msm`` carries -- so a study keeps it.
+#: ``test_a_narrowed_remainder_keeps_what_the_target_says_about_its_own``, in
+#: ``tests/unit/test_causal_study.py``, reads each tail off this registry and pins that a
+#: narrowed record still ends with it.
+DR_DESIGN_CONDITIONAL_CLAUSE = (
+    "; with delta= the mechanism half becomes the product g * P(Delta = 1 | A, W), and "
+    "with intermediate= the product g * P(Z = z | A, W) * P(Delta = 1 | A, W)"
+)
+
 _MEAN_ID = Identification(
     assumptions=_POINT_TREATMENT,
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
-    dr_condition=(
-        "consistent if either Qbar(A, W) or g(W) is consistent; with delta= the "
-        "mechanism half becomes the product g * P(Delta = 1 | A, W), and with "
-        "intermediate= the product g * P(Z = z | A, W) * P(Delta = 1 | A, W)"
-    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=DR_MECHANISM_HEAD + DR_DESIGN_CONDITIONAL_CLAUSE,
     references=("van der Laan & Rubin (2006)", "Gruber & van der Laan (2010)"),
 )
 
@@ -57,10 +112,10 @@ _CONDITIONAL_ID = Identification(
         "which is why g_ref(W) near zero is what these estimands are sensitive to and why "
         "g_bounds='auto' truncates them harder",
     ),
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
-        "consistent if either Qbar(A, W) or g(W) is consistent; the influence curve "
-        "carries an extra term for the randomness of the conditioning event"
+        DR_MECHANISM_HEAD + "; the influence curve carries an extra term for the "
+        "randomness of the conditioning event"
     ),
     references=("van der Laan (2010)",),
 )
@@ -79,11 +134,10 @@ _REGIME_ID = Identification(
         "intervention defined *through* the estimated mechanism is a different "
         "parameter with a further term, and is ey_ipsi",
     ),
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
-        "consistent if either Qbar(A, W) or g(W) is consistent; the mechanism half "
-        "picks up P(Delta = 1 | A, W) and P(Z = z | A, W) as a product exactly as the "
-        "arm-indexed means do"
+        DR_MECHANISM_HEAD + "; the mechanism half picks up P(Delta = 1 | A, W) and "
+        "P(Z = z | A, W) as a product exactly as the arm-indexed means do"
     ),
     references=("Robins (2004)", "Diaz & van der Laan (2012)", "van der Laan (2013)"),
 )
@@ -102,7 +156,7 @@ _IPSI_ID = Identification(
         "out of g, so the influence function carries a term for the pathwise derivative "
         "through it and the estimator fluctuates the mechanism as well as Qbar",
     ),
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         "NOT doubly robust, and the only target here that is not: g appears in the "
         "estimand itself, so every term of the second-order remainder carries "
@@ -138,7 +192,7 @@ _SHIFT_ID = Identification(
         "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
         "is not caused by Z -- the assumption missingness_design() states for an arm",
     ),
-    required_nuisances=("outcome_regression", "treatment_density"),
+    required_nuisances=(OUTCOME_REGRESSION, "treatment_density"),
     dr_condition=(
         "consistent if either Qbar(A, W) or the conditional density g(a | W) is "
         "consistent; the mechanism half is a density ratio rather than a propensity, so "
@@ -165,12 +219,12 @@ _MSM_ID = Identification(
         "the weighted Gram matrix is invertible, so the projection is a single "
         "coefficient vector rather than a set of them",
     ),
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
-        "consistent if either Qbar(A, W) or g(W) is consistent, exactly as for the "
-        "arm-indexed means -- beta is a smooth function of them and of nothing else. "
-        "Note this says nothing about the working model being correct: beta is defined "
-        "as a projection, so it is the same functional either way"
+        DR_MECHANISM_HEAD + ", exactly as for the arm-indexed means -- beta is a smooth "
+        "function of them and of nothing else. Note this says nothing about the working "
+        "model being correct: beta is defined as a projection, so it is the same "
+        "functional either way"
     ),
     references=(
         "Neugebauer & van der Laan (2007)",
@@ -184,7 +238,7 @@ _POPULATION_INTERVENTION_ID = Identification(
         "the observed outcome is complete; under missingness at random the natural-course "
         "mean needs an additional outcome/missingness score equation",
     ),
-    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         "the intervention mean is consistent if either Qbar(A, W) or g(W) is consistent; "
         "the complete-data natural-course mean is empirical and needs neither nuisance"

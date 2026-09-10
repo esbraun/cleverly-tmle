@@ -69,7 +69,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, Learner
-from ..exceptions import PositivityWarning
+from ..exceptions import CapabilityError, PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -89,6 +89,7 @@ from ..learners.super_learner import resolve_learner
 from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
+from ..targets.base import parameter_name
 from ..utils.bounds import (
     DEFAULT_LTMLE_G_BOUNDS,
     OutcomeScaler,
@@ -219,6 +220,62 @@ def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
         return label
     stem = label if cause is None else f"{label}{CAUSE_INFIX}{cause}"
     return f"{stem}{HORIZON_INFIX}{horizon}"
+
+
+#: The head name of a *contrast* between two regimens, whatever the outcome is.  A
+#: difference of risks and a difference of survivals are the same number up to a sign, so
+#: the view does not rename it.
+CONTRAST_HEAD = "ate_regimen"
+
+
+def _level_head(*, survival: bool, competing: bool, complement: bool) -> str:
+    """The head name of one regimen's level parameter.
+
+    The one place the level vocabulary lives.  Two callers need it: :meth:`_estimates`,
+    which composes the name a fit reports, and :meth:`LongitudinalResult.curve`, which
+    composes the name the survival view reports.  Written twice it is two chances for the
+    report and its view to disagree about what a parameter is called, and the second
+    caller would have to recover the first's answer by matching a prefix -- which is the
+    parsing this module refuses everywhere else.
+
+    Parameters
+    ----------
+    survival : bool
+        Whether the outcome is an event indicator at every node.
+    competing : bool
+        Whether the fit declared its causes, which makes the level a cause-specific
+        cumulative incidence rather than a single-event risk.
+    complement : bool
+        Whether the reported quantity is the complement :math:`S = 1 - F` rather than the
+        risk itself.  A complement is event-free survival and names itself as such.
+
+    Returns
+    -------
+    str
+        The head name, without the bracketed index.
+
+    Raises
+    ------
+    CapabilityError
+        When a complement is asked of a fit that is not a survival fit.  There is no
+        cumulative risk to take the complement of, so every name this function could
+        return would be the name of a different quantity.  :meth:`LongitudinalResult.curve`
+        refuses that request earlier and with the fit's own outcome column in the sentence;
+        this is the vocabulary itself declining to answer, so a second caller cannot get a
+        risk name back for a survival request.
+    """
+    if not survival:
+        if complement:
+            raise CapabilityError(
+                "a fit with one end-of-study outcome estimates a mean and not a "
+                "cumulative risk, so it has no complement to name: S = 1 - F is a map "
+                "on a risk curve. Pass one outcome column per time point to estimate "
+                "a cumulative risk at every horizon"
+            )
+        return "ey_regimen"
+    if complement:
+        return "survival_regimen"
+    return "cif_regimen" if competing else "risk_regimen"
 
 
 def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str:
@@ -712,7 +769,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["regimen"].append(regimen.label)
                 rows["time"].append(int(horizon))
                 rows["total"].append(total)
-                rows["std_err"].append(float(np.sqrt(variance[0, 0] / self.data.n)))
+                rows["std_err"].append(float(np.sqrt(variance[0, 0])))
                 rows["excess"].append(max(0.0, total - 1.0))
         return self.data.frame_like(rows)
 
@@ -749,7 +806,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         ``scale="risk"`` reports what the fit estimated, the cumulative risk
         :math:`F(t)` and the risk difference between regimens at each horizon.
-        ``scale="survival"`` reports :math:`S(t) = 1 - F(t)` instead.
+        ``scale="survival"`` reports :math:`S(t) = 1 - F(t)` instead.  The ``view``
+        column names the requested view; the ``scale`` column keeps the vocabulary
+        :meth:`to_frame` reports, ``"level"`` or ``"difference"``, which is what
+        separates a level row from a contrast row without reading any name.
+
+        A fit that declared **two or more** causes refuses the survival view, because
+        event-free survival is the complement of the *sum* of the cause-specific
+        incidences and not the complement of one of them.  With a single declared cause
+        that sum is that one incidence, so the complement is event-free survival and the
+        view is reported.
 
         The map from one to the other is **not** one rule.  For a level,
         :math:`S = 1 - F`: the estimate is mirrored about a half and so is its interval.
@@ -764,6 +830,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The ``time`` column lives here rather than on :meth:`to_frame`, which keeps the
         column names a point-treatment fit reports.
 
+        On ``scale="survival"`` a level row's ``estimand`` is **not** a key of this
+        result: the complement of ``risk_regimen[always @ t=2]`` is reported as
+        ``survival_regimen[always @ t=2]``, which the fit never estimated under that
+        name.  A contrast row keeps its ``ate_regimen[...]`` name, which is a key, the
+        difference being the same parameter up to a sign.  The ``parameter`` column
+        carries the key either way, so ``result[row.parameter]`` is defined for every row
+        of every view and ``result[row.estimand]`` is not.
+
         Parameters
         ----------
         scale : {"risk", "survival"}
@@ -772,7 +846,28 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         dataframe
-            One row per regimen, cause, and horizon in the input backend.
+            One row per regimen, cause, and horizon in the input backend, with these
+            columns.
+
+            ``estimand``
+                The name of the quantity the row reports, under the requested view.
+            ``parameter``
+                The key of the estimate the row was derived from, always in
+                ``result.estimates``.
+            ``regimen``
+                The regimen of a level, or the ``"a vs b"`` contrast string of a
+                difference.
+            ``cause``
+                The absorbing cause, on a fit that declared its causes only.
+            ``time``
+                The horizon, as an integer.
+            ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
+                The estimate, its standard error, and its confidence interval, under
+                the requested view.
+            ``scale``
+                ``"level"`` or ``"difference"``, as :meth:`to_frame` reports it.
+            ``view``
+                ``"risk"`` or ``"survival"``, the view the caller requested.
         """
         if scale not in ("risk", "survival"):
             raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
@@ -792,9 +887,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "time point -- outcome=[...] -- to estimate a cumulative risk at every "
                 "horizon; result.to_frame() is the report for this fit"
             )
+        # Gated on how many causes the fit *declared*, not on whether it declared any.
+        # ``outcome={"death": [...]}`` is a competing-risks declaration with one cause,
+        # and ``test_one_cause_reproduces_the_single_event_fit`` pins that fit as bit for
+        # bit the ``outcome=[...]`` one.  With one cause the causes' sum is that cause's
+        # own incidence, so its complement *is* event-free survival: refusing it would
+        # refuse a supported composition, and would make two declarations of the same
+        # data disagree about what can be reported from an identical fit.
+        if scale == "survival" and len(self.config.causes) > 1:
+            raise ValueError(
+                "a competing-risk fit reports one cumulative incidence per cause, and "
+                "1 - one cause's incidence is not all-cause survival. Event-free survival "
+                "is 1 - the sum of the cause-specific incidences; use incidence_total() to "
+                "inspect that sum"
+            )
         competing = self.data.is_competing
         rows: dict[str, list[Any]] = {
             "estimand": [],
+            "parameter": [],
             "regimen": [],
             **({"cause": []} if competing else {}),
             "time": [],
@@ -803,6 +913,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "ci_lower": [],
             "ci_upper": [],
             "scale": [],
+            "view": [],
         }
         # Read from the index composed when the name was built, never split back out of
         # it.  With a cause beside the horizon inside one pair of brackets there is no
@@ -819,7 +930,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 psi, low, high = 1.0 - estimate.psi, 1.0 - high, 1.0 - low
             else:
                 psi, low, high = -estimate.psi, -high, -low
-            rows["estimand"].append(name)
+            # Composed forward from the same index, through the same two functions that
+            # built ``name`` in the first place.  Recovering the head by matching a
+            # prefix would be the parsing the comment above refuses, one step later.
+            head = (
+                _level_head(survival=True, competing=competing, complement=scale == "survival")
+                if estimate.scale == "level"
+                else CONTRAST_HEAD
+            )
+            reported_name = parameter_name(head, arm=_index(label, cause, horizon, True))
+            rows["estimand"].append(reported_name)
+            rows["parameter"].append(name)
             rows["regimen"].append(label)
             if competing:
                 rows["cause"].append(cause)
@@ -829,6 +950,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["ci_lower"].append(float(low))
             rows["ci_upper"].append(float(high))
             rows["scale"].append(estimate.scale)
+            rows["view"].append(scale)
         return self.data.frame_like(rows)
 
     def coefficients(self, scale: str = "link") -> Any:
@@ -1654,9 +1776,7 @@ class LTMLE:
         # come from different derivations, and a saved frame or a coverage study's truth
         # dict keyed by name is where that would stop being a distinction without a
         # difference.
-        head = (
-            ("cif_regimen" if data.is_competing else "risk_regimen") if survival else "ey_regimen"
-        )
+        head = _level_head(survival=survival, competing=data.is_competing, complement=False)
         estimates: dict[str, ParameterEstimate] = {}
         # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
         # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
@@ -1664,7 +1784,9 @@ class LTMLE:
         # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
         index: dict[str, tuple[str, str | None, int]] = {}
         for fit in fits.values():
-            name = f"{head}[{_index(fit.regimen.label, fit.cause, fit.horizon, survival)}]"
+            name = parameter_name(
+                head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, survival)
+            )
             index[name] = (fit.regimen.label, fit.cause, fit.horizon)
             estimates[name] = make_estimate(
                 name,
@@ -1683,7 +1805,9 @@ class LTMLE:
             # effect, and with two indexes there are now two ways to pair the wrong ones.
             base = fits[_fit_key(reference.label, fit.cause, fit.horizon, survival)]
             contrast = f"{fit.regimen.label} vs {reference.label}"
-            name = f"ate_regimen[{_index(contrast, fit.cause, fit.horizon, survival)}]"
+            name = parameter_name(
+                CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, survival)
+            )
             index[name] = (contrast, fit.cause, fit.horizon)
             estimates[name] = make_estimate(
                 name,

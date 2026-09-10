@@ -96,10 +96,8 @@ only its noise.
 The response indicator is a **design role**, like the outcome and the exposure. Declaring it is what
 tells the estimator that the missing rows are part of the population.
 
-The current identification object omits the response mechanism, MAR, and response positivity from
-its printed summary. Treat that as a reporting gap, not permission to omit them. Until
-[RM1](../roadmap.md#rm1-identification-contracts-and-semantic-example-gates) closes it, put the
-missing-outcome assumptions beside the generated identification record.
+The identification record includes the observed-data functional, MAR, and response positivity.
+It also names the response mechanism as a required nuisance.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -114,17 +112,8 @@ study = CausalStudy(
     ),
 )
 effect = study.identify(ATE(reference=0))
-
-missing_outcome_assumptions = (
-    "Missing at random given the arm and recorded response predictors",
-    "Positive probability of the arm-response mechanism throughout the target population",
-)
 print(effect.summary())
-for assumption in effect.identification.assumptions:
-    print("-", assumption)
-print("required missing-outcome addendum:")
-for assumption in missing_outcome_assumptions:
-    print("-", assumption)
+print("required nuisances:", effect.identification.required_nuisances)
 ```
 
 | assumption | what it means here |
@@ -240,7 +229,7 @@ print(f"mild law, complete cases: psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f
 print("population ATE:", mild_truth["ate"])
 ```
 
-At `strength=1.0` the complete-case estimate is close to the truth in this fixed draw. This law has
+At `strength=1.0` the complete-case interval contains the truth in this fixed draw. This law has
 special linear and effect structures at that setting. Do not generalize the result. Even under MAR,
 averaging a correct conditional outcome model over respondents can target their covariate
 distribution instead of the eligible population when effects vary.
@@ -356,11 +345,11 @@ One family of estimands is refused under `missingness=`, and the refusal is wort
 plan a report. The attributable fraction needs a binary outcome, so ask it of the top-box study.
 
 ```python
-from cleverly import PopulationAttributableFraction
+from cleverly import CapabilityError, PopulationAttributableFraction
 
 try:
     box_study.identify(PopulationAttributableFraction(reference=0)).estimate(method=box_method)
-except NotImplementedError as error:
+except CapabilityError as error:
     print("refused:", error)
 ```
 

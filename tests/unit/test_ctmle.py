@@ -790,6 +790,15 @@ class TestReporting:
     def test_the_intercept_candidate_is_labelled(self, selection) -> None:
         assert "(intercept)" in selection.summary()
 
+    def test_the_footer_reports_only_the_quantity_the_selector_observed(self, selection) -> None:
+        """The omitted candidates have different causal roles under the instrument law."""
+        assert selection.dropped == ("W1", "W2")
+        footer = selection.summary().split("left out:", maxsplit=1)[1]
+        assert "targeted cross-validated penalized squared-error loss" in footer
+        assert "does not determine why a covariate was left out" in footer
+        assert "bias" not in footer
+        assert "variance" not in footer
+
     def test_the_outcome_adaptive_treatment_risk_is_the_weighted_deviance(
         self, instrument_frame
     ) -> None:

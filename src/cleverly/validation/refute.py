@@ -952,7 +952,12 @@ def _validate_generated_eligibility(
         If the fit, the estimand, or the process has no registered effect derivation.
     """
     _validate_generated_process(process, name)
-    from ..study import BackdoorMeanContrast, ExplicitAdjustmentProvider, ParameterKey
+    from ..study import (
+        BackdoorMeanContrast,
+        ExplicitAdjustmentProvider,
+        ParameterKey,
+        _matches_registered_point_identification,
+    )
     from ..targets import TARGETS
 
     identified = getattr(result, "identified_effect", None)
@@ -1037,9 +1042,17 @@ def _validate_generated_eligibility(
             f"key {key.estimand!r} must agree"
         )
     registered = TARGETS.get(functional.target)
+    declared_identification = getattr(identified, "identification", None)
     if (
         registered is None
-        or getattr(identified, "identification", None) != registered.identification
+        or declared_identification is None
+        or not _matches_registered_point_identification(
+            declared_identification,
+            registered.identification,
+            identified,
+            data,
+            functional.axis,
+        )
     ):
         raise CapabilityError(
             f"{name} needs the registered identification artifact for target {functional.target!r}"

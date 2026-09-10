@@ -399,8 +399,9 @@ class CTMLESelection:
             footer.append(
                 "left out: "
                 + ", ".join(self.dropped)
-                + " -- adjusting for these would have cost more variance than the bias "
-                "they remove"
+                + f". The selected candidate minimized targeted cross-validated {criterion}"
+                f"{loss_name} loss; this criterion does not determine why a covariate "
+                "was left out"
             )
         return "\n".join([*header, table, *footer])
 

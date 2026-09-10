@@ -52,8 +52,10 @@ Identification
 4. **Positivity**: :math:`g_a(W) = P(A = a \mid W)` and
    :math:`q_z(a, W) = P(Z = z \mid A = a, W)` are bounded away from zero, as is
    :math:`\pi_a(W) = P(\Delta = 1 \mid A = a, W)`.
-5. **Missingness at random**: :math:`Y \perp \Delta \mid A, W`, and additionally
-   :math:`\Delta \perp Z \mid A, W` -- see
+5. **Missingness at random**: :math:`Y \perp \Delta \mid A, Z, W`, which identifies
+   :math:`\bar Q(a,z,W)` from recorded outcomes, and additionally
+   :math:`\Delta \perp Z \mid A, W`, which justifies fitting :math:`\pi(A,W)` rather
+   than :math:`\pi(A,Z,W)` -- see
    :meth:`~cleverly.data.causal_data.CausalData.missingness_design`, which states that
    assumption and why the missingness model deliberately excludes :math:`Z`.
 

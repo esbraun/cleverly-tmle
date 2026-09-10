@@ -30,6 +30,7 @@ from cleverly import (
     PointTreatment,
     RiskRatio,
 )
+from cleverly import study as study_module
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -39,7 +40,7 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.ctmle import _LOSS_EPS, _Selector
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift
 from cleverly.learners.crossfit import make_folds
 from cleverly.sensitivity import (
@@ -72,8 +73,20 @@ from cleverly.sensitivity.simulated_confounding import (
     _weighted_correlation,
     _weighted_std,
 )
+from cleverly.study import (
+    BackdoorMeanContrast,
+    LongitudinalTreatment,
+    _matches_registered_point_identification,
+)
+from cleverly.targets import TARGETS
 from cleverly.utils import resolve_g_bounds
 from tests.conftest import assert_scale_normalizes_away, mean_one_weights, unweight
+from tests.pickles import (
+    _FORGED_FUNCTIONAL_VALUES,
+    FUNCTIONAL_TAMPERINGS,
+    _tamperings,
+    legacy_without,
+)
 from tests.unit._confounding_support import (
     _collaborative_method,
     alias_for,
@@ -3721,6 +3734,163 @@ def test_explicit_ey_alias_refuses_a_swapped_structured_arm_before_refit(
             altered,
             estimand=alias,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
+        )
+
+
+@pytest.mark.parametrize(("field", "value"), FUNCTIONAL_TAMPERINGS)
+def test_functional_metadata_tampering_refuses_before_latent_draw_or_refit(
+    gaussian_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: Any,
+) -> None:
+    result = _with_functional(gaussian_result, **{field: value})
+    forbid_draw_and_refit(monkeypatch, result.estimator)
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(result, grid=_grid())
+
+
+def test_the_tampering_matrix_covers_every_design_bound_field() -> None:
+    """The matrix is the refusal suite's coverage, so it is checked against the record.
+
+    ``FUNCTIONAL_TAMPERINGS`` is derived from ``_SCHEMA_1_FIELDS`` rather than written
+    out, and ``tests.pickles._tamperings`` refuses a derivation that leaves a field
+    without a forged value. This pins the two halves of that agreement: the matrix names
+    the fields the matcher reconstructs, and no more.
+    """
+    assert tuple(field for field, _ in FUNCTIONAL_TAMPERINGS) == (
+        BackdoorMeanContrast._SCHEMA_1_FIELDS
+    )
+    assert set(BackdoorMeanContrast._TRANSITIONAL_FIELDS) <= set(
+        BackdoorMeanContrast._SCHEMA_1_FIELDS
+    )
+    with pytest.raises(ValueError, match="does not cover the design-bound fields"):
+        _tamperings(("missingness", "a_field_with_no_forged_value"), _FORGED_FUNCTIONAL_VALUES)
+
+
+def test_a_legacy_shaped_att_record_replays_to_the_untouched_surface(att_result: Any) -> None:
+    """The positive half of the back-compatibility claim, at the surface that replays it.
+
+    Every other test of the legacy branch calls the matcher, or stops at ``cleverly.load``.
+    Neither shows that a fit saved before the design-bound fields existed still produces a
+    stress surface, which is the promise a stored fit is kept for. The downgraded record
+    carries the registry's own identification, no support, and ``schema_version == 0``, and
+    the design declares neither missingness nor an intermediate, which is the only pairing
+    the static-legacy branch accepts.
+
+    The mutation control is the second surface: the same downgraded functional under the
+    fit's own identification is refused, so the replay above passes on provenance rather
+    than on the matcher having stopped looking.
+    """
+    effect = att_result.identified_effect
+    design = effect._study.design
+    assert design.missingness is None
+    assert design.intermediate is None
+
+    registered = TARGETS["att"].identification
+    assert effect.identification != registered
+    legacy_functional = legacy_without(effect.functional, *BackdoorMeanContrast._SCHEMA_1_FIELDS)
+    assert legacy_functional.schema_version == 0
+    assert legacy_functional.treatment_levels == ()
+    assert legacy_functional.treatment_value is None
+    legacy = replace(
+        att_result,
+        identified_effect=replace(effect, functional=legacy_functional, identification=registered),
+    )
+
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))
+    baseline = simulated_confounding(att_result, estimand="att", grid=grid, random_state=29)
+    replayed = simulated_confounding(legacy, estimand="att", grid=grid, random_state=29)
+    assert len(baseline.cells) == 2
+    assert baseline.cells[1].displacement is not None
+    assert replayed.cells == baseline.cells
+
+    stale = replace(
+        att_result,
+        identified_effect=replace(effect, functional=legacy_functional),
+    )
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(stale, estimand="att", grid=grid, random_state=29)
+
+
+class _DerivedPointTreatment(PointTreatment):
+    """A point design the guard has to refuse, because it is not the one it reconstructs."""
+
+
+@pytest.mark.parametrize("design_kind", ["sequential", "subclass"])
+def test_a_functional_bound_to_another_design_is_not_point_provenance(
+    att_result: Any, design_kind: str
+) -> None:
+    """The design-type guard, whose only witness is a record no study writes.
+
+    Nothing in the package pairs a backdoor functional with a sequential design, so the
+    forgery is built by hand here. The subclass row is the reason the guard reads
+    ``type(design) is not PointTreatment`` rather than ``isinstance``: a subclass may
+    override any part of the design the reconstruction below reads, so the record it
+    would produce is not the record this matcher compares against.
+    """
+    effect = att_result.identified_effect
+    design = effect._study.design
+    registered = TARGETS["att"].identification
+    assert _matches_registered_point_identification(
+        effect.identification, registered, effect, att_result.data, effect.functional.axis
+    )
+
+    other: Any = (
+        LongitudinalTreatment(outcome="Y", treatment=("A",), baseline=("W1",))
+        if design_kind == "sequential"
+        else _DerivedPointTreatment(
+            outcome=design.outcome, treatment=design.treatment, adjustment=design.adjustment
+        )
+    )
+    rebound = SimpleNamespace(
+        functional=effect.functional,
+        estimand=effect.estimand,
+        _study=SimpleNamespace(design=other, data=att_result.data),
+    )
+    assert not _matches_registered_point_identification(
+        effect.identification, registered, rebound, att_result.data, effect.functional.axis
+    )
+
+
+@pytest.mark.parametrize(
+    "error", [AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError]
+)
+def test_a_named_reconstruction_failure_refuses_and_an_unnamed_one_is_raised(
+    att_result: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[Exception],
+) -> None:
+    """Both sides of the matcher's ``except`` clause, which had no test at all.
+
+    The clause is deliberately a list rather than ``Exception``. Reconstruction runs on a
+    record that may already be forged, so the listed types are the ones a forged record
+    reaches it with, and turning them into a refusal is the answer the caller asked for.
+    An unlisted type is a defect in the matcher rather than a statement about the record,
+    and the refusal message ("needs the registered identification artifact") would
+    describe it wrongly, so it propagates. Widening the clause would silence exactly that
+    case, which is why the second half of this test exists.
+    """
+    effect = att_result.identified_effect
+    registered = TARGETS["att"].identification
+
+    def raise_named(*args: Any, **kwargs: Any) -> Any:
+        raise error("reconstruction failed")
+
+    monkeypatch.setattr(study_module, "_point_functional", raise_named)
+    assert not _matches_registered_point_identification(
+        effect.identification, registered, effect, att_result.data, effect.functional.axis
+    )
+    with pytest.raises(CapabilityError, match="registered binary parameter metadata"):
+        simulated_confounding(att_result, estimand="att", grid=_ANCHOR_GRID)
+
+    def raise_unnamed(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("a defect in the matcher, not a forged record")
+
+    monkeypatch.setattr(study_module, "_point_functional", raise_unnamed)
+    with pytest.raises(RuntimeError, match="a defect in the matcher"):
+        _matches_registered_point_identification(
+            effect.identification, registered, effect, att_result.data, effect.functional.axis
         )
 
 

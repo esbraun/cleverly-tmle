@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from ..exceptions import CapabilityError, DataError
-from ..study import PointTreatment
+from ..study import PointTreatment, _matches_registered_point_identification
 from ..targets import TARGETS
 from ..targets.base import stratum_alias
 
@@ -46,7 +46,13 @@ def check_registered_target(result: Any, key: Any, axis: str, error: str) -> Any
     if (
         registered is None
         or identified.functional.target != key.estimand
-        or identified.identification != registered.identification
+        or not _matches_registered_point_identification(
+            identified.identification,
+            registered.identification,
+            identified,
+            result.data,
+            axis,
+        )
         or registered.parameter_axis != axis
         or identified.functional.axis != axis
         or key.axis != axis

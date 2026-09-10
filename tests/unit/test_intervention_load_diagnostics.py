@@ -65,6 +65,7 @@ from cleverly.learners.density import ConditionalDensity
 from cleverly.sensitivity import positivity_report
 from cleverly.sensitivity.positivity import PositivityReport
 from tests.conftest import fast_tmle
+from tests.pickles import legacy_without as _legacy
 
 #: The three intervention axes, in the order their reports declare them.
 GROUPS = ("regime", "mtp", "ipsi")
@@ -940,36 +941,6 @@ def test_cached_intervention_loads_replay_after_persistence(
     }
 
 
-def _blank(record_class: type) -> Any:
-    """Build an uninitialised record for the unpickler to fill from a state."""
-    return object.__new__(record_class)
-
-
-class _LegacyPickle:
-    """Pickles as ``record_class`` carrying ``state`` and nothing else.
-
-    The point is to reach ``__setstate__`` the way an old pickle reaches it, rather than by
-    calling it. ``__reduce__`` returns a builder, its arguments, and a state, and it is the
-    *unpickler* that applies that state -- through ``__setstate__`` when the class defines
-    one. A test that calls ``__setstate__`` by hand proves the method works and proves
-    nothing about whether unpickling routes through it, so deleting the method outright
-    still passed.
-    """
-
-    def __init__(self, record_class: type, state: dict[str, Any]) -> None:
-        self._record_class = record_class
-        self._state = state
-
-    def __reduce__(self) -> tuple[Any, ...]:
-        return (_blank, (self._record_class,), self._state)
-
-
-def _legacy(record: Any, *dropped: str) -> Any:
-    """Unpickle ``record`` as if ``dropped`` had not existed when it was written."""
-    state = {name: value for name, value in record.__dict__.items() if name not in dropped}
-    return pickle.loads(pickle.dumps(_LegacyPickle(type(record), state)))
-
-
 @pytest.fixture(scope="module")
 def score_load_records(intervention_results: dict[str, Any]) -> dict[str, Any]:
     """One instance of each record class the defaulting unpickle now serves."""
@@ -1061,6 +1032,33 @@ def test_a_positivity_report_pickled_before_group_leverage_restores_empty_mappin
     assert restored.group_leverage == {}
     assert restored.group_leverage_omissions == {}
     assert "Absolute-load concentration is greatest" not in restored.verdict()
+
+
+def test_the_legacy_pickle_helper_refuses_a_name_that_is_not_a_field(
+    score_load_records: dict[str, Any],
+) -> None:
+    """The helper's own mutation control, because a stale name fails it silently.
+
+    Every caller passes the names a past revision did not carry, and the helper drops
+    them from the state it pickles. A name that matches no attribute drops nothing, so
+    the caller gets a record of the *current* shape and its back-compatibility assertion
+    keeps passing against the shape it was written to exclude. Renaming a field is enough
+    to reach that: the call site still names the old field, and nothing else does.
+
+    ``_DefaultingUnpickle.check_pickle_backfill`` refuses a stale ``_PICKLE_BACKFILL`` key
+    for the same reason, and this helper does not inherit that protection, so it states
+    it itself.
+    """
+    record = score_load_records["regime"]
+    assert "score_load" in record.__dict__
+
+    with pytest.raises(KeyError, match="carries no such attribute: score_lode"):
+        _legacy(record, "score_lode", "score_load_omission")
+
+    # The valid half of that call still works, so the refusal is about the unknown name
+    # rather than about the helper having stopped dropping anything.
+    restored = _legacy(record, "score_load", "score_load_omission")
+    assert restored.score_load_omission == SCORE_LOAD_PREDATES
 
 
 # --------------------------------------------------------------------------------------

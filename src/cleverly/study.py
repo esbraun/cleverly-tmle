@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
@@ -26,8 +26,32 @@ from .methods import (
 )
 from .msm import MSM, MSMSet
 from .targets import TARGETS
-from .targets.base import Identification, arm_alias, parameter_name, stratum_alias
+from .targets.base import (
+    INTERMEDIATE_MECHANISM,
+    MISSINGNESS_MECHANISM,
+    Identification,
+    arm_alias,
+    parameter_name,
+    stratum_alias,
+)
+from .targets.builtin import (
+    COMPLETE_OUTCOME_PREFIX,
+    CONDITIONING_EVENT_PREFIX,
+    CONSISTENCY_PREFIX,
+    DR_DESIGN_CONDITIONAL_CLAUSE,
+    DR_MECHANISM_HEAD,
+    INTERMEDIATE_CAVEAT_PREFIX,
+    MISSINGNESS_CAVEAT_PREFIX,
+    NO_CONFOUNDING_PREFIX,
+    REFERENCE_ONLY_POSITIVITY_PREFIX,
+    TWO_ARM_POSITIVITY_PREFIX,
+)
+from .targets.population_intervention import (
+    POPULATION_INTERVENTION_TARGETS,
+    population_intervention_refusal,
+)
 from .utils.frames import as_frame
+from .utils.records import _DefaultingUnpickle
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
@@ -1208,7 +1232,7 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
 
 
 @dataclass(frozen=True)
-class BackdoorMeanContrast:
+class BackdoorMeanContrast(_DefaultingUnpickle):
     """Store a normalized observed-data functional for an estimator adapter.
 
     Users normally receive this object through :meth:`CausalStudy.identify`.
@@ -1237,6 +1261,18 @@ class BackdoorMeanContrast:
         Fixed intermediate level for a controlled direct effect.
     longitudinal : bool
         Whether the functional uses sequential identification.
+    missingness : str or None
+        Outcome-observation indicator used by the observed-data regression.
+    intermediate_name : str or None
+        Intermediate column fixed by a controlled direct effect.
+    treatment_levels : tuple
+        Declared treatment levels, in the data container's stable order.
+    treatment_value : Any or None
+        One retained treatment level for a targeted counterfactual mean.
+    schema_version : int
+        Version of the design-bound identification record. Zero denotes a record
+        restored from before this discriminator was persisted; retained metadata
+        and identification distinguish static legacy from transitional records.
     """
 
     outcome: Any
@@ -1250,15 +1286,178 @@ class BackdoorMeanContrast:
     msm: MSM | None = None
     intermediate: float | None = None
     longitudinal: bool = False
+    missingness: str | None = None
+    intermediate_name: str | None = None
+    treatment_levels: tuple[Any, ...] = ()
+    treatment_value: Any = None
+    schema_version: int = 1
+
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"schema_version": 0}
+
+    #: The fields the design-bound revision added, in the order they were added. A record
+    #: written before all of them is a static legacy record, and one written before the
+    #: trailing :attr:`_TRANSITIONAL_FIELDS` alone is a transitional record. The provenance
+    #: matcher reconstructs both shapes from this tuple, and the tests that forge a
+    #: functional derive their tampering matrix from it, so one edit here reaches the
+    #: matcher and every refusal surface rather than five hand-written copies.
+    _SCHEMA_1_FIELDS: ClassVar[tuple[str, ...]] = (
+        "missingness",
+        "intermediate_name",
+        "treatment_levels",
+        "treatment_value",
+        "schema_version",
+    )
+
+    #: The trailing subset of :attr:`_SCHEMA_1_FIELDS` that a transitional record lacks.
+    _TRANSITIONAL_FIELDS: ClassVar[tuple[str, ...]] = ("treatment_value", "schema_version")
+
+    @classmethod
+    def _restored_without(
+        cls, record: BackdoorMeanContrast, dropped: tuple[str, ...]
+    ) -> BackdoorMeanContrast:
+        """Return ``record`` as a pickle written before ``dropped`` existed restores it.
+
+        The state goes through ``__setstate__`` rather than through a written-out fill, so
+        the shape compared below is the shape an old pickle actually restores to. Naming
+        the fills here instead would state the restore rule a second time and let the two
+        copies disagree.
+
+        Parameters
+        ----------
+        record : BackdoorMeanContrast
+            A reconstructed current record.
+        dropped : tuple of str
+            Field names the older pickle did not carry.
+
+        Returns
+        -------
+        BackdoorMeanContrast
+            The record with those fields filled the way :meth:`__setstate__` fills them.
+
+        Raises
+        ------
+        KeyError
+            When a name in ``dropped`` is not a field of this class. The tuples that name
+            them are a second list of field names, so a rename leaves one of them naming a
+            field that no longer exists. Dropping such a name removes nothing, and the
+            comparison then accepts a record of the current shape as a legacy one.
+        """
+        absent = sorted(set(dropped) - set(record.__dict__))
+        if absent:
+            raise KeyError(
+                f"{cls.__name__} carries no such field: {', '.join(absent)}; a renamed "
+                "field needs its entry in _SCHEMA_1_FIELDS renamed with it, or the legacy "
+                "shape below is the current shape"
+            )
+        restored = object.__new__(cls)
+        restored.__setstate__(
+            {name: value for name, value in record.__dict__.items() if name not in dropped}
+        )
+        return restored
+
+    @property
+    def reference_arm(self) -> Any:
+        """Return the arm this functional's contrasts are taken against.
+
+        One implementation, because the printed expression and the printed positivity
+        statement both resolve it and a reader who saw them disagree could not tell which
+        arm the fit used. ``"reference"`` stands in only for a restored record that
+        predates :attr:`treatment_levels`, which is the one case with nothing to name.
+        """
+        if self.reference is not None:
+            return self.reference
+        if self.treatment_levels:
+            return self.treatment_levels[0]
+        return "reference"
+
+    @property
+    def selected_arm(self) -> Any:
+        """Return the one arm an evaluated-mean functional reports, or ``None`` for all.
+
+        ``ey1`` and ``ey0`` name an arm through the target rather than through
+        ``treatment_value``, which is why the rule is written here rather than at each of
+        the three places that used to repeat it.
+        """
+        if self.treatment_value is not None:
+            return self.treatment_value
+        if self.target in {"ey1", "ey0"} and self.treatment_levels:
+            return self.treatment_levels[1 if self.target == "ey1" else 0]
+        return None
 
     @property
     def expression(self) -> str:
-        """Return a readable expression for the identified functional."""
+        """Return a readable expression for the identified functional.
+
+        Raises
+        ------
+        CapabilityError
+            When an arm-indexed target has no entry below. The alternative is to print
+            some other estimand's functional into the record that ``summary()`` shows and
+            ``save()`` persists, which is a wrong answer rather than a missing one.
+        """
         if self.longitudinal:
             return "sequential g-formula under the declared treatment regimen"
+
+        def regression(arm: Any = "a") -> str:
+            conditions = [f"{self.treatment}={arm}"]
+            if self.intermediate is not None:
+                name = self.intermediate_name or "Z"
+                conditions.append(f"{name}={self.intermediate:g}")
+            if self.missingness is not None:
+                conditions.append(f"{self.missingness}=1")
+            conditions.append("W")
+            return f"E({self.outcome} | {', '.join(conditions)})"
+
+        support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
         if self.axis == "arm":
-            return "E_W[E(Y | A=a, W)] and the declared smooth contrast"
-        return f"identified {self.axis}-indexed plug-in functional with influence correction"
+            reference = self.reference_arm
+            comparisons = tuple(level for level in self.treatment_levels if level != reference)
+            comparison_domain = f" for a in {list(comparisons)!r}" if comparisons else ""
+
+            def marginal_mean(arm: Any) -> str:
+                return f"E_W[{regression(arm)}]"
+
+            if self.target == "ey_obs":
+                return f"E({self.outcome}) under the observed treatment course"
+            if self.target == "att":
+                return (
+                    f"E_{{W | {self.treatment}=a}}[{regression('a')} - "
+                    f"{regression(repr(reference))}]{comparison_domain}"
+                )
+            if self.target == "atc":
+                return (
+                    f"E_{{W | {self.treatment}={reference!r}}}[{regression('a')} - "
+                    f"{regression(repr(reference))}]{comparison_domain}"
+                )
+            if self.target in {"par", "paf"}:
+                counterfactual = marginal_mean(repr(reference))
+                if self.target == "par":
+                    return f"E({self.outcome}) - {counterfactual}"
+                return f"1 - {counterfactual} / E({self.outcome})"
+            if self.target in {"ey", "ey1", "ey0"}:
+                selected = self.selected_arm
+                if selected is not None:
+                    return marginal_mean(repr(selected))
+                return f"{marginal_mean('a')}{support}"
+            if self.target == "ate":
+                return f"{marginal_mean('a')} - {marginal_mean(repr(reference))}{comparison_domain}"
+            if self.target == "rr":
+                return f"{marginal_mean('a')} / {marginal_mean(repr(reference))}{comparison_domain}"
+            if self.target == "or":
+                mean_a = marginal_mean("a")
+                mean_r = marginal_mean(repr(reference))
+                return (
+                    f"({mean_a} / (1 - {mean_a})) / ({mean_r} / (1 - {mean_r})){comparison_domain}"
+                )
+            raise CapabilityError(
+                f"the arm-indexed target {self.target!r} has no identified expression; add "
+                "one beside the estimands above rather than reporting the counterfactual "
+                "mean's functional under another estimand's name"
+            )
+        return (
+            f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
+            "with influence correction"
+        )
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1503,543 @@ class ParameterKey:
     def treatment(self) -> Any:
         """Return ``value`` as the backward-compatible treatment label."""
         return self.value
+
+
+def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
+    """Return the engine estimand and target selected by one typed point question."""
+    actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+    target = actual.name
+    if (
+        isinstance(actual, CounterfactualMean)
+        and actual.treatment is not None
+        and data.is_binary_treatment
+        and actual.treatment in data.treatment_levels
+    ):
+        code = float(data.treatment_levels.index(actual.treatment))
+        target = "ey1" if code == 1.0 else "ey0"
+    return actual, target
+
+
+@dataclass(frozen=True)
+class _ArmScope:
+    """The arms one point-treatment functional evaluates, resolved once.
+
+    ``_point_positivity`` and ``_point_mechanism_scope`` were the same ladder twice --
+    same unwrap of a controlled direct effect, same reference-arm default, same
+    selected-arm rule, same order of cases -- and they had already drifted apart. They
+    now share this resolution and differ only in the sentence each case writes.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment column, as the design names it.
+    reference : Any
+        The arm contrasts are taken against.
+    selected : Any or None
+        The one arm an evaluated-mean functional reports, or ``None`` for all arms.
+    levels : tuple
+        The supported treatment levels, empty for a continuous dose.
+    continuous : bool
+        Whether the design declared a continuous dose rather than arms.
+    """
+
+    treatment: str
+    reference: Any
+    selected: Any
+    levels: tuple[Any, ...]
+    continuous: bool
+
+
+def _all_arm_statements(scope: _ArmScope) -> tuple[str, str]:
+    """State support at every declared arm: the shared case for ``ate``, ``rr`` and ``or``."""
+    return (
+        f"positivity: P({scope.treatment} = a | W) > 0 almost surely for every "
+        f"supported treatment level a in {list(scope.levels)!r}",
+        f"for every supported treatment level b in {list(scope.levels)!r} "
+        "almost surely over the target population",
+    )
+
+
+def _evaluated_arm_statements(scope: _ArmScope) -> tuple[str, str]:
+    """State support at the one arm a counterfactual mean evaluates."""
+    if scope.selected is None:
+        return _all_arm_statements(scope)
+    return (
+        f"positivity for the evaluated arm: P({scope.treatment} = {scope.selected!r} | W) "
+        "> 0 almost surely",
+        f"at b = {scope.selected!r} almost surely over the target population",
+    )
+
+
+def _treated_population_statements(scope: _ArmScope) -> tuple[str, str]:
+    """State the reference-arm support the effect on the treated needs."""
+    return (
+        f"positivity for the reference arm within each comparison population: "
+        f"P({scope.treatment} = {scope.reference!r} | W) > 0 wherever "
+        f"P({scope.treatment} = a | W) > 0, for every comparison arm a",
+        f"for b in {{a, {scope.reference!r}}} wherever P({scope.treatment} = a | W) > 0",
+    )
+
+
+def _reference_population_statements(scope: _ArmScope) -> tuple[str, str]:
+    """State the comparison-arm support the effect on the controls needs."""
+    return (
+        f"positivity for each comparison arm within the reference population: "
+        f"P({scope.treatment} = a | W) > 0 wherever "
+        f"P({scope.treatment} = {scope.reference!r} | W) > 0, for every comparison arm a",
+        f"for b in {{a, {scope.reference!r}}} wherever "
+        f"P({scope.treatment} = {scope.reference!r} | W) > 0",
+    )
+
+
+def _reference_intervention_statements(scope: _ArmScope) -> tuple[str, str]:
+    """State the support an attributable effect needs at its reference intervention."""
+    return (
+        f"positivity for the reference intervention: P({scope.treatment} = "
+        f"{scope.reference!r} | W) > 0 almost surely",
+        _all_arm_statements(scope)[1],
+    )
+
+
+#: One row per target that can reach :func:`_arm_scope`: the treatment support that
+#: target's functional needs, and the arm and population cells a fitted intermediate or
+#: response mechanism must cover.  Every estimand's prose is its own auditable entry.  A
+#: target reaching :func:`_arm_scope` without a row is refused rather than given the
+#: counterfactual mean's sentence under its own name.
+#:
+#: ``ey_obs`` is the one registered arm target with no row, and it needs none: its record
+#: keeps only the complete-outcome assumption, so the two-arm positivity sentence that
+#: resolves the arms is dropped before the branch that would resolve them.  Its functional
+#: asks nothing of the treatment mechanism, so it has no treatment support to state.  A
+#: row that returned an empty sentence instead was dropped in silence by the caller, which
+#: is the shape :func:`_arm_scope` now refuses.
+#: ``test_the_arm_statement_rows_cover_every_target_that_can_reach_them`` compares these
+#: keys with the registry and pins that exclusion.
+_ARM_STATEMENTS: dict[str, Callable[[_ArmScope], tuple[str, str]]] = {
+    "ate": _all_arm_statements,
+    "rr": _all_arm_statements,
+    "or": _all_arm_statements,
+    "msm": _all_arm_statements,
+    "ey": _evaluated_arm_statements,
+    "ey1": _evaluated_arm_statements,
+    "ey0": _evaluated_arm_statements,
+    "att": _treated_population_statements,
+    "atc": _reference_population_statements,
+    "par": _reference_intervention_statements,
+    "paf": _reference_intervention_statements,
+}
+
+_CONTINUOUS_DOSE_STATEMENTS = (
+    "positivity for the evaluated doses: the conditional treatment density is "
+    "positive wherever the target functional gives a dose positive weight",
+    "wherever the target functional gives a dose positive weight",
+)
+
+
+def _arm_scope(
+    design: PointTreatment, functional: BackdoorMeanContrast
+) -> tuple[_ArmScope, str, str]:
+    """Resolve the arms once, and return the two statements the target's row writes.
+
+    Returns
+    -------
+    tuple
+        The resolved scope, the positivity sentence, and the mechanism-scope phrase.
+        The positivity sentence is empty for a target that needs none.
+
+    Raises
+    ------
+    CapabilityError
+        When the target has no row in :data:`_ARM_STATEMENTS`, or when its row states no
+        treatment support. An empty sentence is not a statement that the target needs
+        none: the caller cannot tell it from a row nobody wrote, and appending it would
+        put a blank assumption in the record.
+    """
+    scope = _ArmScope(
+        treatment=design.treatment,
+        reference=functional.reference_arm,
+        selected=functional.selected_arm,
+        levels=functional.treatment_levels,
+        continuous=design.treatment_kind == "continuous",
+    )
+    if scope.continuous:
+        return (scope, *_CONTINUOUS_DOSE_STATEMENTS)
+    row = _ARM_STATEMENTS.get(functional.target)
+    if row is None:
+        raise CapabilityError(
+            f"the target {functional.target!r} declares the two-arm positivity assumption "
+            "but states no design-bound support of its own; add its row beside the "
+            "estimands in _ARM_STATEMENTS rather than printing another estimand's "
+            "positivity statement under its name"
+        )
+    positivity, cells = row(scope)
+    if not positivity:
+        raise CapabilityError(
+            f"the row for {functional.target!r} in _ARM_STATEMENTS states no treatment "
+            "support; a target that reaches here declares the two-arm positivity "
+            "assumption, so write the support its functional needs rather than an empty "
+            "sentence the record would drop without saying so"
+        )
+    return (scope, positivity, cells)
+
+
+def _conditioning_event_statement(design: PointTreatment, scope: _ArmScope, target: str) -> str:
+    """State which conditioning event a conditional effect needs to be defined.
+
+    Raises
+    ------
+    CapabilityError
+        For a target that declares the conditioning-event assumption but names no
+        population of its own.
+    """
+    if target == "att":
+        return (
+            f"the conditioning event has positive probability: "
+            f"P({design.treatment} = a) > 0 for every comparison arm a"
+        )
+    if target == "atc":
+        return (
+            f"the reference conditioning event has positive probability: "
+            f"P({design.treatment} = {scope.reference!r}) > 0"
+        )
+    raise CapabilityError(
+        f"the target {target!r} declares a conditioning event but names no population "
+        "it conditions on; state which arm's units carry the parameter rather than "
+        "keeping another estimand's sentence"
+    )
+
+
+def _bound_dr_condition(
+    base: Identification,
+    design: PointTreatment,
+    functional: BackdoorMeanContrast,
+    *,
+    direct: bool,
+) -> str:
+    """State the double-robustness condition this design leaves, in one sentence.
+
+    A design decides which mechanisms enter the remainder, and the registry cannot: a
+    declared response mechanism or a fixed intermediate makes the mechanism half a
+    *product*, so reporting "either Qbar or g" would name a fit where g alone is
+    sufficient when it is not.
+
+    Only the opening clause is the design's to write.  A registry that states the
+    mechanism half as a condition carries
+    :data:`~cleverly.targets.builtin.DR_DESIGN_CONDITIONAL_CLAUSE`, and the design-bound
+    statement resolves it, so the whole sentence goes.  Anything else a registered
+    sentence says is a fact about the estimand: the extra term ``att`` and ``atc`` carry
+    for the randomness of the conditioning event, and the note ``msm`` carries that beta
+    is a projection whatever the working model does.  Those tails follow
+    :data:`~cleverly.targets.builtin.DR_MECHANISM_HEAD`, so the head is replaced and the
+    tail is kept.  Replacing the whole string deleted the target-specific half of every
+    conditional and projection record under a ``missingness=`` design.  A registered
+    sentence carrying neither is extended rather than rewritten, because a study that
+    cannot find the head it would replace still must not delete the sentence.
+
+    Parameters
+    ----------
+    base : Identification
+        The registered theory for the target.
+    design : PointTreatment
+        The declared column roles and mechanisms.
+    functional : BackdoorMeanContrast
+        The design-bound functional the study identified.
+    direct : bool
+        Whether the design fixes an intermediate level.
+
+    Returns
+    -------
+    str
+        The condition under which this fit's estimate stays consistent.
+    """
+    target = functional.target
+    missingness = functional.missingness
+    if target == "ey_obs":
+        return "the complete-data empirical mean has no nuisance-model remainder"
+    if direct:
+        mechanism = "g * q_z" + (" * pi" if missingness is not None else "")
+        bound = (
+            "consistent if either Qbar(A, z, W) is consistent or the full mechanism "
+            f"product {mechanism} is consistent"
+        )
+    elif (
+        missingness is not None
+        and functional.axis in {"arm", "msm"}
+        and target not in POPULATION_INTERVENTION_TARGETS
+    ):
+        bound = (
+            "consistent if either Qbar(A, W) is consistent or the full mechanism product "
+            f"g * P({missingness} = 1 | {design.treatment}, W) is consistent; a consistent "
+            "treatment mechanism alone is not sufficient once outcomes are missing"
+        )
+    else:
+        return base.dr_condition
+    if base.dr_condition.endswith(DR_DESIGN_CONDITIONAL_CLAUSE):
+        return bound
+    kept = base.dr_condition.removeprefix(DR_MECHANISM_HEAD)
+    if kept != base.dr_condition:
+        return bound + kept
+    return f"{base.dr_condition}. Under this design, {bound}"
+
+
+def _point_identification(
+    base: Identification,
+    design: PointTreatment,
+    functional: BackdoorMeanContrast,
+) -> Identification:
+    """Bind registered theory to the treatment levels and active design mechanisms.
+
+    The target registry owns estimand-level theory.  A study owns the treatment support
+    and whether outcome observation or an intermediate variable enters that theory.  A
+    fresh record combines the two so identifying one study cannot mutate another target's
+    shared registry entry.
+
+    Every fact this needs is read off ``functional``, which
+    :func:`_point_functional` has already resolved.  Reading the estimand and the data a
+    second time gave two implementations of the reference arm, and they printed different
+    answers into the same record.
+
+    Parameters
+    ----------
+    base : Identification
+        The registered theory for the target.
+    design : PointTreatment
+        The declared column roles and mechanisms.
+    functional : BackdoorMeanContrast
+        The design-bound functional the study identified.
+
+    Returns
+    -------
+    Identification
+        The registered theory, narrowed to this design.
+    """
+    target = functional.target
+    axis = functional.axis
+    missingness = functional.missingness
+    declared_level = functional.intermediate
+    direct = declared_level is not None
+    level = float(declared_level) if declared_level is not None else None
+    resolved: tuple[_ArmScope, str, str] | None = None
+
+    def arms() -> tuple[_ArmScope, str, str]:
+        """Resolve the arm scope at most once, and only for a target that needs it."""
+        nonlocal resolved
+        if resolved is None:
+            resolved = _arm_scope(design, functional)
+        return resolved
+
+    assumptions: list[str] = []
+    for item in base.assumptions:
+        if item.startswith(MISSINGNESS_CAVEAT_PREFIX):
+            # The registry writes this as a condition because it does not know whether a
+            # response mechanism is declared.  Drop it only where the design-bound MAR and
+            # response-positivity statements below replace it; otherwise the reader keeps
+            # the registry's own paragraph rather than nothing.
+            if design.missingness is None:
+                assumptions.append(item)
+            continue
+        if item.startswith(INTERMEDIATE_CAVEAT_PREFIX):
+            if design.intermediate is None:
+                assumptions.append(item)
+            continue
+        if target == "ey_obs" and not item.startswith(COMPLETE_OUTCOME_PREFIX):
+            continue
+        if target in {"att", "atc"} and item.startswith(REFERENCE_ONLY_POSITIVITY_PREFIX):
+            continue
+        if item.startswith(CONDITIONING_EVENT_PREFIX):
+            scope, _, _ = arms()
+            assumptions.append(_conditioning_event_statement(design, scope, target))
+            continue
+        if direct and item.startswith(CONSISTENCY_PREFIX):
+            assert level is not None
+            assumptions.append(
+                f"consistency: {design.outcome} = {design.outcome}(a, {level:g}) when "
+                f"{design.treatment} = a and {design.intermediate} = {level:g}"
+            )
+            continue
+        if direct and item.startswith(NO_CONFOUNDING_PREFIX):
+            assumptions.extend(
+                (
+                    "no unmeasured treatment confounding: Y(a, z) is independent of A given W",
+                    "no unmeasured intermediate confounding: Y(a, z) is independent of Z "
+                    "given (A, W)",
+                )
+            )
+            continue
+        if item.startswith(TWO_ARM_POSITIVITY_PREFIX):
+            _, positivity, cells = arms()
+            assumptions.append(positivity)
+            if direct:
+                assert level is not None
+                assumptions.append(
+                    f"intermediate positivity at {design.intermediate} = {level:g}: "
+                    f"P({design.intermediate} = {level:g} | {design.treatment} = b, W) > 0 "
+                    f"{cells}"
+                )
+            continue
+        assumptions.append(item)
+
+    nuisances = [] if target == "ey_obs" else list(base.required_nuisances)
+    if direct:
+        nuisances.append(INTERMEDIATE_MECHANISM)
+    if missingness is not None and target not in POPULATION_INTERVENTION_TARGETS:
+        conditioning = (
+            f"({design.treatment}, {design.intermediate}, W)"
+            if direct
+            else f"({design.treatment}, W)"
+        )
+        assumptions.append(
+            f"missingness at random for {missingness}: {design.outcome} is independent "
+            f"of {missingness} given {conditioning}"
+        )
+        if axis == "shift":
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
+                "shift sends an observed dose"
+            )
+        elif direct or target in {"att", "atc", "ey", "ey1", "ey0"}:
+            _, _, cells = arms()
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = b, W) > 0 {cells}"
+            )
+        else:
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment} = a, W) > 0 almost surely wherever the target "
+                "functional evaluates arm a"
+            )
+        if direct:
+            assumptions.append(
+                f"observation-mechanism restriction: {missingness} is independent of "
+                f"{design.intermediate} given ({design.treatment}, W), so the fitted "
+                f"response mechanism excludes {design.intermediate}"
+            )
+        nuisances.append(MISSINGNESS_MECHANISM)
+    # Definedness, stated for each estimand a boundary value leaves undefined.  The three
+    # are one class of condition, and `cleverly.inference.delta` raises on each of them.
+    if target == "paf":
+        assumptions.append(
+            f"the natural-course risk E({design.outcome}) is strictly positive, so the "
+            "attributable fraction is defined"
+        )
+    if target == "rr":
+        assumptions.append(
+            f"both counterfactual risks are strictly positive: "
+            f"E_W[E({design.outcome} | {design.treatment} = a, W)] > 0 for every "
+            f"comparison arm a and at {design.treatment} = "
+            f"{functional.reference_arm!r}, so the log risk ratio is defined"
+        )
+    if target == "or":
+        assumptions.append(
+            f"both counterfactual risks lie strictly inside (0, 1): "
+            f"0 < E_W[E({design.outcome} | {design.treatment} = a, W)] < 1 for every "
+            f"comparison arm a and at {design.treatment} = "
+            f"{functional.reference_arm!r}, so the odds are finite"
+        )
+    if target == "ey_obs":
+        assumptions.append(
+            "the natural-course mean is a functional of the observed law alone: neither "
+            f"the adjustment set {list(design.adjustment)} nor a treatment mechanism "
+            "enters it, which is why this record requires no nuisance estimate"
+        )
+    return Identification(
+        assumptions=tuple(assumptions),
+        required_nuisances=tuple(nuisances),
+        dr_condition=_bound_dr_condition(base, design, functional, direct=direct),
+        references=base.references,
+    )
+
+
+def _point_functional(
+    design: PointTreatment,
+    data: CausalData,
+    estimand: PointEstimand,
+) -> BackdoorMeanContrast:
+    """Construct the canonical design-bound functional for one point estimand."""
+    actual, target = _point_target(estimand, data)
+    registered = TARGETS.get(target)
+    if registered is None:
+        raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+    interventions: tuple[Any, ...] = ()
+    msm = None
+    if isinstance(actual, (RegimeMean, RegimeContrast)):
+        interventions = tuple(actual.regimens)
+    elif isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
+        interventions = tuple(actual.shifts)
+    elif isinstance(actual, (IncrementalMean, IncrementalEffect)):
+        interventions = tuple(actual.interventions)
+    elif isinstance(actual, MSMProjection):
+        msm = actual.model
+    return BackdoorMeanContrast(
+        outcome=design.outcome,
+        treatment=design.treatment,
+        adjustment=tuple(design.adjustment),
+        target=target,
+        axis=registered.parameter_axis,
+        reference=getattr(actual, "reference", None),
+        interventions=interventions,
+        msm=msm,
+        intermediate=(
+            estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
+        ),
+        missingness=design.missingness,
+        intermediate_name=design.intermediate,
+        treatment_levels=(
+            () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
+        ),
+        treatment_value=(actual.treatment if isinstance(actual, CounterfactualMean) else None),
+    )
+
+
+def _matches_registered_point_identification(
+    actual: Identification,
+    registered: Identification,
+    identified: Any,
+    data: CausalData,
+    axis: str,
+) -> bool:
+    """Match a complete current record or an explicitly backfilled legacy record."""
+    functional = getattr(identified, "functional", None)
+    study = getattr(identified, "_study", None)
+    design = getattr(study, "design", None)
+    if type(functional) is not BackdoorMeanContrast or type(design) is not PointTreatment:
+        return False
+    # Both calls sit inside the guard.  A tampered estimand reaches the narrowing as well
+    # as the functional -- a controlled direct effect whose intermediate is not a number
+    # raises from ``float(...)`` -- and an exception out of a provenance matcher is a
+    # different failure from the refusal it is asked for.
+    try:
+        expected_functional = _point_functional(design, data, identified.estimand)
+        expected_registered = TARGETS[expected_functional.target]
+        if registered != expected_registered.identification or axis != expected_functional.axis:
+            return False
+        expected = _point_identification(registered, design, expected_functional)
+    except (AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError):
+        return False
+    schema = getattr(functional, "schema_version", None)
+    if schema == 0:
+        # A record written before these five fields existed carries the registry's generic
+        # identification, which states neither missingness at random, nor response
+        # positivity, nor an intermediate.  A design declaring missingness= or
+        # intermediate= cannot have produced one: both compositions post-date the schema.
+        # Accepting that pairing would let a replay run against assumptions the record
+        # does not state, so the back-compat allowance stops at a design that declares
+        # either mechanism.
+        static_legacy = BackdoorMeanContrast._restored_without(
+            expected_functional, BackdoorMeanContrast._SCHEMA_1_FIELDS
+        )
+        transitional = BackdoorMeanContrast._restored_without(
+            expected_functional, BackdoorMeanContrast._TRANSITIONAL_FIELDS
+        )
+        static_admissible = design.missingness is None and design.intermediate is None
+        return (static_admissible and functional == static_legacy and actual == registered) or (
+            functional == transitional and actual == expected
+        )
+    if schema != 1 or functional != expected_functional:
+        return False
+    return actual == expected
 
 
 _LONGITUDINAL_IDENTIFICATION = Identification(
@@ -1360,19 +2096,30 @@ class ExplicitAdjustmentProvider:
         assert isinstance(design, PointTreatment)
         data = study.data
         assert isinstance(data, CausalData)
-        actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
-        target = actual.name
-        if isinstance(actual, CounterfactualMean) and actual.treatment is not None:
-            if actual.treatment not in data.treatment_levels:
-                raise DataError(
-                    f"treatment {actual.treatment!r} is not available; "
-                    f"choose from {list(data.treatment_levels)}"
-                )
-            if data.is_binary_treatment:
-                code = float(data.treatment_levels.index(actual.treatment))
-                target = "ey1" if code == 1.0 else "ey0"
+        actual, target = _point_target(estimand, data)
+        if (
+            isinstance(actual, CounterfactualMean)
+            and actual.treatment is not None
+            and actual.treatment not in data.treatment_levels
+        ):
+            raise DataError(
+                f"treatment {actual.treatment!r} is not available; "
+                f"choose from {list(data.treatment_levels)}"
+            )
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+        # Keyed on the outcome being missing, not on the declaration.  The engine guard
+        # this fronts -- ``TargetContext.observed_mean`` -- keys on the observation mask,
+        # so a design that declares a response indicator which is identically one has no
+        # missing outcome, E[Y] is exactly the empirical mean, and refusing it here would
+        # refuse a fit the estimator performs.  docs/roadmap.md RM8 states the stop as
+        # "refused when outcomes are missing", which is this condition.
+        if data.has_missing_outcome and target in POPULATION_INTERVENTION_TARGETS:
+            raise population_intervention_refusal(
+                (target,),
+                declaration="PointTreatment(missingness=...)",
+                subject=type(actual).__name__,
+            )
         axis = TARGETS[target].parameter_axis
         # The rule is about the parameter *axis*, not about a list of target names.  Naming
         # targets refused `msm` -- whose axis is `msm`, indexed by working-model term, and
@@ -1421,33 +2168,13 @@ class ExplicitAdjustmentProvider:
                 "a design with intermediate= must identify ControlledDirectEffect explicitly"
             )
 
-        interventions: tuple[Any, ...] = ()
-        msm = None
-        if isinstance(actual, (RegimeMean, RegimeContrast)):
-            interventions = tuple(actual.regimens)
-        elif isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
-            interventions = tuple(actual.shifts)
-        elif isinstance(actual, (IncrementalMean, IncrementalEffect)):
-            interventions = tuple(actual.interventions)
-        elif isinstance(actual, MSMProjection):
-            msm = actual.model
-        functional = BackdoorMeanContrast(
-            outcome=design.outcome,
-            treatment=design.treatment,
-            adjustment=tuple(design.adjustment),
-            target=target,
-            axis=axis,
-            reference=reference,
-            interventions=interventions,
-            msm=msm,
-            intermediate=estimand.intermediate
-            if isinstance(estimand, ControlledDirectEffect)
-            else None,
-        )
+        functional = _point_functional(design, data, estimand)
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=TARGETS[target].identification,
+            identification=_point_identification(
+                TARGETS[target].identification, design, functional
+            ),
             provider=self,
             _study=study,
         )
@@ -1745,6 +2472,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             f"{self.estimand.definition}\n"
             f"identified by {self.provider.name}: {self.functional.expression}\n"
             f"adjustment/history: {list(self.functional.adjustment)}\n"
+            f"required nuisances: {list(self.identification.required_nuisances)}\n"
             f"assumptions:\n{assumptions}"
         )
 
@@ -1759,6 +2487,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
+            "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
         )
 
