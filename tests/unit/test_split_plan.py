@@ -19,6 +19,7 @@ module answers each one:
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -334,8 +335,8 @@ class TestCrossFittingConfiguration:
         ``resolve_n_folds`` caps the declared count at the rarest stratum and again at the
         cluster count, so a plan this package wrote under a 10-fold declaration can hold
         three.  Refusing it here would refuse the package's own record of its own fit.
-        The equality the fit needs is against the resolved count, which
-        ``TMLE._repeat_draws`` checks once the data are in hand.
+        What the fit then needs of the plan is not a count at all: ``SplitPlan.validate``
+        checks the labels against the data once they are in hand.
         """
         plan = SplitPlan([[0, 1, 2, 0, 1, 2]])
 
@@ -813,12 +814,13 @@ class TestAPlanIsBoundToTheRowsThatRealisedIt:
         _assert_same_fit(fitted, again)
 
 
-class TestTheFoldCountIsCheckedAgainstWhatTheDataResolve:
-    """Declaration time rules out one direction; fit time checks the equality.
+class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
+    """Declaration time rules out one direction, and validation decides the rest.
 
     ``resolve_n_folds`` caps the declared count, and a cap only ever reduces it.  So a
     declaration can refuse a plan that holds *more* folds than it asks for, and nothing
-    else, while the count a fit actually runs is not knowable until the data are in hand.
+    else.  What a fit needs of a supplied plan is not a count: it needs labels these rows
+    can carry, which is what ``SplitPlan.validate`` checks.
     """
 
     @pytest.fixture(scope="class")
@@ -838,32 +840,131 @@ class TestTheFoldCountIsCheckedAgainstWhatTheDataResolve:
         # The declaration is recorded as declared, not as resolved.
         assert generated.config.crossfit.n_folds == 10
 
-        with pytest.warns(UserWarning, match="only 4 clusters"):
-            supplied = _effect(frame, cluster="four").estimate(
-                method=_method(n_folds=10, split_plan=generated.split_plan)
-            )
+        # No cap warning here, and none is wanted: the supplied path generates no split,
+        # so there is no count to reduce.  ``test_nothing_is_reduced_on_the_supplied_path``
+        # is the assertion of that.
+        supplied = _effect(frame, cluster="four").estimate(
+            method=_method(n_folds=10, split_plan=generated.split_plan)
+        )
 
         _assert_same_fit(generated, supplied)
         assert supplied.config.crossfit.n_folds == 10
 
-    def test_a_plan_is_refused_when_these_data_resolve_a_different_count(
+    def test_a_plan_these_rows_cannot_carry_is_refused_by_validation(
         self, frame: pd.DataFrame
     ) -> None:
-        """The plan and the declaration agree, and the data do not.
+        """The plan and the declaration agree, and the labels still cannot serve.
 
         Clustering is not part of the data fingerprint, so declaring ``id=`` on the same
-        columns leaves the binding satisfied and moves only the resolved fold count.
+        columns leaves the binding satisfied and leaves the labels unchanged.  The labels
+        were drawn without the clusters, so they cut across them, and cluster integrity is
+        the prohibition cross-fitting exists to enforce.  The refusal names the leakage
+        rather than a fold count, which is what makes it readable.
         """
         unclustered = _effect(frame).estimate(method=_method(n_folds=N_FOLDS))
         assert unclustered.split_plan.n_folds == N_FOLDS
 
-        with (
-            pytest.raises(DataError, match=r"holds 3 folds but these data resolve"),
-            pytest.warns(UserWarning, match="only 2 clusters"),
-        ):
+        with pytest.raises(DataError, match="rows in more than one fold"):
             _effect(frame, cluster="two").estimate(
                 method=_method(n_folds=N_FOLDS, split_plan=unclustered.split_plan)
             )
+
+    def test_nothing_is_reduced_on_the_supplied_path(self, frame: pd.DataFrame) -> None:
+        """A supplied plan generates no split, so there is no count to cap.
+
+        The generated fit that drew this plan warns that four clusters cap ten folds at
+        four.  Handing the realised plan back must not repeat that warning: it describes
+        a resolution step the supplied path does not run.
+        """
+        with pytest.warns(UserWarning, match="only 4 clusters"):
+            generated = _effect(frame, cluster="four").estimate(method=_method(n_folds=10))
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _effect(frame, cluster="four").estimate(
+                method=_method(n_folds=10, split_plan=generated.split_plan)
+            )
+
+        assert not [one for one in caught if "reducing n_folds" in str(one.message)]
+
+
+class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
+    """A refit can move the balancing vector without moving a row.
+
+    Under ``stratify_by="treatment+outcome"`` the balancing code is the treatment crossed
+    with the outcome, so the placebo permutation re-counts the crossed cells.  Here it
+    leaves the rarest cell with two members, one fewer than a *generated* three-fold split
+    would need.  No row moved, and the plan's own labels still carry every cell into every
+    training complement, so the refit runs.  A fit-time comparison against
+    ``resolve_n_folds`` refused it instead, and refused with a ``DataError``, which the
+    combined battery does not catch -- so one rare cell took down every later row of it.
+    """
+
+    #: The permutation the refutations below draw, and the one the cell counts describe.
+    PLACEBO_SEED = 24
+
+    @pytest.fixture(scope="class")
+    def frame(self) -> pd.DataFrame:
+        """150 rows whose crossed cells hold 72, 3, 72 and 3."""
+        rng = np.random.default_rng(7)
+        outcome = np.zeros(150)
+        outcome[72:75] = 1.0
+        outcome[147:150] = 1.0
+        return pd.DataFrame(
+            {
+                "Y": outcome,
+                "A": np.repeat([0.0, 1.0], 75),
+                "W1": rng.normal(size=150),
+                "W2": rng.normal(size=150),
+                "W3": rng.normal(size=150),
+            }
+        )
+
+    @pytest.fixture(scope="class")
+    def supplied(self, frame: pd.DataFrame) -> Any:
+        _, result = _generated_then_supplied(frame, stratify_by="treatment+outcome")
+        return result
+
+    def test_the_permutation_leaves_a_cell_below_the_supplied_fold_count(
+        self, frame: pd.DataFrame, supplied: Any
+    ) -> None:
+        """Without this the two tests below would pass against any implementation.
+
+        They observe a refit that a generated split could not have produced, and that is
+        only true while the seeded permutation leaves a crossed cell with two members.
+        """
+        permuted = np.random.default_rng(self.PLACEBO_SEED).permutation(np.asarray(frame["A"]))
+        crossed = np.unique(
+            np.column_stack([permuted, np.asarray(frame["Y"])]), axis=0, return_inverse=True
+        )[1]
+
+        assert int(np.bincount(crossed).min()) == 2
+        assert supplied.split_plan.n_folds == N_FOLDS == 3
+
+    def test_a_placebo_refutation_runs_on_a_supplied_plan(self, supplied: Any) -> None:
+        report = refute(
+            supplied, tests=("placebo",), n_replicates=1, random_state=self.PLACEBO_SEED
+        )
+
+        assert [test.name for test in report.tests] == ["placebo"]
+        assert len(report["placebo"].values) == 1
+
+    def test_the_combined_battery_reports_the_refutation_rather_than_dying(
+        self, supplied: Any
+    ) -> None:
+        """``_run_all`` catches ``CapabilityError`` and nothing else, by design."""
+        report = supplied.diagnostics.run_all(
+            include_refits=True,
+            arguments={
+                "refute": {
+                    "tests": ("placebo",),
+                    "n_replicates": 1,
+                    "random_state": self.PLACEBO_SEED,
+                }
+            },
+        )
+
+        assert report["refute"].status is AssessmentStatus.PASSED
 
 
 class TestARefutationThatChangesTheRowSetIsRefusedUpFront:

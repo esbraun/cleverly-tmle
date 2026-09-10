@@ -131,13 +131,7 @@ from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
-from ..learners.crossfit import (
-    CrossFitPlan,
-    Folds,
-    SplitPlan,
-    make_folds,
-    resolve_n_folds,
-)
+from ..learners.crossfit import CrossFitPlan, Folds, SplitPlan, make_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
@@ -1235,12 +1229,14 @@ class TMLE:
     def _repeat_draws(self, data: CausalData) -> tuple[tuple[Folds, int | None], ...]:
         """Realize and validate all outer draws before fitting any nuisance model.
 
-        The supplied path checks the fold count against the count these data *resolve*
-        to, not against the count the caller declared.  Those differ whenever a cap fires:
-        a plan realised by a 10-fold declaration on data that support 3 holds 3, and
-        refusing it against the declaration would refuse this package's own record of its
-        own fit.  Declaration time can only rule out the direction no cap produces --
-        more folds than declared -- which ``SplitPlan._policy_refusal`` does.
+        The supplied path asks :meth:`SplitPlan.validate` whether the labels can serve
+        these rows, and asks nothing else.  It does *not* compare the plan's fold count
+        against :func:`resolve_n_folds`, which answers "how many folds could a generated
+        stratified split make here" -- a question about a split nobody is generating.  A
+        usable plan may hold more folds than that: the rarest stratum has to reach every
+        training complement, not to appear once in every fold, and ``validate`` checks
+        that property directly.  Declaration time rules out the one direction no cap can
+        produce, more folds than declared, which ``SplitPlan._policy_refusal`` does.
         """
         seeds = self.crossfit_plan(data).seeds()
         supplied = self.split_plan
@@ -1248,15 +1244,6 @@ class TMLE:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
             stratify = self._fold_strata(data)
-            resolved = resolve_n_folds(self.n_folds, data.n, stratify, cluster=data.cluster)
-            if supplied.n_folds != resolved:
-                raise DataError(
-                    f"split plan holds {supplied.n_folds} folds but these data resolve "
-                    f"{self.n_folds} declared folds to {resolved}. A supplied plan is the "
-                    "realised split, so it has to hold the folds this fit would run; "
-                    "regenerate the plan on these data, or declare the fold count the plan "
-                    "was realised under"
-                )
             folds = supplied.validate(
                 n=data.n,
                 cluster=data.cluster,
@@ -1914,8 +1901,8 @@ class TMLE:
 
         Recorded on every result via :attr:`TMLEConfig.crossfit`, beside the fold count
         the fit actually ran.  The two can differ -- ``resolve_n_folds`` caps at the
-        rarest stratum and ``make_folds`` at the cluster count -- and the warnings that
-        say so are gone by the time anyone reads the result.
+        rarest stratum and again at the cluster count -- and the warnings that say so are
+        gone by the time anyone reads the result.
 
         Takes ``data`` because two of the fields are answers about it rather than
         settings: whether clusters were declared, and whether the treatment has strata to

@@ -128,10 +128,10 @@ class TMLEConfig:
     parameter_axis: ParameterAxis = "arm"
     #: The fold policy the caller *declared*, as against ``n_folds`` above, which is the
     #: count the fit actually ran.  The two come apart without leaving a trace otherwise:
-    #: ``resolve_n_folds`` caps the count at the rarest stratum and ``make_folds`` caps it
-    #: again at the cluster count, each with a warning that is gone by the time anyone
-    #: reads the result.  Defaulted so that every existing construction and
-    #: ``dataclasses.replace`` keeps working untouched.
+    #: ``resolve_n_folds`` caps the count at the rarest stratum and again at the cluster
+    #: count, each with a warning that is gone by the time anyone reads the result.
+    #: Defaulted so that every existing construction and ``dataclasses.replace`` keeps
+    #: working untouched.
     crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
 
     # Read-through to the spec, so the settings appear once and cannot drift.

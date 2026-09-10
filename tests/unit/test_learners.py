@@ -112,6 +112,20 @@ class TestFolds:
             folds = make_folds(60, 10, cluster=cluster, random_state=0)
         assert folds.n_folds == 3
 
+    def test_one_cluster_cannot_be_cross_fitted(self) -> None:
+        """The cluster cap can drive the count below two, and one fold is not a split.
+
+        Every row is in the same cluster, so every row has to land in the same fold, and
+        a single fold trains on nothing.  The cap fires first and says why the count
+        moved; the refusal follows and says why the result is unusable.
+        """
+        cluster = np.zeros(60, dtype=np.int64)
+        with (
+            pytest.raises(ValueError, match="at least 2 clusters"),
+            pytest.warns(UserWarning, match="only 1 clusters"),
+        ):
+            resolve_n_folds(10, 60, cluster=cluster)
+
 
 class TestFoldInvariants:
     """The prohibitions a cross-fitted estimate assumes, checked rather than assumed.

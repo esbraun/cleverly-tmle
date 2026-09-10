@@ -404,10 +404,10 @@ class SplitPlan:
         :func:`resolve_n_folds` caps at the rarest stratum and again at the cluster count.
         A plan realised under a cap therefore holds fewer folds than the declaration that
         produced it, and refusing that here would refuse a plan this package itself
-        wrote. More folds than declared is the direction no cap can produce. The equality
-        the fit needs is against the *resolved* count, which is not knowable until the
-        data are in hand, and :meth:`~cleverly.estimators.TMLE._repeat_draws` checks it
-        there.
+        wrote. More folds than declared is the direction no cap can produce, and it is
+        the only fold-count question a declaration can answer without the data. Whether
+        the labels can serve a particular dataset is :meth:`validate`'s question, and
+        :meth:`~cleverly.estimators.TMLE._repeat_draws` asks it there.
 
         Parameters
         ----------
@@ -486,7 +486,7 @@ class SplitPlan:
         # Each vector is read once here rather than once per (repeat x fold): none of them
         # changes as the loop below walks the folds, and neither does the set of values a
         # training complement has to contain.
-        prepared: list[tuple[str, Any]] = []
+        prepared: dict[str, Any] = {}
         for name, vector in (
             ("cluster", cluster),
             ("treatment arm", treatment),
@@ -497,11 +497,11 @@ class SplitPlan:
             values = np.asarray(vector).reshape(-1)
             if values.shape[0] != n:
                 raise DataError(f"{name} has {values.shape[0]} rows but the data have {n}")
-            prepared.append((name, values))
-        codes = next((values for name, values in prepared if name == "cluster"), None)
-        support = tuple(
-            (name, values, np.unique(values)) for name, values in prepared if name != "cluster"
-        )
+            prepared[name] = values
+        # The cluster vector is checked by ``check_integrity`` rather than for support:
+        # a cluster is atomic, so it is meant to be absent from the folds it is not in.
+        codes = prepared.pop("cluster", None)
+        support = tuple((name, values, np.unique(values)) for name, values in prepared.items())
 
         realized = self.to_folds()
         for repeat, folds in enumerate(realized):
@@ -590,10 +590,14 @@ def resolve_n_folds(
 
     A cluster is atomic, so a grouped split cannot make more folds than there are
     clusters, and ``cluster`` applies that second cap.  Both caps live here rather than
-    one here and one in :func:`make_folds`, because the resolved count is a question about
-    the data that a caller who is *not* generating a split still has to ask: a supplied
-    :class:`SplitPlan` has to hold the count this would resolve to, and
-    :meth:`~cleverly.estimators.TMLE._repeat_draws` compares it against exactly this.
+    one here and one in :func:`make_folds`, so that one function answers "how many folds
+    can a generated split make on these data" and every generated split asks it once.
+
+    This is a question about a split that is about to be *generated*.  A supplied
+    :class:`SplitPlan` is not held to the count it returns: a plan may hold more folds
+    than this, because a rare stratum has to reach every training complement rather than
+    appear once per fold, and :meth:`SplitPlan.validate` checks that property on the
+    labels themselves.
 
     Parameters
     ----------
@@ -734,10 +738,9 @@ class CrossFitPlan:
     Every field is a number or a string, so a plan is comparable, hashable and
     serialisable, and says nothing about any particular dataset.  What a plan realises on
     one is a :class:`Folds`, and the two can differ: :func:`resolve_n_folds` caps
-    ``n_folds`` at the rarest stratum and :func:`make_folds` caps it again at the cluster
-    count, both with a warning at fit time and no trace afterwards.  Recording the plan
-    beside the realised count is what makes "why did my 10-fold fit run 3 folds?"
-    answerable from a saved result.
+    ``n_folds`` at the rarest stratum and again at the cluster count, both with a warning
+    at fit time and no trace afterwards.  Recording the plan beside the realised count is
+    what makes "why did my 10-fold fit run 3 folds?" answerable from a saved result.
 
     Built from the estimator's own keyword arguments by
     :meth:`~cleverly.estimators.tmle.TMLE.crossfit_plan` and held on

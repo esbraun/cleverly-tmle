@@ -1527,8 +1527,13 @@ def refute(
     # that ran first, and ``bootstrap_measurement_error`` gives no error at all: its draw
     # keeps the row count, so the labels land on resampled units and the refutation
     # silently reports a split the fit never ran.
-    # ``getattr`` because ``result.estimator`` is whatever fitted the result: the
-    # sequential engine takes no plan and has no such attribute.
+    # ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and this function
+    # reads it as a refit *seam*: anything with the ``refit`` signature above serves, and
+    # ``_validate_generated_eligibility`` reads ``getattr(estimator, "family", "auto")``
+    # off the same object for the same reason. The stand-ins in
+    # ``tests/unit/test_generated_outcome_refutation.py`` and
+    # ``tests/unit/test_bootstrap_measurement_error.py`` hold no plan, and 85 tests reach
+    # this line through them.
     supplied_plan = getattr(estimator, "split_plan", None)
     if supplied_plan is not None:
         resampled = [name for name in requested if name in _ROW_SET_TESTS]

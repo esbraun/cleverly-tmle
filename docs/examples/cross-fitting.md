@@ -289,7 +289,7 @@ That is reproducible wiring for this fit. It adds no evidence about bias, covera
 A plan labels rows by position, so it belongs to these rows in this order. The plan also records
 which data it came from. A fit on other data is refused rather than given the wrong labels.
 [Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
-the contract and every refusal, including the refutation test a supplied plan refuses.
+the contract and every refusal, including the two refutation tests a supplied plan refuses.
 
 ## A second construction over the same folds
 

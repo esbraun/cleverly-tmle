@@ -120,11 +120,11 @@ logistic-submodel bound.
 
 A supplied `SplitPlan` fixes outer validation assignments by input row position, and a plan read
 off a result binds to that fit's data fingerprint. It does not fix inner learner or
-collaborative-selection folds. Validate every repeat against that fingerprint and against the
-resolved fold count before nuisance fitting, including training support and cluster integrity.
-Results derive the public plan from retained folds, and provenance fingerprints those same
-assignments. Targeted bootstrap, longitudinal fits, and any refutation that changes the row set
-refuse a supplied plan until they define their own row-mapping and validation contracts.
+collaborative-selection folds. Validate every repeat against that fingerprint before nuisance
+fitting, including training support and cluster integrity. Results derive the public plan from
+retained folds, and provenance fingerprints those same assignments. Targeted bootstrap,
+longitudinal fits, and any refutation that changes the row set refuse a supplied plan until they
+define their own row-mapping and validation contracts.
 *Reconsider when* either engine records enough identity to validate a supplied plan before fitting.
 
 A normalized method declaration either changes the selected engine request or fails before that

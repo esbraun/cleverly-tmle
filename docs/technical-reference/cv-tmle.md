@@ -135,17 +135,19 @@ A clustered design applies one further rule. Every row from one cluster must rec
 label within each repeat.
 
 **A cap makes the declared fold count and the realized fold count differ.** The resolver caps the
-count at the rarest stratum, and again at the cluster count. Each check therefore reads a
-different count.
+count at the rarest stratum, and again at the cluster count. The declaration is therefore an upper
+bound on the plan, and it is the only rule that reads a fold count.
 
-| when | what it compares | what it refuses |
+| when | what it checks | what it refuses |
 | --- | --- | --- |
-| you construct `CrossFitting` | the plan against the **declared** `n_folds` | a plan holding more folds than the declaration. No cap produces that direction |
-| before nuisance fitting | the plan against the count these data **resolve** to | a plan holding any other count |
+| you construct `CrossFitting` | the plan's fold count against the declared `n_folds` | a plan holding more folds than the declaration. No cap produces that direction |
+| before nuisance fitting | the plan's labels against the data in hand | a plan whose folds cannot serve these rows |
 
 So `n_folds=10` on data carrying four clusters realizes a four-fold plan, and `n_folds=10` accepts
-that plan back. The fit still records the declared 10, under `config.crossfit.n_folds`. The
-`repeats` count must equal the plan's repeat count exactly.
+that plan back. The fit still records the declared 10, under `config.crossfit.n_folds`. The fit
+resolves no fold count for a supplied plan, because it generates no split. A rare stratum must
+reach every training complement, and it need not appear once in every fold. The `repeats` count
+must equal the plan's repeat count exactly.
 
 The plan controls only the outer nuisance split. Inner Super Learner folds still follow
 `learner_folds`. Collaborative TMLE selection folds still follow their repeat-specific seeds.
