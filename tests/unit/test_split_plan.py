@@ -276,6 +276,36 @@ class TestDataBoundValidationPrecedesNuisanceFitting:
         self._refuse_before_fit(monkeypatch, frame, SplitPlan([assignment]), cluster="pid")
 
 
+def test_generated_folds_do_not_acquire_supplied_plan_support_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame, _ = make_nonlinear_ate(n=120, seed=14)
+
+    def unexpected(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("a generated split entered the supplied-plan validator")
+
+    monkeypatch.setattr(SplitPlan, "validate", unexpected)
+    result = _effect(frame).estimate(method=_method())
+
+    assert result.split_plan.n_folds == N_FOLDS
+
+
+def test_in_sample_gaussian_fit_ignores_crossfit_only_outcome_strata() -> None:
+    frame, _ = make_nonlinear_ate(n=120, seed=15)
+    method = dataclasses.replace(
+        _method(),
+        cross_fitting=CrossFitting(
+            enabled=False,
+            learner_folds=2,
+            stratify_by="treatment+outcome",
+        ),
+    )
+
+    result = _effect(frame).estimate(method=method)
+
+    assert result.split_plan.n_folds == 1
+
+
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_binary_plans_are_exactly_identical(backend: str) -> None:
     frame, _ = make_nonlinear_ate(n=180, seed=4, backend=backend)

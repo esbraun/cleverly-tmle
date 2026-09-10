@@ -1216,16 +1216,14 @@ class TMLE:
         seeds = self.crossfit_plan(data).seeds()
         supplied = getattr(self, "split_plan", None)
         if supplied is None:
-            realized = tuple(self._folds(data, seed) for seed in seeds)
-            plan = SplitPlan.from_folds(realized)
+            folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
-            plan = supplied
-        folds = plan.validate(
-            n=data.n,
-            cluster=data.cluster,
-            treatment=None if data.is_continuous_treatment else data.treatment,
-            strata=self._fold_strata(data),
-        )
+            folds = supplied.validate(
+                n=data.n,
+                cluster=data.cluster,
+                treatment=None if data.is_continuous_treatment else data.treatment,
+                strata=self._fold_strata(data),
+            )
         return tuple(zip(folds, seeds, strict=True))
 
     def _resolve_learner(
