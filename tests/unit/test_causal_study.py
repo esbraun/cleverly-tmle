@@ -97,7 +97,7 @@ from tests.conftest import (
     OracleOutcome,
     OracleTreatment,
 )
-from tests.pickles import PRE_SCHEMA_1_FIELDS, _LegacyPickle, legacy_without
+from tests.pickles import PRE_SCHEMA_1_FIELDS, _LegacyPickle, legacy_state, legacy_without
 
 
 def _study() -> CausalStudy:
@@ -436,11 +436,7 @@ def test_design_bound_identification_provenance_requires_the_complete_record(tmp
         registered, registered, effect, effect._study.data, effect.functional.axis
     )
 
-    state = {
-        name: value
-        for name, value in effect.functional.__dict__.items()
-        if name not in set(BackdoorMeanContrast._SCHEMA_1_FIELDS)
-    }
+    state = legacy_state(effect.functional, *BackdoorMeanContrast._SCHEMA_1_FIELDS)
     legacy_effect = dataclasses.replace(
         effect,
         functional=_LegacyPickle(type(effect.functional), state),
@@ -477,11 +473,7 @@ def test_design_bound_identification_provenance_requires_the_complete_record(tmp
 def test_transitional_design_bound_pickle_remains_valid_but_stale_cde_mar_does_not() -> None:
     effect = _study().identify(ATE())
     assert effect._study is not None
-    transitional_state = {
-        name: value
-        for name, value in effect.functional.__dict__.items()
-        if name not in set(BackdoorMeanContrast._TRANSITIONAL_FIELDS)
-    }
+    transitional_state = legacy_state(effect.functional, *BackdoorMeanContrast._TRANSITIONAL_FIELDS)
     restored = pickle.loads(
         pickle.dumps(
             dataclasses.replace(

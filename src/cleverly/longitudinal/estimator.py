@@ -1061,6 +1061,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         else:
             # A recorded digest with no identification metadata is not absence: the fit ran
             # under a study protocol and the descriptive record did not reach this summary.
+            # The digest goes in for that distinction alone.  The provenance block below
+            # renders it, and `protocol_lines` leaves it off this line for that reason.
             facts.extend(protocol_lines(None, self.provenance.protocol_fingerprint))
         if self.data.cluster is not None:
             facts.append(

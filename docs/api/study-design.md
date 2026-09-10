@@ -26,6 +26,10 @@ Pass `protocol=StudyProtocol(...)` to carry the scientific context through ident
 estimation, summaries, and persistence. Sequence inputs normalize to tuples. The constructor
 rejects blank text. It also rejects a strategy list and a version list of different lengths.
 
+The record serializes itself with `to_dict()`, which returns the normalized mapping. Its
+`canonical_json` property returns the canonical UTF-8 JSON text of that mapping, and `fingerprint`
+returns the BLAKE2b digest of that text. Pass a mapping back to `from_dict()` to rebuild the record.
+
 [Who owns what](../workflow.md#who-owns-what) states which object owns which decision.
 [Study protocol vocabulary](../references.md#study-protocol-vocabulary) names the sources of the
 record and states its scope.

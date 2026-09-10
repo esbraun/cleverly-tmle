@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields
@@ -21,9 +22,15 @@ _SCHEMA_VERSION = 1
 #: :meth:`StudyProtocol.to_dict` and :meth:`StudyProtocol.summary_lines` all walk
 #: :func:`dataclasses.fields`, so declaring a field is what validates, serializes and
 #: reports it.  The two hand-written name tuples this replaces went stale silently: a
-#: field left out of them was stored unvalidated.
+#: field left out of them was stored unvalidated.  The metadata is a third per-field list
+#: and could go stale the same way, so ``__post_init__`` refuses a field that names no
+#: kind here rather than skipping it.
 _TEXT = "text"
 _TEXT_SEQUENCE = "text_sequence"
+
+#: Unicode general categories of every character that ends a line under
+#: :meth:`str.splitlines`, which is what a refusal over control characters alone missed.
+_LINE_ENDING_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
 
 #: The one line a summary prints when no study protocol was recorded.
 _ABSENT = "causal study protocol: absent"
@@ -46,13 +53,31 @@ def _text(name: str, value: object) -> str:
             f"{name} must be text that encodes as UTF-8; the value carries an unpaired "
             "surrogate, which has no canonical JSON form and so no digest"
         ) from error
-    control = next((item for item in stripped if unicodedata.category(item) == "Cc"), None)
-    if control is not None:
+    # Every category that ends a line, rather than "Cc" alone: `str.splitlines` also
+    # splits on U+2028 LINE SEPARATOR (Zl) and U+2029 PARAGRAPH SEPARATOR (Zp), so a guard
+    # over control characters alone accepted the two characters whose whole purpose is the
+    # split this refusal exists to prevent.
+    splitter = next(
+        (item for item in stripped if unicodedata.category(item) in _LINE_ENDING_CATEGORIES),
+        None,
+    )
+    if splitter is not None:
         raise DataError(
-            f"{name} must not carry the control character {control!r}; it would split one "
-            "summary line into two and read as two different facts"
+            f"{name} must not carry {splitter!r}; that is a control or line-separator "
+            "character, and one summary line has to render as one fact"
         )
     return stripped
+
+
+def _entries(values: tuple[str, ...]) -> str:
+    """Return one sequence field as a line only that one tuple can produce."""
+    # Each entry quoted, rather than joined bare: a comma is both the separator and a
+    # character an entry may carry, so ["a", "b"] and ["a, b"] rendered the same line while
+    # their digests differ.  A summary line that two different records produce is the same
+    # failure an interior newline is refused for.  `json.dumps` ends a literal at its first
+    # unescaped quote and escapes any quote inside one, so the entries stay recoverable, and
+    # `ensure_ascii=False` keeps the text readable.
+    return ", ".join(json.dumps(entry, ensure_ascii=False) for entry in values)
 
 
 def _text_tuple(name: str, values: object) -> tuple[str, ...]:
@@ -176,6 +201,18 @@ class StudyProtocol(_DefaultingUnpickle):
                 object.__setattr__(self, spec.name, _text(spec.name, value))
             elif kind == _TEXT_SEQUENCE:
                 object.__setattr__(self, spec.name, _text_tuple(spec.name, value))
+            else:
+                # The metadata is a third per-field list, and a list nothing checks goes
+                # stale the way the two name tuples it replaced did: a field declared with
+                # no kind is stored with no strip and no refusal, and it still reaches the
+                # digest and the summary.  Refused here rather than skipped, so the
+                # omission cannot ship.  Not a caller's error, so neither TypeError nor
+                # DataError: the record is declared wrong, not built wrong.
+                raise RuntimeError(
+                    f"StudyProtocol.{spec.name} names no validated kind, so no code would "
+                    f"strip or refuse its value; declare the field with "
+                    f"metadata={{'kind': ...}} as {_TEXT!r} or {_TEXT_SEQUENCE!r}"
+                )
         if len(self.treatment_strategies) != len(self.treatment_versions):
             raise DataError(
                 "treatment_strategies and treatment_versions must contain the same number "
@@ -244,14 +281,14 @@ class StudyProtocol(_DefaultingUnpickle):
 
         Notes
         -----
-        The digest is not repeated here. Every other digest this package reports is
+        The digest is not repeated here. Every digest a provenance record reports is
         rendered on the provenance line, and :meth:`cleverly.Provenance.describe` reports
         this one there.
         """
         lines = [f"causal study protocol: schema {self.schema_version}"]
         for name, label in self._LABELS.items():
             value = getattr(self, name)
-            lines.append(f"{label}: {', '.join(value) if isinstance(value, tuple) else value}")
+            lines.append(f"{label}: {_entries(value) if isinstance(value, tuple) else value}")
         return tuple(lines)
 
 
@@ -263,7 +300,8 @@ def protocol_lines(protocol: StudyProtocol | None, digest: str | None = None) ->
     protocol : StudyProtocol or None
         Record to report. ``None`` means the caller holds no record.
     digest : str or None
-        Digest the fit recorded, read only when ``protocol`` is ``None``.
+        Digest the fit recorded. Read only when ``protocol`` is ``None``, and read only
+        for its presence, because the provenance line renders the digest itself.
 
     Returns
     -------
@@ -276,9 +314,13 @@ def protocol_lines(protocol: StudyProtocol | None, digest: str | None = None) ->
     A digest with no record is a third state rather than absence. It says the fit ran
     under a protocol and that the descriptive record did not survive to this summary, so
     reporting absence there would contradict the digest on the provenance line.
+
+    The not-retained line does not carry the digest. Printing it there and on the
+    provenance line is the same redundancy :meth:`StudyProtocol.summary_lines` dropped,
+    on the one path where no field is reported.
     """
     if protocol is not None:
         return protocol.summary_lines()
     if digest is None:
         return (_ABSENT,)
-    return (f"causal study protocol: record not retained; digest {digest}",)
+    return ("causal study protocol: record not retained; the provenance line names its digest",)

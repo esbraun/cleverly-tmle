@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import unicodedata
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -29,7 +30,7 @@ from cleverly import (
     load,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.protocol import protocol_lines
+from cleverly.protocol import _TEXT, _TEXT_SEQUENCE, protocol_lines
 from tests.conftest import FAST_KWARGS
 from tests.pickles import _LegacyPickle, legacy_state, legacy_without
 
@@ -112,7 +113,16 @@ def _revised(protocol: StudyProtocol, name: str) -> StudyProtocol:
 #: cannot notice the canonical form moving. If either value below has to change, the
 #: canonical form changed and every digest this package has ever reported changed with it:
 #: that is a deliberate schema revision, which raises ``_SCHEMA_VERSION`` and says so. It
-#: is never the side effect of a refactor. The record carries "Niños" so that
+#: is never the side effect of a refactor.
+#:
+#: The canonical form is the serialized text *and* the normalization that produces the
+#: values in it. Stripping surrounding whitespace is therefore part of it, because it
+#: decides which input reaches the digest. That half was settled in this change, before any
+#: release and before any committed artifact stored a protocol digest, so schema 1 is the
+#: first schema to ship either half and nothing needed a revision to reach it. A later
+#: change to the strip is the change that raises ``_SCHEMA_VERSION``.
+#:
+#: The record carries "Niños" so that
 #: ``ensure_ascii=False`` is pinned here too, and a 30-day horizon so that the JSON
 #: carries a bare number inside text.
 _PINNED_CANONICAL_JSON = (
@@ -200,15 +210,18 @@ def test_protocol_is_frozen_and_its_schema_version_cannot_be_supplied() -> None:
 def test_every_protocol_field_is_serialized_labelled_and_digested() -> None:
     """A field added to the record forces a decision rather than shipping unreported.
 
-    ``to_dict`` and ``summary_lines`` both walk the class: the first walks
-    :func:`dataclasses.fields`, the second walks ``_LABELS``. The walk over ``_LABELS`` is
-    the one that can fall behind, because a field with no entry there is left out of every
-    summary in silence, and a summary that omits a recorded fact is a worse answer than an
-    error.
+    Two per-field lists can fall behind the fields themselves. ``_LABELS`` is read by
+    ``summary_lines``, and a field with no entry there is left out of every summary in
+    silence. The ``"kind"`` metadata is read by ``__post_init__``, and a field with no
+    entry there is stored with no strip and no refusal, which is the failure the two
+    hand-written name tuples before it had. ``to_dict`` walks
+    :func:`dataclasses.fields` and so cannot fall behind, and it is checked here because
+    the digest is what two fits compare.
     """
     declared = set(_FIELD_NAMES)
     serialized = set(_protocol().to_dict())
     labelled = set(StudyProtocol._LABELS)
+    kinds = {spec.name: spec.metadata.get("kind") for spec in dataclasses.fields(StudyProtocol)}
 
     assert "schema_version" not in declared, (
         "schema_version is a property over a module constant rather than a field, so that "
@@ -224,6 +237,30 @@ def test_every_protocol_field_is_serialized_labelled_and_digested() -> None:
         f"{sorted(labelled - declared)}. Add a StudyProtocol._LABELS entry for each new "
         "field, or summary_lines() omits it from every summary without saying so."
     )
+    unvalidated = sorted(
+        name for name, kind in kinds.items() if kind not in {_TEXT, _TEXT_SEQUENCE}
+    )
+    assert not unvalidated, (
+        f"fields that name no validated kind: {unvalidated}. Declare each field with "
+        "field(metadata={'kind': _TEXT}) or _TEXT_SEQUENCE, or __post_init__ reaches it "
+        "through neither branch and stores the value with no strip and no refusal."
+    )
+
+
+def test_a_field_that_names_no_validated_kind_is_refused_at_construction() -> None:
+    """The sweep above is what a developer sees; this is what protects the record.
+
+    A record built from a class whose field names no kind has an unvalidated value in its
+    canonical JSON and in its summary. So the walk refuses the field rather than skipping
+    it, and the omission cannot reach a stored record by another route.
+    """
+
+    @dataclasses.dataclass(frozen=True)
+    class _WithUnkindedField(StudyProtocol):
+        sensitivity_plan: str = "  "
+
+    with pytest.raises(RuntimeError, match="sensitivity_plan names no validated kind"):
+        _WithUnkindedField(**dataclasses.asdict(_pinned_protocol()))
 
 
 def test_summary_lines_report_every_protocol_field_exactly_once() -> None:
@@ -235,22 +272,42 @@ def test_summary_lines_report_every_protocol_field_exactly_once() -> None:
     assert len(lines) == 1 + len(_FIELD_NAMES)
     for name in _FIELD_NAMES:
         value = getattr(protocol, name)
-        rendered = ", ".join(value) if isinstance(value, tuple) else value
+        rendered = ", ".join(f'"{entry}"' for entry in value) if isinstance(value, tuple) else value
         expected = f"{StudyProtocol._LABELS[name]}: {rendered}"
         assert lines.count(expected) == 1, f"{name} is not reported as {expected!r}: {lines}"
+    # Each entry of a sequence field is quoted, so the line says where one entry ends.
     assert lines[1:] == (
         "target population: Adults eligible for transition navigation",
-        "eligibility: Discharged alive, Lives in the service area",
+        'eligibility: "Discharged alive", "Lives in the service area"',
         "time zero: Hospital discharge",
-        "treatment strategies: Offer navigation, Usual care",
-        "treatment versions: Calls at discharge and day seven, No navigation call",
+        'treatment strategies: "Offer navigation", "Usual care"',
+        'treatment versions: "Calls at discharge and day seven", "No navigation call"',
         "outcome: Top-box transition score",
         "horizon: 30 days after discharge",
-        "intercurrent-event handling: Use the score regardless of readmission",
+        'intercurrent-event handling: "Use the score regardless of readmission"',
         "interference unit: Patient",
-        "assumption rationale: Recorded baseline variables cover the common causes used "
-        "for adjustment",
+        'assumption rationale: "Recorded baseline variables cover the common causes used '
+        'for adjustment"',
     )
+
+
+def test_two_records_that_group_the_same_text_differently_render_different_lines() -> None:
+    """A witness for the rendering, which a digest-only check cannot supply.
+
+    Two entries and one entry carrying a comma are different records with different
+    digests. A line that joined entries on ", " alone reported both as the same fact,
+    which is the property an interior newline is refused for.
+    """
+    split = _protocol(eligibility=["Discharged alive", "Lives in the service area"])
+    joined = _protocol(eligibility=["Discharged alive, Lives in the service area"])
+    quoted = _protocol(eligibility=['Discharged alive", "Lives in the service area'])
+
+    assert split.fingerprint != joined.fingerprint != quoted.fingerprint
+    assert split.summary_lines() != joined.summary_lines()
+    # The escape, so a quote inside an entry cannot forge an entry boundary either.
+    assert split.summary_lines() != quoted.summary_lines()
+    assert 'eligibility: "Discharged alive", "Lives in the service area"' in split.summary_lines()
+    assert 'eligibility: "Discharged alive, Lives in the service area"' in joined.summary_lines()
 
 
 @pytest.mark.parametrize("name", _FIELD_NAMES)
@@ -319,8 +376,11 @@ def test_protocol_lines_distinguish_absence_from_a_record_that_was_not_retained(
     assert protocol_lines(None) == ("causal study protocol: absent",)
     assert protocol_lines(None, None) == ("causal study protocol: absent",)
     assert protocol_lines(None, "0123456789abcdef") == (
-        "causal study protocol: record not retained; digest 0123456789abcdef",
+        "causal study protocol: record not retained; the provenance line names its digest",
     )
+    # The digest is read for the distinction between the second state and the third, and
+    # rendered on neither line. The provenance line is where this package reports a digest.
+    assert "0123456789abcdef" not in "\n".join(protocol_lines(None, "0123456789abcdef"))
 
 
 # --------------------------------------------------------------- normalization and refusal
@@ -375,11 +435,21 @@ def test_protocol_rejects_blank_required_text(field: str, value: Any) -> None:
     [
         ("target_population", "Adults \ud800 discharged", "unpaired"),
         ("eligibility", ["Discharged alive", "Lives in the \ud800 area"], "unpaired"),
-        ("outcome", "Top-box\x00score", "control character"),
-        ("horizon", "30 days\x1b", "control character"),
-        ("eligibility", ["Discharged\nalive"], "control character"),
+        ("outcome", "Top-box\x00score", "control or line-separator"),
+        ("horizon", "30 days\x1b", "control or line-separator"),
+        ("eligibility", ["Discharged\nalive"], "control or line-separator"),
+        ("outcome", "Top-box\u2028score", "control or line-separator"),
+        ("eligibility", ["Discharged\u2029alive"], "control or line-separator"),
     ],
-    ids=["surrogate-text", "surrogate-entry", "nul", "escape", "interior-newline"],
+    ids=[
+        "surrogate-text",
+        "surrogate-entry",
+        "nul",
+        "escape",
+        "interior-newline",
+        "line-separator",
+        "paragraph-separator",
+    ],
 )
 def test_protocol_refuses_text_that_has_no_canonical_form(
     field: str, value: Any, expected: str
@@ -391,6 +461,20 @@ def test_protocol_refuses_text_that_has_no_canonical_form(
     """
     with pytest.raises(DataError, match=expected):
         _protocol(**{field: value})
+
+
+def test_the_refused_separators_are_the_ones_that_split_a_rendered_line() -> None:
+    """Why U+2028 and U+2029 are refused, though neither is a control character.
+
+    A guard over the Unicode category "Cc" alone accepted both. A summary line carrying
+    either still splits under :meth:`str.splitlines`, so the refusal said it prevented a
+    split that it let through. The split is checked here rather than asserted.
+    """
+    for separator in ("\u2028", "\u2029"):
+        assert unicodedata.category(separator) != "Cc"
+        assert len(f"horizon: 30 days{separator}after discharge".splitlines()) == 2
+        with pytest.raises(DataError, match="control or line-separator"):
+            _protocol(horizon=f"30 days{separator}after discharge")
 
 
 @pytest.mark.parametrize(
@@ -544,7 +628,8 @@ def _longitudinal_fit(protocol: StudyProtocol) -> Any:
 #: One row per estimate path, because each has its own stamping site and its own
 #: provenance builder. Before this matrix only the point path was witnessed, so deleting
 #: the longitudinal stamp left the whole file green. The third entry names the settings
-#: records a protocol must not reach, which differ between the two result families.
+#: records a protocol must not reach. ``config``, ``method`` and ``simultaneous`` are on
+#: both result families, and ``repeats`` is on the point result alone.
 _FITS: dict[str, tuple[Callable[[StudyProtocol], Any], StudyProtocol, tuple[str, ...]]] = {
     "point": (_point_fit, _POINT_PROTOCOL, ("config", "method", "repeats")),
     "longitudinal": (
@@ -615,6 +700,17 @@ def test_a_result_summary_renders_the_protocol_digest_once(
     assert f"protocol digest {digest}" in summary
     assert "causal study protocol: schema 1" in summary
     assert digest not in result.identified_effect.summary()
+
+    # The same count on the degraded path, where no field is reported and the line that
+    # replaces them used to name the digest a second time.
+    degraded = replace(result, identified_effect=None).summary()
+
+    assert "causal study protocol: record not retained" in degraded
+    assert degraded.count(digest) == 1, (
+        f"the protocol digest is rendered {degraded.count(digest)}x on the path that "
+        "retained no record"
+    )
+    assert f"protocol digest {digest}" in degraded
 
 
 # --------------------------------------------------------------------------- persistence
@@ -737,6 +833,7 @@ def test_result_without_identification_metadata_reports_an_unretained_record(
 
     summary = replace(result, identified_effect=None).summary()
 
-    digest = result.provenance.protocol_fingerprint
-    assert f"causal study protocol: record not retained; digest {digest}" in summary
+    assert (
+        "causal study protocol: record not retained; the provenance line names its digest"
+    ) in summary
     assert "causal study protocol: absent" not in summary

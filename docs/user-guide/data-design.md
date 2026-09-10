@@ -24,10 +24,14 @@ nothing. The design still owns the column roles, and the typed estimand still ow
 [Step 1 of the workflow](../workflow.md#1-formulate-the-causal-question) shows a complete record,
 and [study protocol vocabulary](../references.md#study-protocol-vocabulary) names its sources.
 
-The constructor strips surrounding whitespace from each text field and then validates it. It
-refuses a wrong type with `TypeError`, such as one string where a sequence of strings belongs. It
-refuses content the schema cannot state with `DataError`. Blank text, a control character, and a
-strategy list and a version list of different lengths are all refused that way.
+The constructor strips surrounding whitespace from each text field and then validates it. The strip
+is part of the canonical form, so a padded field and the same text without padding give one digest.
+A later change to that normalization raises the schema version.
+
+The constructor refuses a wrong type with `TypeError`, such as one string where a sequence of
+strings belongs. It refuses content the schema cannot state with `DataError`. Blank text, a control
+character, a line separator, and a strategy list and a version list of different lengths are all
+refused that way.
 
 ## Point treatment
 

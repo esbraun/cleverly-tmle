@@ -16,15 +16,33 @@ previous reader had is not a citation; a page number is.
 
 ## Study protocol vocabulary
 
-`StudyProtocol` records the study context of one analysis. These three sources supply its field
-vocabulary. The record is not a complete target-trial protocol, and it is not a claim of ICH
-estimand compliance. A record can state a claim. It is not itself an estimand.
+`StudyProtocol` records the study context of one analysis. Three sources supply the vocabulary of
+eight of its ten fields. `cleverly` adds the other two, and the table below says which. The record
+is not a complete target-trial protocol, and it is not a claim of ICH estimand compliance. A record
+can state a claim. It is not itself an estimand.
+
+| field | source | what the source names |
+| --- | --- | --- |
+| `target_population` | Hernán & Robins (2020) | the population the eligibility criteria of the target trial define |
+| `eligibility` | Hernán & Robins (2020) | the eligibility criteria |
+| `time_zero` | Hernán & Robins (2020) | time zero |
+| `treatment_strategies` | Hernán & Robins (2020) | the treatment strategies |
+| `outcome` | Hernán & Robins (2020) | the outcome |
+| `horizon` | Hernán & Robins (2020) | the follow-up period |
+| `treatment_versions` | VanderWeele & Hernán (2013) | the versions one treatment label covers |
+| `intercurrent_event_handling` | ICH E9(R1) (2019) | the handling of intercurrent events |
+| `interference_unit` | `cleverly` | no source in this section names this field |
+| `assumption_rationale` | `cleverly` | no source in this section names this field |
+
+`cleverly` adds `interference_unit` and `assumption_rationale` for its own identification report.
+The no-interference assumption needs the unit it holds within, and each reported assumption needs a
+study-specific rationale. No source in this section names either field.
 
 - Hernán & Robins (2020), [*Causal Inference: What
   If*](https://miguelhernan.org/whatifbook), CRC Press. The target-trial components name the
   eligibility criteria, time zero, the treatment strategies, the outcome, and the follow-up
-  period. The `target_population`, `eligibility`, `time_zero`, `treatment_strategies`, `outcome`,
-  and `horizon` fields record them.
+  period. Six fields record them, because `target_population` and `eligibility` split the
+  eligibility criteria into the population and the rules that select it.
 - ICH E9(R1) (2019), [*Addendum on estimands and sensitivity analysis in clinical trials to the
   guideline on statistical principles for clinical
   trials*](https://database.ich.org/sites/default/files/E9-R1_Step4_Guideline_2019_1203.pdf).
