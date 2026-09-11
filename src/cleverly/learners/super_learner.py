@@ -27,11 +27,11 @@ from typing import Any, Literal
 
 import numpy as np
 from scipy import optimize
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..utils.parallel import map_parallel
-from ._fitting import Task, as_target, fit_learner, infer_task, predict_mean
+from ._fitting import Task, as_target, clone_learner, fit_learner, infer_task, predict_mean
 from .crossfit import Folds, make_folds
 from .library import _resolve_library
 
@@ -610,6 +610,11 @@ def resolve_learner(
     A free function rather than a method so that the C-TMLE candidate search -- and
     anything else that needs the same learner the estimator would have built -- does
     not have to reach into a private method on the estimator to get one.
+
+    The seed-inheriting clone goes through :func:`~cleverly.learners._fitting.clone_learner`
+    for the same reason every per-fold clone does.  Cloning a SuperLearner clones its whole
+    library, so a nested member that refuses would otherwise escape here as a raw
+    scikit-learn exception naming neither the library nor the remedy.
     """
     if spec is None:
         spec = fallback
@@ -622,7 +627,7 @@ def resolve_learner(
             n_jobs=1,
         )
     if isinstance(spec, SuperLearner) and spec.random_state is None and random_state is not None:
-        inherited = clone(spec)
+        inherited = clone_learner(spec)
         inherited.set_params(random_state=random_state)
         return inherited
     from .library import _validate_learner

@@ -431,11 +431,16 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
     ``max_weight`` and ``effective_n`` read ``step.clever``, and ``share_truncated`` reads
-    ``fit.cumulative``.  On a cross-fitted fit those are not two views of one array: the
-    covariate is stitched from each fold's own mechanism slab while ``cumulative`` is the
-    out-of-fold mechanism, so ``1 / cumulative`` does not reproduce the weight.  Each column
-    is read from the array that answers its own question -- what a row was weighted by, and
-    how far the bounds moved the mechanism -- rather than both from whichever one is nearer.
+    ``fit.cumulative``.  On the rows the report is built from these agree: ``cumulative`` is
+    the row-wise out-of-fold gather of the slabs each fold's recursion read, so
+    ``1 / cumulative`` does reproduce the covariate there.  They are still read separately,
+    because ``step.clever`` carries no unbounded counterpart, and a truncation share needs
+    the bounded prefix against :attr:`~cleverly.longitudinal.RegimenFit.cumulative_unbounded`
+    to say how far the bounds moved it.
+
+    Read this share as the held-out one.  The stitched pair holds one of the ``K`` copies of
+    each scored row, so a cross-fitted fit truncated cells this share cannot see.  The
+    longitudinal truncation curve reports every copy the recursion divided by.
     """
     terms = () if result.msm is None else result.msm.terms
     epsilon_names = ("epsilon",) if result.msm is None else tuple(f"epsilon[{t}]" for t in terms)

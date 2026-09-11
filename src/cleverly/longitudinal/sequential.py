@@ -426,14 +426,22 @@ class RegimenFit:
     cumulative_unbounded: FloatArray
     #: The same prefixes after applying ``g_bounds``.
     #:
-    #: **On a cross-fitted fit these are the out-of-fold prefixes and are not what the
-    #: clever covariate was built from.**  Each outer fold's recursion reads its own
-    #: mechanism slab, so ``step.clever`` is stitched from ``K`` fold-specific covariates
-    #: and ``1 / cumulative`` does not reproduce it.  Both are honest reports of different
-    #: things: this is the mechanism the fit estimated, and ``step.clever`` is the weight
-    #: each row was actually targeted and scored with.  A diagnostic that wants the weight
-    #: must read ``step.clever``; one that wants the mechanism, or how much of it the
-    #: bounds moved, reads these.
+    #: On a cross-fitted fit these are the out-of-fold prefixes, and they are the row-wise
+    #: out-of-fold gather of the ``K`` slabs each outer fold's recursion read.
+    #: :func:`fit_mechanism` overwrites every slab's own held-out rows with the authoritative
+    #: out-of-fold probability, and both the cumulative product and the bound are row-wise,
+    #: so gathering row ``i`` from slab ``folds.assignment[i]`` reproduces this matrix
+    #: exactly.  ``1 / cumulative`` therefore *does* reproduce ``step.clever`` on the rows
+    #: the report is built from.
+    #:
+    #: What it holds is the held-out copy of each scored row and none of the other ``K - 1``
+    #: copies, so the relation is one-way: this follows from the slabs and
+    #: :attr:`~cleverly.longitudinal.LongitudinalResult.folds`, and they do not follow from
+    #: it.  A diagnostic that wants the weight a row was targeted with can read either this
+    #: or ``step.clever`` on the reported rows.  One that wants how much of the mechanism the
+    #: bounds moved reads this against :attr:`cumulative_unbounded`.  One that wants every
+    #: copy the recursion divided by must read the slabs, through
+    #: :meth:`Mechanism.cumulative_with_unbounded` at ``fold=k``.
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
     #: column for a static plan; for a rule it is the thing ``diagnostics()`` reports,
@@ -726,8 +734,11 @@ def prepare_node(
     in its training complement while the clever covariate stays a statement about every
     follower.  Passing them as one mask -- which ``trained_on`` was until the outer
     recursion needed both -- silently zeroes the held-out rows' covariate and drops them
-    from the score.  ``outer_fold`` names the fold in the refusal below, and reports the
-    one-based number a reader can find in ``result.folds``.
+    from the score.  ``outer_fold`` names the fold in both refusals this node can raise --
+    the empty risk set below and :func:`_check_outcome_varies` -- and reports the one-based
+    number a reader can find in ``result.folds``.  Both refusals are statements about
+    ``fitted_on``, so under cross-fitting both are statements about one fold's training
+    rows, and neither may call that set the sample.
     """
     if masks is None:
         # Only around the scan, and only when there is one: reading two prefix slices off
@@ -759,7 +770,9 @@ def prepare_node(
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     if task == "classification":
-        _check_outcome_varies(data, next_outcome, fitted_on, plan, time, horizon, cause)
+        _check_outcome_varies(
+            data, next_outcome, fitted_on, plan, time, horizon, cause, outer_fold=outer_fold
+        )
     with phase("outcome_learner_fit"):
         predictions, diagnostics = cross_fit_predictions(
             learner,
@@ -812,36 +825,61 @@ def _pseudo_outcome(
 def _check_outcome_varies(
     data: LongitudinalData,
     next_outcome: FloatArray,
-    trained_on: BoolArray,
+    fitted_on: BoolArray,
     plan: Plan,
     time: int,
     horizon: int,
     cause: str | None,
+    *,
+    outer_fold: int | None = None,
 ) -> None:
-    """Refuse a classification with nothing to separate, saying which case it is."""
-    seen = np.unique(next_outcome[trained_on])
+    """Refuse a classification with nothing to separate, saying which case it is.
+
+    The set the check reads is ``fitted_on``, the rows the regression is *fitted* on, and
+    that set is what the refusal has to name.  On a single-fold pass it is every follower
+    in the sample.  Under outer cross-fitting it is the followers in one fold's training
+    complement, a strict subset, so the same frame can be estimable at ``n_folds=1`` and
+    refused at ``n_folds=2``.  Calling the binding set "this sample" in both cases reports
+    the second as a sample-size problem, which sends the reader to collect more data when
+    the fold count is what moved.
+    """
+    seen = np.unique(next_outcome[fitted_on])
     if seen.size >= 2:
         return
+    where = "" if outer_fold is None else f" in outer training fold {outer_fold + 1}"
+    scope = "this sample" if outer_fold is None else f"outer training fold {outer_fold + 1}"
+    crossfit_note = (
+        ""
+        if outer_fold is None
+        else (
+            " The check applies to each outer fold's training rows, not to the sample as a "
+            "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
+            "training complement. That is stricter than a single-fold fit, which fits on "
+            "every row, and the same frame can be estimable at n_folds=1. Use fewer folds, "
+            "or an estimand this fold count supports."
+        )
+    )
     raise LongitudinalError(
-        f"every unit following regimen {plan.label!r} through time {time} has "
+        f"every unit following regimen {plan.label!r} through time {time}{where} has "
         f"the same outcome ({seen.tolist()}), so the regression there has "
         "nothing to separate. "
         + (
             (
                 f"The incidence of {cause!r} at horizon {horizon} is not "
-                "estimable from this sample: no unit following the regimen was "
+                f"estimable from {scope}: no unit following the regimen was "
                 f"observed to leave through {cause!r}. A rare cause reaches "
                 "this well before a common one does, so it is refused per "
                 "cause rather than for the fit as a whole."
             )
             if cause is not None
             else (
-                f"The risk at horizon {horizon} is not estimable from this "
-                "sample: no event was observed among the regimen's followers."
+                f"The risk at horizon {horizon} is not estimable from {scope}: "
+                "no event was observed among the regimen's followers."
             )
             if data.is_survival
             else "The outcome does not vary among the regimen's followers."
         )
+        + crossfit_note
     )
 
 

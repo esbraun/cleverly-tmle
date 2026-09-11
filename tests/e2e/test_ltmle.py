@@ -1428,7 +1428,7 @@ class TestASurvivalOutcome:
         survival = frame.copy()
         survival["Y1"] = np.where(frame["C1"] == 1, 0.0, np.nan)
         survival = survival.rename(columns={"Y": "Y2"})
-        with pytest.raises(LongitudinalError, match="not estimable from this sample"):
+        with pytest.raises(LongitudinalError, match="is not estimable from"):
             LTMLE({"always": 1}, **FAST).fit(survival, **self.SURVIVAL_COLUMNS)
 
     def test_the_settings_report_says_the_outcome_is_a_survival_one(
@@ -1714,7 +1714,7 @@ class TestCompetingRisks:
                 np.nan,
                 np.maximum(frame[f"R{node}"], np.nan_to_num(frame[f"D{node}"])),
             )
-        with pytest.raises(LongitudinalError, match="not estimable from this sample"):
+        with pytest.raises(LongitudinalError, match="is not estimable from"):
             LTMLE({"always": 1}, reference="always", **FAST).fit(
                 empty,
                 outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
