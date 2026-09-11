@@ -8,8 +8,13 @@ covariates. The canonical comparison uses archived tlverse
 contemporaneous `tmle3` at
 [`3a61005`](https://github.com/tlverse/tmle3/tree/3a610058cd89c17bb417c15fc891254388787f33) and
 `sl3` at
-[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc). The
-theory is Ju et al. (2019).
+[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc).
+
+The archive supplies implementation provenance for this OAT construction. Ju et al. (2019) derive
+greedy and preordered selector paths for the binary ATE, not this generated-design construction.
+Benkeser, Cai and van der Laan (2020) derive a close binary scalar generated-outcome-prediction
+construction. Their result does not cover treatment with more than two levels, the shipped joint
+all-arm targeting, or simultaneous inference.
 
 ## What was compared
 
@@ -163,15 +168,15 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | OAT has a narrower robustness contract than selector C-TMLE | With the outcome regression correct, the bias interval must fit inside the equivalence margin. With it wrong, the control must be discriminated outside it. No treatment-correct-only claim is made, because OAT's mechanism is a projection on the generated outcome-regression design rather than a fit of treatment on the original covariates |
-| The reported interval omits the adaptive-`g` term | OAT fits the treatment mechanism on `Qbar`, so when `Qbar` is estimated the model class `g` is chosen from is random too, and the influence curve does not see that. The `generated_design` cells measure the consequence: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio` |
-| Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. The omission is worth a few percent of a reported standard error and does not show up as invalid coverage |
-| The design control's margin is a floor on a defect, not a tolerance | If the reported covariance is ever made to carry this term, the control stops being discriminated and this row goes red. That is the correct signal that the limitation has gone stale, rather than a regression |
+| The reported interval treats the generated design as fixed | OAT fits the treatment mechanism on estimated `Qbar` columns. Its ordinary influence curve is evaluated after estimating those columns but does not establish the resulting asymptotic law. The `generated_design` cells compare the finite-sample behaviour: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio`. [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the missing result |
+| Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. This is a finite-sample generated-design effect, not proof of an omitted first-order term, and it does not show up as invalid coverage |
+| The design control's margin is a detection threshold, not a tolerance | The registered margin detects the paired finite-sample effect. It does not decide whether an asymptotic correction exists. A source-backed resolution of F19 must determine whether and how this study changes |
 | The cross-fit overfitting cells are relative evidence | A fully grown tree on this law carries `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations of nuisance bias. The cell is gated on its SE ratio and on the paired gain rather than on the coverage floor. The primary GLM study carries the absolute gate |
 | The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. The archived stack fails the analogous continuous law because its length-two outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation and not a dropped replication. The row does not establish continuous or multi-arm parity, missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner libraries, or severe practical-positivity behaviour. Cross-fitted public behaviour rests on the property study |
 
-A nonparametric bootstrap reruns the whole construction and so carries the omitted terms. It was
-measured on this law and did not improve calibration over the reported interval, so it is not
-presented here as a remedy.
+A nonparametric bootstrap reruns the generated design and the rest of the adaptive construction.
+It was measured on this law and did not improve calibration over the reported interval. No
+reviewed source makes it a remedy for the missing asymptotic result.
 
 ## Reproduction
 

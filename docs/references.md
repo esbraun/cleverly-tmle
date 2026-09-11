@@ -119,13 +119,32 @@ previous reader had is not a citation; a page number is.
 
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
   estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
-  10.2202/1557-4679.1181.
+  10.2202/1557-4679.1181. Section 2.4 selects candidate depth by cross-validated targeted loss.
+  Theorem 4 assumes the expansion that defines the adaptive-mechanism influence contribution.
+  It does not derive that expansion for the candidate-depth selector. Section 4.1 proposes a
+  parametric delta method for a selected parametric mechanism model. Section 4.3 records random
+  cross-validation over-selection and leaves its irregularity as an open area.
+- van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
+  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. Section 5.4
+  targets both nuisance estimators and solves extra score equations for a binary
+  treatment-specific mean. The shipped selector does not perform those targeting steps.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
+- Ju, Chambaz & van der Laan (2018), [*Collaborative targeted inference from continuously indexed
+  nuisance parameter estimators*](https://arxiv.org/abs/1804.00102). Theorem 1 adds a derivative
+  score and influence contribution along a continuous nuisance path for a binary scalar target.
+  It does not cover the package's discrete selector paths, nested folds, or joint target vectors.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
-  DOI 10.1177/0962280217729845.
+  DOI 10.1177/0962280217729845. Sections 4.1 through 5 define the general, greedy, and preordered
+  binary-ATE paths. Section 7.4 forms each interval from the ordinary efficient influence curve.
+- Benkeser, Cai & van der Laan (2020), [*A nonparametric super-efficient estimator of the average
+  treatment effect*](https://doi.org/10.1214/19-STS735), DOI 10.1214/19-STS735
+  ([preprint](https://arxiv.org/abs/1901.05056)). Theorem 1 derives asymptotic linearity with the
+  usual TMLE curve evaluated at the adaptive propensity limit. Its binary scalar construction
+  requires explicit rate and smoothness conditions. It does not cover treatment with more than two
+  levels, the shipped joint all-arm targeting, or simultaneous inference.
 - The R `ctmle` 0.1.2 implementation at commit
   [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
   `R/ctmle_discrete.R` defines `ctmleDiscrete`, which the pinned selector-parity study calls
@@ -134,11 +153,24 @@ previous reader had is not a citation; a page number is.
   `ctmleGeneral`, `stage2_general`, and `cv_general`. No argument list in those four files takes
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
+  [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
+  adds a binary logistic parameter-estimation term to each candidate's ATE curve.
+  [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
+  forms the interval from that variance at `best_k`. Neither block differentiates the
+  cross-validated stopping rule.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
-  `R/LF_oat.R` fits categorical treatment on the complete vector of treatment-specific
-  outcome predictions; `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means.
-  This is the implementation source for `CTMLE(strategy="oat")`.
+  [`LF_oat`, lines 110-133](https://github.com/tlverse/ctmle3/blob/a4ea77b07747dfee9b2eecb9cbca88262e0559ea/R/LF_oat.R#L110-L133)
+  fits categorical treatment on the complete vector of treatment-specific outcome predictions.
+  `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means. This is the implementation
+  source for `CTMLE(strategy="oat")`, not a published inference derivation.
+- RM5 source audit (2026-09-11): the reviewed sources do not derive either exact shipped
+  asymptotic law. The selector path has outer nuisance, selection, and inner training folds. Its
+  pointwise and simultaneous intervals treat the selected candidate as fixed. The outcome-adaptive
+  path selects no candidate. Its intervals treat the estimated outcome-prediction design as fixed.
+  The two theory gaps remain in
+  [F18](roadmap.md#f18-selector-path-c-tmle-inference) and
+  [F19](roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference).
 
 ## Longitudinal, survival and marginal structural models
 

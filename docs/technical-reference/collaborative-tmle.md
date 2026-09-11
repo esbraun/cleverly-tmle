@@ -131,12 +131,29 @@ studies. It is not accepted on numerical R parity.
 **Scoring only one contrast is a load-bearing mutation.** The multi-arm selector's joint penalty is
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
-**The interval does not price the selection.** Inference remains the ordinary cross-fitted TMLE
-contract: positivity, and an $o_p(n^{-1/2})$ nuisance-product remainder. The original C-TMLE
-theorem describes an additional adaptive-mechanism influence contribution, for stronger inference
-when both nuisance limits can be wrong. R `ctmle` implements a binary parametric delta-method
-version of it. There is no validated selected-multinomial counterpart here, so `cleverly` does not
-claim collaborative-double-robust coverage for these intervals.
+**Selector intervals treat the selected candidate as fixed.** The greedy, ordered, and discrete
+paths report ordinary cross-fitted EIF plug-in covariance. Pointwise and simultaneous inference
+use those same curves after selection.
+
+Van der Laan and Gruber (2010) describe an additional adaptive-mechanism contribution under
+fixed-limit and regularity assumptions. The pinned R `ctmle` computes a binary parametric term for
+each candidate, then uses the selected candidate's variance. Neither source derives the influence
+function of the package's nested stopping-index procedure. [F18](../roadmap.md#f18-selector-path-c-tmle-inference)
+records that theory gap.
+
+**Outcome-adaptive intervals treat the generated design as fixed.** This strategy selects no
+candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions. The
+ordinary EIF plug-in calculation does not establish the asymptotic law after estimating that
+design. Benkeser, Cai and van der Laan (2020) derive a close binary scalar result under explicit
+rate and smoothness conditions. That result does not cover treatment with more than two levels,
+the shipped joint all-arm targeting, or simultaneous inference.
+[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records this separate
+gap.
+
+Both interval types retain the ordinary TMLE contract. They require positivity and an
+$o_p(n^{-1/2})$ nuisance-product remainder. `cleverly` does not claim collaborative-double-robust
+coverage for them. A refit bootstrap reruns each adaptive construction, but no reviewed source
+makes it a remedy for either missing result.
 
 | where to read the evidence | what is there |
 | --- | --- |

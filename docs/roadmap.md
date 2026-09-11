@@ -15,14 +15,17 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. RM5, RM7, and
-RM8 carry an open source audit.
+The "next action" column states the remediation work. It is not a readiness label. RM7 and RM8
+carry an open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.2 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.3 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.2 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+
+The RM5 audit found no result for either shipped adaptive-mechanism construction. Selector
+post-selection inference remains in [F18](#f18-selector-path-c-tmle-inference). Outcome-adaptive
+generated-design inference remains in [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference).
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -72,6 +75,8 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
 | Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | ordinary EIF plug-in covariance that treats the selected candidate as fixed | [F18](#f18-selector-path-c-tmle-inference) |
+| Outcome-adaptive C-TMLE generated-design inference | an asymptotic law establishing whether the current curve suffices after estimating the mechanism design | ordinary EIF plug-in covariance that treats the generated design as fixed | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -118,7 +123,7 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. RM5, RM7, and RM8 hold the remaining remediation audits.
+records completed studies. RM7 and RM8 hold the remaining remediation audits.
 Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
 that audit supports the planned variance construction. Longitudinal sensitivity-bound estimation
 remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -127,22 +132,6 @@ remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM5. Selection-aware C-TMLE inference
-
-Audit the published C-TMLE theory against the exact greedy and outcome-adaptive selectors that the
-package ships. The candidate source is van der Laan and Gruber (2010), listed under
-[collaborative TMLE](references.md#collaborative-tmle). The
-[collaborative TMLE entry](technical-reference/collaborative-tmle.md) records that its
-adaptive-mechanism influence contribution has no validated selected-multinomial counterpart here.
-Implement no correction until a source covers the selected candidate, its nested fold use, and the
-reported influence curve. If no source covers a selector, keep its present conditional interval
-and move that selector's correction to the future grid.
-
-A supported construction must propagate selection through pointwise and simultaneous inference.
-It must retain the selected path and state when post-selection uncertainty is negligible.
-Acceptance needs a nonzero selection witness and repeated-sampling coverage where selection changes
-the chosen candidate. A fixed-candidate control must reduce to the current interval.
 
 ### RM7. Missing-outcome natural-course mean
 
@@ -495,7 +484,51 @@ assumptions match the supported data. The result must specify which rows may tra
 and which asymptotic argument licenses the interval. Ordered indices passed through iid fold
 machinery are not sufficient.
 
-## DR-TMLE investigation contracts
+## Collaborative and DR-TMLE investigation contracts
+
+### F18. Selector-path C-TMLE inference
+
+Keep the greedy, ordered, and discrete intervals on their current fixed-candidate plug-in contract.
+Each fit uses the ordinary EIF covariance after it selects one candidate.
+
+Van der Laan and Gruber (2010), Section 4, derive an abstract adaptive-mechanism contribution under
+fixed-limit and regularity assumptions. Their candidate-selection discussion does not derive the
+influence function after the shipped stopping-index procedure selects a candidate. Ju et al.
+(2019) report ordinary EIF intervals for binary ATE fits. The
+[source audit](references.md#collaborative-tmle) records the exact limits.
+
+Begin only when a published result derives the asymptotic law for the selected index and the
+package's three split layers. Those layers are outer nuisance folds, selection folds, and inner
+selection-training folds. The result must establish whether the current curve suffices or an
+additional contribution is required. It must state its remainder, rate conditions, and covariance
+for every supported target vector.
+
+If the result requires a new contribution, propagate it through pointwise and simultaneous
+inference. Acceptance needs a fixed-candidate reduction and repeated-sampling coverage where the
+chosen candidate changes. Retain each repeat's path and selected index, and define how selection
+enters the repeated estimate. Use an independently calibrated rule before stating that selection
+uncertainty is negligible.
+
+### F19. Outcome-adaptive C-TMLE generated-design inference
+
+Outcome-adaptive C-TMLE selects no candidate. It fits the categorical treatment mechanism on the
+estimated vector of arm-specific outcome predictions. The current interval uses ordinary EIF
+plug-in covariance that treats that generated design as fixed.
+
+The archived `ctmle3` source supplies implementation provenance but no inference derivation.
+Benkeser, Cai and van der Laan (2020) derive a close binary scalar construction under explicit rate
+and smoothness conditions. It does not cover treatment with more than two levels, the shipped
+joint all-arm targeting, or simultaneous inference. DR-TMLE uses different reduced regressions and
+does not establish the asymptotic law for this estimator.
+
+Begin only when a published result derives the asymptotic law for the exact cross-fitted,
+multi-arm construction. It must establish whether the current curve suffices or an additional
+contribution is required. The result must cover the requested joint means or contrasts and their
+covariance. It must also state its remainder and nuisance-rate conditions.
+
+If the result requires a new contribution, propagate it through pointwise and simultaneous
+inference. Acceptance needs a fixed-design reduction, a generated-design comparison, and
+registered coverage evidence for every claimed treatment and target dimension.
 
 ### F4. Multi-arm missing-outcome DR-TMLE
 
