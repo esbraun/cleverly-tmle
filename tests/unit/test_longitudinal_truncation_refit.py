@@ -11,7 +11,7 @@ from typing import Any
 import narwhals as nw
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -46,7 +46,7 @@ from cleverly.longitudinal.estimator import (
     _score_cell_truncation_counts,
 )
 from cleverly.longitudinal.regimen import Plan, resolve_regimens
-from cleverly.longitudinal.sequential import Mechanism, fit_regimen
+from cleverly.longitudinal.sequential import Mechanism
 from cleverly.msm import MSM
 from cleverly.utils.frames import available_backends
 from cleverly.validation.longitudinal import _longitudinal_scores
@@ -98,20 +98,75 @@ def _assert_active_curve(result: Any, bound: float = 0.3) -> None:
     assert any(value != 0.0 for value in payload["delta_from_fitted"])
 
     active = replace(result, estimates=estimates, fits=fits, msm_fits=msm_fits)
-    score_rows = [
-        row
-        for row in _longitudinal_scores(active, tolerance=recipe.tol).rows
-        if row.kind == "solver"
-    ]
+    rows = _longitudinal_scores(active, tolerance=recipe.tol).rows
+    score_rows = [row for row in rows if row.kind == "solver"]
     assert score_rows
     assert all(row.converged and row.passed for row in score_rows)
     assert all(row.relative_score <= recipe.tol for row in score_rows)
+
+    # The solver rows above are each fold's own equation, so they stay at solver tolerance
+    # however the folds were mapped.  Only the stitched row can expose a fold-mapping or
+    # slab defect, and it is emitted on a cross-fitted replay alone.
+    stitching_rows = [row for row in rows if row.kind == "stitching"]
+    if result.folds.n_folds == 1:
+        assert stitching_rows == []
+        return
+    assert stitching_rows
+    # ``passed`` is the production ``z`` tolerance, so this is the gate the diagnostic owns
+    # rather than a second number invented here.
+    assert all(row.passed for row in stitching_rows)
+    assert all(np.isfinite(row.z) for row in stitching_rows)
+    # A stitched score is noise about zero, never a solved equation.  A stitching row that
+    # sat at solver tolerance would mean it was computed from the folds' own residuals.
+    assert all(row.relative_score > recipe.tol for row in stitching_rows)
+
+
+def _independent_cell_census(
+    result: Any, labels: Any, bound: tuple[float, float], fits: Any
+) -> tuple[int, int]:
+    """Census the truncated and evaluated cells without any production counting helper.
+
+    Rebuilt here from the mechanism method the recursion calls and from each step's own
+    ``trained_on`` mask, so that a count read off the wrong mechanism fails this.  One fit
+    per regimen label, which holds on an end-of-study fit and is asserted rather than
+    assumed.
+    """
+
+    truncated = 0
+    evaluated = 0
+    for label in labels:
+        contributing = [fit for fit in fits.values() if fit.regimen.label == label]
+        assert len(contributing) == 1
+        plan = next(item for item in result.replay_recipe.plans if item.label == label)
+        slabs = (
+            [result.mechanism.cumulative_with_unbounded(result.data, plan, bound)]
+            if result.folds.n_folds == 1
+            else [
+                result.mechanism.cumulative_with_unbounded(result.data, plan, bound, fold=fold)
+                for fold in range(result.folds.n_folds)
+            ]
+        )
+        for unbounded, bounded in slabs:
+            for step in contributing[0].steps:
+                rows = step.trained_on
+                column = step.time - 1
+                truncated += int(np.count_nonzero(unbounded[rows, column] != bounded[rows, column]))
+                evaluated += int(np.count_nonzero(rows))
+    return truncated, evaluated
 
 
 @pytest.fixture(scope="module")
 def result():  # type: ignore[no-untyped-def]
     frame, _ = make_longitudinal(n=140, seed=17)
     return LTMLE({"always": 1, "never": 0}, **SETTINGS).fit(frame, **COLUMNS)
+
+
+@pytest.fixture(scope="module")
+def single_fold_result():  # type: ignore[no-untyped-def]
+    """The same sample and settings at one outer fold, so the slab census has a control."""
+
+    frame, _ = make_longitudinal(n=140, seed=17)
+    return LTMLE({"always": 1, "never": 0}, **{**SETTINGS, "n_folds": 1}).fit(frame, **COLUMNS)
 
 
 def test_recipe_precedes_replay_and_retains_only_unfitted_inputs(result) -> None:  # type: ignore[no-untyped-def]
@@ -193,6 +248,62 @@ def test_fitted_bound_reproduces_every_retained_fit_artifact_exactly(result) -> 
     assert curve["psi"] == curve["fitted_psi"]
 
 
+def test_delta_from_fitted_points_from_the_fitted_estimate_to_the_replayed_one(result) -> None:  # type: ignore[no-untyped-def]
+    """A rising estimate reports a positive delta, so the subtraction cannot be reversed."""
+
+    payload = _payload(result.diagnostics.truncation_curve([0.12]))
+    row = payload["estimand"].index("ey_regimen[always]")
+
+    # Pinned rather than recomputed: ``estimate - fitted`` and ``fitted - estimate`` agree on
+    # the magnitude and differ only here, so only the direction and the literal are evidence.
+    assert payload["fitted_psi"][row] == pytest.approx(0.690739, rel=1e-6)
+    assert payload["psi"][row] == pytest.approx(0.747775, rel=1e-6)
+    assert payload["psi"][row] > payload["fitted_psi"][row]
+    assert payload["delta_from_fitted"][row] > 0.0
+    assert payload["delta_from_fitted"][row] == pytest.approx(0.0570359, rel=1e-6)
+
+
+def test_delta_from_fitted_is_negative_where_the_replayed_estimate_falls(  # type: ignore[no-untyped-def]
+    single_fold_result,
+) -> None:
+    """The companion direction, so no absolute value or reversal passes both witnesses."""
+
+    payload = _payload(single_fold_result.diagnostics.truncation_curve([0.12]))
+    row = payload["estimand"].index("ey_regimen[never]")
+
+    assert payload["psi"][row] < payload["fitted_psi"][row]
+    assert payload["delta_from_fitted"][row] < 0.0
+    assert payload["delta_from_fitted"][row] == pytest.approx(-0.00404959, rel=1e-6)
+
+
+def test_fitted_bound_reference_columns_restate_the_fits_own_cumulative_pair(result) -> None:  # type: ignore[no-untyped-def]
+    """The reference columns carry ``config.g_bounds``, and the flag names that pair only."""
+
+    fitted = result.config.g_bounds
+    assert fitted == (0.01, 1.0)
+    # ``(0.01, 0.9)`` shares the fitted lower bound and not the pair, so a flag read off the
+    # lower bound alone reports it as the fitted row.
+    grid = [(0.01, 0.9), 0.12, fitted]
+    payload = _payload(result.diagnostics.truncation_curve(grid))
+    pairs = list(zip(payload["lower_bound"], payload["upper_bound"], strict=True))
+
+    assert set(payload["fitted_lower_bound"]) == {fitted[0]}
+    assert set(payload["fitted_upper_bound"]) == {fitted[1]}
+    assert [pair for pair, flag in zip(pairs, payload["is_fitted_bound"], strict=True) if flag] == [
+        fitted
+    ] * 3
+    assert sum(payload["is_fitted_bound"]) == 3
+    assert len(payload["is_fitted_bound"]) == 9
+    for pair, fitted_psi, psi, flag in zip(
+        pairs, payload["fitted_psi"], payload["psi"], payload["is_fitted_bound"], strict=True
+    ):
+        assert flag == (pair == fitted)
+        # Only one direction: a pair that is not the fitted one can still leave the estimate
+        # where it was, because the upper bound ``0.9`` clips no cell on this sample.
+        if flag:
+            assert psi == fitted_psi
+
+
 def test_fitted_bound_gate_refuses_a_nonpoint_artifact_mismatch(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     real = longitudinal_estimator._refit_bound
 
@@ -244,31 +355,44 @@ def test_changed_bound_rebuilds_earlier_pseudo_outcomes_and_moves_estimates(resu
         assert np.any(fit.steps[0].pseudo_outcome != original.steps[0].pseudo_outcome)
 
 
-def test_active_replay_exactly_matches_a_direct_fresh_recursion(result) -> None:  # type: ignore[no-untyped-def]
+def test_active_replay_exactly_matches_an_independent_top_level_fit(result) -> None:  # type: ignore[no-untyped-def]
+    """A replay at a bound equals a fit that was *configured* at that bound, bit for bit.
+
+    The comparison is against the public entry point rather than against the arguments
+    ``_refit_bound`` hands the recursion, so a shared mistake in those arguments cannot
+    satisfy both sides.  It also pins the premise the replay rests on: the mechanism and the
+    outer folds do not depend on ``g_bounds``, so reusing the fitted ones is exact.
+    """
+
+    frame, _ = make_longitudinal(n=140, seed=17)
+    active = (0.25, 1.0)
+    fresh = LTMLE({"always": 1, "never": 0}, **SETTINGS, g_bounds=active).fit(frame, **COLUMNS)
     recipe = result.replay_recipe
     assert recipe is not None
-    assert recipe.outcome_learner is not None
-    assert recipe.pseudo_learner is not None
-    replayed = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0)).fits
-    plan = recipe.plans[0]
-    fresh = fit_regimen(
-        result.data,
-        plan,
-        result.mechanism,
-        outcome_learner=clone(recipe.outcome_learner),
-        pseudo_learner=clone(recipe.pseudo_learner),
-        folds=result.folds,
-        scaler=result.scaler,
-        g_bounds=(0.25, 1.0),
-        horizon=result.config.horizons[0],
-        cause=None,
-        alpha=recipe.alpha,
-        max_iter=recipe.max_iter,
-        tol=recipe.tol,
-        n_jobs=recipe.n_jobs,
-    )
+    replayed = longitudinal_estimator._refit_bound(result, recipe, active)
 
-    assert _exact_replay_equal(replayed[plan.label], fresh)
+    assert fresh.config.g_bounds == active
+    assert result.config.g_bounds != active
+    assert _exact_replay_equal(result.mechanism, fresh.mechanism)
+    assert _exact_replay_equal(result.folds, fresh.folds)
+    assert _exact_replay_equal(replayed.estimates, fresh.estimates)
+    assert _exact_replay_equal(replayed.fits, fresh.fits)
+    assert _exact_replay_equal(replayed.msm_fits, fresh.msm_fits)
+    # A float comparison as well, because ``_exact_replay_equal`` would also accept two
+    # dictionaries that agreed by both being empty.
+    assert [replayed.estimates[name].psi for name in fresh.estimates] == [
+        fresh.estimates[name].psi for name in fresh.estimates
+    ]
+    assert len(fresh.estimates) == 3
+
+
+def test_end_of_study_crossfit_active_replay_solves_every_node_and_stitched_score(result) -> None:  # type: ignore[no-untyped-def]
+    """The score witness for the end-of-study target, on the only cross-fitted fixture."""
+
+    assert result.folds.n_folds == 2
+    assert result.msm is None
+    assert not result.data.is_survival
+    _assert_active_curve(result)
 
 
 def test_reusing_one_earlier_outcome_prediction_breaks_active_replay(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -316,6 +440,85 @@ def test_score_cell_counts_are_alias_specific_and_use_only_scored_rows(result) -
     level_counts = curve["evaluated_score_cells"][:2]
     contrast_count = curve["evaluated_score_cells"][2]
     assert contrast_count == sum(level_counts)
+
+
+#: Regimen labels behind each reported name on the two-arm end-of-study fixture.  Written out
+#: rather than read from the production contributor map, because the composition of the
+#: contrast is part of what the census below is evidence for.
+CONTRIBUTING_LABELS = {
+    "ey_regimen[always]": ("always",),
+    "ey_regimen[never]": ("never",),
+    "ate_regimen[always vs never]": ("always", "never"),
+}
+
+#: ``(bound, estimand)`` to the ``(truncated, evaluated)`` cell counts a two-fold fit owes.
+#: Every denominator is twice the single-fold one below, because each of the two folds runs
+#: its own complete backward pass on its own slab.  The numerators count truncations in those
+#: two slabs: reading the stitched out-of-fold pair instead reported ``0/112``, ``7/80`` and
+#: ``7/192`` at ``0.12``, a zero beside a ``+0.057`` movement of the estimate.
+CROSSFIT_CELL_CENSUS = {
+    (0.01, "ey_regimen[always]"): (0, 224),
+    (0.01, "ey_regimen[never]"): (0, 160),
+    (0.01, "ate_regimen[always vs never]"): (0, 384),
+    (0.12, "ey_regimen[always]"): (2, 224),
+    (0.12, "ey_regimen[never]"): (11, 160),
+    (0.12, "ate_regimen[always vs never]"): (13, 384),
+    (0.3, "ey_regimen[always]"): (33, 224),
+    (0.3, "ey_regimen[never]"): (64, 160),
+    (0.3, "ate_regimen[always vs never]"): (97, 384),
+}
+
+#: The same census at one outer fold, where the consumed slab and the retained stitched pair
+#: coincide and the counts are therefore the smaller, single-pass ones.
+SINGLE_FOLD_CELL_CENSUS = {
+    (0.12, "ey_regimen[always]"): (1, 112),
+    (0.12, "ey_regimen[never]"): (3, 80),
+    (0.12, "ate_regimen[always vs never]"): (4, 192),
+    (0.3, "ey_regimen[always]"): (17, 112),
+    (0.3, "ey_regimen[never]"): (28, 80),
+    (0.3, "ate_regimen[always vs never]"): (45, 192),
+}
+
+
+def _assert_cell_census(result: Any, census: Any) -> None:
+    """Check the reported counts against pinned values and an independent recount."""
+
+    bounds = sorted({bound for bound, _ in census})
+    payload = _payload(result.diagnostics.truncation_curve(bounds))
+    reported = {
+        (payload["lower_bound"][index], name): (
+            payload["truncated_score_cells"][index],
+            payload["evaluated_score_cells"][index],
+        )
+        for index, name in enumerate(payload["estimand"])
+    }
+    assert reported == census
+
+    recipe = result.replay_recipe
+    assert recipe is not None
+    for bound in bounds:
+        fits = longitudinal_estimator._refit_bound(result, recipe, (bound, 1.0)).fits
+        for name, labels in CONTRIBUTING_LABELS.items():
+            if (bound, name) not in census:
+                continue
+            assert (
+                _independent_cell_census(result, labels, (bound, 1.0), fits)
+                == census[(bound, name)]
+            )
+
+
+def test_crossfit_score_cell_counts_census_every_fold_slab_the_recursion_read(result) -> None:  # type: ignore[no-untyped-def]
+    """Two folds, so the pinned counts fail a census of the stitched pair the pass never read."""
+
+    assert result.folds.n_folds == 2
+    _assert_cell_census(result, CROSSFIT_CELL_CENSUS)
+
+
+def test_single_fold_score_cell_counts_census_the_one_consumed_slab(single_fold_result) -> None:  # type: ignore[no-untyped-def]
+    """One fold, so the denominators are a single pass and the contrast is still additive."""
+
+    assert single_fold_result.folds.n_folds == 1
+    _assert_cell_census(single_fold_result, SINGLE_FOLD_CELL_CENSUS)
 
 
 def test_recipe_and_curve_survive_persistence(result) -> None:  # type: ignore[no-untyped-def]
@@ -441,6 +644,66 @@ def test_competing_risk_curve_preserves_cause_horizon_structure() -> None:
     _assert_active_curve(result)
 
 
+def test_crossfit_survival_curve_replays_every_horizon_on_three_folds() -> None:
+    """Cross-fitting crossed with the survival target, which the single-fold fixture omits."""
+
+    frame, _ = make_longitudinal_survival(n=180, seed=31)
+    result = LTMLE(
+        {"always": 1},
+        **{
+            **SETTINGS,
+            "reference": "always",
+            "outcome_learner": LogisticRegression(max_iter=1000, random_state=31),
+            "n_folds": 3,
+        },
+    ).fit(
+        frame,
+        outcome=("Y1", "Y2"),
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    )
+    payload = _payload(result.diagnostics.truncation_curve([result.config.g_bounds]))
+
+    assert result.folds.n_folds == 3
+    assert payload["estimand"] == list(result.estimates)
+    assert len(set(payload["estimand"])) == len(result.config.horizons) == 2
+    assert all(payload["is_fitted_bound"])
+    # Three folds, so each reported horizon's denominator is three complete passes and the
+    # stitched score the report is built from is checked as well.
+    _assert_active_curve(result)
+
+
+def test_crossfit_competing_risk_curve_replays_every_cause_on_two_folds() -> None:
+    """Cross-fitting crossed with competing risks, which the single-fold fixture omits."""
+
+    frame, _ = make_longitudinal_competing(n=400, seed=7)
+    result = LTMLE(
+        {"always": 1},
+        **{
+            **SETTINGS,
+            "reference": "always",
+            "outcome_learner": LogisticRegression(max_iter=1000, random_state=7),
+            "n_folds": 2,
+        },
+    ).fit(
+        frame,
+        outcome={"relapse": ("R1", "R2"), "death": ("D1", "D2")},
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    )
+    payload = _payload(result.diagnostics.truncation_curve([result.config.g_bounds]))
+
+    assert result.folds.n_folds == 2
+    assert payload["estimand"] == list(result.estimates)
+    assert len(payload["estimand"]) == 4
+    assert all("relapse" in name or "death" in name for name in payload["estimand"])
+    _assert_active_curve(result)
+
+
 def test_dynamic_categorical_weighted_clustered_recipe_replays_exactly() -> None:
     frame = multivalue_panel(n=300, seed=43).assign(
         analysis_weight=np.linspace(0.5, 1.5, 300),
@@ -473,7 +736,24 @@ def test_dynamic_categorical_weighted_clustered_recipe_replays_exactly() -> None
 
     assert result.data.cluster is not None
     assert not np.all(result.data.weights == 1.0)
-    result.diagnostics.truncation_curve([result.config.g_bounds])
+    payload = _payload(result.diagnostics.truncation_curve([result.config.g_bounds, 0.3]))
+    names = [
+        "ey_regimen[never]",
+        "ey_regimen[dynamic]",
+        "ate_regimen[dynamic vs never]",
+    ]
+
+    # A categorical arm names the level it assigns, and a dynamic arm names the rule's label.
+    # The curve reports those same keys, so a reader can join a row back to the parameter.
+    assert payload["estimand"] == names * 2
+    assert list(result.estimates) == names
+    fitted = payload["delta_from_fitted"][:3]
+    active = payload["delta_from_fitted"][3:]
+    assert all(value == 0.0 for value in fitted)
+    assert all(value != 0.0 for value in active)
+    assert payload["truncated_score_cells"][:3] == [0, 0, 0]
+    assert all(value > 0 for value in payload["truncated_score_cells"][3:])
+    _assert_active_curve(result)
 
 
 def test_pandas_and_polars_curves_have_exact_payload_parity() -> None:
@@ -648,6 +928,117 @@ def test_longitudinal_grid_is_required_and_mechanism_axis_is_refused(result) -> 
         result.diagnostics.truncation_curve()
     with pytest.raises(CapabilityError, match="point-treatment option"):
         result.diagnostics.truncation_curve([0.2], mechanism=True)
+
+
+def test_empty_grid_and_unknown_estimand_are_capability_refusals(result) -> None:  # type: ignore[no-untyped-def]
+    """Both are caller-input refusals, which one report row can carry without aborting."""
+
+    with pytest.raises(CapabilityError, match="the requested grid is empty"):
+        result.diagnostics.truncation_curve([])
+    with pytest.raises(CapabilityError, match=r"cannot report the requested estimands"):
+        result.diagnostics.truncation_curve([0.2], estimands=["ey_regimen[sometimes]"])
+    # The refusal names what this fit does report, so the caller can correct the request.
+    with pytest.raises(CapabilityError, match=r"ey_regimen\[always\]"):
+        result.diagnostics.truncation_curve([0.2], estimands=["ey_regimen[sometimes]"])
+
+
+def test_an_empty_grid_costs_one_combined_row_and_not_the_battery(result) -> None:  # type: ignore[no-untyped-def]
+    """A bare exception here aborted every later row; a refusal marks this row only."""
+
+    paid = {"include_refits": True, "arguments": {"truncation_curve": {"bounds": [0.2]}}}
+    complete = result.diagnostics.run_all(**paid)
+    empty = result.diagnostics.run_all(
+        include_refits=True, arguments={"truncation_curve": {"bounds": []}}
+    )
+
+    assert empty["truncation_curve"].status is AssessmentStatus.UNAVAILABLE
+    assert "the requested grid is empty" in empty["truncation_curve"].detail
+    assert [item.name for item in empty.items] == [item.name for item in complete.items]
+    assert [item.status for item in empty.items if item.name != "truncation_curve"] == [
+        item.status for item in complete.items if item.name != "truncation_curve"
+    ]
+    assert complete["truncation_curve"].status is AssessmentStatus.COMPLETED
+
+
+def test_duplicate_grid_entries_replay_and_report_one_bound_pair(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """``0.2`` and ``(0.2, 1.0)`` are one pair, and a replay is minutes of work."""
+
+    calls: list[tuple[float, float]] = []
+    real = longitudinal_estimator._refit_bound
+
+    def tracked(target: Any, recipe: Any, bounds: Any):  # type: ignore[no-untyped-def]
+        calls.append(tuple(bounds))
+        return real(target, recipe, bounds)
+
+    monkeypatch.setattr(longitudinal_estimator, "_refit_bound", tracked)
+    payload = _payload(
+        longitudinal_estimator.longitudinal_truncation_curve(result, [0.2, 0.2, (0.2, 1.0)])
+    )
+
+    # One proof of the fitted bound, then one replay of the single distinct requested pair.
+    assert calls == [result.config.g_bounds, (0.2, 1.0)]
+    assert (
+        list(zip(payload["lower_bound"], payload["upper_bound"], strict=True)) == [(0.2, 1.0)] * 3
+    )
+    assert payload["estimand"] == list(result.estimates)
+
+
+def test_object_seeded_learner_refuses_the_curve_end_to_end() -> None:
+    """A generator object survives a real fit, so this refusal is reachable and reached."""
+
+    frame, _ = make_longitudinal(n=90, seed=29)
+    forest = RandomForestRegressor(
+        n_estimators=3, max_depth=2, random_state=np.random.RandomState(1)
+    )
+    result = LTMLE(
+        {"always": 1},
+        **{
+            **SETTINGS,
+            "reference": "always",
+            "outcome_learner": forest,
+            "n_folds": 1,
+        },
+    ).fit(frame, **COLUMNS)
+
+    assert result.replay_recipe is not None
+    assert result.replay_recipe.omissions == (LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,)
+    assert replayability(result).unreconstructible == (
+        LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
+    )
+    assert not replayability(result).refit_nuisances
+    with pytest.raises(CapabilityError, match=LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER):
+        result.diagnostics.truncation_curve([0.2])
+    row = result.diagnostics.run_all(
+        include_refits=True, arguments={"truncation_curve": {"bounds": [0.2]}}
+    )["truncation_curve"]
+    assert row.status is AssessmentStatus.UNAVAILABLE
+    assert "integer seed" in row.detail
+
+
+def test_an_unclonable_learner_omission_refuses_the_curve_on_a_real_result(result) -> None:  # type: ignore[no-untyped-def]
+    """The refusal a recipe carrying this omission produces, on a fit that really ran.
+
+    The omission cannot be produced *by* a fit: ``fit_learner`` clones the same resolved
+    template the recipe clones, so a learner that fails the recipe's clone fails the first
+    nuisance regression and there is no result to ask.  The omission is injected for that
+    reason, and the rest of the path is the real one.
+    """
+
+    recipe = result.replay_recipe
+    assert recipe is not None
+    blocked = replace(
+        result,
+        replay_recipe=replace(
+            recipe,
+            outcome_learner=None,
+            omissions=(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,),
+        ),
+    )
+
+    assert replayability(blocked).unreconstructible == (LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,)
+    assert not replayability(blocked).refit_nuisances
+    with pytest.raises(CapabilityError, match=LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE):
+        blocked.diagnostics.truncation_curve([0.2])
 
 
 def test_combined_report_requires_both_bounds_and_the_refit_opt_in(result) -> None:  # type: ignore[no-untyped-def]
