@@ -14,7 +14,7 @@ mechanism against the *target parameter* instead.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | a large adjustment set with unknown structure | a treatment mechanism selected by cross-validated loss on the targeted estimate, so an instrument is left out | one nuisance fit per candidate along the selection path, on top of cross-fitting |
-| near-positivity failure driven by strong treatment predictors | a less adaptive mechanism when the data says a less adaptive one estimates better | selection is data-dependent, and the reported interval does not account for it |
+| near-positivity failure driven by strong treatment predictors | a less adaptive mechanism when the data says a less adaptive one estimates better | selection is data-dependent, and post-selection coverage has not been established |
 | the outcome regression is already good | the *empty* propensity model is a legitimate choice, and the selector will make it | that is not evidence the search discriminates. See the validation section |
 
 Reach for a different entry when your worry is the *inference* rather than the *selection*
@@ -140,36 +140,51 @@ fixed-limit and regularity assumptions. The pinned R `ctmle` computes a binary p
 each candidate, then uses the selected candidate's variance. Neither source derives the influence
 function of the package's nested stopping-index procedure. The cross-validation oracle inequality
 does not close that gap either, because it bounds risk and states no limit law.
-[F18](../roadmap.md#f18-selector-path-c-tmle-inference) records the gap and the two frameworks that
-a reader should check first.
 
-Leeb and Pötscher (2006) set the ceiling on any repair. No estimator of a post-selection law is
-uniformly consistent. Read the selector interval as conditional on the selected candidate, and
-treat near-ties between candidates as the case it does not cover.
+[F18](../roadmap.md#f18-selector-path-c-tmle-inference) records the gap. Adaptive debiased machine
+learning and selective inference for cross-validation are candidate frameworks, but their fixed
+oracle-model, Gaussian quadratic-selection, and joint-Gaussian-selection conditions have not been
+established for this selector.
 
-**Outcome-adaptive intervals treat the generated design as fixed.** This strategy selects no
-candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions. The
-ordinary EIF plug-in calculation does not by itself establish the asymptotic law after the design
-is estimated.
+Leeb and Pötscher (2006) supply a nonuniformity warning in a finite-dimensional regression
+subset-selection model; their theorem has not been transferred here. The reported interval treats
+the selected candidate as fixed and makes no conditional-coverage claim. Near-ties are an
+especially important unresolved regime.
 
-One reading narrows that gap, and it does not close it. Benkeser, Cai and van der Laan (2020)
-study a binary scalar estimator whose mechanism already uses the estimated outcome regression.
-Their conditions on rates and smoothness are explicit. The generated design is therefore that
-paper's subject, not an omission from it.
+**Outcome-adaptive intervals report an ordinary adaptive-propensity curve.** This strategy selects
+no candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions.
+Benkeser, Cai and van der Laan (2020) prove that curve without an extra first-order design term for
+one binary treatment-specific mean under six regularity conditions. The cross-fitted implementation
+follows their fold-local nuisance nesting; the package does not diagnose those asymptotic
+conditions.
 
-The remaining questions stay open. They are treatment with more than two levels under one shared
-mechanism, the joint all-arm covariance, simultaneous inference, and a uniformity claim for a
-superefficient estimator. The registered design study also measures a paired standard-error
-deficit under a correct outcome regression, and that deficit does not shrink at four times the
-sample size.
+Three readings narrow that gap, and none closes it. Benkeser, Cai and van der Laan (2020) prove a
+binary treatment-specific-mean result and explicitly construct a two-arm-design ATE using one
+signed fluctuation coefficient. The package uses two arm-specific fluctuation columns and exposes
+a joint means, ATE, RR, and OR vector. Moving from established scalar expansions to a fixed-size
+vector is elementary by Cramér--Wold, but the source does not state the scalar expansions for this
+exact joint fit. Its result is also limited to iid, complete-outcome, unweighted data.
+
+DOPE allows finitely many treatment levels and fixed contrasts, but its proved ordinary-curve
+result conditions on a representation learned on an independent sample; it also shows how
+root-rate representation learning can add a first-order term for a fixed target. Outcome-adapted
+AutoDML likewise proves a sample-split rather than cross-fitted result. The shipped estimator's
+multi-arm extension fits one shared multinomial mechanism and targets all arm means jointly. No
+reviewed theorem supplies that vector influence function or covariance.
+
+The remaining questions are the joint all-arm covariance, simultaneous inference, and uniformity
+for a superefficient estimator. At `n = 1,000`,
+the registered point-treatment pair resolves a finite-sample standard-error-ratio deficit without
+showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither measurement
+identifies a first-order term.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
 
-Both interval types retain the ordinary TMLE contract. They require positivity and an
-$o_p(n^{-1/2})$ nuisance-product remainder. `cleverly` does not claim collaborative-double-robust
-coverage for them. A refit bootstrap reruns each adaptive construction. No reviewed source makes
-it a remedy. The one bootstrap result in this family holds the data-adaptive index fixed rather
-than reselecting it, and the post-selection impossibility result above explains why a general
-remedy is not available.
+Both interval types *report* ordinary cross-fitted EIF plug-in covariance. Ordinary TMLE
+conditions alone do not establish validity after selection or representation learning, and
+`cleverly` claims neither conditional selector coverage nor collaborative-double-robust coverage.
+A refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it for
+either shipped path. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive
+complexity bound rather than reselecting it.
 
 | where to read the evidence | what is there |
 | --- | --- |

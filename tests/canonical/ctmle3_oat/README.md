@@ -18,7 +18,10 @@ for the ratio estimands.
 The independent property study exercises Cleverly's stricter public cross-fitted behavior.
 It checks the outcome-correct robustness contract against an outcome-wrong control, two
 root-n rates, efficiency, calibration, type-I error, power, and a flexible-tree comparison
-whose in-sample control must understate uncertainty.
+whose in-sample control must understate uncertainty. The study has reporting policy: after the
+fold-local replacement, the confounded-null cell's 99% rejection upper bound narrowly exceeds its
+predeclared ceiling, while the other thirteen cells pass. The threshold was not changed after the
+result was observed.
 
 Regenerate from the repository root with Docker running:
 

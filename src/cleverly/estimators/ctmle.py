@@ -80,14 +80,15 @@ Three ways of building the sequence are available, mirroring the entry points of
     collaborative one: an :math:`\hat g` that carries only the confounding the outcome
     regression left behind, which is what keeps an instrument out of the denominator.
 
-    **Its design is a generated regressor**, and the mechanism is cross-fitted on the same
-    split :math:`\hat{\bar Q}` was, so row :math:`i`'s outcome reaches its own propensity
-    through the training rows' predictions.  That is the dependence
-    :func:`~cleverly.estimators.reduced.fit_reduced`'s notes set out for the reduced
-    regressions, arriving here through the design matrix; the same second-order reading
-    applies, and the reduction is to :math:`K` columns rather than one.  ``ctmle3`` does
-    not cross-fit this fit at all -- ``LF_oat`` pins ``cv_fold = -1`` -- so reusing the
-    split is a deviation from the source in the stricter direction.
+    **Its design is a generated regressor.**  In a cross-fitted fit, fold :math:`v`'s
+    outcome model is trained outside :math:`v`, evaluated on both its training and
+    validation rows, and the adaptive mechanism is then trained on those training-row
+    predictions only.  This is the honest nesting in Benkeser, Cai and van der Laan
+    (2020): no validation outcome can reach its own mechanism through another row's
+    generated feature.  Their theorem is binary; the shared categorical, joint all-arm
+    extension remains the F19 boundary.  ``ctmle3`` does not cross-fit this fit at all --
+    ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and cross-fitted
+    inference have different sources.
 
 The loss
 --------
@@ -155,15 +156,18 @@ only -- its epsilon is approximately zero -- but keeping it on the ordinary reta
 path makes the estimate, influence curve, score check and sensitivity analyses agree.
 The initial Qbar is retained separately for nuisance diagnostics.
 
-The reported covariance is the ordinary cross-fitted EIF covariance. Its inferential
-contract is therefore the ordinary TMLE one: positivity, nuisance convergence and an
-``o_p(n^-1/2)`` product remainder. It adds no adaptive-``g`` influence term, and no
-interval is claimed valid when both nuisance limits are wrong. The selector interval is
-conditional on the selected candidate, and the outcome-adaptive interval is evaluated
-after the mechanism design is estimated. No reviewed source establishes whether either
-construction needs a further contribution. See ``docs/roadmap.md F18`` for the selector
-path and ``docs/roadmap.md F19`` for the outcome-adaptive path. ``n_bootstrap=`` reruns
-the adaptive construction, and no reviewed source makes it a remedy for either question.
+The reported covariance is the ordinary cross-fitted EIF plug-in covariance. The selector
+calculation treats the selected candidate as fixed but makes no conditional-on-selection
+coverage claim. The outcome-adaptive calculation uses the fold-local nuisance construction of
+Benkeser, Cai and van der Laan (2020). Their theorem proves the ordinary adaptive-propensity
+curve for one binary treatment-specific mean under six stated regularity conditions; Appendix D
+outlines related ATE and cross-validated constructions. Extending that result to the package's
+joint arm-specific fluctuation and derived target vector is finite-dimensional but not literally
+the paper's theorem. The package does not diagnose its asymptotic conditions, and the paper does
+not establish the shared multi-arm extension. No interval is claimed valid when both nuisance
+limits are wrong. See ``docs/roadmap.md F18`` for the selector path and ``docs/roadmap.md F19``
+for the remaining outcome-adaptive boundary. ``n_bootstrap=`` reruns the adaptive construction,
+but no reviewed theorem validates that bootstrap for either shipped path.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -259,11 +263,12 @@ from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_a
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import counterfactual_means
-from ..learners._fitting import Task, predict_probabilities
+from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
+from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
@@ -764,25 +769,34 @@ class CTMLE(TMLE):
 
         This is the construction in ``ctmle3::LF_oat``: no candidate path or
         parameter-specific risk is involved.  The ordinary K-column mean fluctuation
-        targets the returned nuisances later in the shared TMLE pipeline.
+        targets the returned nuisances later in the shared TMLE pipeline.  With more
+        than one outer fold, each propensity is trained on predictions from an outcome
+        model fitted wholly inside the same training fold.  That nesting is what keeps
+        an evaluation row's outcome out of its own generated mechanism design.
         """
         arms = data.arm_codes
-        design = np.column_stack([base.outcome.arms[arm] for arm in arms])
         learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
-        predictions, diagnostics = cross_fit_predictions(
-            learner,
-            design,
-            data.treatment,
-            data.weights,
-            base.folds,
-            task="classification",
-            predict_designs={"g": design},
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            classes=arms,
-            n_jobs=self.n_jobs,
-        )
-        propensity = Propensity(predictions["g"], arms)
+        if base.folds.is_single:
+            design = np.column_stack([base.outcome.arms[arm] for arm in arms])
+            predictions, diagnostics = cross_fit_predictions(
+                learner,
+                design,
+                data.treatment,
+                data.weights,
+                base.folds,
+                task="classification",
+                predict_designs={"g": design},
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                classes=arms,
+                n_jobs=self.n_jobs,
+            )
+            propensity_values = predictions["g"]
+        else:
+            base, propensity_values, diagnostics = self._cross_fit_outcome_adaptive(
+                data, base, learner, seed=seed
+            )
+        propensity = Propensity(propensity_values, arms)
         observed_columns = np.array(
             [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
         )
@@ -804,6 +818,125 @@ class CTMLE(TMLE):
                 strategy="oat", treatment_features=features, treatment_risk=risk
             )
         }
+
+    def _cross_fit_outcome_adaptive(
+        self,
+        data: CausalData,
+        base: NuisanceEstimates,
+        treatment_learner: Learner,
+        *,
+        seed: int | None,
+    ) -> tuple[NuisanceEstimates, FloatArray, list[Any]]:
+        """Cross-fit ``Qbar -> g`` as one fold-local nuisance algorithm.
+
+        The first implementation stitched global out-of-fold ``Qbar`` predictions and
+        cross-fit ``g`` on that matrix.  For a propensity fold ``v``, predictions on its
+        training rows then came from other outcome folds whose fits included rows in
+        ``v``.  Changing a validation outcome could therefore change that row's own
+        propensity.  Here one outcome model fitted on ``train_v`` creates *both* sides
+        of fold ``v``'s generated design before ``g_v`` is fitted on ``train_v``.
+
+        The outcome predictions returned in ``base`` are replaced by the validation
+        pieces from these very models.  That matters for stochastic learners: the
+        outcome regression used to build a clever covariate cannot be a second refit
+        that merely has the same learner settings.
+        """
+        arms = data.arm_codes
+        folds = base.folds
+        outcome_task = base.outcome_task
+        outcome_learner = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
+        outcome_design = data.treatment_design()
+        counterfactual = {arm: data.counterfactual_design(arm) for arm in arms}
+        scaled = base.scaler.scale(data.outcome)
+        jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
+
+        def predict_outcome(model: Learner, design: FloatArray) -> FloatArray:
+            return np.clip(predict_mean(model, design, outcome_task), 0.0, 1.0)
+
+        def run_fold(
+            fold: int, train: IntArray, test: IntArray
+        ) -> tuple[
+            int,
+            IntArray,
+            FloatArray,
+            dict[float, FloatArray],
+            FloatArray,
+            Any,
+            Any,
+        ]:
+            outcome_rows = train[data.observed[train]]
+            if outcome_rows.size == 0:
+                raise ValueError(
+                    "a cross-fitting fold has no observed training outcomes; reduce "
+                    "n_folds or use stratify_folds='treatment+outcome'"
+                )
+            outcome_model = fit_on_rows(
+                outcome_learner,
+                outcome_design,
+                scaled,
+                data.weights,
+                outcome_rows,
+                outcome_task,
+                data.cluster,
+            )
+            observed = predict_outcome(outcome_model, outcome_design)
+            by_arm = {
+                arm: predict_outcome(outcome_model, design)
+                for arm, design in counterfactual.items()
+            }
+            generated = np.column_stack([by_arm[arm] for arm in arms])
+            treatment_model = fit_on_rows(
+                treatment_learner,
+                generated,
+                data.treatment,
+                data.weights,
+                train,
+                "classification",
+                data.cluster,
+            )
+            propensity = np.clip(
+                predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
+            )
+            return (
+                fold,
+                test,
+                observed[test],
+                {arm: values[test] for arm, values in by_arm.items()},
+                propensity,
+                getattr(outcome_model, "diagnostics_", None),
+                getattr(treatment_model, "diagnostics_", None),
+            )
+
+        observed = np.empty(data.n, dtype=float)
+        by_arm = {arm: np.empty(data.n, dtype=float) for arm in arms}
+        propensity = np.empty((data.n, len(arms)), dtype=float)
+        outcome_diagnostics: list[Any] = []
+        treatment_diagnostics: list[Any] = []
+        for _, test, fold_observed, fold_arms, fold_g, q_diagnostic, g_diagnostic in map_parallel(
+            run_fold, jobs, n_jobs=self.n_jobs
+        ):
+            observed[test] = fold_observed
+            propensity[test] = fold_g
+            for arm in arms:
+                by_arm[arm][test] = fold_arms[arm]
+            if q_diagnostic is not None:
+                outcome_diagnostics.append(q_diagnostic)
+            if g_diagnostic is not None:
+                treatment_diagnostics.append(g_diagnostic)
+
+        diagnostics = dict(base.diagnostics)
+        diagnostics.pop("outcome", None)
+        diagnostics.pop("propensity", None)
+        if outcome_diagnostics:
+            diagnostics["outcome"] = outcome_diagnostics
+        if treatment_diagnostics:
+            diagnostics["propensity"] = treatment_diagnostics
+        honest_base = replace(
+            base,
+            outcome=InitialFit(observed, by_arm),
+            diagnostics=diagnostics,
+        )
+        return honest_base, propensity, treatment_diagnostics
 
     def _retarget_detailed(
         self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any

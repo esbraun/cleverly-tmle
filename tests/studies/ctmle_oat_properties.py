@@ -46,12 +46,9 @@ OAT_NULL_REPLICATES = 800
 #: asymptotic correction exists, and the deficit is not by itself proof of an omitted
 #: first-order term.  ``docs/roadmap.md`` F19 carries that question, and a source-backed
 #: answer there must say whether and how this cell changes.
-#: The confounded law with a real effect, at the size where the deficit was measured
-#: before this cell was written: 0.981 against 0.017 over 2,000 draws, or 0.036 of a
-#: reported standard error, and unchanged at ``n = 4,000``.  A cell whose law was chosen
-#: without measuring it first could have landed where OAT's design happens to span the
-#: true mechanism, where there is no difference to detect and the control fails for a reason
-#: that is not the estimator's.
+#: A cell whose law was chosen without measuring it first could have landed where OAT's
+#: design happens to span the true mechanism, where there is no difference to detect and
+#: the control fails for a reason that is not the estimator's.
 GENERATED_DESIGN_EFFECT = 0.3
 GENERATED_DESIGN_N = 1000
 GENERATED_DESIGN_REPLICATES = 1_200

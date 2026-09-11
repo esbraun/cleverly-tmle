@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
@@ -23,7 +24,7 @@ from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.learners.crossfit import make_folds
+from cleverly.learners.crossfit import SplitPlan, make_folds
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
 TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
@@ -704,6 +705,55 @@ class TestSelection:
             assert len(selection.cv_risk) == len(selection.path)
             assert len(selection.train_risk) == len(selection.path)
             assert np.isfinite(selection.cv_risk).all()
+
+
+class TestOutcomeAdaptiveCrossFitting:
+    def test_validation_outcomes_cannot_reach_their_own_propensity(self) -> None:
+        """The adaptive propensity and its generated design are one fold-local learner.
+
+        Fold zero's outcomes are changed while its treatment, covariates, and declared
+        split stay fixed.  Its outcome model is trained outside fold zero, and its
+        propensity model must use that same model's predictions on the training rows.
+        Therefore neither nuisance prediction evaluated in fold zero may move.  The
+        other folds are required to move so the mutation is a live leakage detector.
+        """
+        from cleverly.datasets import make_binary_outcome
+
+        frame, _ = make_binary_outcome(n=180, seed=31)
+        assignment = np.arange(len(frame), dtype=int) % 3
+        plan = SplitPlan((tuple(assignment),))
+        settings = {
+            **TMLE_KWARGS,
+            "strategy": "oat",
+            "n_folds": 3,
+            "split_plan": plan,
+            "outcome_learner": LogisticRegression(C=1e6, max_iter=1000),
+            "treatment_learner": LogisticRegression(C=1e6, max_iter=1000),
+        }
+        original = CTMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
+        changed = frame.copy()
+        validation = assignment == 0
+        changed.loc[validation, "Y"] = 1 - changed.loc[validation, "Y"]
+        mutated = CTMLE(**settings).fit(changed, outcome="Y", treatment="A").single()
+
+        np.testing.assert_allclose(
+            original.nuisance.outcome.observed[validation],
+            mutated.nuisance.outcome.observed[validation],
+            rtol=0.0,
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            original.nuisance.propensity.values[validation],
+            mutated.nuisance.propensity.values[validation],
+            rtol=0.0,
+            atol=1e-12,
+        )
+        assert not np.allclose(
+            original.nuisance.propensity.values[~validation],
+            mutated.nuisance.propensity.values[~validation],
+            rtol=0.0,
+            atol=1e-8,
+        )
 
 
 class TestEquivalenceWithPlainTmle:

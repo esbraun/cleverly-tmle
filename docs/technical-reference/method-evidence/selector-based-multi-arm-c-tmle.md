@@ -108,7 +108,7 @@ therefore intentionally empty.
 ## Limitations
 
 This row has reporting policy because multi-arm repeated-sampling evidence was absent when the
-study was declared. Four of its cells are red, and each one measures a different thing.
+study was declared. Five of its cells are red, and each one measures a different thing.
 
 The selector-necessity law is a strong instrument. It is the only law in this row that puts units
 outside the declared 0.025 truncation bounds.
@@ -121,10 +121,10 @@ candidate on every draw. Read those cells as measurements under practical positi
 not transfer to a law that satisfies the estimator's declared bounds.
 
 The interval-calibration and null-size cells are red on the registered law, where the selector
-reaches the empty candidate under a correct outcome regression. The reported interval treats the
-selected candidate as fixed, so this row offers no calibrated inference while selection is
-load-bearing. [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) records the missing
-result.
+reaches the empty candidate under a correct outcome regression. The reported covariance treats the
+selected candidate as fixed and makes no conditional-coverage claim, so this row offers no
+calibrated inference while selection is load-bearing.
+[F18](../../roadmap.md#f18-selector-path-c-tmle-inference) records the missing result.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance

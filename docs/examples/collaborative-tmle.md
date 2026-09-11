@@ -26,7 +26,7 @@ navigator teams.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | a large approved baseline set | an assignment model selected by cross-validated loss on the targeted outcome regression, so an instrument can be left out | one nuisance fit per candidate along the selection path |
-| near-positivity failure driven by strong assignment predictors | a less adaptive model when its targeted loss is better | selection is data-dependent, and the reported interval does not account for it |
+| near-positivity failure driven by strong assignment predictors | a less adaptive model when its targeted loss is better | selection is data-dependent, and post-selection coverage has not been established |
 | the outcome regression is already good | the empty assignment model is a legitimate candidate | selecting it is not evidence that the search discriminates |
 
 Variable roles guide the causal review. They do not mechanically determine the denominator that a
@@ -257,7 +257,8 @@ assign a causal role to any omitted variable or decompose bias and variance.
 
 One limitation is structural and belongs in every report of a collaborative fit.
 
-**The reported interval does not account for the selection.** The data chose the candidate model.
+**Post-selection coverage has not been established.** The data chose the candidate model, while
+the reported plug-in interval treats that model as if it had been fixed in advance.
 The influence curve is then computed as if that model had been fixed in advance. The technical
 entry records this limit, and no diagnostic on the fit can repair it.
 
