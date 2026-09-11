@@ -15,12 +15,12 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. RM4, RM5, RM7,
-and RM8 carry an open source audit.
+The "next action" column states the remediation work. It is not a readiness label. RM5, RM7, and
+RM8 carry an open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Longitudinal truncation retargets | complete the source audit | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-retargets) |
+| 0.1 | Longitudinal truncation refits | add the audited full-recursion grid | longitudinal results report support under one bound but cannot show estimate movement across declared bounds | [RM4](#rm4-longitudinal-truncation-refits) |
 | 0.2 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
 | 0.3 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
 | 0.4 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
@@ -119,35 +119,74 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The remediation rows RM4, RM5, RM7, and RM8 hold the first source
-audits. Replicate-weight designs are the next source-audit item in the main grid. Implement them
-only after that audit supports the planned variance construction. Longitudinal sensitivity-bound
-estimation remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
+records completed studies. The RM4 audit supports a full-recursion diagnostic refit. RM5, RM7,
+and RM8 hold the remaining remediation audits. Replicate-weight designs are the next source-audit
+item in the main grid. Implement them only after that audit supports the planned variance
+construction. Longitudinal sensitivity-bound estimation remains in
+[F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 ## Detailed implementation contracts
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
 
-### RM4. Longitudinal truncation retargets
+### RM4. Longitudinal truncation refits
 
-Add a longitudinal truncation curve that reuses fitted nuisance predictions and repeats the full
-backward targeting recursion at each declared cumulative-mechanism bound. The curve must preserve
-regimen, horizon, cause, observation-weight, cluster, and parameter-key structure.
+Add a descriptive longitudinal truncation grid. Fit the treatment and censoring mechanisms once
+within the realized outer folds. Retain their unbounded probability predictions, including each
+outer-fold prediction slab.
 
-Define which quantities stay fixed before implementation. The nuisance learners and realized folds
-stay fixed; only the bound and every targeting step that reads it change. Refuse any composition
-whose recursion or influence curve is not represented by the retarget.
+For each declared cumulative-mechanism bound, recompute the bounded cumulative probabilities.
+Then rerun the complete backward longitudinal TMLE recursion. Keep the data, plans, learner
+specifications, random seeds, realized folds, observation weights, and clusters fixed.
 
-No candidate source is identified for the longitudinal retarget yet. The audit's first task is to
-name one, or to record that the point-treatment truncation curve in
-[Truncation stability](technical-reference/validation-methods.md#truncation-stability) carries
-over without new theory.
+Refit every bound-dependent outcome or pseudo-outcome regression and every targeting update. Do
+not reuse an earlier-node outcome fit or prediction. The later targeted prediction is that
+regression's response, so the bound can change it.
 
-Acceptance needs a zero-movement anchor at the fitted bound. It also needs exact agreement with a
-fresh fit that uses cached nuisances. Add nonzero movement controls under active truncation and
-pointwise score checks for each supported longitudinal target. Register repeated-sampling evidence
-only if the curve later makes an inferential claim.
+[Lendle et al. (2017)](https://doi.org/10.18637/jss.v081.i01), Section 2.4, page 6, defines this
+backward dependency. [Schomaker et al. (2019)](https://doi.org/10.1002/sim.8340), Section 5.6 and
+Table 2, compare complete LTMLE analyses under two cumulative-mechanism bounds. The
+[source audit](references.md#longitudinal-survival-and-marginal-structural-models) records the
+algorithm locators and limits.
+
+Each grid point is an ordinary LTMLE estimate under one fixed bound. It is not the point-treatment
+cached-nuisance retarget. It does not change the causal estimand.
+
+The first implementation reports point estimates, fitted-bound references, signed movement, and
+truncation counts. It reports no interval, preferred bound, or pass threshold. Require the caller
+to supply the grid, because the reviewed sources define no recommended longitudinal grid. Accept
+each entry as the existing longitudinal `CumulativeGBounds`: a scalar `b` means the lower-only
+pair `(b, 1)`, while an explicit `(lower, upper)` pair keeps both limits. Do not apply the
+point-treatment scalar normalization `(b, 1 - b)`.
+
+Keep `truncation_curve` in the `refit` execution class with expensive cost. A combined assessment
+defers it until the caller supplies bounds and permits refits.
+
+Support every structural composition the current longitudinal engine fits. Preserve regimen,
+horizon, cause, MSM, categorical-arm, observation-weight, cluster, cross-fit, dataframe-backend,
+and parameter-key structure. This claim does not extend to arbitrary learner replay.
+
+Establish an additive replay recipe before the original fit. It stores estimator settings,
+cloneable unfitted learner specifications, and the explicit random-state configuration needed to
+reproduce every accepted learner. It stores no fitted outcome model. Refuse the diagnostic when a
+learner cannot be cloned and replayed deterministically, or when a legacy artifact lacks this
+state. Give either omission a machine-readable reason.
+
+Acceptance needs exact equality at the fitted bound for each accepted replay configuration. It
+also needs exact agreement with a fresh full recursion that receives the same mechanism
+predictions and folds. Add active-truncation movement and pointwise score witnesses for
+end-of-study, survival, competing-risk, and MSM targets. Include a stochastic learner with an
+explicit seed and refuse the corresponding unseeded configuration.
+
+At an active bound, verify cross-fit replay from every full fold-specific prediction slab rather
+than stitched out-of-fold prefixes. Cross the reference cases with dynamic and categorical plans,
+an explicit pseudo-outcome learner, weights and clusters, and direct-estimator versus workflow
+entry points. Add persistence, pandas and Polars parity, and serial-versus-parallel tests.
+
+A deliberate mutation must reuse one earlier outcome prediction and fail. A second mutation must
+substitute stitched mechanism prefixes for a cross-fit slab and fail. Register repeated-sampling
+evidence before adding pointwise, simultaneous, selected-bound, or data-adaptive inference.
 
 ### RM5. Selection-aware C-TMLE inference
 
