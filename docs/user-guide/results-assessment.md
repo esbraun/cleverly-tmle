@@ -293,13 +293,13 @@ as invalid argument names, still stop the report.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
-`truncation_curve()`, `missingness()`, and `tipping_gamma()` retarget cached ones. The report marks
-these rows as deferred until the caller passes the matching flag. The E-value retarget is cheap
-and runs by default.
+Point-treatment `truncation_curve()`, `missingness()`, and `tipping_gamma()` retarget cached
+nuisances. The report marks costlier rows as deferred until the caller passes the matching flag.
+The E-value retarget is cheap and runs by default.
 
-One row moves between those classes. A guarded DR-TMLE fit refits its reduced regressions at every
-bound, so its `truncation_curve()` row is a refit and asks for `include_refits=True`. Read the class
-from the capability row rather than from the operation name.
+Two truncation curves move into the refit class. Guarded DR-TMLE refits its reduced regressions at
+every bound. Longitudinal TMLE refits its complete backward recursion. Both rows ask for
+`include_refits=True`. Read the class from the capability row rather than from the operation name.
 
 The operation varies a finite-sample regularisation choice. It does not change the requested estimand.
 Movement shows sensitivity to extrapolation in regions where estimated support is limited.
@@ -308,6 +308,34 @@ The curve records `upper_bound`, the parameter-specific fitted bound pair and es
 `delta_from_fitted`. Its default grid contains each fitted pair exactly. An explicit `bounds=` grid
 keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
 still name the configuration the grid omitted.
+
+A longitudinal curve has no default grid. Supply `bounds=` explicitly. A scalar `b` means the
+cumulative lower-only pair `(b, 1)`. An explicit `(lower, upper)` entry keeps both limits. This
+differs from point treatment, where scalar treatment bounds mean `(b, 1 - b)`.
+
+Each longitudinal row is a descriptive ordinary LTMLE point estimate under one fixed cumulative
+mechanism bound. The replay keeps the data, resolved plans, folds, raw mechanism predictions,
+weights, clusters, and estimand structure fixed. It recomputes bounded cumulative probabilities.
+It then refits every bound-dependent outcome or pseudo-outcome regression and targeting update.
+It never reuses an earlier-node outcome fit or prediction.
+
+Before the grid runs, a fitted-bound preflight must exactly reproduce every retained estimate,
+regimen fit, and MSM fit. This check also runs when the requested grid omits the fitted pair.
+A mismatch makes the operation unavailable.
+
+Its frame carries one row per evaluated pair and reported parameter. The row records both
+endpoints, the parameter, the replayed `psi`, the fitted pair, `fitted_psi`, `is_fitted_bound`,
+`delta_from_fitted`, and two score-cell counts. Read the lower endpoint as `lower_bound` here,
+because the point-treatment frame above names the same endpoint `bound`.
+[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+column table and the two counting rules.
+
+The operation reports no standard error, interval, preferred bound, selected-bound correction, or
+pass threshold. It does not validate positivity or account for uncertainty from choosing a bound.
+It refuses `mechanism=True`, which is a point-treatment option. It also refuses a result without
+its stored replay recipe, and a learner it cannot replay.
+[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
+states the `random_state` rule each learner must satisfy.
 
 `estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
 `ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for

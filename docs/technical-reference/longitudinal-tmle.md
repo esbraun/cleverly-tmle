@@ -103,6 +103,35 @@ prove a node-level positivity failure. Clipping can also replace every scored ro
 clever covariate constant. `res.diagnostics.support().to_frame()["share_truncated"]` reports the
 effect per regimen and node.
 
+`res.diagnostics.truncation_curve(bounds=...)` repeats this finite-sample choice over an explicit
+grid. A scalar `b` resolves to the cumulative lower-only pair `(b, 1)`. An explicit
+`(lower, upper)` pair keeps both limits. It never uses the point-treatment scalar convention
+`(b, 1 - b)`.
+
+Each grid point keeps the fitted treatment and censoring predictions fixed. It recomputes their
+bounded cumulative prefixes and reruns the complete backward recursion. It refits every
+bound-dependent outcome or pseudo-outcome regression and every targeting update. Reusing an
+earlier-node prediction would change the next regression's response and is outside this contract.
+
+The result is a descriptive ordinary LTMLE point estimate at each fixed bound. It changes the
+finite-sample estimator, not the causal estimand. It provides no standard error, interval,
+preferred bound, selection correction, or positivity verdict. The
+[source audit](../references.md#longitudinal-survival-and-marginal-structural-models) records the
+algorithm provenance and the boundary of that claim.
+
+This replay keeps the realized data, resolved plans, folds, weights, clusters, and parameter
+structure fixed. A cross-fitted replay uses every complete fold-specific mechanism slab. It does
+not read the stitched out-of-fold pair alone. The result must retain a replay recipe, and that
+recipe's outcome and pseudo-outcome learners must be cloneable.
+[Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
+`random_state` rule each learner must satisfy, and lists every code that makes the operation
+unavailable. [Truncation stability](validation-methods.md#truncation-stability) holds the frame
+schema and the score-cell counting rules.
+
+Before evaluating the requested grid, replay at the fitted pair must reproduce every retained
+estimate, regimen fit, and MSM fit exactly. This preflight also runs when the grid omits that pair.
+A mismatch makes the operation unavailable instead of reporting a different fitted procedure.
+
 The direct `stagewise()` method remains a compatibility alias.
 
 ### Survival and competing risks
@@ -182,7 +211,8 @@ der Laan (2012) is the survival implementation reference.
 
 The whole backward recursion is the unit of splitting for regimen means. Fold $k$ fits every
 mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
-report.
+report. Each fold must also carry enough events for each declared cause, which
+[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
 
 Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
 to the same regimen means. It does not validate an unsaturated coefficient projection under
@@ -212,8 +242,9 @@ The refusals that are statements about the *question* rather than about coverage
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column |
 | a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node. A numeric node with coarse support is accepted, and warns that its values became unordered arms |
+| `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
-| the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to. There is no retarget that re-solves the fluctuation alone |
+| the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
 

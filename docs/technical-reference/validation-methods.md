@@ -210,9 +210,9 @@ The bound regularises the fitted procedure. It does not change the requested est
 overlap-population estimand. A moving curve shows extrapolation sensitivity through the
 second-order remainder.
 
-**How.** `result.diagnostics.truncation_curve()` sweeps the `g_bounds` level and **retargets** the
-cached nuisances at each level through `TMLE.retarget`. On an ordinary, collaborative, or unguarded
-doubly-robust fit it refits no nuisance model, so it is a retarget operation.
+**How.** Point-treatment `result.diagnostics.truncation_curve()` sweeps the `g_bounds` level and
+**retargets** cached nuisances through `TMLE.retarget`. Ordinary, collaborative, and unguarded
+doubly-robust fits refit no nuisance model, so their curves are retarget operations.
 
 The returned frame records both ends of every evaluated pair. Scalar treatment-mechanism values
 remain symmetric shorthand for `[bound, 1 - bound]`; observation- and intermediate-mechanism
@@ -220,6 +220,79 @@ values use `[bound, 1]`. It also records each parameter's own fitted pair and es
 signed difference from that estimate. The default grid includes every exact fitted pair, without
 rounding, so every parameter has one fitted marker. An explicit grid is not expanded: when it omits
 the fitted configuration, the fitted columns retain that configuration and every marker is false.
+
+Longitudinal TMLE uses a different normalization and execution path. Its grid is always explicit.
+A scalar `b` means the cumulative lower-only pair `(b, 1)`. An explicit `(lower, upper)` pair keeps
+both limits. Point-treatment scalar treatment bounds instead mean `(b, 1 - b)`.
+
+For each longitudinal pair, the diagnostic keeps the realized data, resolved plans, folds,
+unbounded treatment and censoring predictions, weights, clusters, and estimand structure fixed. It
+recomputes each bounded cumulative mechanism prefix. It then reruns the complete backward TMLE
+recursion. It refits every bound-dependent outcome or pseudo-outcome regression and every targeting
+update. It reuses no earlier-node outcome fit or prediction.
+
+The diagnostic first replays the fitted pair. Every retained estimate, regimen fit, and MSM fit
+must match exactly. This preflight runs even when the requested grid omits the fitted pair. A
+mismatch makes the operation unavailable.
+
+Each row is a descriptive ordinary LTMLE point estimate under one fixed bound. It is not a
+cached-nuisance retarget and does not change the causal estimand. The curve reports no standard
+error, confidence interval, preferred bound, selected-bound correction, or pass threshold.
+
+The longitudinal frame carries one row per evaluated pair and reported parameter. The curve
+resolves every grid entry first and drops a repeat after that, so a repeated pair is replayed once
+and reported once. A scalar `b` and the pair `(b, 1)` resolve to the same entry, so a grid carrying
+both collapses to one row.
+
+| column | what it holds |
+| --- | --- |
+| `lower_bound`, `upper_bound` | the cumulative pair this row was evaluated at |
+| `estimand` | the reported parameter this row describes |
+| `psi` | the replayed point estimate under that pair |
+| `fitted_lower_bound`, `fitted_upper_bound` | the pair the fit itself used |
+| `fitted_psi` | the retained estimate under that fitted pair |
+| `is_fitted_bound` | whether this row's pair is the fitted pair |
+| `delta_from_fitted` | `psi` minus `fitted_psi` |
+| `evaluated_score_cells` | the mechanism cells the contributing fits consumed |
+| `truncated_score_cells` | how many of those cells the bound moved |
+
+The longitudinal frame names its lower endpoint `lower_bound`. The point-treatment frame above
+names the same endpoint `bound`. Read the endpoint under the name its own frame uses, because
+indexing a longitudinal frame at `bound` raises `KeyError`.
+
+Each count reads only the fits that contribute to that row's parameter.
+
+| the parameter | the fits it counts |
+| --- | --- |
+| a level | its own regimen fit |
+| a contrast | its two regimen fits |
+| an MSM coefficient | every regimen and horizon cell for its cause |
+
+`evaluated_score_cells` counts one cell for each row in each contributing node's reporting score
+mask. That mask is the node's `trained_on` set, which is the rows whose clever covariate is nonzero.
+Of those cells, `truncated_score_cells` counts the ones whose bounded cumulative product differs
+from the raw product.
+
+Neither count is a count of regression rows. The node regression is fitted on `fitted_on`, which is
+that score mask inside one fold's training rows.
+
+A cross-fitted replay counts one mechanism slab per outer fold, so every scored row counts once per
+fold. Each fold runs a complete backward pass over every row, and that pass divides by its own slab.
+
+The stitched out-of-fold pair the fit retains is the row-wise out-of-fold gather of those slabs, bit
+for bit. Every stitched cell is therefore a cell the fold that held that row out divided by.
+Counting the stitched pair alone reports the held-out copy of each scored row and no other copy. It
+misses the truncation that only a fold's own training rows carry.
+
+`tests/unit/test_longitudinal_truncation_refit.py` pins the consumed counts on a two-fold fixture.
+At the bound 0.12 it reports 2 truncated cells of 224 for `ey_regimen[always]`, beside a movement of
++0.057 in that estimate. Its `CROSSFIT_CELL_CENSUS` comment records the 0 of 112 that the stitched
+pair alone reported.
+
+An MSM coefficient reads every regimen and horizon cell for its cause, and each cell is its own
+backward pass. Its count adds one pass per cell to the same total. On a survival MSM that total can
+exceed the sample size times the node count, which bounds one complete pass. A longitudinal MSM runs
+at one fold, so no fold factor enters that comparison.
 
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
@@ -243,13 +316,18 @@ reads `config.g_bounds`, so the two agree on a row that carries that pair. An `a
 carries `config.g_bounds_conditional` instead, and its count then differs. A shift fit clips no arm
 probability, so the column reports no value there.
 
-A guarded DR-TMLE fit is the exception. Its targeting step alternates against the reduced-dimension
-regressions, so each bound refits them, and the missing-outcome construction receives the swept
-bounds because they define two of its regression targets. The capability row for such a fit
-declares `refit` and asks for `include_refits`. The primary outcome regression and the propensity
-are still cached, so the curve can cost less than a fit. `LTMLE` refuses it: `g_bounds` enters the
-pseudo-outcome of every earlier node through the backward recursion, so changing it changes what
-the earlier regressions were fitted to, and the whole pass has to run again.
+Guarded DR-TMLE and longitudinal TMLE are refit exceptions. Guarded DR-TMLE refits its reduced
+regressions because the swept bounds define two regression targets. Its primary outcome regression
+and propensity stay cached. Longitudinal TMLE refits the complete recursion because each later
+targeted prediction becomes the preceding regression's response. Their capability rows declare
+`refit` and ask for `include_refits=True`. The longitudinal row also requires explicit `bounds`.
+
+Longitudinal replay needs a stored recipe, a cloneable outcome learner, and a cloneable
+pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay reads every
+complete fold-specific mechanism slab rather than the stitched out-of-fold pair alone.
+[Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
+`random_state` rule each learner must satisfy, and lists every omission code that makes the
+diagnostic unavailable.
 
 ### Nuisance model quality
 

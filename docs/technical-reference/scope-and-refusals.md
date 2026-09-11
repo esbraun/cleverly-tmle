@@ -23,6 +23,14 @@ where the problem arises. Examples are a horizon at which no event was observed 
 followers, a cause with no events, a regimen nobody followed, and two absorbing causes firing at
 one node. Those are statements about the sample.
 
+Cross-fitting narrows what the sample supports. Each outer fold fits on its training rows alone, so
+every fold must carry enough events for each declared cause. A rare cause therefore needs more data
+under cross-fitting than under one fold.
+
+`make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
+refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
+regimen's followers. Pass fewer folds, or collect more data.
+
 ### Not written yet
 
 Nothing is wrong with wanting any of these. They are gaps in coverage, and the message says so
@@ -58,6 +66,43 @@ omitted-variable and MNAR sensitivity analyses.
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
 
+### Replay-only unavailability
+
+The longitudinal truncation grid can be scientifically supported while one saved result cannot
+replay it. `result.replayability.unreconstructible` carries the codes below as data. The capability
+row states the same codes inside its prose `reason`, so read the attribute when you want them as
+data. `cleverly` exports no name for the code literals, so compare a code against the spelling in
+the table. The fitted-bound equality check is different: it can only run when the curve is invoked.
+
+Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter it
+exposes is an explicit integer. The check reads that learner, each nested learner, and each member
+of a Super Learner library. It reads the declared parameter and not the fitted behavior, so a
+declared `random_state=None` is refused even where the fit is deterministic.
+
+| the learner you pass | what replay does |
+| --- | --- |
+| `LinearRegression()` | accepts it, because the class declares no `random_state` |
+| `LogisticRegression(random_state=0)` | accepts it, because the declared state is an explicit integer |
+| `LogisticRegression()` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `LogisticRegression(random_state=rng)`, for a generator `rng` | refuses it as `longitudinal_replay_random_state_non_integer` |
+
+`tests/unit/test_longitudinal_truncation_refit.py` checks an unseeded learner, a non-integer state,
+an unseeded member of a nested Super Learner library, and a seeded stochastic learner that replays
+exactly.
+
+| omission code | replay boundary |
+| --- | --- |
+| `longitudinal_replay_recipe_missing` | the result predates the stored recursive replay recipe |
+| `longitudinal_replay_learner_unclonable` | an outcome or pseudo-outcome learner cannot be cloned |
+| `longitudinal_replay_random_state_unseeded` | a replayed learner or nested learner declares an unspecified random state |
+| `longitudinal_replay_random_state_non_integer` | a replayed learner or nested learner declares a non-integer random state |
+| `longitudinal_replay_fitted_bound_mismatch` | invocation-time preflight found that a full replay at the fitted bound differs from the stored fitted artifacts |
+
+The static recipe omissions make the capability row `unavailable`. A fitted-bound mismatch instead
+raises a stable `CapabilityError` from that invocation; it is not known when the capability row is
+built. Missing `bounds` or the refit opt-in makes a combined report `deferred`, because the caller
+can supply either request.
+
 ### A different question
 
 These are well-posed parameters, but the selected estimator does not target them. No setting turns
@@ -69,7 +114,7 @@ one into the other.
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would put two of them under one heading |
 | the per-arm propensity table on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `shifts=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
-| `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
+| `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, nuisance loss, and the descriptive full-recursion truncation grid are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
 | a non-empty `assess(arguments=...)` block for `score_equations` | the validation battery owns that name and runs it argument-free. The battery presents one row per name, and it presents the validation row. A caller's tolerance would be computed and then hidden, so a check that failed at that tolerance would never reach `attention`. Call `res.diagnostics.run_all(arguments=...)`, or the operation itself. The battery also owns `support` and `nuisance_models`, which accept no argument, so an argument for either is a `TypeError` from the signature |
 
 ### Wrong by construction

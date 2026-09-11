@@ -59,7 +59,7 @@ from cleverly import ModelSpec, RegimeContrast, Runtime, TMLEMethod
 
 sequential = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
@@ -220,7 +220,7 @@ event_result = event_study.identify(
 ).estimate(
     method=TMLEMethod(
         models=ModelSpec(
-            outcome_learner=LogisticRegression(max_iter=1000),
+            outcome_learner=LogisticRegression(max_iter=1000, random_state=53),
             pseudo_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
         ),
@@ -262,7 +262,7 @@ them up, ask for the means.
 ```python
 event_method = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=53),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),
@@ -354,9 +354,9 @@ Treatment and censoring rows report weighted negative log likelihood. An outcome
 weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
 reports weighted mean squared error. The `evaluation` column is `out_of_fold` for these fits.
 
-Each diagnostic report also records that longitudinal truncation curves and refutations are
-unavailable. A `completed` nuisance row means the retained losses exist, not that the models are
-correct.
+Each diagnostic report defers its truncation curve until the caller supplies bounds and permits
+refits. Refutations remain unavailable. A `completed` nuisance row means the retained losses
+exist, not that the models are correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |

@@ -192,7 +192,7 @@ from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
 
 sequential = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
@@ -273,7 +273,7 @@ def naive(adjustment, label):
     )
     point = naive_study.estimate(
         ATE(reference=0),
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
         random_state=41,
@@ -371,8 +371,9 @@ print(nuisances.to_frame())
 ```
 
 The report marks corrections as `not_applicable`. Longitudinal targeting does not use the
-point-treatment correction system. It marks the truncation curve and refutation as `unavailable`.
-No cost flag can supply the missing longitudinal implementations.
+point-treatment correction system. It defers the truncation curve until the caller supplies
+explicit bounds. Running that curve through the combined report also needs
+`include_refits=True`. Refutation remains `unavailable`.
 
 The support table is where cumulative positivity becomes visible. Read three of its columns
 together.

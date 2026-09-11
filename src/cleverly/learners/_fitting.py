@@ -19,11 +19,13 @@ from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 
 from .._typing import FloatArray, IntArray, Learner
+from ..exceptions import MethodConfigurationError
 from ._threads import thread_limit
 
 __all__ = [
     "Task",
     "accepts_groups",
+    "clone_learner",
     "fit_learner",
     "predict_mean",
     "predict_probabilities",
@@ -31,6 +33,53 @@ __all__ = [
 ]
 
 Task = Literal["regression", "classification"]
+
+
+def clone_learner(estimator: Learner) -> Learner:
+    """Clone a learner template, naming the learner when it refuses to be cloned.
+
+    Every fit of a user-supplied learner goes through here, so a learner that cannot be
+    cloned is reported once, in one voice, for every estimator family.  Raising
+    :func:`sklearn.base.clone`'s own exception instead names no cause and no remedy: the
+    traceback ends in scikit-learn, several frames below the learner argument that caused
+    it, and says nothing about why cleverly cloned anything.
+
+    The refusal is deliberately *here* rather than in
+    :func:`~cleverly.learners.library._validate_learner`.  Up-front validation cannot know
+    whether a learner will ever be fitted -- a longitudinal ``pseudo_learner`` is unused on
+    a one-node panel -- so validating there would refuse a fit that is well posed and
+    succeeds today.
+
+    Parameters
+    ----------
+    estimator : Learner
+        The learner template to clone.
+
+    Returns
+    -------
+    Learner
+        An unfitted clone of ``estimator``.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When ``estimator`` cannot be cloned.  The original exception is chained.
+    """
+    try:
+        return clone(estimator)
+    except Exception as exc:
+        raise MethodConfigurationError(
+            f"{type(estimator).__name__} cannot be cloned, so it cannot be used as a "
+            f"nuisance learner: {exc}. cleverly treats the learner you pass as a template "
+            "and clones it once per fold before fitting, so your own object is never "
+            "mutated and stays reusable across folds, regimens and fits. Cloning a pipeline "
+            "or an ensemble clones every step and every library member, so a nested "
+            "estimator that refuses reaches this too. Pass a learner whose get_params and "
+            "set_params round-trip its constructor arguments, which every scikit-learn "
+            "estimator, pipeline and search does. If the learner holds state that cannot be "
+            "copied, wrap it in an estimator whose __init__ only stores its arguments and "
+            "builds that state in fit."
+        ) from exc
 
 
 def _final_estimator(estimator: Learner) -> tuple[Learner, str | None]:
@@ -114,7 +163,7 @@ def fit_learner(
     intact, but also a wrapped search whose own cross-validation should respect the
     same structure.  It is dropped for a learner that has no use for it.
     """
-    model = clone(estimator) if copy else estimator
+    model = clone_learner(estimator) if copy else estimator
     _, step_name = _final_estimator(model)
     params: dict[str, Any] = {}
 
