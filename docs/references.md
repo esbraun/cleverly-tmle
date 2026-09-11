@@ -94,10 +94,19 @@ previous reader had is not a citation; a page number is.
   covariates. Its clever covariate is the inverse response score. It has no inverse treatment
   probability and needs no treatment positivity or exchangeability assumption.
 
-  The source treats one bounded outcome mean from unweighted iid observations. Its first-order
-  result uses a Donsker condition. It does not establish weighted, clustered, stratified,
-  cross-fitted, repeated-split, joint-target, or simultaneous inference. Section 5 bootstraps a
-  second-order expansion. It does not establish the package's ordinary refit bootstrap.
+  The source treats one bounded outcome mean from unweighted iid observations. It gives an
+  equivalent weighted intercept fluctuation, which solves the same score equation through a
+  different targeted regression. Its first-order result uses a Donsker condition. It does not
+  establish weighted, clustered, stratified, cross-fitted, repeated-split, joint-target, or
+  simultaneous inference. Section 5 bootstraps a second-order expansion. It does not establish
+  the package's ordinary refit bootstrap.
+- Missing-outcome natural-course audit (RM7, 2026-09-11): Díaz, Carone and van der Laan (2016)
+  govern the iid missing-at-random mean under the notation map above. They support one scalar,
+  unweighted, unclustered, unstratified, and non-cross-fitted logistic TMLE with its first-order
+  interval. They do not support weighted, clustered, stratified, cross-fitted, repeated-split,
+  joint-target, simultaneous, or bootstrap inference. They do not cover population attributable
+  risk or population attributable fraction.
+  [RM7](roadmap.md#rm7-missing-outcome-natural-course-mean) records the resulting contract.
 - R `tmle3` at commit `ed72f8a`,
   [`R/tmle3_Spec_PAR.R`, lines 20–27](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L27),
   combines a treatment-specific mean with a natural-course mean.

@@ -20,7 +20,7 @@ open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Missing-outcome natural-course mean | add the audited iid MAR mean | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.1 | Missing-outcome natural-course mean | add the audited iid missing-at-random mean | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
 | 0.2 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 The source audit found no result for the shipped global selector or for the complete jointly
@@ -141,11 +141,14 @@ grid.
 
 Add `NaturalCourseMean()` under `missingness=` for ordinary TMLE. As deliberate first-PR
 engineering boundaries, cover one scalar target with binary treatment from unweighted,
-unclustered, unstratified iid observations. Require `cross_fit=False`, `fluctuation="logistic"`,
-`targeting="iterative"`, and `target_weights=False`. The audited source also gives the equivalent
-weighted intercept fluctuation. Treat `target_weights=True` as a follow-up extension that needs its
-own package tests.
-Accept a binary outcome or a continuous outcome with fixed declared `q_bounds`.
+unclustered, unstratified iid observations. Accept a binary outcome or a continuous outcome with
+fixed declared `q_bounds`. Require the direct-estimator settings `cross_fit=False`,
+`fluctuation="logistic"`, `targeting="iterative"`, and `target_weights=False`. The workflow API
+spells the first and third of those `CrossFitting(enabled=False)` and
+`Targeting(algorithm="iterative")`.
+
+Treat `target_weights=True` as a follow-up extension that needs its own package tests. The source
+audit records the weighted intercept fluctuation that this setting would use.
 
 Let $X=(A,W)$ contain the observed treatment and baseline covariates. Let
 $m_P(x)=E_P(Y\mid\Delta=1,X=x)$ and $\pi_P(x)=P_P(\Delta=1\mid X=x)$. The target is
@@ -156,11 +159,14 @@ $$
 
 The target population is represented by all input rows before outcome response. It keeps the
 observed joint law of treatment and covariates. Identification requires
-$Y\mathrel{\perp\!\!\!\perp}\Delta\mid X$ and $\pi_0(X)>0$ almost surely.
+$Y\mathrel{\perp\!\!\!\perp}\Delta\mid X$ and $\pi_0(X)>0$ almost surely. Asymptotic linearity
+needs more than identification. It also requires strong positivity, $\pi_0(X)\geq\delta>0$ almost
+surely, so that the efficient variance
+$E_0\{\sigma_0^2(X)/\pi_0(X)\}+\operatorname{Var}_0\{m_0(X)\}$ is finite.
 
-Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5), govern this target. The
-[source record](references.md#point-treatment-and-stochastic-interventions) gives the locators and
-notation map. Its efficient influence function is
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5), govern this item. The
+[source audit](references.md#point-treatment-and-stochastic-interventions) gives the locators, the
+notation map, and the limits. Its efficient influence function is
 
 $$
 D_P(O)=\frac{\Delta}{\pi_P(X)}\{Y-m_P(X)\}+m_P(X)-\psi(P).
@@ -173,6 +179,11 @@ R_2(P,P_0)=\int\left\{1-\frac{\pi_0(x)}{\pi_P(x)}\right\}
   \{m_P(x)-m_0(x)\}\,dP_{X,0}(x).
 $$
 
+The remainder vanishes when either $m_P=m_0$ or $\pi_P=\pi_0$. The consistency statement therefore
+reads "consistent if either the outcome regression or the response mechanism is consistent". It
+names no treatment mechanism, so it is not the full mechanism product rule that the other
+missing-outcome targets carry.
+
 Fit the logistic fluctuation among rows with $\Delta=1$:
 
 $$
@@ -181,17 +192,21 @@ $$
 $$
 
 Solve $P_n[\Delta\{Y-\hat m^\star(X)\}/\hat\pi(X)]=0$. Report the plug-in
-$P_n\hat m^\star(X)$. Do not delegate this target to the binary incremental-intervention alias
-whose identity-policy influence function has the same algebra.
+$P_n\hat m^\star(X)$. Do not delegate this target to the multiplier-one incremental mean, whose
+influence curve has the same algebra. See its
+[`ey_ipsi` row](technical-reference/evidence.md#the-table). That estimator substitutes a fitted
+treatment mechanism for the empirical law of $A$. It therefore carries a remainder term that this
+target does not.
 
-The treatment mechanism enters the parameter through the natural distribution of $A$ in $X$.
-It is not a separately estimated nuisance and contributes no inverse treatment probability.
-This parameter needs no treatment positivity or treatment exchangeability assumption.
+The treatment mechanism enters the parameter only through the natural distribution of $A$ in $X$.
+It is not a separately estimated nuisance, and this parameter needs no treatment positivity or
+treatment exchangeability assumption.
 
-For the first interval, require $1/\hat\pi(X)=O_P(1)$ and convergence of the estimated influence
-function in $L_2(P_0)$. Require $D(\hat P)$ to belong to one Donsker class with probability tending
-to one, and require
-$R_2(\hat P,P_0)=o_P(n^{-1/2})$. A sufficient rate condition is
+For the first interval, require $\hat\pi\geq b>0$ uniformly, which gives
+$\|1/\hat\pi\|_\infty=O_P(1)$. Require $P_0\{D(\hat P^\star)-D(P_0)\}^2=o_P(1)$, so the estimated
+curve converges to the true one. Require $D(\hat P^\star)$ to belong to one Donsker class with
+probability tending to one. Require $R_2(\hat P^\star,P_0)=o_P(n^{-1/2})$. A sufficient rate
+condition is
 
 $$
 \|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2}).
@@ -202,10 +217,20 @@ $\hat\pi_b\to\pi_0$. A sufficient compatibility condition is uniform $\pi_0>b$ a
 the raw response-score learner. If $\pi_0<b$ on a set with positive probability, clipping alone
 cannot establish that convergence.
 
-Keep `NaturalCourseMean()` refused with cross-fitting, repeated splits, observation weights,
-clusters, or strata. Also refuse nonbinary treatment, joint targeting, simultaneous bands, and
-bootstrap inference. Keep the current complete-outcome behavior for those compositions. Keep
-C-TMLE, DR-TMLE, intermediate, shift, and incremental compositions at their existing boundaries.
+Under `missingness=`, refuse every composition outside that configuration. Also refuse repeated
+splits, joint targeting, simultaneous bands, and bootstrap inference. Keep the current
+complete-outcome behavior for those compositions, which ships today with cross-fitting, strata,
+and weights. Keep C-TMLE, DR-TMLE, intermediate, shift, and incremental compositions at their
+existing boundaries.
+
+`ey_obs` then leaves the shared refusal in `population_intervention.py`, whose one set, one
+sentence, and one exception type serve `par` and `paf` alone. Keep one refusal implementation for
+each remaining estimand, and keep the three call sites reading it. Restate the message so it names
+the unsupported composition rather than an underived score equation.
+
+The package default cross-fits, so the survey non-response example stays refused after this row
+lands. Keep remediation priority 0.1 open until a cross-fitted response score earns its own
+audited contract.
 
 An `ey_obs`-only result must mark the arm-specific missingness tilt and tipping gamma unavailable.
 The combined assessment must report the same state. Add a natural-course sensitivity parameter
@@ -215,12 +240,16 @@ Acceptance requires exact-law, Gateaux, remainder, and deliberate response-score
 Prove that no treatment learner or propensity prediction enters the fit. Add separate witnesses
 with the outcome regression correct and response score wrong, and with the two roles reversed.
 Add a law where the respondent-only empirical mean differs from the target. The $\pi\equiv1$ limit
-must reduce exactly to the existing empirical mean and $Y-\psi$ influence function. Add
+must reduce exactly to the existing empirical `ey_obs` mean and its $Y-\psi$ influence curve. Add
 repeated-sampling coverage and standard-error calibration before exposing the interval.
 
-The identification record must state MAR given $(A,W)$ and response positivity. It must name only
-the outcome regression and response mechanism as nuisances. Pin its target expression,
-double-robustness statement, typed parameter key, and current method availability in tests.
+The identification record must state missingness at random given $(A,W)$ and response positivity.
+It must name only the outcome regression and response mechanism as nuisances. Pin its target
+expression, double-robustness statement, typed parameter key, and current method availability in
+tests. Two shipped statements become false for this target under `missingness=`.
+`src/cleverly/study.py` returns "the complete-data empirical mean has no nuisance-model remainder"
+for `ey_obs`, and it records that no adjustment set enters the natural-course mean. Restate both,
+and pin the restated text.
 
 ### RM8. Missing-outcome attributable effects
 
