@@ -115,6 +115,8 @@ This row has reporting policy, so its red cells publish. The generated-design pa
 resolve: the oracle design's SE-ratio interval leaves the calibration band, and the estimated
 design showed no measurable deficit against it. The n = 500 coverage bound also misses the floor.
 The row therefore prices no cost for estimating the treatment design.
+[F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what a
+source must settle before that changes.
 
 The archived R comparison requires numeric arm codes because of its counterfactual-prediction
 adapter. The study covers one binary-outcome law, ordinary GLM nuisance fits, pointwise intervals,

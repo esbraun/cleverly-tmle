@@ -23,9 +23,10 @@ carry an open source audit.
 | 0.1 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
 | 0.2 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
-The RM5 audit found no result for either shipped adaptive-mechanism construction. Selector
-post-selection inference remains in [F18](#f18-selector-path-c-tmle-inference). Outcome-adaptive
-generated-design inference remains in [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference).
+The source audit of selection-aware C-TMLE inference found no result for either shipped
+adaptive-mechanism construction. Selector post-selection inference remains in
+[F18](#f18-selector-path-c-tmle-inference). Outcome-adaptive generated-design inference remains in
+[F19](#f19-outcome-adaptive-c-tmle-generated-design-inference).
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -497,11 +498,37 @@ influence function after the shipped stopping-index procedure selects a candidat
 (2019) report ordinary EIF intervals for binary ATE fits. The
 [source audit](references.md#collaborative-tmle) records the exact limits.
 
-Begin only when a published result derives the asymptotic law for the selected index and the
-package's three split layers. Those layers are outer nuisance folds, selection folds, and inner
-selection-training folds. The result must establish whether the current curve suffices or an
-additional contribution is required. It must state its remainder, rate conditions, and covariance
-for every supported target vector.
+Two further sources restrict the work before it starts. The cross-validation oracle inequality
+bounds the selector's risk against the oracle risk. A risk bound carries no limit law. It
+therefore does not license the fixed-candidate interval. Leeb and Pötscher (2006) prove that no
+estimator of a post-selection law is uniformly consistent. Their model is a finite-dimensional
+regression, so a reader must first check that the result transfers to this selector.
+
+Open this contract by reading adaptive debiased machine learning. Its abstract names
+collaborative targeted learning as a unified case. Record whether the shipped selector meets its
+stated conditions.
+
+Its estimand is a projection on a data-driven working model. That projection carries a smaller
+efficiency bound than the nonparametric one. A positive verdict therefore replaces the reported
+covariance. It does not ratify the present one.
+
+Read the data-adaptive target parameter, which uses a sample split, as the second option. It
+reports a different estimand. It also needs selection on data independent of the estimation rows.
+The shipped selector builds its path on the full sample and picks one global index. This option is
+therefore a change of construction and not a relabelling.
+
+Accept a result only when it covers the selected index and the selector's three split layers.
+Those layers are outer nuisance folds, selection folds, and inner selection-training folds. The
+result must establish whether the current curve suffices or an additional contribution is
+required. It must state its remainder, rate conditions, and covariance for every supported target
+vector. Learner folds and repeat draws are separate split layers, and this contract does not
+cover them.
+
+One structural point governs the multi-arm case. The package picks one stopping index for every
+arm together. Any selection contribution is therefore common to each component of the target
+vector. It moves the off-diagonal covariance, and it changes the simultaneous critical value. A
+per-arm copy of a binary correction does not produce it. The selection criterion also reduces a
+target vector to one scalar risk, and any derivation must differentiate that reduction.
 
 If the result requires a new contribution, propagate it through pointwise and simultaneous
 inference. Acceptance needs a fixed-candidate reduction and repeated-sampling coverage where the
@@ -516,15 +543,38 @@ estimated vector of arm-specific outcome predictions. The current interval uses 
 plug-in covariance that treats that generated design as fixed.
 
 The archived `ctmle3` source supplies implementation provenance but no inference derivation.
-Benkeser, Cai and van der Laan (2020) derive a close binary scalar construction under explicit rate
-and smoothness conditions. It does not cover treatment with more than two levels, the shipped
-joint all-arm targeting, or simultaneous inference. DR-TMLE uses different reduced regressions and
-does not establish the asymptotic law for this estimator.
+Benkeser, Cai and van der Laan (2020) derive a binary scalar construction under explicit rate and
+smoothness conditions. Its mechanism already uses the estimated outcome regression, so the
+generated design is that paper's subject. The gap is therefore narrower than an absent result.
+The `drtmle` `adapt_g` option, written by an author of that paper, builds the same design for any
+number of arms and reports the ordinary influence-curve covariance. The
+[source audit](references.md#collaborative-tmle) pins both readings.
 
-Begin only when a published result derives the asymptotic law for the exact cross-fitted,
-multi-arm construction. It must establish whether the current curve suffices or an additional
-contribution is required. The result must cover the requested joint means or contrasts and their
-covariance. It must also state its remainder and nuisance-rate conditions.
+One argument restricts what a new contribution could be, and this contract must test it rather
+than assume it. The treatment-specific mean may sit in the mixed-bias class, whose remainder is a
+product of the two nuisance errors. The locally robust generated-regressor results remove the
+contribution of a generated regressor when the later step is orthogonal to the earlier one. Read
+together, they suggest that the first-order contribution is zero when the outcome regression is
+correct, which is the only regime the shipped `oat` contract claims.
+
+Treat that as a hypothesis, because the package's own measurement runs against it. A second-order
+remainder is not the same object as the first-order expansion of an estimated design. Confirm the
+reading against the published conditions before it reaches any reader-facing page.
+
+Five items stay open. State each verdict separately.
+
+| open item | what a result must settle |
+| --- | --- |
+| one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters the mechanism of every other arm |
+| vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
+| uniformity | the estimator is deliberately superefficient, so a pointwise limit law does not give locally uniform coverage |
+| split reuse | the mechanism reuses the outcome-regression folds, so the independence argument must hold for the design and the mechanism together |
+| the registered measurement | the point-treatment design pair measures a paired standard-error deficit under a correct outcome regression, and that deficit holds at four times the sample size, while the multi-arm pair measures none. A result must explain both |
+
+Accept a result only when it covers the exact cross-fitted, multi-arm construction. It must
+establish whether the current curve suffices or an additional contribution is required. The result
+must cover the requested joint means or contrasts and their covariance. It must also state its
+remainder and nuisance-rate conditions, and it must state a uniformity claim.
 
 If the result requires a new contribution, propagate it through pointwise and simultaneous
 inference. Acceptance needs a fixed-design reduction, a generated-design comparison, and

@@ -157,10 +157,13 @@ The initial Qbar is retained separately for nuisance diagnostics.
 
 The reported covariance is the ordinary cross-fitted EIF covariance. Its inferential
 contract is therefore the ordinary TMLE one: positivity, nuisance convergence and an
-``o_p(n^-1/2)`` product remainder. It does not add the adaptive-``g`` influence term from
-the stronger collaborative-double-robust theorem, and no interval is claimed valid when
-both nuisance limits are wrong. ``n_bootstrap=`` reruns selection and can diagnose its
-finite-sample contribution, but does not create that missing theorem.
+``o_p(n^-1/2)`` product remainder. It adds no adaptive-``g`` influence term, and no
+interval is claimed valid when both nuisance limits are wrong. The selector interval is
+conditional on the selected candidate, and the outcome-adaptive interval is evaluated
+after the mechanism design is estimated. No reviewed source establishes whether either
+construction needs a further contribution. See ``docs/roadmap.md F18`` for the selector
+path and ``docs/roadmap.md F19`` for the outcome-adaptive path. ``n_bootstrap=`` reruns
+the adaptive construction, and no reviewed source makes it a remedy for either question.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,

@@ -12,9 +12,10 @@ contemporaneous `tmle3` at
 
 The archive supplies implementation provenance for this OAT construction. Ju et al. (2019) derive
 greedy and preordered selector paths for the binary ATE, not this generated-design construction.
-Benkeser, Cai and van der Laan (2020) derive a close binary scalar generated-outcome-prediction
-construction. Their result does not cover treatment with more than two levels, the shipped joint
-all-arm targeting, or simultaneous inference.
+Benkeser, Cai and van der Laan (2020) study the binary scalar case, where the mechanism already
+uses the estimated outcome regression. The `drtmle` `adapt_g` option builds the same design for
+any number of arms and reports the ordinary influence-curve covariance. Neither source covers the
+shipped joint all-arm targeting or simultaneous inference.
 
 ## What was compared
 
@@ -175,8 +176,9 @@ the committed results and checked at the precision printed.
 | The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. The archived stack fails the analogous continuous law because its length-two outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation and not a dropped replication. The row does not establish continuous or multi-arm parity, missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner libraries, or severe practical-positivity behaviour. Cross-fitted public behaviour rests on the property study |
 
 A nonparametric bootstrap reruns the generated design and the rest of the adaptive construction.
-It was measured on this law and did not improve calibration over the reported interval. No
-reviewed source makes it a remedy for the missing asymptotic result.
+No registered cell measures its calibration here, so this page claims nothing about it. No
+reviewed source makes it a remedy either. The one bootstrap result in this family holds the
+data-adaptive index fixed rather than reselecting it.
 
 ## Reproduction
 

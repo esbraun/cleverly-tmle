@@ -30,26 +30,27 @@ from tests.studies.evidence.seeds import stream_seed
 
 OAT_NULL_REPLICATES = 800
 
-#: The two cells that measure what OAT's reported interval leaves out.
+#: The two cells that measure how OAT's reported interval behaves when its design moves.
 #:
-#: OAT fits ``g`` on ``Qbar`` itself, so when ``Qbar`` is estimated the *model class*
-#: ``g`` is chosen from is random too, and the influence curve does not see that.  These
+#: OAT fits ``g`` on ``Qbar`` itself, so when ``Qbar`` is estimated the design ``g`` is
+#: fitted on is random too, and the influence curve is evaluated after that fit.  These
 #: cells are one law and one set of draws with a single difference: whether ``Qbar`` moves.
 #: ``oracle_design`` pins it, and must be calibrated -- that is the positive claim, and it
 #: is what says the machinery is right when the design is fixed.  ``estimated`` fits it, and
 #: is a *control*: it must report a materially smaller standard error relative to its own
-#: spread, because a study that could not detect the omission would report the same
+#: spread, because a study that could not separate the two designs would report the same
 #: "calibrated" verdict for both and establish nothing.
 #:
-#: The margin is a floor on a defect rather than a ceiling on one.  It is deliberately not
-#: a tolerance that blesses the current behaviour: if the reported interval is ever made to
-#: carry this term, this control stops being discriminated and the study goes red, which is
-#: the correct signal that the documented limitation has become stale.
+#: The margin is a detection threshold rather than a tolerance.  It registers a paired
+#: finite-sample difference between the two designs.  It does not decide whether an
+#: asymptotic correction exists, and the deficit is not by itself proof of an omitted
+#: first-order term.  ``docs/roadmap.md`` F19 carries that question, and a source-backed
+#: answer there must say whether and how this cell changes.
 #: The confounded law with a real effect, at the size where the deficit was measured
 #: before this cell was written: 0.981 against 0.017 over 2,000 draws, or 0.036 of a
 #: reported standard error, and unchanged at ``n = 4,000``.  A cell whose law was chosen
 #: without measuring it first could have landed where OAT's design happens to span the
-#: true mechanism, where there is no omission to detect and the control fails for a reason
+#: true mechanism, where there is no difference to detect and the control fails for a reason
 #: that is not the estimator's.
 GENERATED_DESIGN_EFFECT = 0.3
 GENERATED_DESIGN_N = 1000

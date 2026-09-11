@@ -145,6 +145,54 @@ previous reader had is not a citation; a page number is.
   usual TMLE curve evaluated at the adaptive propensity limit. Its binary scalar construction
   requires explicit rate and smoothness conditions. It does not cover treatment with more than two
   levels, the shipped joint all-arm targeting, or simultaneous inference.
+- van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
+  validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
+  24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
+  selector by the oracle risk. A risk bound is not a limit law. It supplies no sampling
+  distribution for a smooth functional of the selected estimator. It also does not show that the
+  selected index converges. This entry records the abstract only.
+- Leeb & Pötscher (2006), [*Can one estimate the conditional distribution of post-model-selection
+  estimators?*](https://doi.org/10.1214/009053606000000821), *Annals of Statistics*
+  34(5):2554-2591, DOI 10.1214/009053606000000821. The paper proves that no estimator of the
+  post-model-selection distribution is uniformly consistent. The result extends to linear
+  functions of that estimator. This entry records the abstract only. The paper studies a
+  finite-dimensional regression under subset selection. Nobody here has checked the transfer to a
+  candidate-path stopping index. A bootstrap that repeats the selection estimates that same
+  distribution, so a result of this shape denies it as a general remedy.
+- Hubbard, Kherad-Pajouh & van der Laan (2016), [*Statistical inference for data adaptive target
+  parameters*](https://doi.org/10.1515/ijb-2015-0013), *International Journal of Biostatistics*
+  12(1):3-19, DOI 10.1515/ijb-2015-0013. The paper defines a sample-split data-adaptive target
+  parameter. One part of each split generates the parameter, and the other part estimates it.
+  This is a different estimand from the fixed-candidate parameter the package reports. This entry
+  records the abstract only.
+- van der Laan (L.), Carone, Luedtke & van der Laan (M.) (2023), [*Adaptive debiased machine
+  learning using data-driven model selection techniques*](https://arxiv.org/abs/2307.12544),
+  arXiv:2307.12544. The abstract states that the framework unifies adaptive estimators, and it
+  names collaborative targeted learning among them. The estimand is a projection on a data-driven
+  working model, and the paper reports superefficiency. That projection carries a smaller
+  efficiency bound than the nonparametric one. This entry records the abstract only. Nobody here
+  has read the conditions or checked them against the shipped selector.
+- Cai & van der Laan (2020), [*Nonparametric bootstrap inference for the targeted highly adaptive
+  least absolute shrinkage and selection operator (LASSO)
+  estimator*](https://doi.org/10.1515/ijb-2017-0070), *International Journal of Biostatistics*
+  16(2), DOI 10.1515/ijb-2017-0070. The abstract establishes bootstrap consistency
+  while it holds the sectional variation norm at or above the cross-validation selector. The
+  validated bootstrap fixes the data-adaptive index instead of reselecting it.
+- Hahn & Ridder (2013), [*Asymptotic variance of semiparametric estimators with generated
+  regressors*](https://doi.org/10.3982/ECTA9609), *Econometrica* 81(1):315-340, DOI
+  10.3982/ECTA9609. The abstract derives the first-step contribution to the influence function
+  when a later regression uses an estimated regressor. This is the general accounting for a
+  generated design. It does not treat a targeted plug-in estimator.
+- Escanciano & Pérez-Izquierdo (2023), [*Automatic locally robust GMM with
+  machine-learning-generated regressors*](https://arxiv.org/abs/2301.10643), arXiv:2301.10643. The abstract states
+  that moment functions orthogonal to the second step remove the indirect effect of the generated
+  regressors. It also reports that procedures which ignore that effect can carry large bias. This
+  entry records the abstract only.
+- Rotnitzky, Smucler & Robins (2021), [*Characterization of parameters with a mixed bias
+  property*](https://doi.org/10.1093/biomet/asaa054), *Biometrika* 108(1):231-238, DOI
+  10.1093/biomet/asaa054. The bias of the one-step estimator is the mean product of the two
+  nuisance errors. This entry records the abstract only. Nobody here has checked the
+  treatment-specific mean against the paper's characterization.
 - The R `ctmle` 0.1.2 implementation at commit
   [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
   `R/ctmle_discrete.R` defines `ctmleDiscrete`, which the pinned selector-parity study calls
@@ -164,13 +212,47 @@ previous reader had is not a citation; a page number is.
   fits categorical treatment on the complete vector of treatment-specific outcome predictions.
   `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means. This is the implementation
   source for `CTMLE(strategy="oat")`, not a published inference derivation.
-- RM5 source audit (2026-09-11): the reviewed sources do not derive either exact shipped
-  asymptotic law. The selector path has outer nuisance, selection, and inner training folds. Its
-  pointwise and simultaneous intervals treat the selected candidate as fixed. The outcome-adaptive
-  path selects no candidate. Its intervals treat the estimated outcome-prediction design as fixed.
-  The two theory gaps remain in
-  [F18](roadmap.md#f18-selector-path-c-tmle-inference) and
-  [F19](roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference).
+- The `benkeser/drtmle` 1.1.2 implementation at commit
+  [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c)
+  supplies multi-arm provenance for the same generated design. Its `adapt_g` option is written by
+  an author of Benkeser, Cai and van der Laan (2020).
+  [`R/estimate.R`, lines 70-92](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L70-L92)
+  replaces the covariate frame with one column of outcome predictions for each level in `a_0`.
+  [`R/drtmle.R`, line 209](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L209)
+  defaults `a_0` to every observed level, so that design is not restricted to two arms.
+  [`R/drtmle.R`, lines 256-262](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L256-L262)
+  turns the extra targeting off under `adapt_g`. The reported covariance at
+  [`R/drtmle.R`, lines 775-820](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L775-L820)
+  is the sample covariance of the influence-curve matrix divided by `n`. The string `adapt_g`
+  appears in no
+  variance file. `R/inf_functions.R` and `R/confint.R` each contain zero occurrences. This source
+  supplies no generated-design variance term.
+- C-TMLE inference source audit (RM5, 2026-09-11): no reviewed source derives the exact
+  asymptotic law of either shipped construction. Two qualifications limit that sentence, and the
+  contracts carry them.
+
+  The selector path has outer nuisance, selection, and inner selection-training folds. Its
+  pointwise and simultaneous intervals treat the selected candidate as fixed. The oracle
+  inequality above bounds risk and supplies no limit law. Leeb and Pötscher (2006) show that no
+  estimator of a post-selection law is uniformly consistent, in a model nobody here has matched to
+  this selector. Adaptive
+  debiased machine learning names collaborative targeted learning as a unified case, so
+  [F18](roadmap.md#f18-selector-path-c-tmle-inference) opens by reading that framework rather than
+  by waiting for a new one.
+
+  The outcome-adaptive path selects no candidate. Its intervals treat the estimated
+  outcome-prediction design as fixed. Benkeser, Cai and van der Laan (2020) study an estimator
+  whose mechanism already uses the estimated outcome regression, so the generated design is that
+  paper's subject and not an omission from it. A mixed-bias remainder is second order in the two
+  nuisance errors. Whether that makes the first-order generated-design contribution vanish stays
+  open.
+  [F19](roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what stays open
+  past that regime.
+
+  The 2026-09-11 pass read abstracts, publisher metadata, and source code. It read no theorem
+  text, because no publisher full text was reachable from its environment. The entries it added
+  state the level each was verified at. A reader with journal access should confirm every
+  abstract-level entry before any contract closes on it.
 
 ## Longitudinal, survival and marginal structural models
 

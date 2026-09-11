@@ -121,8 +121,10 @@ candidate on every draw. Read those cells as measurements under practical positi
 not transfer to a law that satisfies the estimator's declared bounds.
 
 The interval-calibration and null-size cells are red on the registered law, where the selector
-reaches the empty candidate under a correct outcome regression. The reported interval omits the
-selection step, so this row offers no calibrated inference while selection is load-bearing.
+reaches the empty candidate under a correct outcome regression. The reported interval treats the
+selected candidate as fixed, so this row offers no calibrated inference while selection is
+load-bearing. [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) records the missing
+result.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance

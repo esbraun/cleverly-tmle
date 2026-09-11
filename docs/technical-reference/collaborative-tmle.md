@@ -138,25 +138,41 @@ use those same curves after selection.
 Van der Laan and Gruber (2010) describe an additional adaptive-mechanism contribution under
 fixed-limit and regularity assumptions. The pinned R `ctmle` computes a binary parametric term for
 each candidate, then uses the selected candidate's variance. Neither source derives the influence
-function of the package's nested stopping-index procedure. [F18](../roadmap.md#f18-selector-path-c-tmle-inference)
-records that theory gap.
+function of the package's nested stopping-index procedure. The cross-validation oracle inequality
+does not close that gap either, because it bounds risk and states no limit law.
+[F18](../roadmap.md#f18-selector-path-c-tmle-inference) records the gap and the two frameworks that
+a reader should check first.
+
+Leeb and Pötscher (2006) set the ceiling on any repair. No estimator of a post-selection law is
+uniformly consistent. Read the selector interval as conditional on the selected candidate, and
+treat near-ties between candidates as the case it does not cover.
 
 **Outcome-adaptive intervals treat the generated design as fixed.** This strategy selects no
 candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions. The
-ordinary EIF plug-in calculation does not establish the asymptotic law after estimating that
-design. Benkeser, Cai and van der Laan (2020) derive a close binary scalar result under explicit
-rate and smoothness conditions. That result does not cover treatment with more than two levels,
-the shipped joint all-arm targeting, or simultaneous inference.
-[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records this separate
-gap.
+ordinary EIF plug-in calculation does not by itself establish the asymptotic law after the design
+is estimated.
+
+One reading narrows that gap, and it does not close it. Benkeser, Cai and van der Laan (2020)
+study a binary scalar estimator whose mechanism already uses the estimated outcome regression.
+Their conditions on rates and smoothness are explicit. The generated design is therefore that
+paper's subject, not an omission from it.
+
+The remaining questions stay open. They are treatment with more than two levels under one shared
+mechanism, the joint all-arm covariance, simultaneous inference, and a uniformity claim for a
+superefficient estimator. The registered design study also measures a paired standard-error
+deficit under a correct outcome regression, and that deficit does not shrink at four times the
+sample size.
+[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
 
 Both interval types retain the ordinary TMLE contract. They require positivity and an
 $o_p(n^{-1/2})$ nuisance-product remainder. `cleverly` does not claim collaborative-double-robust
-coverage for them. A refit bootstrap reruns each adaptive construction, but no reviewed source
-makes it a remedy for either missing result.
+coverage for them. A refit bootstrap reruns each adaptive construction. No reviewed source makes
+it a remedy. The one bootstrap result in this family holds the data-adaptive index fixed rather
+than reselecting it, and the post-selection impossibility result above explains why a general
+remedy is not available.
 
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures what the reported interval omits |
+| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [estimator variants over registered targets](evidence.md#estimator-variants-over-registered-targets) | the candidate-path identities, the selection mutations, and the outcome-adaptive design witnesses |
