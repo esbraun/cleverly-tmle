@@ -193,16 +193,27 @@ under `include_refits`. A `retarget` row retargets cached nuisances and runs und
 default, which is how an eligible ordinary TMLE fit reports its derived E-value without refitting a
 nuisance model.
 
-The two flags stay separate because the two costs are disjoint: refutation and benchmarking refit
-nuisances without retargeting, and the truncation curve retargets cached nuisances without
-refitting any. One flag made whichever class it did not name run under the other's permission.
+The two flags stay separate because the two costs are disjoint. Refutation and benchmarking refit
+nuisances. Point-treatment truncation curves usually retarget cached nuisances. Longitudinal
+truncation curves refit the complete backward recursion while holding the mechanism predictions
+fixed. One flag made whichever class it did not name run under the other's permission.
 
 A row's execution class is a fact about the fitted result, not only about the operation.
-`assessment_capabilities` resolves it per result, because a guarded DR-TMLE truncation curve refits
-the reduced regressions inside its targeting alternation and so belongs in the `refit` class. A
-family still declares each operation exactly once, and the contract test enforces that. This
-reopens if a second operation becomes method-dependent in the same way, which would argue for
-declaring the class beside the method rather than patching the row.
+`assessment_capabilities` resolves it per result. Guarded DR-TMLE refits the reduced regressions
+inside its targeting alternation. Longitudinal TMLE refits every bound-dependent outcome and
+pseudo-outcome regression and every targeting update. Both truncation curves therefore belong in
+the `refit` class. A family still declares each operation exactly once, and the contract test
+enforces that.
+
+A longitudinal fit builds its truncation replay recipe before the first backward pass. The recipe
+stores resolved plans, unfitted outcome and pseudo-outcome learner clones, and recursive solver
+settings. It stores no fitted outcome model. The fitted result supplies the realized folds,
+scaler, raw mechanism predictions, data, weights, clusters, and parameter structure. Replay
+availability requires cloneable learners and explicit integer random states for every stochastic
+learner, including nested library members.
+
+Every requested longitudinal grid starts with an exact fitted-bound replay. It compares all
+retained estimates, regimen fits, and MSM fits, even when the grid omits the fitted pair.
 
 `run_all` applies its gates in one order: caller deferral, then availability, then required
 arguments, then cost. Every gate above the cost gate refuses for a reason no flag pays off. A

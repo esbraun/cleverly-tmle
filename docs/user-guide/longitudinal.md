@@ -109,6 +109,30 @@ Brier loss for a binary final target and weighted mean squared error otherwise. 
 pseudo-outcomes use weighted mean squared error. A complete-data fit records why no censoring
 learner appears in `nuisance.omissions`.
 
+Use an explicit grid to describe point-estimate movement across cumulative mechanism bounds:
+
+```python
+curve = result.diagnostics.truncation_curve(bounds=[0.01, (0.05, 0.95)])
+```
+
+A scalar `b` means `(b, 1)`, not the point-treatment shorthand `(b, 1 - b)`. The pair bounds each
+cumulative treatment and censoring product after multiplication. The diagnostic keeps raw
+mechanism predictions fixed and reruns the complete backward recursion at every pair. It refits
+every bound-dependent outcome or pseudo-outcome regression and targeting update.
+
+The curve is descriptive. It reports no standard error, confidence interval, preferred bound, or
+pass threshold. It refuses a legacy result without its replay recipe. It also refuses outcome or
+pseudo-outcome learners that cannot be cloned and replayed deterministically.
+
+A combined report requires both the grid and permission for expensive refits:
+
+```python
+report = result.diagnostics.run_all(
+    include_refits=True,
+    arguments={"truncation_curve": {"bounds": [0.01, 0.05]}},
+)
+```
+
 Point-only sensitivity formulas remain unavailable unless a longitudinal derivation exists.
 
 Tan (2025) derives population sensitivity bounds for binary, static longitudinal strategies, but
@@ -119,7 +143,7 @@ no sample estimator for them. The
 
 `result.save()` and `cleverly.load()` carry a longitudinal result through a round trip. The
 artifact keeps the folds, the fitted mechanisms, the sequential steps, the targeting state, and
-the causal metadata. [Persistence and
+the causal metadata, and any accepted truncation replay recipe. [Persistence and
 replayability](results-assessment.md#persistence-and-replayability) states the shared contract for
 every result, including the assessment cache and the capability rows a restored artifact refuses.
 `tests/unit/test_serialization.py`'s

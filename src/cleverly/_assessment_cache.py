@@ -99,7 +99,7 @@ def _normalize(value: Any) -> Any:
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
-    "diagnostics.run_all": 7,
+    "diagnostics.run_all": 8,
     "sensitivity.run_all": 2,
     "validate": 5,
 }

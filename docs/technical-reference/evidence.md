@@ -267,6 +267,20 @@ evidence structure explicit.
 | competing-risks cumulative incidence | `tests/discrete_law_competing.py`, `tests/unit/test_influence_gateaux_competing.py` | mutation from all-cause to cause-specific survival in the Gateaux module; a separate finite-sample all-cause risk-set control; one-cause reduction in `tests/e2e/test_ltmle.py` | registered ordinary and five-fold studies against pinned R `lmtp` 1.5.4; both use misspecified outcome regressions, exact mechanisms, and a nonzero targeting witness | two causes, two nodes, pointwise inference, and one fixed split; no simultaneous bands, active truncation, learned-mechanism parity, weights, clustering, or eliminated competing event |
 | working model over regimen/horizon cells | `tests/discrete_law_longitudinal.py`, `tests/unit/test_influence_gateaux_longitudinal_msm.py` | non-saturated, nonuniform projection law plus exact pooled-design/loss-weight checks in `tests/unit/test_longitudinal_msm_submodel.py`; the registered study adds untargeted and uniform-weight controls | registered ordinary study against a fixed projection of four correlated R `ltmle` 1.3-0 regimen fits | evidence applies to `n_folds=1`. Cross-fitted coefficient projections are refused. R `ltmleMSM` uses a quasibinomial projection, so raw coefficient parity would compare different estimands |
 
+### Descriptive longitudinal truncation replay
+
+The truncation grid adds no new parameter or influence-curve claim, so it has no registry row or
+coverage study. `tests/unit/test_longitudinal_truncation_refit.py` is its fast implementation
+instrument. It checks exact fitted-bound replay, active-bound movement, complete backward
+recursion, full cross-fit slabs, parameter-specific counts, replay omissions, persistence,
+parallelism, dataframe backends, and combined-report gates. Separate active witnesses cover
+end-of-study, survival, competing-risk, and MSM results. The composition cases include dynamic
+categorical plans, weights, clusters, and a nested Super Learner random-state audit.
+
+Those tests do not establish interval coverage, a preferred bound, positivity clearance, or
+external implementation parity under active truncation. The registered rows above remain evidence
+for their fixed-bound point estimates and stated inference regimes only.
+
 ## A simulated law is an instrument too, and it can be wrong the same way
 
 A coverage study is only evidence if the number it calls the truth is the number an adjusted

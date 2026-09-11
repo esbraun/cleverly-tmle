@@ -28,6 +28,7 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
+from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
@@ -424,15 +425,16 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "truncation_curve",
         "longitudinal",
-        artifacts=("sequential nuisance predictions",),
+        artifacts=(
+            "raw sequential mechanism predictions",
+            "outer-fold prediction slabs",
+            "unfitted recursive learner templates",
+            "resolved regimen plans",
+        ),
         execution="refit",
         cost="expensive",
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        reason=(
-            "changing a sequential bound changes every earlier pseudo-outcome and requires "
-            "a full refit"
-        ),
+        requires_arguments=("bounds",),
+        requires_replay="refit_nuisances",
         interpretation="estimate stability across declared mechanism bounds",
     ),
     _capability(
@@ -1127,11 +1129,13 @@ def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
 
     if _family(result) == "longitudinal":
-        # Whole-result persistence retains the method and its unfitted learner templates.
-        # Changing a bound still requires the entire recursion rather than cached retargeting.
-        method = getattr(result, "method", None)
-        missing = () if method is not None else ("method configuration",)
-        return Replayability(True, False, False, method is not None, False, missing)
+        from .longitudinal.estimator import LONGITUDINAL_REPLAY_RECIPE_MISSING
+
+        recipe = getattr(result, "replay_recipe", None)
+        missing = (
+            (LONGITUDINAL_REPLAY_RECIPE_MISSING,) if recipe is None else tuple(recipe.omissions)
+        )
+        return Replayability(True, False, False, not missing, False, missing)
 
     estimator = getattr(result, "estimator", None)
     if estimator is None:
@@ -2163,20 +2167,29 @@ class DiagnosticsFacade(_CapabilityFacade):
 
     def truncation_curve(
         self,
-        bounds: Sequence[float] | None = None,
+        bounds: Sequence[float] | Sequence[CumulativeGBounds] | None = None,
         *,
         estimands: Sequence[str] | None = None,
         mechanism: bool = False,
     ) -> Any:
-        """Retarget estimates across a sequence of mechanism bounds.
+        """Evaluate fitted estimates across a sequence of mechanism bounds.
+
+        Point-treatment and longitudinal results intentionally have different
+        contracts. A point-treatment curve retargets the stored nuisance fits. A
+        longitudinal curve repeats the complete backward recursion while reusing the
+        fitted treatment/censoring mechanism, folds, prepared data, scaler, and frozen
+        resolved regimen plans.
 
         Parameters
         ----------
-        bounds : sequence of float or None
-            Lower mechanism bounds to evaluate. Treatment-mechanism values are symmetric
-            shorthand for ``(bound, 1 - bound)``; observation- and intermediate-mechanism
-            values use ``(bound, 1)``. Default bounds, including each requested parameter's
-            exact fitted pair, are used when omitted. An explicit sequence is not expanded.
+        bounds : sequence of float or cumulative bound pairs, or None
+            For a point-treatment result, lower bounds to evaluate; treatment-mechanism
+            scalars use symmetric ``(bound, 1 - bound)`` bounds, while observation- and
+            intermediate-mechanism scalars use ``(bound, 1)``. Point-treatment defaults,
+            including each requested parameter's exact fitted pair, are used when omitted.
+            A longitudinal result requires an explicit, non-empty sequence. Each
+            longitudinal scalar ``b`` is cumulative ``(b, 1)`` shorthand and each
+            ``(lower, upper)`` pair is preserved exactly.
         estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
         mechanism : bool
@@ -2185,8 +2198,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         Returns
         -------
         dataframe
-            Estimates and uncertainty at each requested bound, with the evaluated and
-            parameter-specific fitted pairs and movement from the fitted estimate.
+            Point-treatment output contains retargeted estimates and uncertainty at each
+            requested bound. Longitudinal output is descriptive only: replayed point
+            estimates, the exact fitted reference and movement from it, and score-cell
+            truncation counts; it contains no standard errors or confidence intervals.
 
         Raises
         ------
@@ -2194,6 +2209,29 @@ class DiagnosticsFacade(_CapabilityFacade):
             If the requested curve changes the estimand or cannot be replayed.
         """
         self._require("truncation_curve")
+        if _family(self._result) == "longitudinal":
+            if bounds is None:
+                raise CapabilityError(
+                    "a longitudinal truncation curve requires an explicit bounds grid"
+                )
+            if mechanism:
+                raise CapabilityError(
+                    "a longitudinal fit has one cumulative treatment-and-censoring bound; "
+                    "mechanism=True is a point-treatment option"
+                )
+            from .longitudinal.estimator import longitudinal_truncation_curve
+
+            return _cached(
+                self._result,
+                "diagnostics.truncation_curve",
+                (bounds,),
+                {"estimands": estimands},
+                lambda: longitudinal_truncation_curve(
+                    self._result,
+                    bounds,
+                    estimands=estimands,
+                ),
+            )
         from .sensitivity.positivity import truncation_curve
 
         if self._result.nuisance.incremental is not None and not mechanism:
@@ -2563,20 +2601,30 @@ def _format_alias_ranges(ranges: Mapping[str, tuple[float, float] | None]) -> st
     return ", ".join(f"{alias} {_format_range(value)}" for alias, value in ranges.items())
 
 
+def _evaluated_bound_detail(payload: Mapping[str, Sequence[Any]]) -> str:
+    """Describe the one-dimensional point grid or two-dimensional cumulative grid."""
+
+    if "lower_bound" not in payload or "upper_bound" not in payload:
+        bounds = _range(payload.get("bound", payload.get("g_bound", ())))
+        return f"evaluated lower bounds {_format_range(bounds)}"
+    pairs: list[tuple[float, float]] = []
+    for lower, upper in zip(payload["lower_bound"], payload["upper_bound"], strict=True):
+        pair = (float(lower), float(upper))
+        if pair not in pairs:
+            pairs.append(pair)
+    rendered = ", ".join(f"({lower:.4g}, {upper:.4g})" for lower, upper in pairs)
+    return f"evaluated cumulative bound pairs [{rendered}]"
+
+
 def _truncation_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     payload = _frame_payload(report)
-    bounds = _range(payload.get("bound", payload.get("g_bound", ())))
+    evaluated = _evaluated_bound_detail(payload)
     psi = payload.get("psi", payload.get("estimate", ()))
     aliases = payload.get("estimand")
     if not aliases:
-        # ``bound`` holds lower endpoints alone, because ``upper_bound`` is its own
-        # column.  Both branches name the same column the same way.
-        detail = (
-            f"evaluated lower bounds {_format_range(bounds)}; "
-            f"estimate range {_format_range(_range(psi))}"
-        )
+        detail = f"{evaluated}; estimate range {_format_range(_range(psi))}"
     else:
         groups = _alias_rows(aliases)
         deltas = payload.get("delta_from_fitted")
@@ -2587,7 +2635,7 @@ def _truncation_item(
         # estimate and the fitted pair stay columns of the retained frame, and
         # ``result.psi(name)`` returns the first: this row presents the movement on one
         # scale rather than reprinting the curve.
-        scale = f"{len(groups)} parameter(s) over evaluated lower bounds {_format_range(bounds)}"
+        scale = f"{len(groups)} parameter(s) over {evaluated}"
         if deltas is None:
             movement = _format_alias_ranges(
                 {alias: _range([psi[index] for index in rows]) for alias, rows in groups.items()}

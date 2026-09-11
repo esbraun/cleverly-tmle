@@ -515,6 +515,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "parameter_index",
         "parameter_keys",
         "provenance",
+        "replay_recipe",
         "scaler",
         "simultaneous",
     }

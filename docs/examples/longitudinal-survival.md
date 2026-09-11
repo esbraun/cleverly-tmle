@@ -354,9 +354,9 @@ Treatment and censoring rows report weighted negative log likelihood. An outcome
 weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
 reports weighted mean squared error. The `evaluation` column is `out_of_fold` for these fits.
 
-Each diagnostic report also records that longitudinal truncation curves and refutations are
-unavailable. A `completed` nuisance row means the retained losses exist, not that the models are
-correct.
+Each diagnostic report defers its truncation curve until the caller supplies bounds and permits
+refits. Refutations remain unavailable. A `completed` nuisance row means the retained losses
+exist, not that the models are correct.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |

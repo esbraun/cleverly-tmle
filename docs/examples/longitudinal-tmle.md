@@ -371,8 +371,9 @@ print(nuisances.to_frame())
 ```
 
 The report marks corrections as `not_applicable`. Longitudinal targeting does not use the
-point-treatment correction system. It marks the truncation curve and refutation as `unavailable`.
-No cost flag can supply the missing longitudinal implementations.
+point-treatment correction system. It defers the truncation curve until the caller supplies
+explicit bounds. Running that curve through the combined report also needs
+`include_refits=True`. Refutation remains `unavailable`.
 
 The support table is where cumulative positivity becomes visible. Read three of its columns
 together.
