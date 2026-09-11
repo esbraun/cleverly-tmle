@@ -10,6 +10,7 @@ from typing import Any
 
 import narwhals as nw
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestRegressor
@@ -77,8 +78,17 @@ def _payload(frame: Any) -> dict[str, list[Any]]:
     return nw.from_native(frame, eager_only=True).to_dict(as_series=False)
 
 
-def _assert_active_curve(result: Any, bound: float = 0.3) -> None:
-    """Pin movement and every alias's score-cell count to its contributing fits."""
+def _assert_active_curve(result: Any, bound: float = 0.3, cells: Any = None) -> None:
+    """Pin movement and every alias's score-cell count to its contributing fits.
+
+    ``cells`` names the ``(regimen, cause, horizon)`` triples each reported name owes, and
+    is what makes the count check evidence about the *contributor set*.  Without it both
+    sides of the comparison are production helpers: the reported pair is checked against
+    what :func:`_score_cell_truncation_counts` returns for the fits the production code
+    filed under that name, which no wrong contributor set can fail.  With it the same pair
+    is also checked against a census of the cells
+    ``docs/technical-reference/validation-methods.md`` says that name reads.
+    """
 
     payload = _payload(result.diagnostics.truncation_curve([bound]))
     recipe = result.replay_recipe
@@ -88,12 +98,16 @@ def _assert_active_curve(result: Any, bound: float = 0.3) -> None:
     consumed = _consumed_prefixes(
         result.data, result.mechanism, recipe.plans, result.folds, (bound, 1.0)
     )
+    if cells is not None:
+        assert set(payload["estimand"]) == set(cells)
     for index, name in enumerate(payload["estimand"]):
         expected = _score_cell_truncation_counts(replay.contributors[name], consumed)
         assert (
             payload["truncated_score_cells"][index],
             payload["evaluated_score_cells"][index],
         ) == expected
+        if cells is not None:
+            assert expected == _independent_cell_census(result, cells[name], (bound, 1.0), fits)
     assert any(value > 0 for value in payload["truncated_score_cells"])
     assert any(value != 0.0 for value in payload["delta_from_fitted"])
 
@@ -122,20 +136,28 @@ def _assert_active_curve(result: Any, bound: float = 0.3) -> None:
 
 
 def _independent_cell_census(
-    result: Any, labels: Any, bound: tuple[float, float], fits: Any
+    result: Any, cells: Any, bound: tuple[float, float], fits: Any
 ) -> tuple[int, int]:
     """Census the truncated and evaluated cells without any production counting helper.
 
     Rebuilt here from the mechanism method the recursion calls and from each step's own
-    ``trained_on`` mask, so that a count read off the wrong mechanism fails this.  One fit
-    per regimen label, which holds on an end-of-study fit and is asserted rather than
-    assumed.
+    ``trained_on`` mask, so that a count read off the wrong mechanism fails this.
+
+    ``cells`` is a sequence of ``(regimen, cause, horizon)`` triples, which is the index a
+    fit carries.  A reported name owes the cells its caller writes out rather than the ones
+    the production contributor map files under it: a level owes its own cell, a contrast its
+    two, and an MSM coefficient every regimen and horizon cell for its cause.  Each triple
+    selects exactly one fit, which is asserted rather than assumed.
     """
 
     truncated = 0
     evaluated = 0
-    for label in labels:
-        contributing = [fit for fit in fits.values() if fit.regimen.label == label]
+    for label, cause, horizon in cells:
+        contributing = [
+            fit
+            for fit in fits.values()
+            if (fit.regimen.label, fit.cause, fit.horizon) == (label, cause, horizon)
+        ]
         assert len(contributing) == 1
         plan = next(item for item in result.replay_recipe.plans if item.label == label)
         slabs = (
@@ -153,6 +175,83 @@ def _independent_cell_census(
                 truncated += int(np.count_nonzero(unbounded[rows, column] != bounded[rows, column]))
                 evaluated += int(np.count_nonzero(rows))
     return truncated, evaluated
+
+
+def _clip_directions(result: Any, bound: tuple[float, float]) -> tuple[int, int]:
+    """How many cumulative cells each endpoint of ``bound`` moved, over every consumed slab.
+
+    A raised cell sat below the lower endpoint and a lowered one above the upper endpoint,
+    so the two counts say which endpoints of a pair actually bind on this sample.  A census
+    whose truncated counts come only from one of them is no witness for the other.
+    """
+
+    folds: list[int | None] = (
+        [None] if result.folds.n_folds == 1 else list(range(result.folds.n_folds))
+    )
+    raised = 0
+    lowered = 0
+    for plan in result.replay_recipe.plans:
+        for fold in folds:
+            unbounded, bounded = result.mechanism.cumulative_with_unbounded(
+                result.data, plan, bound, fold=fold
+            )
+            raised += int(np.count_nonzero(unbounded < bounded))
+            lowered += int(np.count_nonzero(unbounded > bounded))
+    return raised, lowered
+
+
+class Unclonable(BaseEstimator):
+    """An estimator whose ``fit`` and ``predict`` work and whose clone raises.
+
+    Used twice: by the injected-recipe witness, and by the real fit that reaches the same
+    omission through a learner slot the recursion never fits.
+    """
+
+    def __sklearn_clone__(self) -> Unclonable:
+        raise TypeError("deliberately unclonable")
+
+    def fit(self, X: Any, y: Any, **kwargs: Any) -> Unclonable:
+        self.mean_ = float(np.mean(y))
+        return self
+
+    def predict(self, X: Any) -> Any:
+        return np.full(len(X), self.mean_)
+
+
+def _one_node_panel(n: int = 200, seed: int = 5) -> Any:
+    """One treatment node, one censoring node, and an end-of-study outcome.
+
+    A single node is also the horizon, so :func:`~cleverly.longitudinal.sequential.prepare_node`
+    takes ``outcome_learner`` there and no pseudo-outcome regression ever runs.  ``C1 == 1``
+    is still under observation and ``C1 == 0`` is censored, which is why ``Y`` is missing
+    there.  About a tenth are censored, so the censoring regression sees both classes.
+    """
+
+    rng = np.random.default_rng(seed)
+    baseline_one = rng.normal(size=n)
+    baseline_two = rng.normal(size=n)
+    treatment = rng.binomial(1, 1.0 / (1.0 + np.exp(-0.5 * baseline_one))).astype(float)
+    observed = (rng.random(n) > 0.1).astype(float)
+    outcome = 0.5 * baseline_one + 0.3 * treatment + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame(
+        {
+            "W1": baseline_one,
+            "W2": baseline_two,
+            "A1": treatment,
+            "C1": observed,
+            "Y": np.where(observed == 1.0, outcome, np.nan),
+        }
+    )
+
+
+#: ``{"outcome": ..., ...}`` for :func:`_one_node_panel`.
+ONE_NODE_COLUMNS = {
+    "outcome": "Y",
+    "treatment": ("A1",),
+    "baseline": ("W1", "W2"),
+    "time_varying": ((),),
+    "censoring": ("C1",),
+}
 
 
 @pytest.fixture(scope="module")
@@ -231,6 +330,26 @@ def test_explicit_grid_preserves_order_pairs_backend_and_result_subset(result) -
     ]
     assert not {"std_err", "ci_lower", "ci_upper"} & payload.keys()
     assert result.data.backend in type(curve).__module__
+
+
+def test_grid_order_is_first_appearance_and_not_sorted_order(result) -> None:  # type: ignore[no-untyped-def]
+    """A requested grid whose order is not its sorted order, which every other grid here is.
+
+    Deduplicating the resolved pairs has to keep the order they were first asked in.  Sorting
+    the distinct pairs instead leaves every column of every row correct and moves the rows, so
+    only a request that is already out of order can fail it.  ``0.3`` is also asked twice, so
+    the one pair it denotes is still reported once.
+    """
+
+    requested = [0.3, 0.1, 0.3]
+    assert sorted(set(requested)) != list(dict.fromkeys(requested))
+    payload = _payload(result.diagnostics.truncation_curve(requested))
+    names = list(result.estimates)
+
+    assert payload["estimand"] == names * 2
+    assert list(zip(payload["lower_bound"], payload["upper_bound"], strict=True)) == [
+        (0.3, 1.0)
+    ] * len(names) + [(0.1, 1.0)] * len(names)
 
 
 def test_fitted_bound_reproduces_every_retained_fit_artifact_exactly(result) -> None:  # type: ignore[no-untyped-def]
@@ -392,7 +511,7 @@ def test_end_of_study_crossfit_active_replay_solves_every_node_and_stitched_scor
     assert result.folds.n_folds == 2
     assert result.msm is None
     assert not result.data.is_survival
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=CONTRIBUTING_CELLS)
 
 
 def test_reusing_one_earlier_outcome_prediction_breaks_active_replay(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -442,51 +561,99 @@ def test_score_cell_counts_are_alias_specific_and_use_only_scored_rows(result) -
     assert contrast_count == sum(level_counts)
 
 
-#: Regimen labels behind each reported name on the two-arm end-of-study fixture.  Written out
-#: rather than read from the production contributor map, because the composition of the
-#: contrast is part of what the census below is evidence for.
-CONTRIBUTING_LABELS = {
-    "ey_regimen[always]": ("always",),
-    "ey_regimen[never]": ("never",),
-    "ate_regimen[always vs never]": ("always", "never"),
+#: ``(regimen, cause, horizon)`` behind each reported name on the two-arm end-of-study
+#: fixture.  Written out rather than read from the production contributor map, because the
+#: composition of the contrast is part of what the census below is evidence for.
+CONTRIBUTING_CELLS = {
+    "ey_regimen[always]": (("always", None, 2),),
+    "ey_regimen[never]": (("never", None, 2),),
+    "ate_regimen[always vs never]": (("always", None, 2), ("never", None, 2)),
 }
 
-#: ``(bound, estimand)`` to the ``(truncated, evaluated)`` cell counts a two-fold fit owes.
+#: The same rule on the survival fixture, where one regimen has one cell per horizon.  A
+#: horizon-1 fit runs one node and a horizon-2 fit runs two, so a name that read both
+#: horizons would report a denominator this census does not allow.
+SURVIVAL_CONTRIBUTING_CELLS = {
+    "risk_regimen[always @ t=1]": (("always", None, 1),),
+    "risk_regimen[always @ t=2]": (("always", None, 2),),
+}
+
+#: The same rule on the competing-risk fixture, where the cell is indexed by cause as well.
+#: The two causes share a regimen, a plan and a risk set, so a name that read both would
+#: double its own counts rather than report a visibly different mechanism.
+COMPETING_CONTRIBUTING_CELLS = {
+    "cif_regimen[always, relapse @ t=1]": (("always", "relapse", 1),),
+    "cif_regimen[always, relapse @ t=2]": (("always", "relapse", 2),),
+    "cif_regimen[always, death @ t=1]": (("always", "death", 1),),
+    "cif_regimen[always, death @ t=2]": (("always", "death", 2),),
+}
+
+#: Every regimen and horizon cell of the coefficient's cause, which on this fixture is all
+#: three regimens at the one horizon.  Written once per reported name rather than shared,
+#: because "the same cells for every term" is the claim: the projection is pooled, so no
+#: coefficient is a statement about one regimen.
+MSM_CONTRIBUTING_CELLS = {
+    "msm_regimen[intercept]": (("always", None, 2), ("never", None, 2), ("late", None, 2)),
+    "msm_regimen[duration]": (("always", None, 2), ("never", None, 2), ("late", None, 2)),
+}
+
+#: ``(pair, estimand)`` to the ``(truncated, evaluated)`` cell counts a two-fold fit owes.
 #: Every denominator is twice the single-fold one below, because each of the two folds runs
 #: its own complete backward pass on its own slab.  The numerators count truncations in those
 #: two slabs: reading the stitched out-of-fold pair instead reported ``0/112``, ``7/80`` and
 #: ``7/192`` at ``0.12``, a zero beside a ``+0.057`` movement of the estimate.
+#:
+#: Every pair here keeps the upper endpoint at ``1.0``, so every truncated cell was *raised*.
+#: ``UPPER_BOUND_CELL_CENSUS`` and ``TWO_SIDED_CELL_CENSUS`` carry the other direction.
 CROSSFIT_CELL_CENSUS = {
-    (0.01, "ey_regimen[always]"): (0, 224),
-    (0.01, "ey_regimen[never]"): (0, 160),
-    (0.01, "ate_regimen[always vs never]"): (0, 384),
-    (0.12, "ey_regimen[always]"): (2, 224),
-    (0.12, "ey_regimen[never]"): (11, 160),
-    (0.12, "ate_regimen[always vs never]"): (13, 384),
-    (0.3, "ey_regimen[always]"): (33, 224),
-    (0.3, "ey_regimen[never]"): (64, 160),
-    (0.3, "ate_regimen[always vs never]"): (97, 384),
+    ((0.01, 1.0), "ey_regimen[always]"): (0, 224),
+    ((0.01, 1.0), "ey_regimen[never]"): (0, 160),
+    ((0.01, 1.0), "ate_regimen[always vs never]"): (0, 384),
+    ((0.12, 1.0), "ey_regimen[always]"): (2, 224),
+    ((0.12, 1.0), "ey_regimen[never]"): (11, 160),
+    ((0.12, 1.0), "ate_regimen[always vs never]"): (13, 384),
+    ((0.3, 1.0), "ey_regimen[always]"): (33, 224),
+    ((0.3, 1.0), "ey_regimen[never]"): (64, 160),
+    ((0.3, 1.0), "ate_regimen[always vs never]"): (97, 384),
 }
 
 #: The same census at one outer fold, where the consumed slab and the retained stitched pair
 #: coincide and the counts are therefore the smaller, single-pass ones.
 SINGLE_FOLD_CELL_CENSUS = {
-    (0.12, "ey_regimen[always]"): (1, 112),
-    (0.12, "ey_regimen[never]"): (3, 80),
-    (0.12, "ate_regimen[always vs never]"): (4, 192),
-    (0.3, "ey_regimen[always]"): (17, 112),
-    (0.3, "ey_regimen[never]"): (28, 80),
-    (0.3, "ate_regimen[always vs never]"): (45, 192),
+    ((0.12, 1.0), "ey_regimen[always]"): (1, 112),
+    ((0.12, 1.0), "ey_regimen[never]"): (3, 80),
+    ((0.12, 1.0), "ate_regimen[always vs never]"): (4, 192),
+    ((0.3, 1.0), "ey_regimen[always]"): (17, 112),
+    ((0.3, 1.0), "ey_regimen[never]"): (28, 80),
+    ((0.3, 1.0), "ate_regimen[always vs never]"): (45, 192),
+}
+
+#: The two-fold census of a pair whose *upper* endpoint is the one that binds.  ``0.01`` is
+#: the fitted lower endpoint and raises nothing on this sample, so all ``100`` of the
+#: contrast's truncated cells were lowered to ``0.5``.
+UPPER_BOUND_CELL_CENSUS = {
+    ((0.01, 0.5), "ey_regimen[always]"): (87, 224),
+    ((0.01, 0.5), "ey_regimen[never]"): (13, 160),
+    ((0.01, 0.5), "ate_regimen[always vs never]"): (100, 384),
+}
+
+#: The two-fold census of a pair whose endpoints both bind.  ``46`` of the contrast's ``94``
+#: truncated cells were raised to ``0.2`` and the other ``48`` were lowered to ``0.6``.  No
+#: cell is both, because a prefix cannot sit below ``0.2`` and above ``0.6`` at once.
+TWO_SIDED_CELL_CENSUS = {
+    ((0.2, 0.6), "ey_regimen[always]"): (52, 224),
+    ((0.2, 0.6), "ey_regimen[never]"): (42, 160),
+    ((0.2, 0.6), "ate_regimen[always vs never]"): (94, 384),
 }
 
 
 def _assert_cell_census(result: Any, census: Any) -> None:
     """Check the reported counts against pinned values and an independent recount."""
 
-    bounds = sorted({bound for bound, _ in census})
-    payload = _payload(result.diagnostics.truncation_curve(bounds))
+    pairs = sorted({pair for pair, _ in census})
+    payload = _payload(result.diagnostics.truncation_curve(pairs))
     reported = {
-        (payload["lower_bound"][index], name): (
+        ((payload["lower_bound"][index], payload["upper_bound"][index]), name): (
             payload["truncated_score_cells"][index],
             payload["evaluated_score_cells"][index],
         )
@@ -496,19 +663,22 @@ def _assert_cell_census(result: Any, census: Any) -> None:
 
     recipe = result.replay_recipe
     assert recipe is not None
-    for bound in bounds:
-        fits = longitudinal_estimator._refit_bound(result, recipe, (bound, 1.0)).fits
-        for name, labels in CONTRIBUTING_LABELS.items():
-            if (bound, name) not in census:
+    for pair in pairs:
+        fits = longitudinal_estimator._refit_bound(result, recipe, pair).fits
+        for name, cells in CONTRIBUTING_CELLS.items():
+            if (pair, name) not in census:
                 continue
-            assert (
-                _independent_cell_census(result, labels, (bound, 1.0), fits)
-                == census[(bound, name)]
-            )
+            assert _independent_cell_census(result, cells, pair, fits) == census[(pair, name)]
 
 
 def test_crossfit_score_cell_counts_census_every_fold_slab_the_recursion_read(result) -> None:  # type: ignore[no-untyped-def]
-    """Two folds, so the pinned counts fail a census of the stitched pair the pass never read."""
+    """Two folds, so the pinned counts fail a census of the stitched pair alone.
+
+    The stitched pair is the row-wise out-of-fold gather of the two slabs, so every stitched
+    cell *is* a cell the fold that held that row out divided by.  What a census of it alone
+    misses is the other copies: it holds one of the two copies of each scored row, and not
+    the truncation only a fold's own training rows carry.
+    """
 
     assert result.folds.n_folds == 2
     _assert_cell_census(result, CROSSFIT_CELL_CENSUS)
@@ -519,6 +689,39 @@ def test_single_fold_score_cell_counts_census_the_one_consumed_slab(single_fold_
 
     assert single_fold_result.folds.n_folds == 1
     _assert_cell_census(single_fold_result, SINGLE_FOLD_CELL_CENSUS)
+
+
+def test_upper_bound_truncation_is_counted_on_a_pair_that_binds_only_above(result) -> None:  # type: ignore[no-untyped-def]
+    """A truncated cell can be one the bound *lowered*, which no census above can show.
+
+    Every pinned pair above keeps the upper endpoint at ``1.0``, and the one pair in this
+    module with a real upper endpoint, ``(0.01, 0.9)``, moves no cell on this sample.  So a
+    comparison that only reported a raised prefix satisfied all of them.  Here the lower
+    endpoint is the fitted one and raises nothing, and the counts are entirely the cells the
+    upper endpoint lowered.
+    """
+
+    assert result.folds.n_folds == 2
+    assert result.config.g_bounds == (0.01, 1.0)
+    raised, lowered = _clip_directions(result, (0.01, 0.5))
+    assert raised == 0
+    assert lowered > 0
+    _assert_cell_census(result, UPPER_BOUND_CELL_CENSUS)
+
+
+def test_both_endpoints_binding_counts_the_cells_each_one_moved(result) -> None:  # type: ignore[no-untyped-def]
+    """One pair whose two endpoints both bind, so neither one-sided comparison passes it.
+
+    ``(0.2, 0.6)`` raises some cumulative prefixes and lowers others on this sample.  A
+    count of either direction alone is short of the pinned total by the other direction's
+    share, so this row fails whichever half a comparison drops.
+    """
+
+    assert result.folds.n_folds == 2
+    raised, lowered = _clip_directions(result, (0.2, 0.6))
+    assert raised > 0
+    assert lowered > 0
+    _assert_cell_census(result, TWO_SIDED_CELL_CENSUS)
 
 
 def test_recipe_and_curve_survive_persistence(result) -> None:  # type: ignore[no-untyped-def]
@@ -587,7 +790,7 @@ def test_survival_curve_replays_every_horizon_in_report_order() -> None:
     assert payload["estimand"] == list(result.estimates) * 2
     assert len(set(payload["estimand"])) == len(result.config.horizons)
     assert all(payload["is_fitted_bound"][: len(result.estimates)])
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=SURVIVAL_CONTRIBUTING_CELLS)
 
 
 def test_msm_curve_replays_projection_artifacts_and_reports_only_terms() -> None:
@@ -615,7 +818,7 @@ def test_msm_curve_replays_projection_artifacts_and_reports_only_terms() -> None
     payload = _payload(result.diagnostics.truncation_curve([0.2]))
     assert payload["estimand"] == list(result.estimates)
     assert all(name.startswith("msm_regimen[") for name in payload["estimand"])
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=MSM_CONTRIBUTING_CELLS)
 
 
 def test_competing_risk_curve_preserves_cause_horizon_structure() -> None:
@@ -641,7 +844,7 @@ def test_competing_risk_curve_preserves_cause_horizon_structure() -> None:
     assert payload["estimand"] == list(result.estimates)
     assert len(payload["estimand"]) == 4
     assert all("relapse" in name or "death" in name for name in payload["estimand"])
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=COMPETING_CONTRIBUTING_CELLS)
 
 
 def test_crossfit_survival_curve_replays_every_horizon_on_three_folds() -> None:
@@ -672,7 +875,7 @@ def test_crossfit_survival_curve_replays_every_horizon_on_three_folds() -> None:
     assert all(payload["is_fitted_bound"])
     # Three folds, so each reported horizon's denominator is three complete passes and the
     # stitched score the report is built from is checked as well.
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=SURVIVAL_CONTRIBUTING_CELLS)
 
 
 def test_crossfit_competing_risk_curve_replays_every_cause_on_two_folds() -> None:
@@ -701,7 +904,7 @@ def test_crossfit_competing_risk_curve_replays_every_cause_on_two_folds() -> Non
     assert payload["estimand"] == list(result.estimates)
     assert len(payload["estimand"]) == 4
     assert all("relapse" in name or "death" in name for name in payload["estimand"])
-    _assert_active_curve(result)
+    _assert_active_curve(result, cells=COMPETING_CONTRIBUTING_CELLS)
 
 
 def test_dynamic_categorical_weighted_clustered_recipe_replays_exactly() -> None:
@@ -826,10 +1029,6 @@ def test_stable_replay_omissions_cover_legacy_rng_and_unclonable_cases(result) -
     assert _replay_random_state_omissions(
         [replace_random_state(learner, np.random.RandomState(1))]
     ) == (LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,)
-
-    class Unclonable(BaseEstimator):
-        def __sklearn_clone__(self):  # type: ignore[no-untyped-def]
-            raise TypeError("deliberately unclonable")
 
     regimen = resolve_regimens({"always": 1}, 2)[0]
     recipe = _replay_recipe(
@@ -1015,13 +1214,50 @@ def test_object_seeded_learner_refuses_the_curve_end_to_end() -> None:
     assert "integer seed" in row.detail
 
 
-def test_an_unclonable_learner_omission_refuses_the_curve_on_a_real_result(result) -> None:  # type: ignore[no-untyped-def]
-    """The refusal a recipe carrying this omission produces, on a fit that really ran.
+def test_an_unused_unclonable_pseudo_learner_fits_and_then_refuses_the_curve() -> None:
+    """The whole omission chain, from a fit that really ran to the refusal it causes.
 
-    The omission cannot be produced *by* a fit: ``fit_learner`` clones the same resolved
-    template the recipe clones, so a learner that fails the recipe's clone fails the first
-    nuisance regression and there is no result to ask.  The omission is injected for that
-    reason, and the rest of the path is the real one.
+    ``pseudo_learner`` is resolved and recorded whether or not the recursion ever fits it,
+    and on a one-node panel it never does: the only node is the horizon, so that node takes
+    ``outcome_learner``.  A learner that refuses to be cloned therefore reaches the recipe
+    without reaching a nuisance regression, the fit succeeds, and the replay is
+    unreconstructible.  Every other witness for this omission injects it into a recipe.
+    """
+
+    result = LTMLE(
+        {"always": 1},
+        reference="always",
+        outcome_learner=LinearRegression(),
+        pseudo_learner=Unclonable(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        learner_folds=2,
+        random_state=11,
+        simultaneous=False,
+    ).fit(_one_node_panel(), **ONE_NODE_COLUMNS)
+
+    # The premise: one node, which is the horizon, so no pseudo-outcome regression ran.
+    assert result.config.n_times == 1
+    assert [step.time for step in result.fits["always"].steps] == [1]
+    assert list(result.estimates) == ["ey_regimen[always]"]
+
+    assert result.replay_recipe is not None
+    assert result.replay_recipe.outcome_learner is not None
+    assert result.replay_recipe.pseudo_learner is None
+    assert result.replay_recipe.omissions == (LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,)
+    assert replayability(result).unreconstructible == (LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,)
+    assert not replayability(result).refit_nuisances
+    with pytest.raises(CapabilityError, match=LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE):
+        result.diagnostics.truncation_curve([0.2])
+
+
+def test_an_unclonable_learner_omission_refuses_the_curve_on_a_real_result(result) -> None:  # type: ignore[no-untyped-def]
+    """The same refusal on the cross-fitted fixture the rest of this module uses.
+
+    The omission is injected here rather than produced, so that the refusal is checked on a
+    result with two regimens and two folds.  It is reachable from a real fit as well, which
+    ``test_an_unused_unclonable_pseudo_learner_fits_and_then_refuses_the_curve`` shows.
     """
 
     recipe = result.replay_recipe
@@ -1067,11 +1303,18 @@ def test_combined_report_requires_both_bounds_and_the_refit_opt_in(result) -> No
 
 def test_persisted_pre_rm4_combined_unavailable_row_is_not_reused(result) -> None:  # type: ignore[no-untyped-def]
     artifact = pickle.loads(pickle.dumps(result))
+    # ``result`` is module scoped and every earlier test's report is filed on it, so the
+    # clone starts with a populated cache.  Clearing the clone's own dictionary cannot reach
+    # the fixture's: ``assessment_cache`` is ``field(init=False, default_factory=dict)``, so
+    # both ``replace`` and an unpickle build a fresh one.
     artifact.assessment_cache.clear()
+    assert artifact.assessment_cache is not result.assessment_cache
     current = artifact.diagnostics.run_all()
-    current_key = next(
-        key for key in artifact.assessment_cache if key.startswith("diagnostics.run_all:")
-    )
+    combined = [key for key in artifact.assessment_cache if key.startswith("diagnostics.run_all:")]
+    # One, and said so rather than taken off the front: the key below is rebuilt by editing
+    # this one, and a second combined key here would make that edit describe the wrong call.
+    assert len(combined) == 1
+    current_key = combined[0]
     prefix, encoded = current_key.split(":", 1)
     normalized = json.loads(encoded)
     # Read from the table rather than pinned to a literal.  Every result-changing fix to a

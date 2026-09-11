@@ -505,6 +505,29 @@ def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
     assert "max truncated share 100.0%" in result.summary()
 
 
+def test_an_upper_cumulative_bound_alone_warns_and_reports_its_own_share() -> None:
+    """The same two reports with the *upper* endpoint as the one that binds.
+
+    A cell is truncated when the bounded prefix differs from the raw one, in either
+    direction.  Every other witness for a reported truncation share raises a prefix to a
+    lower endpoint, so a comparison that reported only a raised prefix satisfied all of
+    them.  Here the lower endpoint is ``1e-12`` and moves nothing, and every moved cell was
+    lowered to ``0.5``.
+    """
+
+    frame, _ = make_longitudinal(n=400, seed=91)
+    with pytest.warns(PositivityWarning, match=r"always at t=1: 41\.7%"):
+        result = run(frame, regimens={"always": 1}, g_bounds=(1e-12, 0.5))
+    fit = result.fits["always"]
+
+    assert int(np.count_nonzero(fit.cumulative_unbounded < fit.cumulative)) == 0
+    assert int(np.count_nonzero(fit.cumulative_unbounded > fit.cumulative)) == 156
+    # 70 of the 168 rows scored at the first node, and 22 of the 119 at the second.
+    shares = list(result.diagnostics.support().to_frame()["share_truncated"])
+    assert shares == [pytest.approx(70 / 168), pytest.approx(22 / 119)]
+    assert "max truncated share 41.7% at t=1" in result.summary()
+
+
 def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
     frame, _ = make_longitudinal(n=400, seed=92)
     with warnings.catch_warnings(record=True) as caught:
@@ -1720,6 +1743,37 @@ class TestCompetingRisks:
                 outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
                 **self.COMPETING_COLUMNS,
             )
+
+    def test_a_rare_cause_fits_at_one_fold_and_is_refused_at_two_by_the_fold(self) -> None:
+        """One frame and two fold counts, because the binding set is a fold's training rows.
+
+        The per-cause check reads the rows the node regression is fitted on.  Without outer
+        cross-fitting that is every row.  With it, it is one outer fold's training
+        complement, which is smaller, so a rare cause can be estimable at one fold and not
+        at two on the same sample.  The refusal has to name the fold: telling this reader to
+        collect more data misreports what moved.
+        """
+
+        frame, _ = make_longitudinal_competing(n=220, seed=41)
+        columns = {
+            "outcome": {"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+            **self.COMPETING_COLUMNS,
+        }
+        settings = {**FAST, "random_state": 17}
+        single = LTMLE({"always": 1}, reference="always", **{**settings, "n_folds": 1}).fit(
+            frame, **columns
+        )
+
+        assert single.folds.n_folds == 1
+        assert len(single.estimates) == 4
+
+        with pytest.raises(LongitudinalError, match="outer training fold") as caught:
+            LTMLE({"always": 1}, reference="always", **{**settings, "n_folds": 2}).fit(
+                frame, **columns
+            )
+        # Matched on the clause that survives a reworded sentence: the fold is named, and
+        # the reader is told the fold count is the thing to change.
+        assert "the same frame can be estimable at n_folds=1" in str(caught.value)
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.
