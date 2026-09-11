@@ -159,11 +159,18 @@ previous reader had is not a citation; a page number is.
   Likelihood Estimation for Dynamic and Static Longitudinal Marginal Structural Working
   Models*, DOI [10.1515/jci-2013-0007](https://doi.org/10.1515/jci-2013-0007). Section 3
   defines the pooled longitudinal TMLE; Appendix A derives its efficient influence curve.
+  Section 3.6, journal pages 160-161, regresses each targeted later-node prediction at the next
+  node. Section 3.7, journal page 162, gives inference for the completed estimator.
 - Lendle, Schwab, Petersen & van der Laan (2017), *ltmle: An R Package Implementing
   Targeted Minimum Loss-Based Estimation for Longitudinal Data*, DOI
-  [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). The package source's
-  `FixedTimeTMLE`, `CalcCumG`, and `UpdateQ` are the implementation locators used by the
-  bounded canonical fixture.
+  [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). Section 2.4, page 6,
+  carries an updated later-node regression into each earlier regression. Section 3.3, page 13,
+  defines `gbounds` as bounds on estimated mechanism components.
+- Schomaker, Luque-Fernandez, Leroy & Davies (2019), [*Using Longitudinal Targeted Maximum
+  Likelihood Estimation in Complex Settings with Dynamic Interventions*](https://doi.org/10.1002/sim.8340),
+  *Statistics in Medicine* 38(24):4888-4911. Sections 3.4 and 4.3.2 define the complete
+  sequential LTMLE algorithm. Section 5.6 and Table 2 compare complete analyses at bounds 0.01
+  and 0.05. Appendix B, pages 24-25, makes the later targeted prediction the earlier response.
 - Poulos, Horvitz-Lennon, Zelevinsky et al. (2024), *Targeted learning in observational
   studies with multi-valued treatments: an evaluation of antipsychotic drug treatment safety*,
   DOI [10.1002/sim.10003](https://doi.org/10.1002/sim.10003). The accompanying public
@@ -174,11 +181,22 @@ previous reader had is not a citation; a page number is.
   package entry point for a paired study.
 - Source audit snapshots (2026-08-16): R `ltmle` at
   [`338c029`](https://github.com/joshuaschwab/ltmle/tree/338c029dae9692ef20714125773da7037688993b)
-  (`FixedTimeTMLE`, `CalcCumG`, `UpdateQ`) remains binary implementation provenance; `tmle3` at
+  remains binary implementation provenance.
+  [`CalcCumG`, lines 2009-2011](https://github.com/joshuaschwab/ltmle/blob/338c029dae9692ef20714125773da7037688993b/R/ltmle.R#L2009-L2011)
+  bounds raw cumulative mechanism products.
+  [`FixedTimeTMLE`, lines 748-782](https://github.com/joshuaschwab/ltmle/blob/338c029dae9692ef20714125773da7037688993b/R/ltmle.R#L748-L782)
+  fits and updates each regression, then carries `Qstar` backward. Changing the bound therefore
+  requires every earlier bound-dependent regression to run again.
+  The `tmle3` snapshot at
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27)
   (`LF_static`, `Param_TSM`, `Param_MSM`) confirms equality-density/static-intervention indexing
   but is not a longitudinal categorical oracle. The companion Poulos repository was inspected at
   [`0e8dc6e`](https://github.com/jvpoulos/multi-ltmle/tree/0e8dc6eca1012e5a3eab7aa80b772cf432b8f032).
+- RM4 source audit (2026-09-10): Schomaker et al. compare separate fixed-bound LTMLE analyses.
+  They do not define a post-fit shortcut that reuses earlier outcome predictions. The reviewed
+  sources support a descriptive grid that reuses raw mechanism predictions and reruns the full
+  recursion. They do not support a preferred bound, simultaneous curve inference, selected-bound
+  inference, or a data-adaptive longitudinal bound.
 - MSM study audit (2026-08-26): the same pinned `tmle3` `Param_MSM` supplies the Gaussian
   identity-link point projection after its arm-indicator coefficients and joint influence curves
   are mapped to the declared basis. Its documented custom-weight path needs a classed function to
