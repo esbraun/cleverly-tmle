@@ -1238,13 +1238,19 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     # One sentence per distinct cause, in the order the codes are reported, so a result
     # blocked for two reasons states both rather than the first one twice.
     causes = dict.fromkeys(explained.get(code, _REPLAY_ARTIFACT_MISSING) for code in codes)
+    # No declared row pairs a false slot with an empty code list today, so this branch is
+    # hardening.  Without it the sentence reads "is unavailable: . reported codes: []", which
+    # a reader takes for a rendering defect rather than for the refusal it is.
+    detail = (
+        f"{'; '.join(causes)}. reported codes: {codes}"
+        if causes
+        else "this stored result reports no cause for it"
+    )
     return replace(
         item,
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        reason=(
-            f"{_REPLAY_WORK[slot]} is unavailable: {'; '.join(causes)}. reported codes: {codes}"
-        ),
+        reason=f"{_REPLAY_WORK[slot]} is unavailable: {detail}",
     )
 
 

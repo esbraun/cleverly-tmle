@@ -355,18 +355,41 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
     return tuple(retained)
 
 
+def _truncated_cells(unbounded: FloatArray, bounded: FloatArray) -> BoolArray:
+    """Which cumulative cells a bound replaced, over whatever shape the caller hands in.
+
+    The one expression every truncation diagnostic agrees on: a cell is truncated when the
+    bounded cumulative probability differs from the raw product that produced it.
+    :func:`_clipped_prefix` hands in one node's column, and :func:`_consumed_prefixes` hands
+    in a whole ``(n, T)`` slab.
+
+    Parameters
+    ----------
+    unbounded : FloatArray
+        Raw cumulative probabilities, before ``g_bounds``.
+    bounded : FloatArray
+        Cumulative probabilities after ``g_bounds``, of the same shape.
+
+    Returns
+    -------
+    BoolArray
+        One flag per cell, true where the bound replaced the raw product.
+    """
+    return np.asarray(unbounded != bounded)
+
+
 def _clipped_prefix(
     unbounded: FloatArray, bounded: FloatArray, time: int, rows: BoolArray
 ) -> BoolArray:
     """Which of ``rows`` had node ``time``'s cumulative prefix replaced by a bound.
 
-    The one expression three diagnostics agree on: a cell is truncated when the bounded
-    cumulative probability differs from the raw product that produced it.  What differs
-    between the callers is *which* pair of ``(n, T)`` matrices they hand in.
-    :meth:`LongitudinalResult._max_truncated` and :meth:`LTMLE._warn_on_truncation` pass the
-    stitched pair the fit retained, which is the mechanism the fit estimated.
-    :func:`_score_cell_truncation_counts` passes one outer fold's slab, which is what that
-    fold's recursion consumed.  Neither is derivable from the other on a cross-fitted fit.
+    One comparison, in :func:`_truncated_cells`, and three diagnostics that select different
+    cells from it.  :meth:`LongitudinalResult._max_truncated` and
+    :meth:`LTMLE._warn_on_truncation` pass the stitched pair the fit retained, which is the
+    mechanism the fit estimated.  :func:`_score_cell_truncation_counts` reads every fold slab
+    the recursion ran a pass on.  The relation between the two is one-way: the stitched pair
+    is the row-wise out-of-fold gather of the slabs, so it follows from them and
+    :attr:`LongitudinalResult.folds`, and they do not follow from it.
 
     Parameters
     ----------
@@ -384,7 +407,7 @@ def _clipped_prefix(
     BoolArray
         One flag per selected row, true where the bound replaced the raw prefix.
     """
-    return np.asarray(unbounded[:, time - 1][rows] != bounded[:, time - 1][rows])
+    return _truncated_cells(unbounded[:, time - 1], bounded[:, time - 1])[rows]
 
 
 @dataclass(frozen=True)
@@ -1319,8 +1342,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """Largest on-score truncation share and its earliest node.
 
         Of the *stitched* mechanism the fit retained, which is the mechanism it estimated.
-        A cross-fitted fit consumed one slab per outer fold instead, and
-        :func:`_score_cell_truncation_counts` is the count over those.
+        A cross-fitted fit ran one complete pass per outer fold slab, and
+        :func:`_score_cell_truncation_counts` is the count over all of them.  The stitched
+        pair holds one of those ``K`` copies of each row, so this share is the held-out one.
         """
         shares = []
         for step in fit.steps:
@@ -1354,10 +1378,16 @@ def _run_recursion(
     dangerous arithmetic was never duplicated -- both paths call the same
     :func:`~cleverly.longitudinal.sequential.fit_regimen` and
     :func:`~cleverly.longitudinal.msm.fit_regimens_msm` -- but the *driver* was: the same
-    nine solver settings and the same plan, cause and horizon ordering, written twice.
-    Those functions default every solver argument, so a tenth setting threaded through the
-    fit alone would raise nothing and replay a different estimator.  Reaching them through
-    one signature is what makes that a ``TypeError`` instead.
+    nine solver settings and the same plan, cause and horizon ordering, written twice.  One
+    driver is what makes a divergence between the two unrepresentable: a setting reaches the
+    recursion once, so neither path can pass it differently from the other.
+
+    Note what one driver does not protect.  Those functions default every solver argument,
+    and the settings below reach them as a splatted dict.  So dropping one leaves *both*
+    paths on that function's default in silence, and no signature here turns that into a
+    ``TypeError``.  That would need the defaults removed in
+    :mod:`cleverly.longitudinal.sequential` and :mod:`cleverly.longitudinal.msm`, where the
+    nine arguments are declared.
 
     Parameters
     ----------
@@ -2385,15 +2415,21 @@ def _consumed_prefixes(
     plans: Sequence[Plan],
     folds: Folds,
     bounds: tuple[float, float],
-) -> dict[str, tuple[tuple[FloatArray, FloatArray], ...]]:
-    """Per regimen, the cumulative prefixes each outer fold's recursion actually read.
+) -> dict[str, tuple[BoolArray, ...]]:
+    """Per regimen, which cumulative cells a bound replaced in each slab the recursion read.
 
-    The recursion does **not** read the prefixes a cross-fitted fit retains.  Fold ``k``
-    calls :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded`
-    with ``fold=k`` and runs a complete backward pass on that slab, so a fit at ``K`` folds
-    consumed ``K`` mechanisms and the stitched out-of-fold pair on
-    :attr:`~cleverly.longitudinal.sequential.RegimenFit.cumulative` is none of them.  This
-    rebuilds exactly the arrays the pass read, from the same method at the same bounds.
+    Fold ``k`` calls
+    :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded` with
+    ``fold=k`` and runs a complete backward pass on that slab, so a fit at ``K`` folds
+    consumed ``K`` mechanisms.  The stitched pair on
+    :attr:`~cleverly.longitudinal.sequential.RegimenFit.cumulative` is the row-wise
+    out-of-fold gather of those slabs, so it carries one of the ``K`` copies of each scored
+    row and stands in for none of the other ``K - 1``.  This rebuilds every slab from the
+    same method at the same bounds.
+
+    Each slab is reduced to one ``(n, T)`` boolean, and its float pair is released before the
+    next fold is built.  So the peak holds one float pair rather than ``K`` of them, and what
+    it keeps is 16 times smaller than the pairs it came from.  The mask is all a count reads.
 
     Parameters
     ----------
@@ -2411,25 +2447,28 @@ def _consumed_prefixes(
     Returns
     -------
     dict
-        Regimen label to one ``(unbounded, bounded)`` pair per consumed slab: a single pair
+        Regimen label to one ``(n, T)`` truncation mask per consumed slab: a single mask
         without cross-fitting, and one per outer fold with it.
     """
-    consumed: dict[str, tuple[tuple[FloatArray, FloatArray], ...]] = {}
+    # ``fold=None`` is the whole-sample mechanism, which is the one pass a single-fold fit
+    # ran.  One request list for both cases, so neither gets a second code path.
+    requested: tuple[int | None, ...] = (None,) if folds.is_single else tuple(range(folds.n_folds))
+    consumed: dict[str, tuple[BoolArray, ...]] = {}
     for plan in plans:
-        consumed[plan.label] = (
-            (mechanism.cumulative_with_unbounded(data, plan, bounds),)
-            if folds.is_single
-            else tuple(
-                mechanism.cumulative_with_unbounded(data, plan, bounds, fold=fold)
-                for fold in range(folds.n_folds)
-            )
-        )
+        masks: list[BoolArray] = []
+        for fold in requested:
+            slab = mechanism.cumulative_with_unbounded(data, plan, bounds, fold=fold)
+            masks.append(_truncated_cells(*slab))
+            # Dropped here rather than at the rebinding, which would otherwise hold the
+            # next fold's pair beside this one at the moment it is built.
+            del slab
+        consumed[plan.label] = tuple(masks)
     return consumed
 
 
 def _score_cell_truncation_counts(
     fits: Sequence[RegimenFit],
-    consumed: Mapping[str, tuple[tuple[FloatArray, FloatArray], ...]],
+    consumed: Mapping[str, tuple[BoolArray, ...]],
 ) -> tuple[int, int]:
     """Count the truncated mechanism cells the reported recursion consumed.
 
@@ -2441,15 +2480,23 @@ def _score_cell_truncation_counts(
     that node's ``trained_on`` rows enters a score in that pass: a training row through the
     fluctuation that fold solves over ``fitted_on``, and a held-out row through the
     stitched score the report is built from.  So the denominator is ``K`` times the
-    single-fold one, and the numerator counts the truncations in the ``K`` mechanisms the
-    recursion divided by rather than in the one mechanism it never read.
+    single-fold one, and the numerator counts the truncations in all ``K`` mechanisms.
+
+    The narrower accounting this replaces counted the cells the reported stitched score
+    divides by.  That is defensible, and it is incomplete: the stitched pair is the
+    out-of-fold gather of the slabs, so it holds the held-out copy of each scored row and no
+    fold's training copies.  It therefore misses a truncation that only a fluctuation saw.
+    On the fixture in ``tests/unit/test_longitudinal_truncation_refit.py`` at a lower bound
+    of ``0.12``, it reports no truncated cell for ``ey_regimen[always]`` beside a
+    ``delta_from_fitted`` of ``0.057``.  The two fold slabs truncate two cells there.
 
     Parameters
     ----------
     fits : sequence of RegimenFit
         The fits behind one reported name.
     consumed : mapping
-        Regimen label to the consumed prefix pairs, from :func:`_consumed_prefixes`.
+        Regimen label to one truncation mask per consumed slab, from
+        :func:`_consumed_prefixes`.
 
     Returns
     -------
@@ -2460,9 +2507,9 @@ def _score_cell_truncation_counts(
     truncated = 0
     evaluated = 0
     for fit in fits:
-        for unbounded, bounded in consumed[fit.regimen.label]:
+        for mask in consumed[fit.regimen.label]:
             for step in fit.steps:
-                clipped = _clipped_prefix(unbounded, bounded, step.time, step.trained_on)
+                clipped = mask[:, step.time - 1][step.trained_on]
                 truncated += int(np.count_nonzero(clipped))
                 evaluated += int(clipped.size)
     return truncated, evaluated
@@ -2494,8 +2541,9 @@ def longitudinal_truncation_curve(
     Raises
     ------
     CapabilityError
-        When the grid is empty, when it names an estimand this fit does not report, or when
-        the stored artifacts cannot replay the recursion.
+        When the grid is empty or holds a bound this package cannot resolve, when it names
+        an estimand this fit does not report, or when the stored artifacts cannot replay the
+        recursion.
     """
 
     recipe = getattr(result, "replay_recipe", None)
@@ -2507,12 +2555,26 @@ def longitudinal_truncation_curve(
     # bound pair they denote rather than two replays of it.  A replay is a complete backward
     # recursion per regimen, cause and horizon, so a duplicate entry is minutes of work for
     # a row the frame already carries.
-    grid = tuple(dict.fromkeys(resolve_cumulative_g_bounds(bound) for bound in bounds))
+    #
+    # Every shape of a bad grid is a caller-input refusal rather than a ``ValueError``,
+    # because this function is reached through ``run_all(arguments=...)``, which catches a
+    # capability refusal per row and lets every other operation report.  A bare exception
+    # there aborts the whole battery over one grid typo.  The resolver reports a bad pair, a
+    # bad scalar and the absent ``"auto"`` case with a bare ``ValueError``, and a bare
+    # ``0.2`` written for ``[0.2]`` raises ``TypeError`` from the iteration itself.  The
+    # ``try`` covers the resolution alone, so a defect in the replay below still surfaces as
+    # the defect it is.
+    try:
+        grid = tuple(dict.fromkeys(resolve_cumulative_g_bounds(bound) for bound in bounds))
+    except (TypeError, ValueError) as error:
+        # The resolver's own sentence is reused, because it names the offending value and the
+        # condition it failed.
+        raise CapabilityError(
+            "a longitudinal truncation curve cannot resolve the requested cumulative bound "
+            "grid, which is a sequence of scalars or of (lower, upper) pairs: "
+            + (str(error.args[0]) if error.args else str(error))
+        ) from error
     if not grid:
-        # A caller-input refusal rather than a ``ValueError``, because this function is
-        # reached through ``run_all(arguments=...)``, which catches a capability refusal per
-        # row and lets every other operation report.  A bare exception there aborts the
-        # whole battery over one empty list.
         raise CapabilityError(
             "a longitudinal truncation curve needs at least one cumulative bound pair; "
             "the requested grid is empty"
@@ -2542,7 +2604,7 @@ def longitudinal_truncation_curve(
             if (lower, upper) == fitted_bounds
             else _refit_bound(result, recipe, (lower, upper))
         )
-        # Once per bound rather than once per estimand: the slabs are a property of the
+        # Once per bound rather than once per estimand: the masks are a property of the
         # mechanism and the bound, and every estimand at this bound reads the same ones.
         consumed = _consumed_prefixes(
             result.data, result.mechanism, recipe.plans, result.folds, (lower, upper)

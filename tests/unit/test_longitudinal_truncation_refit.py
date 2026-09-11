@@ -1074,7 +1074,10 @@ def test_persisted_pre_rm4_combined_unavailable_row_is_not_reused(result) -> Non
     )
     prefix, encoded = current_key.split(":", 1)
     normalized = json.loads(encoded)
-    assert normalized["cache_generation"] == _CACHE_GENERATIONS[prefix] == 8
+    # Read from the table rather than pinned to a literal.  Every result-changing fix to a
+    # reported column bumps this generation, so a literal here fails on the bump it is meant
+    # to accompany.  ``tests/unit/test_assessment_contract.py`` derives its seed the same way.
+    assert normalized["cache_generation"] == _CACHE_GENERATIONS[prefix]
     normalized["cache_generation"] -= 1
     stale_key = f"{prefix}:{json.dumps(normalized, sort_keys=True, separators=(',', ':'))}"
     stale = replace(
