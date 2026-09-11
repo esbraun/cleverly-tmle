@@ -140,12 +140,11 @@ grid.
 ### RM7. Missing-outcome natural-course mean
 
 Add `NaturalCourseMean()` under `missingness=` for ordinary TMLE. As deliberate first-PR
-engineering boundaries, cover one scalar target with binary treatment from unweighted,
-unclustered, unstratified iid observations. Accept a binary outcome or a continuous outcome with
-fixed declared `q_bounds`. Require the direct-estimator settings `cross_fit=False`,
-`fluctuation="logistic"`, `targeting="iterative"`, and `target_weights=False`. The workflow API
-spells the first and third of those `CrossFitting(enabled=False)` and
-`Targeting(algorithm="iterative")`.
+engineering boundaries, cover one scalar target with binary treatment from iid observations.
+Accept a binary outcome or a continuous outcome with fixed declared `q_bounds`. Require the
+`TMLE` settings `cross_fit=False`, `fluctuation="logistic"`, `targeting="iterative"`, and
+`target_weights=False`. The workflow API spells the first as `CrossFitting(enabled=False)` and
+carries the other three on `Targeting`.
 
 Treat `target_weights=True` as a follow-up extension that needs its own package tests. The source
 audit records the weighted intercept fluctuation that this setting would use.
@@ -160,13 +159,14 @@ $$
 The target population is represented by all input rows before outcome response. It keeps the
 observed joint law of treatment and covariates. Identification requires
 $Y\mathrel{\perp\!\!\!\perp}\Delta\mid X$ and $\pi_0(X)>0$ almost surely. Asymptotic linearity
-needs more than identification. It also requires strong positivity, $\pi_0(X)\geq\delta>0$ almost
+needs more than identification. It also requires strong positivity, $\pi_0(X)\geq c>0$ almost
 surely, so that the efficient variance
-$E_0\{\sigma_0^2(X)/\pi_0(X)\}+\operatorname{Var}_0\{m_0(X)\}$ is finite.
+$E_0\{\sigma_0^2(X)/\pi_0(X)\}+\operatorname{Var}_0\{m_0(X)\}$ is finite, where
+$\sigma_0^2(x)=\operatorname{Var}_0(Y\mid\Delta=1,X=x)$.
 
 Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5), govern this item. The
 [source audit](references.md#point-treatment-and-stochastic-interventions) gives the locators, the
-notation map, and the limits. Its efficient influence function is
+notation map, and the limits. The target's efficient influence curve is
 
 $$
 D_P(O)=\frac{\Delta}{\pi_P(X)}\{Y-m_P(X)\}+m_P(X)-\psi(P).
@@ -179,10 +179,9 @@ R_2(P,P_0)=\int\left\{1-\frac{\pi_0(x)}{\pi_P(x)}\right\}
   \{m_P(x)-m_0(x)\}\,dP_{X,0}(x).
 $$
 
-The remainder vanishes when either $m_P=m_0$ or $\pi_P=\pi_0$. The consistency statement therefore
-reads "consistent if either the outcome regression or the response mechanism is consistent". It
-names no treatment mechanism, so it is not the full mechanism product rule that the other
-missing-outcome targets carry.
+The remainder vanishes when either $m_P=m_0$ or $\pi_P=\pi_0$. The double-robustness statement
+therefore names the outcome regression or the response mechanism. It names no treatment mechanism,
+unlike the mechanism product rule that the arm-indexed targets carry under `missingness=`.
 
 Fit the logistic fluctuation among rows with $\Delta=1$:
 
@@ -194,9 +193,10 @@ $$
 Solve $P_n[\Delta\{Y-\hat m^\star(X)\}/\hat\pi(X)]=0$. Report the plug-in
 $P_n\hat m^\star(X)$. Do not delegate this target to the multiplier-one incremental mean, whose
 influence curve has the same algebra. See its
-[`ey_ipsi` row](technical-reference/evidence.md#the-table). That estimator substitutes a fitted
-treatment mechanism for the empirical law of $A$. It therefore carries a remainder term that this
-target does not.
+[`ey_ipsi` row](technical-reference/evidence.md#the-table).
+
+That estimator substitutes a fitted treatment mechanism for the empirical law of $A$. It therefore
+carries a remainder term that this target does not.
 
 The treatment mechanism enters the parameter only through the natural distribution of $A$ in $X$.
 It is not a separately estimated nuisance, and this parameter needs no treatment positivity or
@@ -212,25 +212,32 @@ $$
 \|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2}).
 $$
 
-Clipping at $b$ guarantees $1/\hat\pi_b\leq1/b$. For the stated efficient interval, also require
-$\hat\pi_b\to\pi_0$. A sufficient compatibility condition is uniform $\pi_0>b$ and consistency of
-the raw response-score learner. If $\pi_0<b$ on a set with positive probability, clipping alone
-cannot establish that convergence.
+Clipping the response-mechanism fit at $b$ supplies that bound. For the stated efficient interval,
+also require the clipped $\hat\pi$ to converge to $\pi_0$. A sufficient compatibility condition is
+uniform $\pi_0>b$ and consistency of the raw response-score learner. If $\pi_0<b$ on a set with
+positive probability, clipping alone cannot establish that convergence.
 
-Under `missingness=`, refuse every composition outside that configuration. Also refuse repeated
-splits, joint targeting, simultaneous bands, and bootstrap inference. Keep the current
-complete-outcome behavior for those compositions, which ships today with cross-fitting, strata,
-and weights. Keep C-TMLE, DR-TMLE, intermediate, shift, and incremental compositions at their
-existing boundaries.
+Under `missingness=`, refuse cross-fitting, repeated splits, observation weights, clusters, and
+strata. Also refuse nonbinary treatment, joint targeting, simultaneous bands, and bootstrap
+inference. Keep the current complete-outcome behavior for those compositions, which the
+complete-outcome path accepts today. Keep C-TMLE, DR-TMLE, intermediate, shift, and incremental
+compositions at their existing boundaries.
 
-`ey_obs` then leaves the shared refusal in `population_intervention.py`, whose one set, one
-sentence, and one exception type serve `par` and `paf` alone. Keep one refusal implementation for
-each remaining estimand, and keep the three call sites reading it. Restate the message so it names
-the unsupported composition rather than an underived score equation.
+Remove `ey_obs` from the shared refusal in `src/cleverly/targets/population_intervention.py`. Its
+one set, one sentence, and one exception type then serve `par` and `paf` alone. Keep that one
+shared implementation, and keep the three call sites reading it. Restate its message so it names
+RM8's open audit. Refuse the unsupported `ey_obs` compositions in the estimator instead.
 
-The package default cross-fits, so the survey non-response example stays refused after this row
-lands. Keep remediation priority 0.1 open until a cross-fitted response score earns its own
-audited contract.
+`POPULATION_INTERVENTION_TARGETS` has two consumers beyond that refusal. It selects the mechanism
+product consistency statement, and it suppresses the missingness assumption line in
+`src/cleverly/study.py`. Both must follow `ey_obs` out of the set. The pinned set identity in
+`tests/unit/test_causal_study.py` must follow as well.
+
+The package default cross-fits, so a `NaturalCourseMean()` request under the method in the
+[survey non-response example](examples/survey-nonresponse.md) stays refused after this row lands.
+That example's own refusal demonstration asks for `paf`, which RM8 governs. A cross-fitted response
+mechanism needs its own audited contract. Open a successor row for it rather than holding priority
+0.1 open.
 
 An `ey_obs`-only result must mark the arm-specific missingness tilt and tipping gamma unavailable.
 The combined assessment must report the same state. Add a natural-course sensitivity parameter
@@ -246,10 +253,13 @@ repeated-sampling coverage and standard-error calibration before exposing the in
 The identification record must state missingness at random given $(A,W)$ and response positivity.
 It must name only the outcome regression and response mechanism as nuisances. Pin its target
 expression, double-robustness statement, typed parameter key, and current method availability in
-tests. Two shipped statements become false for this target under `missingness=`.
+tests.
+
+Three shipped statements become false for this target once outcomes are missing.
 `src/cleverly/study.py` returns "the complete-data empirical mean has no nuisance-model remainder"
-for `ey_obs`, and it records that no adjustment set enters the natural-course mean. Restate both,
-and pin the restated text.
+for `ey_obs`. It records that no adjustment set enters the mean and that the record needs no
+nuisance estimate. It also reports an empty nuisance list. Restate all three, and pin the restated
+text.
 
 ### RM8. Missing-outcome attributable effects
 

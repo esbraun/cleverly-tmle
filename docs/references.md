@@ -100,13 +100,11 @@ previous reader had is not a citation; a page number is.
   establish weighted, clustered, stratified, cross-fitted, repeated-split, joint-target, or
   simultaneous inference. Section 5 bootstraps a second-order expansion. It does not establish
   the package's ordinary refit bootstrap.
-- Missing-outcome natural-course audit (RM7, 2026-09-11): Díaz, Carone and van der Laan (2016)
-  govern the iid missing-at-random mean under the notation map above. They support one scalar,
-  unweighted, unclustered, unstratified, and non-cross-fitted logistic TMLE with its first-order
-  interval. They do not support weighted, clustered, stratified, cross-fitted, repeated-split,
-  joint-target, simultaneous, or bootstrap inference. They do not cover population attributable
-  risk or population attributable fraction.
-  [RM7](roadmap.md#rm7-missing-outcome-natural-course-mean) records the resulting contract.
+- Missing-outcome natural-course audit (RM7, 2026-09-11): the record above supports one scalar
+  missing-at-random mean from iid observations, with its first-order interval. Its stated limits
+  bound the contract. It does not cover population attributable risk or population attributable
+  fraction. [RM7](roadmap.md#rm7-missing-outcome-natural-course-mean) records the resulting
+  contract.
 - R `tmle3` at commit `ed72f8a`,
   [`R/tmle3_Spec_PAR.R`, lines 20–27](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L27),
   combines a treatment-specific mean with a natural-course mean.

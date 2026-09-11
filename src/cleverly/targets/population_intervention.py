@@ -2,10 +2,9 @@
 
 ``ey_obs``, ``par`` and ``paf`` are the estimands whose functional contains the
 natural-course mean :math:`E[Y]`.  Under missingness at random that mean is not the
-empirical mean of the observed rows, so all three are refused until the extra
-outcome/missingness score equation is implemented.  ``docs/roadmap.md`` RM7 now
-contracts that score equation for ``ey_obs``.  RM8 keeps its audit open for ``par``
-and ``paf``.
+empirical mean of the observed rows, so all three are refused.  ``docs/roadmap.md`` RM7
+contracts the score equation for ``ey_obs``.  RM8 keeps its audit open for ``par`` and
+``paf``.
 
 Three modules that do not import one another reach this refusal: the target context that
 would compute the mean, the estimator that resolves an estimand list, and the study that
@@ -37,8 +36,8 @@ _ORDERED = ("ey_obs", "par", "paf")
 #: The estimands whose functional reads the natural-course mean ``E[Y]``.
 POPULATION_INTERVENTION_TARGETS = frozenset(_ORDERED)
 
-#: The roadmap row that tracks each one.  RM8 depends on RM7, whose audit is complete and
-#: whose implementation is not.
+#: The roadmap row that tracks each one.  RM8 depends on RM7.  The RM7 audit is complete,
+#: and its implementation is not.
 _ROADMAP_ROW = {"ey_obs": "RM7", "par": "RM8", "paf": "RM8"}
 
 _ROADMAP_SENTENCE = {
