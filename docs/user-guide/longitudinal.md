@@ -121,8 +121,13 @@ mechanism predictions fixed and reruns the complete backward recursion at every 
 every bound-dependent outcome or pseudo-outcome regression and targeting update.
 
 The curve is descriptive. It reports no standard error, confidence interval, preferred bound, or
-pass threshold. It refuses a legacy result without its replay recipe. It also refuses outcome or
-pseudo-outcome learners that cannot be cloned and replayed deterministically.
+pass threshold. It refuses `mechanism=True`, which is a point-treatment option. It also refuses a
+legacy result without its replay recipe, and a learner it cannot replay.
+[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
+states the `random_state` rule each outcome and pseudo-outcome learner must satisfy.
+
+[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+returned frame's columns and its two score-cell counting rules.
 
 A combined report requires both the grid and permission for expensive refits:
 
@@ -143,7 +148,7 @@ no sample estimator for them. The
 
 `result.save()` and `cleverly.load()` carry a longitudinal result through a round trip. The
 artifact keeps the folds, the fitted mechanisms, the sequential steps, the targeting state, and
-the causal metadata, and any accepted truncation replay recipe. [Persistence and
+the causal metadata, and the truncation replay recipe. [Persistence and
 replayability](results-assessment.md#persistence-and-replayability) states the shared contract for
 every result, including the assessment cache and the capability rows a restored artifact refuses.
 `tests/unit/test_serialization.py`'s

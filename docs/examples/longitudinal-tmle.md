@@ -192,7 +192,7 @@ from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
 
 sequential = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
@@ -273,7 +273,7 @@ def naive(adjustment, label):
     )
     point = naive_study.estimate(
         ATE(reference=0),
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=3,
         random_state=41,

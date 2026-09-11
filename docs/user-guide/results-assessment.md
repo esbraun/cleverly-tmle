@@ -323,19 +323,19 @@ Before the grid runs, a fitted-bound preflight must exactly reproduce every reta
 regimen fit, and MSM fit. This check also runs when the requested grid omits the fitted pair.
 A mismatch makes the operation unavailable.
 
-Its frame records `lower_bound`, `upper_bound`, `estimand`, `psi`, `fitted_lower_bound`,
-`fitted_upper_bound`, `fitted_psi`, `is_fitted_bound`, and `delta_from_fitted`.
-The two score-cell counts use only the recursion fits that contribute to that parameter. A level
-uses one fit. A contrast uses its two regimen fits. An MSM coefficient uses every regimen and
-horizon cell for its cause. `evaluated_score_cells` counts each row in each contributing node's
-reporting score mask. `truncated_score_cells` counts cells whose bounded cumulative product differs
-from its raw value. A cross-fitted result counts each stitched out-of-fold row once, not every
-fold-training use.
+Its frame carries one row per evaluated pair and reported parameter. The row records both
+endpoints, the parameter, the replayed `psi`, the fitted pair, `fitted_psi`, `is_fitted_bound`,
+`delta_from_fitted`, and two score-cell counts. Read the lower endpoint as `lower_bound` here,
+because the point-treatment frame above names the same endpoint `bound`.
+[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+column table and the two counting rules.
 
 The operation reports no standard error, interval, preferred bound, selected-bound correction, or
 pass threshold. It does not validate positivity or account for uncertainty from choosing a bound.
-It refuses results without the stored replay recipe and learners that cannot be cloned and
-replayed deterministically.
+It refuses `mechanism=True`, which is a point-treatment option. It also refuses a result without
+its stored replay recipe, and a learner it cannot replay.
+[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
+states the `random_state` rule each learner must satisfy.
 
 `estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
 `ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for

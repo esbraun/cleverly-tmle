@@ -61,9 +61,26 @@ must establish whether the tilted parameter is still the shift parameter.
 ### Replay-only unavailability
 
 The longitudinal truncation grid can be scientifically supported while one saved result cannot
-replay it. Replayability and its capability row expose static omission codes instead of requiring
-callers to parse exception prose. The fitted-bound equality check is different: it can only run
-when the curve is invoked.
+replay it. `result.replayability.unreconstructible` carries the codes below as data. The capability
+row states the same codes inside its prose `reason`, so read the attribute when you want them as
+data. `cleverly` exports no name for the code literals, so compare a code against the spelling in
+the table. The fitted-bound equality check is different: it can only run when the curve is invoked.
+
+Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter it
+exposes is an explicit integer. The check reads that learner, each nested learner, and each member
+of a Super Learner library. It reads the declared parameter and not the fitted behavior, so a
+declared `random_state=None` is refused even where the fit is deterministic.
+
+| the learner you pass | what replay does |
+| --- | --- |
+| `LinearRegression()` | accepts it, because the class declares no `random_state` |
+| `LogisticRegression(random_state=0)` | accepts it, because the declared state is an explicit integer |
+| `LogisticRegression()` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `LogisticRegression(random_state=rng)`, for a generator `rng` | refuses it as `longitudinal_replay_random_state_non_integer` |
+
+`tests/unit/test_longitudinal_truncation_refit.py` checks an unseeded learner, a non-integer state,
+an unseeded member of a nested Super Learner library, and a seeded stochastic learner that replays
+exactly.
 
 | omission code | replay boundary |
 | --- | --- |

@@ -192,11 +192,11 @@ previous reader had is not a citation; a page number is.
   (`LF_static`, `Param_TSM`, `Param_MSM`) confirms equality-density/static-intervention indexing
   but is not a longitudinal categorical oracle. The companion Poulos repository was inspected at
   [`0e8dc6e`](https://github.com/jvpoulos/multi-ltmle/tree/0e8dc6eca1012e5a3eab7aa80b772cf432b8f032).
-- RM4 source audit (2026-09-10): Schomaker et al. compare separate fixed-bound LTMLE analyses.
-  They do not define a post-fit shortcut that reuses earlier outcome predictions. The reviewed
-  sources support a descriptive grid that reuses raw mechanism predictions and reruns the full
-  recursion. They do not support a preferred bound, simultaneous curve inference, selected-bound
-  inference, or a data-adaptive longitudinal bound.
+- Longitudinal truncation audit (2026-09-10): Schomaker et al. compare separate fixed-bound LTMLE
+  analyses. They do not define a post-fit shortcut that reuses earlier outcome predictions. The
+  reviewed sources support a descriptive grid that reuses raw mechanism predictions and reruns the
+  full recursion. They do not support a preferred bound, simultaneous curve inference,
+  selected-bound inference, or a data-adaptive longitudinal bound.
 - MSM study audit (2026-08-26): the same pinned `tmle3` `Param_MSM` supplies the Gaussian
   identity-link point projection after its arm-indicator coefficients and joint influence curves
   are mapped to the declared basis. Its documented custom-weight path needs a classed function to

@@ -59,7 +59,7 @@ from cleverly import ModelSpec, RegimeContrast, Runtime, TMLEMethod
 
 sequential = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
         censoring_learner=LogisticRegression(max_iter=1000),
@@ -220,7 +220,7 @@ event_result = event_study.identify(
 ).estimate(
     method=TMLEMethod(
         models=ModelSpec(
-            outcome_learner=LogisticRegression(max_iter=1000),
+            outcome_learner=LogisticRegression(max_iter=1000, random_state=53),
             pseudo_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
         ),
@@ -262,7 +262,7 @@ them up, ask for the means.
 ```python
 event_method = TMLEMethod(
     models=ModelSpec(
-        outcome_learner=LogisticRegression(max_iter=1000),
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=53),
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
     ),

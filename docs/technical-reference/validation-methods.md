@@ -228,8 +228,8 @@ both limits. Point-treatment scalar treatment bounds instead mean `(b, 1 - b)`.
 For each longitudinal pair, the diagnostic keeps the realized data, resolved plans, folds,
 unbounded treatment and censoring predictions, weights, clusters, and estimand structure fixed. It
 recomputes each bounded cumulative mechanism prefix. It then reruns the complete backward TMLE
-recursion. Every bound-dependent outcome or pseudo-outcome regression and every targeting update
-is refitted. No earlier-node outcome fit or prediction is reused.
+recursion. It refits every bound-dependent outcome or pseudo-outcome regression and every targeting
+update. It reuses no earlier-node outcome fit or prediction.
 
 The diagnostic first replays the fitted pair. Every retained estimate, regimen fit, and MSM fit
 must match exactly. This preflight runs even when the requested grid omits the fitted pair. A
@@ -239,13 +239,37 @@ Each row is a descriptive ordinary LTMLE point estimate under one fixed bound. I
 cached-nuisance retarget and does not change the causal estimand. The curve reports no standard
 error, confidence interval, preferred bound, selected-bound correction, or pass threshold.
 
-The longitudinal frame records the evaluated pair, `estimand`, `psi`, the fitted pair and
-`fitted_psi`, `is_fitted_bound`, and `delta_from_fitted`. Its score-cell counts use only the fits
-that contribute to that parameter. A level uses one fit. A contrast uses its two regimen fits. An
-MSM coefficient uses every regimen and horizon cell for its cause. `evaluated_score_cells` counts
-each row in each contributing node's reporting score mask. `truncated_score_cells` counts cells
-whose bounded cumulative product differs from its raw value. Cross-fitting counts each stitched
-out-of-fold row once, not every fold-training use.
+The longitudinal frame carries one row per evaluated pair and reported parameter.
+
+| column | what it holds |
+| --- | --- |
+| `lower_bound`, `upper_bound` | the cumulative pair this row was evaluated at |
+| `estimand` | the reported parameter this row describes |
+| `psi` | the replayed point estimate under that pair |
+| `fitted_lower_bound`, `fitted_upper_bound` | the pair the fit itself used |
+| `fitted_psi` | the retained estimate under that fitted pair |
+| `is_fitted_bound` | whether this row's pair is the fitted pair |
+| `delta_from_fitted` | `psi` minus `fitted_psi` |
+| `evaluated_score_cells` | the mechanism cells the contributing fits consumed |
+| `truncated_score_cells` | how many of those cells the bound moved |
+
+The longitudinal frame names its lower endpoint `lower_bound`. The point-treatment frame above
+names the same endpoint `bound`. Read the endpoint under the name its own frame uses, because
+indexing a longitudinal frame at `bound` raises `KeyError`.
+
+Each count reads only the fits that contribute to that row's parameter.
+
+| the parameter | the fits it counts |
+| --- | --- |
+| a level | its own regimen fit |
+| a contrast | its two regimen fits |
+| an MSM coefficient | every regimen and horizon cell for its cause |
+
+`evaluated_score_cells` counts one cell per row each contributing node regression consumed.
+`truncated_score_cells` counts the cells among them whose bounded cumulative product differs from
+the raw product. A cross-fitted replay counts each fold's own mechanism slab, because each fold's
+recursion consumed that slab. A row that more than one fold consumed therefore counts once per
+fold.
 
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
@@ -275,10 +299,12 @@ and propensity stay cached. Longitudinal TMLE refits the complete recursion beca
 targeted prediction becomes the preceding regression's response. Their capability rows declare
 `refit` and ask for `include_refits=True`. The longitudinal row also requires explicit `bounds`.
 
-Longitudinal replay requires a stored recipe with deterministically cloneable outcome and
-pseudo-outcome learners. It stores no fitted outcome model. A legacy artifact without the recipe
-and an unsupported learner both make the diagnostic unavailable. Cross-fitted replay reads each
-complete fold-specific mechanism prediction slab, not stitched out-of-fold prefixes.
+Longitudinal replay needs a stored recipe, a cloneable outcome learner, and a cloneable
+pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay reads each
+complete fold-specific mechanism slab, not stitched out-of-fold prefixes.
+[Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
+`random_state` rule each learner must satisfy, and lists every omission code that makes the
+diagnostic unavailable.
 
 ### Nuisance model quality
 

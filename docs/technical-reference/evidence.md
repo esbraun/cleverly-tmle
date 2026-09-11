@@ -275,7 +275,8 @@ instrument. It checks exact fitted-bound replay, active-bound movement, complete
 recursion, full cross-fit slabs, parameter-specific counts, replay omissions, persistence,
 parallelism, dataframe backends, and combined-report gates. Separate active witnesses cover
 end-of-study, survival, competing-risk, and MSM results. The composition cases include dynamic
-categorical plans, weights, clusters, and a nested Super Learner random-state audit.
+categorical plans, weights, clusters, and an audit of the random state inside a nested Super
+Learner.
 
 Those tests do not establish interval coverage, a preferred bound, positivity clearance, or
 external implementation parity under active truncation. The registered rows above remain evidence

@@ -119,10 +119,9 @@ An item is complete only when all applicable conditions hold:
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. RM5, RM7, and RM8 hold the remaining remediation audits.
-Replicate-weight designs are the next source-audit
-item in the main grid. Implement them only after that audit supports the planned variance
-construction. Longitudinal sensitivity-bound estimation remains in
-[F16](#f16-longitudinal-sensitivity-bound-estimation).
+Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
+that audit supports the planned variance construction. Longitudinal sensitivity-bound estimation
+remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 ## Detailed implementation contracts
 

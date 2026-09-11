@@ -209,8 +209,10 @@ A longitudinal fit builds its truncation replay recipe before the first backward
 stores resolved plans, unfitted outcome and pseudo-outcome learner clones, and recursive solver
 settings. It stores no fitted outcome model. The fitted result supplies the realized folds,
 scaler, raw mechanism predictions, data, weights, clusters, and parameter structure. Replay
-availability requires cloneable learners and explicit integer random states for every stochastic
-learner, including nested library members.
+availability requires cloneable learners, and an explicit integer `random_state` wherever a learner
+or a nested library member declares that parameter.
+[Replay-only unavailability](technical-reference/scope-and-refusals.md#replay-only-unavailability)
+states that rule and lists every omission code.
 
 Every requested longitudinal grid starts with an exact fitted-bound replay. It compares all
 retained estimates, regimen fits, and MSM fits, even when the grid omits the fitted pair.

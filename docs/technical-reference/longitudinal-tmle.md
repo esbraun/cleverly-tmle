@@ -121,9 +121,12 @@ algorithm provenance and the boundary of that claim.
 
 This replay keeps the realized data, resolved plans, folds, weights, clusters, and parameter
 structure fixed. A cross-fitted replay uses each complete fold-specific mechanism slab. It does
-not substitute stitched out-of-fold prefixes. The result must retain a replay recipe with
-deterministically cloneable outcome and pseudo-outcome learners. A legacy artifact or an
-unsupported learner makes the operation unavailable.
+not substitute stitched out-of-fold prefixes. The result must retain a replay recipe, and that
+recipe's outcome and pseudo-outcome learners must be cloneable.
+[Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
+`random_state` rule each learner must satisfy, and lists every code that makes the operation
+unavailable. [Truncation stability](validation-methods.md#truncation-stability) holds the frame
+schema and the score-cell counting rules.
 
 Before evaluating the requested grid, replay at the fitted pair must reproduce every retained
 estimate, regimen fit, and MSM fit exactly. This preflight also runs when the grid omits that pair.
@@ -238,6 +241,7 @@ The refusals that are statements about the *question* rather than about coverage
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column |
 | a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node. A numeric node with coarse support is accepted, and warns that its values became unordered arms |
+| `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
 
