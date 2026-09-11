@@ -64,12 +64,12 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 import numpy as np
 from sklearn.base import clone
 
-from .._typing import CumulativeGBounds, FloatArray, Learner
+from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import CapabilityError, PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
@@ -97,6 +97,7 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
+from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
@@ -317,8 +318,77 @@ def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> No
         raise TypeError(f"{name}= is not supported by a longitudinal fit: {reason}")
 
 
+#: The one sentence a refused replay opens with.  It is a documented contract string --
+#: ``docs/technical-reference/scope-and-refusals.md`` quotes it -- so it is written once
+#: here and every refusal appends its stable codes to it.
+_REPLAY_REFUSAL = "longitudinal truncation replay is unavailable: "
+
+
+def _refuse_replay(*codes: str) -> NoReturn:
+    """Refuse a replay request, naming the stable omission codes that prevent it.
+
+    Parameters
+    ----------
+    *codes : str
+        Stable omission codes, in the order they are reported.
+
+    Raises
+    ------
+    CapabilityError
+        Always. The prefix is the contract string documented under *Scope and refusals*.
+    """
+    raise CapabilityError(_REPLAY_REFUSAL + ", ".join(codes))
+
+
+def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
+    """Copy resolved plans so the recipe owns read-only arms nobody else can write.
+
+    One implementation for the two moments a recipe takes ownership of its plans: when a
+    fit builds it, and when a pickle restores it.  Written twice, the stored recipe and the
+    fresh one differ in whether the arms a replay divides by can still be mutated in place.
+    """
+    retained: list[Plan] = []
+    for plan in plans:
+        values = np.array(plan.values, copy=True)
+        values.setflags(write=False)
+        retained.append(Plan(plan.regimen, values))
+    return tuple(retained)
+
+
+def _clipped_prefix(
+    unbounded: FloatArray, bounded: FloatArray, time: int, rows: BoolArray
+) -> BoolArray:
+    """Which of ``rows`` had node ``time``'s cumulative prefix replaced by a bound.
+
+    The one expression three diagnostics agree on: a cell is truncated when the bounded
+    cumulative probability differs from the raw product that produced it.  What differs
+    between the callers is *which* pair of ``(n, T)`` matrices they hand in.
+    :meth:`LongitudinalResult._max_truncated` and :meth:`LTMLE._warn_on_truncation` pass the
+    stitched pair the fit retained, which is the mechanism the fit estimated.
+    :func:`_score_cell_truncation_counts` passes one outer fold's slab, which is what that
+    fold's recursion consumed.  Neither is derivable from the other on a cross-fitted fit.
+
+    Parameters
+    ----------
+    unbounded : FloatArray
+        ``(n, T)`` raw cumulative probabilities, before ``g_bounds``.
+    bounded : FloatArray
+        ``(n, T)`` cumulative probabilities after ``g_bounds``.
+    time : int
+        One-based node index.
+    rows : BoolArray
+        The rows to report on.
+
+    Returns
+    -------
+    BoolArray
+        One flag per selected row, true where the bound replaced the raw prefix.
+    """
+    return np.asarray(unbounded[:, time - 1][rows] != bounded[:, time - 1][rows])
+
+
 @dataclass(frozen=True)
-class _LongitudinalReplayRecipe:
+class _LongitudinalReplayRecipe(_DefaultingUnpickle):
     """Unfitted state required to repeat the bound-dependent recursion."""
 
     plans: tuple[Plan, ...]
@@ -327,22 +397,19 @@ class _LongitudinalReplayRecipe:
     alpha: float
     max_iter: int
     tol: float
-    random_state: int | None
     n_jobs: int
     omissions: tuple[str, ...] = ()
 
-    def __setstate__(self, state: Mapping[str, Any]) -> None:
-        """Restore persisted plan matrices with the same read-only ownership boundary."""
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a persisted recipe, then retake ownership of its plan matrices.
 
-        for name, value in state.items():
-            if name == "plans":
-                restored = []
-                for plan in value:
-                    values = np.array(plan.values, copy=True)
-                    values.setflags(write=False)
-                    restored.append(Plan(plan.regimen, values))
-                value = tuple(restored)
-            object.__setattr__(self, name, value)
+        Parameters
+        ----------
+        state : dict of str to Any
+            The instance dictionary the pickle carries.
+        """
+        super().__setstate__(state)
+        object.__setattr__(self, "plans", _frozen_plans(self.plans))
 
 
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
@@ -394,16 +461,15 @@ def _replay_recipe(
     alpha: float,
     max_iter: int,
     tol: float,
-    random_state: Any,
     n_jobs: int,
 ) -> _LongitudinalReplayRecipe:
-    """Freeze resolved plans and clone the unfitted recursive learner specifications."""
+    """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
-    retained: list[Plan] = []
-    for plan in plans:
-        values = np.array(plan.values, copy=True)
-        values.setflags(write=False)
-        retained.append(Plan(plan.regimen, values))
+    No ``random_state``: the recursion takes none.  What makes a replay deterministic is
+    the cloned learner templates, which :func:`_replay_random_state_omissions` audits, and
+    the fit's own seed is already recorded on
+    :attr:`LongitudinalConfig.random_state` for the reader who wants it.
+    """
 
     learners: list[Learner | None] = []
     omissions: list[str] = []
@@ -417,13 +483,12 @@ def _replay_recipe(
         _replay_random_state_omissions([item for item in learners if item is not None])
     )
     return _LongitudinalReplayRecipe(
-        plans=tuple(retained),
+        plans=_frozen_plans(plans),
         outcome_learner=learners[0],
         pseudo_learner=learners[1],
         alpha=alpha,
         max_iter=max_iter,
         tol=tol,
-        random_state=(int(random_state) if isinstance(random_state, np.integer) else random_state),
         n_jobs=n_jobs,
         omissions=tuple(dict.fromkeys(omissions)),
     )
@@ -1251,13 +1316,283 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
-        """Largest on-score truncation share and its earliest node."""
+        """Largest on-score truncation share and its earliest node.
+
+        Of the *stitched* mechanism the fit retained, which is the mechanism it estimated.
+        A cross-fitted fit consumed one slab per outer fold instead, and
+        :func:`_score_cell_truncation_counts` is the count over those.
+        """
         shares = []
         for step in fit.steps:
-            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-            shares.append((float(np.mean(raw != bounded)) if raw.size else 0.0, step.time))
+            clipped = _clipped_prefix(
+                fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
+            )
+            shares.append((float(np.mean(clipped)) if clipped.size else 0.0, step.time))
         return max(shares, key=lambda item: (item[0], -item[1]))
+
+
+def _run_recursion(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    mechanism: Mechanism,
+    *,
+    msm: RegimenMSM | None,
+    horizons: Sequence[int],
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    n_jobs: int,
+) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
+    """Run the backward recursion over every reported cell, and file the fits by key.
+
+    The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share.  The statistically
+    dangerous arithmetic was never duplicated -- both paths call the same
+    :func:`~cleverly.longitudinal.sequential.fit_regimen` and
+    :func:`~cleverly.longitudinal.msm.fit_regimens_msm` -- but the *driver* was: the same
+    nine solver settings and the same plan, cause and horizon ordering, written twice.
+    Those functions default every solver argument, so a tenth setting threaded through the
+    fit alone would raise nothing and replay a different estimator.  Reaching them through
+    one signature is what makes that a ``TypeError`` instead.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        Validated time-ordered study data.
+    plans : sequence of Plan
+        Resolved regimens, each with the arms it assigned this sample.
+    mechanism : Mechanism
+        The fitted treatment and observation mechanisms.
+    msm : RegimenMSM or None
+        The *evaluated* working model, or ``None`` for a mean per regimen.
+    horizons : sequence of int
+        The nodes a parameter is reported at.
+    outcome_learner : object
+        Learner for the regression at the reported horizon.
+    pseudo_learner : object
+        Learner for the intermediate pseudo-outcome regressions.
+    folds : Folds
+        Realized outer-fold assignment.
+    scaler : OutcomeScaler
+        Transformation between observed and targeting scales.
+    g_bounds : tuple of float
+        Truncation applied to each cumulative mechanism probability.
+    alpha : float
+        Probability shrink applied before the logit.
+    max_iter : int
+        Maximum targeting iterations per node.
+    tol : float
+        Targeting tolerance per node.
+    n_jobs : int
+        Worker count for the parallel fan-out.
+
+    Returns
+    -------
+    tuple
+        The fits keyed by :func:`_fit_key`, and the projection fits, empty without a
+        working model.
+    """
+    recursion = {
+        "outcome_learner": outcome_learner,
+        "pseudo_learner": pseudo_learner,
+        "folds": folds,
+        "scaler": scaler,
+        "g_bounds": g_bounds,
+        "alpha": alpha,
+        "max_iter": max_iter,
+        "tol": tol,
+        "n_jobs": n_jobs,
+    }
+    # ``None`` on a single-event or end-of-study fit, so the comprehension below is one
+    # loop deeper for every fit and a second code path for none.
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    if msm is None:
+        return {
+            _fit_key(plan.label, cause, horizon, data.is_survival): fit_regimen(
+                data, plan, mechanism, horizon=horizon, cause=cause, **recursion
+            )
+            # Regimen-outer, then cause, then horizon, so the report reads down one curve
+            # at a time rather than across the regimens at each time.
+            for plan in plans
+            for cause in causes
+            for horizon in horizons
+        }, ()
+    # The per-cell fits come back so that ``diagnostics()`` can report the leverage and
+    # risk sets, which are questions about a regimen and are the same questions whether or
+    # not a working model summarises it.
+    msm_fits = tuple(
+        fit_regimens_msm(data, plans, mechanism, msm, cause=cause, **recursion) for cause in causes
+    )
+    return {
+        _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.is_survival): fit
+        for msm_fit in msm_fits
+        for fit in msm_fit.fits
+    }, msm_fits
+
+
+@dataclass(frozen=True)
+class _Reported:
+    """What one recursion reports: the names, their index, and the fits behind each.
+
+    ``contributors`` is the reason this is an object rather than a pair.  The fits behind a
+    reported name are known *where the name is composed* and nowhere else: a level is one
+    fit, a contrast is its two, and a working model's coefficient is every cell of its
+    cause.  Recovering that association afterwards means matching a composed name against
+    a second composition of the same vocabulary, which is the parsing this module refuses
+    -- and which fails for every estimand at once the day the emitter gains an alias.
+
+    Parameters
+    ----------
+    estimates : dict of str to ParameterEstimate
+        Estimates keyed by the reported name, in report order.
+    index : dict or None
+        ``name -> (regimen, cause, horizon)``, ``None`` on a working-model fit whose
+        parameters are indexed by term.
+    contributors : dict of str to tuple of RegimenFit
+        The fits that produced each reported name.
+    """
+
+    estimates: dict[str, ParameterEstimate]
+    index: dict[str, tuple[str, str | None, int]] | None
+    contributors: dict[str, tuple[RegimenFit, ...]]
+
+
+def _estimates(
+    data: LongitudinalData,
+    fits: Mapping[str, RegimenFit],
+    scaler: OutcomeScaler,
+    reference: RegimenSpec,
+    *,
+    alpha_sig: float,
+) -> _Reported:
+    """Compose every reported name, its estimate, its index and its fits, in one pass.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        Validated time-ordered study data.
+    fits : mapping of str to RegimenFit
+        The fits this recursion produced, keyed by :func:`_fit_key`.
+    scaler : OutcomeScaler
+        Transformation between observed and targeting scales.
+    reference : RegimenSpec
+        The regimen every contrast is taken against.
+    alpha_sig : float
+        Significance level of the reported intervals.
+
+    Returns
+    -------
+    object
+        The estimates, the parameter index, and the fits behind each name.
+    """
+    survival = data.is_survival
+    # ``ey_regimen`` is a mean of the outcome, ``risk_regimen`` a probability of an
+    # event by a horizon, and ``cif_regimen`` the probability of leaving through one
+    # particular cause by then.  E[Y_k] *is* the second, and with a single cause the
+    # second *is* the third -- so one name would not be wrong anywhere.  But the three
+    # come from different derivations, and a saved frame or a coverage study's truth
+    # dict keyed by name is where that would stop being a distinction without a
+    # difference.
+    head = _level_head(survival=survival, competing=data.is_competing, complement=False)
+    estimates: dict[str, ParameterEstimate] = {}
+    # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
+    # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
+    # inside one pair of brackets, recovering either by splitting the string would be
+    # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
+    index: dict[str, tuple[str, str | None, int]] = {}
+    contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    for fit in fits.values():
+        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, survival))
+        index[name] = (fit.regimen.label, fit.cause, fit.horizon)
+        contributors[name] = (fit,)
+        estimates[name] = make_estimate(
+            name,
+            scaler.unscale_level(fit.psi_scaled),
+            scaler.unscale_influence(fit.influence_curve_scaled),
+            n=data.n,
+            cluster=data.cluster,
+            scale="level",
+            alpha=alpha_sig,
+        )
+    for fit in fits.values():
+        if fit.regimen.label == reference.label:
+            continue
+        # The contrast is between the same two regimens at the same cause *and* the
+        # same horizon; a difference of incidences across either is not a treatment
+        # effect, and with two indexes there are now two ways to pair the wrong ones.
+        base = fits[_fit_key(reference.label, fit.cause, fit.horizon, survival)]
+        contrast = f"{fit.regimen.label} vs {reference.label}"
+        name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, survival))
+        index[name] = (contrast, fit.cause, fit.horizon)
+        contributors[name] = (fit, base)
+        estimates[name] = make_estimate(
+            name,
+            scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
+            scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
+            n=data.n,
+            cluster=data.cluster,
+            scale="difference",
+            alpha=alpha_sig,
+        )
+    return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _msm_estimates(
+    data: LongitudinalData, msm_fits: Sequence[MSMRegimenFit], *, alpha_sig: float
+) -> _Reported:
+    """One estimate per working-model term per cause, and no contrasts.
+
+    **Not** unscaled.  ``beta`` and its curve come off the projection already on the
+    outcome's own scale, because a coefficient vector has no single
+    :class:`~cleverly.inference.Scale` to map back with -- the reason
+    :meth:`cleverly.targets.TargetContext.finish_unscaled` exists at one time point.
+    Putting them through :meth:`OutcomeScaler.unscale_level` here would apply the map
+    twice, and on a binary outcome, where the scaler is the identity, would look
+    perfectly fine while doing it.
+
+    No contrasts: a working model reports coefficients, and a difference of two of
+    them is ``result.contrast()`` rather than a row nobody asked for.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        Validated time-ordered study data.
+    msm_fits : sequence of MSMRegimenFit
+        One projection per cause, in the order the causes are reported.
+    alpha_sig : float
+        Significance level of the reported intervals.
+
+    Returns
+    -------
+    object
+        The coefficient estimates and the cells behind each, with no parameter index: a
+        coefficient is indexed by term rather than by regimen, cause and horizon.
+    """
+    estimates: dict[str, ParameterEstimate] = {}
+    contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    for msm_fit in msm_fits:
+        for column, term in enumerate(msm_fit.model.terms):
+            # Composed forward, as every other name here is: a term may contain a
+            # bracket, and a cause may contain the separator.
+            inside = term if msm_fit.cause is None else f"{term}{CAUSE_INFIX}{msm_fit.cause}"
+            name = f"msm_regimen[{inside}]"
+            # Every cell of this cause, because the projection is pooled across them: no
+            # coefficient is a statement about one regimen or one horizon alone.
+            contributors[name] = tuple(msm_fit.fits)
+            estimates[name] = make_estimate(
+                name,
+                float(msm_fit.beta[column]),
+                msm_fit.influence_curves[:, column],
+                n=data.n,
+                cluster=data.cluster,
+                scale="level",
+                alpha=alpha_sig,
+            )
+    return _Reported(estimates=estimates, index=None, contributors=contributors)
 
 
 class LTMLE:
@@ -1550,7 +1885,6 @@ class LTMLE:
             alpha=self.alpha,
             max_iter=self.max_iter,
             tol=self.tol,
-            random_state=self.random_state,
             n_jobs=self.n_jobs,
         )
 
@@ -1575,49 +1909,28 @@ class LTMLE:
         )
 
         horizons = self._horizons(prepared)
-        # ``None`` on a single-event or end-of-study fit, so the comprehension below is
-        # one loop deeper for every fit and a second code path for none.
-        causes: tuple[str | None, ...] = prepared.cause_labels or (None,)
-        recursion = {
-            "outcome_learner": outcome_learner,
-            "pseudo_learner": pseudo_learner,
-            "folds": folds,
-            "scaler": scaler,
-            "g_bounds": bounds,
-            "alpha": self.alpha,
-            "max_iter": self.max_iter,
-            "tol": self.tol,
-            "n_jobs": self.n_jobs,
-        }
-        model: RegimenMSM | None = None
-        msm_fits: tuple[MSMRegimenFit, ...] = ()
-        if self.msm is None:
-            fits = {
-                _fit_key(plan.label, cause, horizon, prepared.is_survival): fit_regimen(
-                    prepared, plan, mechanism, horizon=horizon, cause=cause, **recursion
-                )
-                # Regimen-outer, then cause, then horizon, so the report reads down one
-                # curve at a time rather than across the regimens at each time.
-                for plan in plans
-                for cause in causes
-                for horizon in horizons
-            }
-        else:
-            # One projection per cause -- a cause is a different estimand, not a further
-            # column of the design -- over a grid whose cells cross the regimens with the
-            # horizons.  The per-cell fits come back so that ``diagnostics()`` can report
-            # the leverage and risk sets, which are questions about a regimen and are the
-            # same questions whether or not a working model summarises it.
-            model = evaluate_regimen_msm(self.msm, prepared, plans, horizons)
-            msm_fits = tuple(
-                fit_regimens_msm(prepared, plans, mechanism, model, cause=cause, **recursion)
-                for cause in causes
-            )
-            fits = {
-                _fit_key(fit.regimen.label, fit.cause, fit.horizon, prepared.is_survival): fit
-                for msm_fit in msm_fits
-                for fit in msm_fit.fits
-            }
+        # One projection per cause -- a cause is a different estimand, not a further column
+        # of the design -- over a grid whose cells cross the regimens with the horizons.
+        # Evaluated here because the design is a closure and the driver below takes arrays.
+        model = (
+            None if self.msm is None else evaluate_regimen_msm(self.msm, prepared, plans, horizons)
+        )
+        fits, msm_fits = _run_recursion(
+            prepared,
+            plans,
+            mechanism,
+            msm=model,
+            horizons=horizons,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            scaler=scaler,
+            g_bounds=bounds,
+            alpha=self.alpha,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            n_jobs=self.n_jobs,
+        )
 
         self._warn_on_truncation(fits)
 
@@ -1654,10 +1967,12 @@ class LTMLE:
             ),
         )
         with phase("influence_curve"):
-            if model is None:
-                estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
-            else:
-                estimates, parameter_index = self._msm_estimates(prepared, msm_fits), None
+            reported = (
+                _estimates(prepared, fits, scaler, reference, alpha_sig=self.alpha_sig)
+                if model is None
+                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig)
+            )
+        estimates = reported.estimates
         with phase("inference"):
             bands = self._bands(estimates, prepared)
         return LongitudinalResult(
@@ -1670,7 +1985,7 @@ class LTMLE:
             folds=folds,
             provenance=self._provenance(prepared, folds),
             simultaneous=bands,
-            parameter_index=parameter_index,
+            parameter_index=reported.index,
             msm=model,
             msm_fits=msm_fits,
             replay_recipe=replay_recipe,
@@ -1768,15 +2083,21 @@ class LTMLE:
 
     @staticmethod
     def _warn_on_truncation(fits: Mapping[str, RegimenFit]) -> None:
-        """Warn once with every regimen/node whose scored rows are materially clipped."""
+        """Warn once with every regimen/node whose scored rows are materially clipped.
+
+        Of the stitched mechanism, for the reason :meth:`LongitudinalResult._max_truncated`
+        gives: this says how much of the mechanism the fit estimated the bounds moved.
+        """
         found: dict[tuple[str, int], tuple[float, bool]] = {}
         for fit in fits.values():
             for step in fit.steps:
-                raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
                 bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-                if not raw.size:
+                clipped = _clipped_prefix(
+                    fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
+                )
+                if not clipped.size:
                     continue
-                share = float(np.mean(raw != bounded))
+                share = float(np.mean(clipped))
                 constant = bool(share == 1.0 and np.unique(bounded).size == 1)
                 key = (fit.regimen.label, step.time)
                 previous = found.get(key, (0.0, False))
@@ -1914,182 +2235,97 @@ class LTMLE:
             random_state=self.random_state,
         )
 
-    def _estimates(
-        self,
-        data: LongitudinalData,
-        fits: Mapping[str, RegimenFit],
-        scaler: OutcomeScaler,
-        reference: RegimenSpec,
-    ) -> tuple[dict[str, ParameterEstimate], dict[str, tuple[str, str | None, int]]]:
-        survival = data.is_survival
-        # ``ey_regimen`` is a mean of the outcome, ``risk_regimen`` a probability of an
-        # event by a horizon, and ``cif_regimen`` the probability of leaving through one
-        # particular cause by then.  E[Y_k] *is* the second, and with a single cause the
-        # second *is* the third -- so one name would not be wrong anywhere.  But the three
-        # come from different derivations, and a saved frame or a coverage study's truth
-        # dict keyed by name is where that would stop being a distinction without a
-        # difference.
-        head = _level_head(survival=survival, competing=data.is_competing, complement=False)
-        estimates: dict[str, ParameterEstimate] = {}
-        # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
-        # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
-        # inside one pair of brackets, recovering either by splitting the string would be
-        # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
-        index: dict[str, tuple[str, str | None, int]] = {}
-        for fit in fits.values():
-            name = parameter_name(
-                head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, survival)
-            )
-            index[name] = (fit.regimen.label, fit.cause, fit.horizon)
-            estimates[name] = make_estimate(
-                name,
-                scaler.unscale_level(fit.psi_scaled),
-                scaler.unscale_influence(fit.influence_curve_scaled),
-                n=data.n,
-                cluster=data.cluster,
-                scale="level",
-                alpha=self.alpha_sig,
-            )
-        for fit in fits.values():
-            if fit.regimen.label == reference.label:
-                continue
-            # The contrast is between the same two regimens at the same cause *and* the
-            # same horizon; a difference of incidences across either is not a treatment
-            # effect, and with two indexes there are now two ways to pair the wrong ones.
-            base = fits[_fit_key(reference.label, fit.cause, fit.horizon, survival)]
-            contrast = f"{fit.regimen.label} vs {reference.label}"
-            name = parameter_name(
-                CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, survival)
-            )
-            index[name] = (contrast, fit.cause, fit.horizon)
-            estimates[name] = make_estimate(
-                name,
-                scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
-                scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
-                n=data.n,
-                cluster=data.cluster,
-                scale="difference",
-                alpha=self.alpha_sig,
-            )
-        return estimates, index
 
-    def _msm_estimates(
-        self, data: LongitudinalData, msm_fits: Sequence[MSMRegimenFit]
-    ) -> dict[str, ParameterEstimate]:
-        """One estimate per working-model term per cause, and no contrasts.
+@dataclass(frozen=True)
+class _BoundReplay:
+    """One bound's complete replay of the bound-dependent recursion.
 
-        **Not** unscaled.  ``beta`` and its curve come off the projection already on the
-        outcome's own scale, because a coefficient vector has no single
-        :class:`~cleverly.inference.Scale` to map back with -- the reason
-        :meth:`cleverly.targets.TargetContext.finish_unscaled` exists at one time point.
-        Putting them through :meth:`OutcomeScaler.unscale_level` here would apply the map
-        twice, and on a binary outcome, where the scaler is the identity, would look
-        perfectly fine while doing it.
+    Parameters
+    ----------
+    estimates : dict of str to ParameterEstimate
+        The replayed estimates, in the fit's own report order.
+    fits : dict of str to RegimenFit
+        The replayed fits, keyed by :func:`_fit_key`.
+    msm_fits : tuple of MSMRegimenFit
+        The replayed projections, empty without a working model.
+    contributors : dict of str to tuple of RegimenFit
+        The replayed fits behind each reported name, composed where the name was.
+    """
 
-        No contrasts: a working model reports coefficients, and a difference of two of
-        them is ``result.contrast()`` rather than a row nobody asked for.
-        """
-        estimates: dict[str, ParameterEstimate] = {}
-        for msm_fit in msm_fits:
-            for column, term in enumerate(msm_fit.model.terms):
-                # Composed forward, as every other name here is: a term may contain a
-                # bracket, and a cause may contain the separator.
-                inside = term if msm_fit.cause is None else f"{term}{CAUSE_INFIX}{msm_fit.cause}"
-                name = f"msm_regimen[{inside}]"
-                estimates[name] = make_estimate(
-                    name,
-                    float(msm_fit.beta[column]),
-                    msm_fit.influence_curves[:, column],
-                    n=data.n,
-                    cluster=data.cluster,
-                    scale="level",
-                    alpha=self.alpha_sig,
-                )
-        return estimates
+    estimates: dict[str, ParameterEstimate]
+    fits: dict[str, RegimenFit]
+    msm_fits: tuple[MSMRegimenFit, ...]
+    contributors: dict[str, tuple[RegimenFit, ...]]
 
 
 def _refit_bound(
     result: LongitudinalResult,
     recipe: _LongitudinalReplayRecipe,
     bounds: tuple[float, float],
-) -> tuple[dict[str, ParameterEstimate], dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
-    """Repeat every bound-dependent regression and targeting update."""
+) -> _BoundReplay:
+    """Repeat every bound-dependent regression and targeting update.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        The fit being replayed. Its mechanism, folds, prepared data and scaler are reused.
+    recipe : object
+        The unfitted templates and resolved plans the fit retained.
+    bounds : tuple of float
+        The cumulative bound pair this replay runs under.
+
+    Returns
+    -------
+    object
+        The replayed estimates in the fit's own report order, the per-cell fits, the
+        projection fits, and the fits behind each reported name.
+
+    Raises
+    ------
+    CapabilityError
+        When the retained learner templates could not be cloned.
+    RuntimeError
+        When the replay did not report a parameter the fit reports.
+    """
 
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
-        raise CapabilityError(
-            "longitudinal truncation replay is unavailable: "
-            f"{LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE}"
-        )
-    recursion = {
-        "outcome_learner": clone(recipe.outcome_learner),
-        "pseudo_learner": clone(recipe.pseudo_learner),
-        "folds": result.folds,
-        "scaler": result.scaler,
-        "g_bounds": bounds,
-        "alpha": recipe.alpha,
-        "max_iter": recipe.max_iter,
-        "tol": recipe.tol,
-        "n_jobs": recipe.n_jobs,
-    }
-    causes: tuple[str | None, ...] = result.config.causes or (None,)
-    engine = LTMLE(
-        tuple(plan.regimen for plan in recipe.plans),
-        reference=result.config.reference,
-        horizons=result.config.horizons if result.data.is_survival else None,
-        n_folds=result.config.n_folds,
+        _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
+    fits, msm_fits = _run_recursion(
+        result.data,
+        recipe.plans,
+        result.mechanism,
+        msm=result.msm,
+        horizons=result.config.horizons,
+        outcome_learner=clone(recipe.outcome_learner),
+        pseudo_learner=clone(recipe.pseudo_learner),
+        folds=result.folds,
+        scaler=result.scaler,
         g_bounds=bounds,
-        q_bounds=result.config.q_bounds,
         alpha=recipe.alpha,
-        alpha_sig=result.config.alpha_sig,
-        simultaneous=False,
         max_iter=recipe.max_iter,
         tol=recipe.tol,
-        random_state=recipe.random_state,
         n_jobs=recipe.n_jobs,
     )
     if result.msm is None:
-        msm_fits: tuple[MSMRegimenFit, ...] = ()
-        fits = {
-            _fit_key(plan.label, cause, horizon, result.data.is_survival): fit_regimen(
-                result.data,
-                plan,
-                result.mechanism,
-                horizon=horizon,
-                cause=cause,
-                **recursion,
-            )
-            for plan in recipe.plans
-            for cause in causes
-            for horizon in result.config.horizons
-        }
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
         )
-        estimates, _ = engine._estimates(result.data, fits, result.scaler, reference)
-    else:
-        msm_fits = tuple(
-            fit_regimens_msm(
-                result.data,
-                recipe.plans,
-                result.mechanism,
-                result.msm,
-                cause=cause,
-                **recursion,
-            )
-            for cause in causes
+        reported = _estimates(
+            result.data, fits, result.scaler, reference, alpha_sig=result.config.alpha_sig
         )
-        fits = {
-            _fit_key(fit.regimen.label, fit.cause, fit.horizon, result.data.is_survival): fit
-            for msm_fit in msm_fits
-            for fit in msm_fit.fits
-        }
-        estimates = engine._msm_estimates(result.data, msm_fits)
-    missing = [name for name in result.estimates if name not in estimates]
+    else:
+        reported = _msm_estimates(result.data, msm_fits, alpha_sig=result.config.alpha_sig)
+    missing = [name for name in result.estimates if name not in reported.estimates]
     if missing:
         raise RuntimeError(
             f"longitudinal replay at bounds {bounds} omitted reported parameters {missing}"
         )
-    return {name: estimates[name] for name in result.estimates}, fits, msm_fits
+    return _BoundReplay(
+        estimates={name: reported.estimates[name] for name in result.estimates},
+        fits=fits,
+        msm_fits=msm_fits,
+        contributors={name: reported.contributors[name] for name in result.estimates},
+    )
 
 
 def _exact_replay_equal(left: Any, right: Any) -> bool:
@@ -2120,71 +2356,116 @@ def _exact_replay_equal(left: Any, right: Any) -> bool:
         return left is right
 
 
-def _fitted_replay_matches(
-    result: LongitudinalResult,
-    estimates: Mapping[str, ParameterEstimate],
-    fits: Mapping[str, RegimenFit],
-    msm_fits: Sequence[MSMRegimenFit],
-) -> bool:
-    """Whether replay reproduced every retained bound-dependent fitted artifact."""
+def _fitted_replay_matches(result: LongitudinalResult, replay: _BoundReplay) -> bool:
+    """Whether replay reproduced every retained bound-dependent fitted artifact.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        The fit being replayed.
+    replay : object
+        The replay run at the fit's own bounds.
+
+    Returns
+    -------
+    bool
+        Whether the estimates, the per-cell fits and the projections all match exactly.
+    """
 
     return (
-        _exact_replay_equal(result.estimates, estimates)
-        and _exact_replay_equal(result.fits, fits)
-        and _exact_replay_equal(result.msm_fits, tuple(msm_fits))
+        _exact_replay_equal(result.estimates, replay.estimates)
+        and _exact_replay_equal(result.fits, replay.fits)
+        and _exact_replay_equal(result.msm_fits, replay.msm_fits)
     )
 
 
-def _score_cell_truncation_counts(fits: Sequence[RegimenFit]) -> tuple[int, int]:
-    """Count bounded cumulative probabilities on the rows each node scores."""
+def _consumed_prefixes(
+    data: LongitudinalData,
+    mechanism: Mechanism,
+    plans: Sequence[Plan],
+    folds: Folds,
+    bounds: tuple[float, float],
+) -> dict[str, tuple[tuple[FloatArray, FloatArray], ...]]:
+    """Per regimen, the cumulative prefixes each outer fold's recursion actually read.
+
+    The recursion does **not** read the prefixes a cross-fitted fit retains.  Fold ``k``
+    calls :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded`
+    with ``fold=k`` and runs a complete backward pass on that slab, so a fit at ``K`` folds
+    consumed ``K`` mechanisms and the stitched out-of-fold pair on
+    :attr:`~cleverly.longitudinal.sequential.RegimenFit.cumulative` is none of them.  This
+    rebuilds exactly the arrays the pass read, from the same method at the same bounds.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data the fit ran on.
+    mechanism : Mechanism
+        The fitted mechanism, whose fold slabs the recursion read.
+    plans : sequence of Plan
+        The resolved regimens the replay ran.
+    folds : Folds
+        The realized outer-fold assignment.
+    bounds : tuple of float
+        The cumulative bound pair this replay ran under.
+
+    Returns
+    -------
+    dict
+        Regimen label to one ``(unbounded, bounded)`` pair per consumed slab: a single pair
+        without cross-fitting, and one per outer fold with it.
+    """
+    consumed: dict[str, tuple[tuple[FloatArray, FloatArray], ...]] = {}
+    for plan in plans:
+        consumed[plan.label] = (
+            (mechanism.cumulative_with_unbounded(data, plan, bounds),)
+            if folds.is_single
+            else tuple(
+                mechanism.cumulative_with_unbounded(data, plan, bounds, fold=fold)
+                for fold in range(folds.n_folds)
+            )
+        )
+    return consumed
+
+
+def _score_cell_truncation_counts(
+    fits: Sequence[RegimenFit],
+    consumed: Mapping[str, tuple[tuple[FloatArray, FloatArray], ...]],
+) -> tuple[int, int]:
+    """Count the truncated mechanism cells the reported recursion consumed.
+
+    A *cell* is one ``(slab, node, row)`` cumulative probability the backward pass read.
+    The accounting, which is published beside the movement of the estimate, is this.  At
+    one fold there is one slab, and a node's cells are its ``trained_on`` rows: the rows
+    whose clever covariate is nonzero, and so the rows that node's score is summed over.
+    At ``K`` folds each fold runs its own complete pass on its own slab, and every one of
+    that node's ``trained_on`` rows enters a score in that pass: a training row through the
+    fluctuation that fold solves over ``fitted_on``, and a held-out row through the
+    stitched score the report is built from.  So the denominator is ``K`` times the
+    single-fold one, and the numerator counts the truncations in the ``K`` mechanisms the
+    recursion divided by rather than in the one mechanism it never read.
+
+    Parameters
+    ----------
+    fits : sequence of RegimenFit
+        The fits behind one reported name.
+    consumed : mapping
+        Regimen label to the consumed prefix pairs, from :func:`_consumed_prefixes`.
+
+    Returns
+    -------
+    tuple of int
+        The truncated and the evaluated cell counts.
+    """
 
     truncated = 0
     evaluated = 0
     for fit in fits:
-        for step in fit.steps:
-            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-            truncated += int(np.count_nonzero(raw != bounded))
-            evaluated += int(raw.size)
+        for unbounded, bounded in consumed[fit.regimen.label]:
+            for step in fit.steps:
+                clipped = _clipped_prefix(unbounded, bounded, step.time, step.trained_on)
+                truncated += int(np.count_nonzero(clipped))
+                evaluated += int(clipped.size)
     return truncated, evaluated
-
-
-def _estimate_fit_contributors(
-    result: LongitudinalResult,
-    name: str,
-    fits: Mapping[str, RegimenFit],
-) -> tuple[RegimenFit, ...]:
-    """Return the replay fits that feed one emitted alias, without parsing that alias."""
-
-    if result.msm is not None:
-        for cause in result.config.causes or (None,):
-            for term in result.msm.terms:
-                inside = term if cause is None else f"{term}{CAUSE_INFIX}{cause}"
-                if name == f"msm_regimen[{inside}]":
-                    return tuple(fit for fit in fits.values() if fit.cause == cause)
-        raise RuntimeError(f"cannot associate longitudinal MSM estimate {name!r} with its fits")
-
-    head = _level_head(
-        survival=result.data.is_survival,
-        competing=result.data.is_competing,
-        complement=False,
-    )
-    reference = result.config.reference
-    for fit in fits.values():
-        index = _index(fit.regimen.label, fit.cause, fit.horizon, result.data.is_survival)
-        if name == parameter_name(head, arm=index):
-            return (fit,)
-        if fit.regimen.label != reference:
-            contrast = _index(
-                f"{fit.regimen.label} vs {reference}",
-                fit.cause,
-                fit.horizon,
-                result.data.is_survival,
-            )
-            if name == parameter_name(CONTRAST_HEAD, arm=contrast):
-                base = fits[_fit_key(reference, fit.cause, fit.horizon, result.data.is_survival)]
-                return (fit, base)
-    raise RuntimeError(f"cannot associate longitudinal estimate {name!r} with its fits")
 
 
 def longitudinal_truncation_curve(
@@ -2193,44 +2474,85 @@ def longitudinal_truncation_curve(
     *,
     estimands: Sequence[str] | None = None,
 ) -> Any:
-    """Refit the complete longitudinal recursion at explicit cumulative bounds."""
+    """Refit the complete longitudinal recursion at explicit cumulative bounds.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        The fit to replay.
+    bounds : sequence
+        The cumulative bound grid. A scalar ``b`` means ``(b, 1)``, and a pair is kept
+        exactly. Repeated entries are replayed once and reported once.
+    estimands : sequence of str or None
+        Reported estimands to include. All of them are the default.
+
+    Returns
+    -------
+    dataframe
+        One row per distinct bound pair per requested estimand.
+
+    Raises
+    ------
+    CapabilityError
+        When the grid is empty, when it names an estimand this fit does not report, or when
+        the stored artifacts cannot replay the recursion.
+    """
 
     recipe = getattr(result, "replay_recipe", None)
     if recipe is None:
-        raise CapabilityError(
-            f"longitudinal truncation replay is unavailable: {LONGITUDINAL_REPLAY_RECIPE_MISSING}"
-        )
+        _refuse_replay(LONGITUDINAL_REPLAY_RECIPE_MISSING)
     if recipe.omissions:
-        raise CapabilityError(
-            "longitudinal truncation replay is unavailable: " + ", ".join(recipe.omissions)
-        )
-    grid = tuple(resolve_cumulative_g_bounds(bound) for bound in bounds)
+        _refuse_replay(*recipe.omissions)
+    # Resolved first and deduplicated after, so that ``0.2`` and ``(0.2, 1.0)`` are the one
+    # bound pair they denote rather than two replays of it.  A replay is a complete backward
+    # recursion per regimen, cause and horizon, so a duplicate entry is minutes of work for
+    # a row the frame already carries.
+    grid = tuple(dict.fromkeys(resolve_cumulative_g_bounds(bound) for bound in bounds))
     if not grid:
-        raise ValueError("longitudinal truncation bounds are empty")
-    reported = select_estimates(result.estimates, estimands)
+        # A caller-input refusal rather than a ``ValueError``, because this function is
+        # reached through ``run_all(arguments=...)``, which catches a capability refusal per
+        # row and lets every other operation report.  A bare exception there aborts the
+        # whole battery over one empty list.
+        raise CapabilityError(
+            "a longitudinal truncation curve needs at least one cumulative bound pair; "
+            "the requested grid is empty"
+        )
+    try:
+        reported = select_estimates(result.estimates, estimands)
+    except (KeyError, ValueError) as error:
+        # Same reasoning as the empty grid: an estimand this fit does not report is a
+        # caller-input refusal, not a defect in the battery that asked for it.  The
+        # selector's own sentence is reused, and ``args[0]`` rather than ``str`` because a
+        # ``KeyError`` renders its message in quotes.
+        raise CapabilityError(
+            "a longitudinal truncation curve cannot report the requested estimands: "
+            + (str(error.args[0]) if error.args else str(error))
+        ) from error
     fitted_bounds = result.config.g_bounds
     # A point estimate can agree while a stochastic Q recursion differs underneath it.
     # Prove the retained recipe reconstructs the fit before reporting *any* requested
     # bound, including grids that deliberately omit the fitted pair.
     fitted_replay = _refit_bound(result, recipe, fitted_bounds)
-    if not _fitted_replay_matches(result, *fitted_replay):
-        raise CapabilityError(
-            "longitudinal truncation replay is unavailable: "
-            f"{LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH}"
-        )
+    if not _fitted_replay_matches(result, fitted_replay):
+        _refuse_replay(LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH)
     rows: list[dict[str, Any]] = []
     for lower, upper in grid:
-        estimates, fits, _ = (
+        replay = (
             fitted_replay
             if (lower, upper) == fitted_bounds
             else _refit_bound(result, recipe, (lower, upper))
         )
+        # Once per bound rather than once per estimand: the slabs are a property of the
+        # mechanism and the bound, and every estimand at this bound reads the same ones.
+        consumed = _consumed_prefixes(
+            result.data, result.mechanism, recipe.plans, result.folds, (lower, upper)
+        )
         for name in reported:
             truncated, evaluated = _score_cell_truncation_counts(
-                _estimate_fit_contributors(result, name, fits)
+                replay.contributors[name], consumed
             )
             fitted = float(result.estimates[name].psi)
-            estimate = float(estimates[name].psi)
+            estimate = float(replay.estimates[name].psi)
             rows.append(
                 {
                     "lower_bound": lower,

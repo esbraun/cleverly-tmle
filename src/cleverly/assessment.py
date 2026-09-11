@@ -1195,19 +1195,55 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
     return replace(item, available=False, status=AssessmentStatus.NOT_APPLICABLE, reason=reason)
 
 
+#: What a code means when nothing is missing from the artifact.  Most omissions are a
+#: component the stored result does not carry, and the default sentence below says so.  An
+#: unseeded or object-seeded learner is the exception: the template *is* retained, and what
+#: it cannot do is come back from a clone with the same draws.  Saying "no longer carries"
+#: there sends a reader to look for a field that nothing dropped.
+_REPLAY_ARTIFACT_MISSING = "this stored result no longer carries the components it needs"
+
+
+def _replay_omission_causes() -> dict[str, str]:
+    """Return the per-code explanations that are not a missing component.
+
+    Returns
+    -------
+    dict of str to str
+        Stable omission code to the sentence a refusal uses for it.
+    """
+    from .longitudinal.estimator import (
+        LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
+        LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,
+    )
+
+    return {
+        LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED: (
+            "a retained learner template declares no random_state, so a clone of it cannot "
+            "repeat this fit's draws"
+        ),
+        LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER: (
+            "a retained learner template carries a random generator object rather than an "
+            "integer seed, so a clone of it cannot repeat this fit's draws"
+        ),
+    }
+
+
 def _replay_gated(item: AssessmentCapability, replay: Replayability) -> AssessmentCapability:
     """Refuse a row whose declared replay slot this stored result cannot supply."""
     slot = item.requires_replay
     if not item.available or slot is None or getattr(replay, slot):
         return item
-    missing = list(replay.unreconstructible)
+    codes = list(replay.unreconstructible)
+    explained = _replay_omission_causes()
+    # One sentence per distinct cause, in the order the codes are reported, so a result
+    # blocked for two reasons states both rather than the first one twice.
+    causes = dict.fromkeys(explained.get(code, _REPLAY_ARTIFACT_MISSING) for code in codes)
     return replace(
         item,
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
         reason=(
-            f"{_REPLAY_WORK[slot]} needs artifacts this stored result no longer carries; "
-            f"unavailable slots: {missing}"
+            f"{_REPLAY_WORK[slot]} is unavailable: {'; '.join(causes)}. reported codes: {codes}"
         ),
     )
 
@@ -1839,14 +1875,16 @@ def _cost_refusal(
     """The skip a combined report owes an operation the caller has not paid for.
 
     Two flags rather than one because the two costs are disjoint: refutation and
-    benchmarking refit nuisances without retargeting, and the truncation curve and the
-    missingness tilt retarget cached nuisances without refitting any.  One flag made
-    whichever class it did not name run silently under the other's permission.
+    benchmarking refit nuisances without retargeting, and the missingness tilt retargets
+    cached nuisances without refitting any.  One flag made whichever class it did not name
+    run silently under the other's permission.
 
-    The class is read off the row rather than off the operation name, because a guarded
-    DR-TMLE fit resolves ``truncation_curve`` into the ``refit`` class -- its targeting
-    alternation refits the reduced regressions at every bound.  See
-    :func:`assessment_capabilities`.
+    The class is read off the row rather than off the operation name, because the same
+    operation is in different classes on different fits.  A point-treatment
+    ``truncation_curve`` retargets the cached nuisances.  A guarded DR-TMLE fit resolves it
+    into the ``refit`` class, its targeting alternation refitting the reduced regressions at
+    every bound, and a longitudinal fit resolves it there too, repeating the complete
+    backward recursion per bound.  See :func:`assessment_capabilities`.
     """
     allowed = {
         "summarize": True,
@@ -2180,6 +2218,11 @@ class DiagnosticsFacade(_CapabilityFacade):
         fitted treatment/censoring mechanism, folds, prepared data, scaler, and frozen
         resolved regimen plans.
 
+        A longitudinal fit refuses ``mechanism=True``. It has one cumulative
+        treatment-and-censoring bound, so there is no separate observation mechanism for a
+        second axis to vary. It also requires an explicit ``bounds`` grid, because it has no
+        per-parameter fitted pair to build a default grid around.
+
         Parameters
         ----------
         bounds : sequence of float or cumulative bound pairs, or None
@@ -2206,49 +2249,54 @@ class DiagnosticsFacade(_CapabilityFacade):
         Raises
         ------
         CapabilityError
-            If the requested curve changes the estimand or cannot be replayed.
+            If the requested curve changes the estimand or cannot be replayed. A
+            longitudinal result also refuses an omitted ``bounds`` grid and
+            ``mechanism=True``, which are the two requests its contract above has no answer
+            to.
         """
         self._require("truncation_curve")
-        if _family(self._result) == "longitudinal":
-            if bounds is None:
-                raise CapabilityError(
-                    "a longitudinal truncation curve requires an explicit bounds grid"
-                )
-            if mechanism:
-                raise CapabilityError(
-                    "a longitudinal fit has one cumulative treatment-and-censoring bound; "
-                    "mechanism=True is a point-treatment option"
-                )
-            from .longitudinal.estimator import longitudinal_truncation_curve
-
-            return _cached(
-                self._result,
-                "diagnostics.truncation_curve",
-                (bounds,),
-                {"estimands": estimands},
-                lambda: longitudinal_truncation_curve(
-                    self._result,
-                    bounds,
-                    estimands=estimands,
-                ),
+        longitudinal = _family(self._result) == "longitudinal"
+        # Every refusal is raised here rather than inside ``compute`` below, so that an
+        # unanswerable request is refused whether or not the cache already holds a row.
+        if longitudinal and bounds is None:
+            raise CapabilityError(
+                "a longitudinal truncation curve requires an explicit bounds grid"
             )
-        from .sensitivity.positivity import truncation_curve
-
-        if self._result.nuisance.incremental is not None and not mechanism:
+        if longitudinal and mechanism:
+            raise CapabilityError(
+                "a longitudinal fit has one cumulative treatment-and-censoring bound; "
+                "mechanism=True is a point-treatment option"
+            )
+        if not longitudinal and self._result.nuisance.incremental is not None and not mechanism:
             raise CapabilityError(
                 "the propensity g is *inside* the estimand for an incremental intervention, "
                 "so a propensity-bound curve would compare different parameters; use "
                 "diagnostics.support(), or pass mechanism=True when a separate observation "
                 "mechanism was fitted"
             )
+
+        # The longitudinal call takes no ``None``, and the refusal above is eager, so the
+        # empty fallback here is unreachable on that path.
+        grid: Sequence[CumulativeGBounds] = () if bounds is None else bounds
+
+        def compute() -> Any:
+            if longitudinal:
+                from .longitudinal.estimator import longitudinal_truncation_curve
+
+                return longitudinal_truncation_curve(self._result, grid, estimands=estimands)
+            from .sensitivity.positivity import truncation_curve
+
+            return truncation_curve(self._result, bounds, estimands=estimands, mechanism=mechanism)
+
+        # One call with the family branch inside ``compute``, as ``nuisance_models`` and
+        # ``score_equations`` are: two calls were two key shapes for one operation, and the
+        # longitudinal one omitted ``mechanism`` from a key whose caller can pass it.
         return _cached(
             self._result,
             "diagnostics.truncation_curve",
             (bounds,),
             {"estimands": estimands, "mechanism": mechanism},
-            lambda: truncation_curve(
-                self._result, bounds, estimands=estimands, mechanism=mechanism
-            ),
+            compute,
         )
 
     def refute(self, **kwargs: Any) -> Any:

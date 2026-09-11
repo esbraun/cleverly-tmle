@@ -39,7 +39,7 @@ from cleverly.longitudinal.estimator import (
     LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
     LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,
     LONGITUDINAL_REPLAY_RECIPE_MISSING,
-    _estimate_fit_contributors,
+    _consumed_prefixes,
     _exact_replay_equal,
     _replay_random_state_omissions,
     _replay_recipe,
@@ -83,9 +83,13 @@ def _assert_active_curve(result: Any, bound: float = 0.3) -> None:
     payload = _payload(result.diagnostics.truncation_curve([bound]))
     recipe = result.replay_recipe
     assert recipe is not None
-    estimates, fits, msm_fits = longitudinal_estimator._refit_bound(result, recipe, (bound, 1.0))
+    replay = longitudinal_estimator._refit_bound(result, recipe, (bound, 1.0))
+    estimates, fits, msm_fits = replay.estimates, replay.fits, replay.msm_fits
+    consumed = _consumed_prefixes(
+        result.data, result.mechanism, recipe.plans, result.folds, (bound, 1.0)
+    )
     for index, name in enumerate(payload["estimand"]):
-        expected = _score_cell_truncation_counts(_estimate_fit_contributors(result, name, fits))
+        expected = _score_cell_truncation_counts(replay.contributors[name], consumed)
         assert (
             payload["truncated_score_cells"][index],
             payload["evaluated_score_cells"][index],
@@ -177,9 +181,8 @@ def test_explicit_grid_preserves_order_pairs_backend_and_result_subset(result) -
 def test_fitted_bound_reproduces_every_retained_fit_artifact_exactly(result) -> None:  # type: ignore[no-untyped-def]
     recipe = result.replay_recipe
     assert recipe is not None
-    estimates, fits, msm_fits = longitudinal_estimator._refit_bound(
-        result, recipe, result.config.g_bounds
-    )
+    replay = longitudinal_estimator._refit_bound(result, recipe, result.config.g_bounds)
+    estimates, fits, msm_fits = replay.estimates, replay.fits, replay.msm_fits
 
     assert _exact_replay_equal(estimates, result.estimates)
     assert _exact_replay_equal(fits, result.fits)
@@ -194,12 +197,12 @@ def test_fitted_bound_gate_refuses_a_nonpoint_artifact_mismatch(result, monkeypa
     real = longitudinal_estimator._refit_bound
 
     def mutated(*args: Any, **kwargs: Any):  # type: ignore[no-untyped-def]
-        estimates, fits, msm_fits = real(*args, **kwargs)
-        key = next(iter(fits))
-        fit = fits[key]
+        replay = real(*args, **kwargs)
+        key = next(iter(replay.fits))
+        fit = replay.fits[key]
         changed = fit.cumulative.copy()
         changed[0, 0] = np.nextafter(changed[0, 0], np.inf)
-        return estimates, {**fits, key: replace(fit, cumulative=changed)}, msm_fits
+        return replace(replay, fits={**replay.fits, key: replace(fit, cumulative=changed)})
 
     monkeypatch.setattr(longitudinal_estimator, "_refit_bound", mutated)
     with pytest.raises(CapabilityError, match=LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH):
@@ -210,7 +213,7 @@ def test_crossfit_active_replay_rejects_a_stitched_oof_slab_mutation(result, mon
     recipe = result.replay_recipe
     assert recipe is not None
     active = (0.25, 1.0)
-    _, correct, _ = longitudinal_estimator._refit_bound(result, recipe, active)
+    correct = longitudinal_estimator._refit_bound(result, recipe, active).fits
     real = Mechanism.cumulative_with_unbounded
 
     def stitched(self: Mechanism, data: Any, plan: Any, bounds: Any, *, fold: int | None = None):  # type: ignore[no-untyped-def]
@@ -223,7 +226,7 @@ def test_crossfit_active_replay_rejects_a_stitched_oof_slab_mutation(result, mon
         )
 
     monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", stitched)
-    _, mutated, _ = longitudinal_estimator._refit_bound(result, recipe, active)
+    mutated = longitudinal_estimator._refit_bound(result, recipe, active).fits
     with pytest.raises(AssertionError):
         assert _exact_replay_equal(mutated, correct)
 
@@ -231,7 +234,8 @@ def test_crossfit_active_replay_rejects_a_stitched_oof_slab_mutation(result, mon
 def test_changed_bound_rebuilds_earlier_pseudo_outcomes_and_moves_estimates(result) -> None:  # type: ignore[no-untyped-def]
     recipe = result.replay_recipe
     assert recipe is not None
-    estimates, fits, _ = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
+    replay = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
+    estimates, fits = replay.estimates, replay.fits
 
     assert any(estimates[name].psi != result.estimates[name].psi for name in estimates)
     for key, fit in fits.items():
@@ -245,7 +249,7 @@ def test_active_replay_exactly_matches_a_direct_fresh_recursion(result) -> None:
     assert recipe is not None
     assert recipe.outcome_learner is not None
     assert recipe.pseudo_learner is not None
-    _, replayed, _ = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
+    replayed = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0)).fits
     plan = recipe.plans[0]
     fresh = fit_regimen(
         result.data,
@@ -297,12 +301,14 @@ def test_reusing_one_earlier_outcome_prediction_breaks_active_replay(result, mon
 def test_score_cell_counts_are_alias_specific_and_use_only_scored_rows(result) -> None:  # type: ignore[no-untyped-def]
     recipe = result.replay_recipe
     assert recipe is not None
-    _, fits, _ = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
+    replay = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
     curve = _payload(longitudinal_estimator.longitudinal_truncation_curve(result, [0.25]))
+    consumed = _consumed_prefixes(
+        result.data, result.mechanism, recipe.plans, result.folds, (0.25, 1.0)
+    )
 
     for index, name in enumerate(curve["estimand"]):
-        contributing = _estimate_fit_contributors(result, name, fits)
-        expected = _score_cell_truncation_counts(contributing)
+        expected = _score_cell_truncation_counts(replay.contributors[name], consumed)
         assert (
             curve["truncated_score_cells"][index],
             curve["evaluated_score_cells"][index],
@@ -397,9 +403,8 @@ def test_msm_curve_replays_projection_artifacts_and_reports_only_terms() -> None
     ).fit(frame, **COLUMNS)
     recipe = result.replay_recipe
     assert recipe is not None
-    estimates, fits, msm_fits = longitudinal_estimator._refit_bound(
-        result, recipe, result.config.g_bounds
-    )
+    replay = longitudinal_estimator._refit_bound(result, recipe, result.config.g_bounds)
+    estimates, fits, msm_fits = replay.estimates, replay.fits, replay.msm_fits
 
     assert _exact_replay_equal(estimates, result.estimates)
     assert _exact_replay_equal(fits, result.fits)
@@ -554,7 +559,6 @@ def test_stable_replay_omissions_cover_legacy_rng_and_unclonable_cases(result) -
         alpha=0.0,
         max_iter=1,
         tol=1e-8,
-        random_state=1,
         n_jobs=1,
     )
     assert recipe.omissions == (LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,)
@@ -584,7 +588,6 @@ def test_nested_super_learner_random_states_are_audited() -> None:
         alpha=0.0,
         max_iter=1,
         tol=1e-8,
-        random_state=7,
         n_jobs=1,
     )
     assert recipe.omissions == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)
