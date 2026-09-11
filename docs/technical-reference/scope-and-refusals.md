@@ -23,6 +23,14 @@ where the problem arises. Examples are a horizon at which no event was observed 
 followers, a cause with no events, a regimen nobody followed, and two absorbing causes firing at
 one node. Those are statements about the sample.
 
+Cross-fitting narrows what the sample supports. Each outer fold fits on its training rows alone, so
+every fold must carry enough events for each declared cause. A rare cause therefore needs more data
+under cross-fitting than under one fold.
+
+`make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
+refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
+regimen's followers. Pass fewer folds, or collect more data.
+
 ### Not written yet
 
 Nothing is wrong with wanting any of these. They are gaps in coverage, and the message says so

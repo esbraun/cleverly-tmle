@@ -120,8 +120,8 @@ preferred bound, selection correction, or positivity verdict. The
 algorithm provenance and the boundary of that claim.
 
 This replay keeps the realized data, resolved plans, folds, weights, clusters, and parameter
-structure fixed. A cross-fitted replay uses each complete fold-specific mechanism slab. It does
-not substitute stitched out-of-fold prefixes. The result must retain a replay recipe, and that
+structure fixed. A cross-fitted replay uses every complete fold-specific mechanism slab. It does
+not read the stitched out-of-fold pair alone. The result must retain a replay recipe, and that
 recipe's outcome and pseudo-outcome learners must be cloneable.
 [Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
 `random_state` rule each learner must satisfy, and lists every code that makes the operation
@@ -211,7 +211,8 @@ der Laan (2012) is the survival implementation reference.
 
 The whole backward recursion is the unit of splitting for regimen means. Fold $k$ fits every
 mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
-report.
+report. Each fold must also carry enough events for each declared cause, which
+[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
 
 Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
 to the same regimen means. It does not validate an unsaturated coefficient projection under

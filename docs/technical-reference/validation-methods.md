@@ -239,7 +239,10 @@ Each row is a descriptive ordinary LTMLE point estimate under one fixed bound. I
 cached-nuisance retarget and does not change the causal estimand. The curve reports no standard
 error, confidence interval, preferred bound, selected-bound correction, or pass threshold.
 
-The longitudinal frame carries one row per evaluated pair and reported parameter.
+The longitudinal frame carries one row per evaluated pair and reported parameter. The curve
+resolves every grid entry first and drops a repeat after that, so a repeated pair is replayed once
+and reported once. A scalar `b` and the pair `(b, 1)` resolve to the same entry, so a grid carrying
+both collapses to one row.
 
 | column | what it holds |
 | --- | --- |
@@ -265,11 +268,31 @@ Each count reads only the fits that contribute to that row's parameter.
 | a contrast | its two regimen fits |
 | an MSM coefficient | every regimen and horizon cell for its cause |
 
-`evaluated_score_cells` counts one cell per row each contributing node regression consumed.
-`truncated_score_cells` counts the cells among them whose bounded cumulative product differs from
-the raw product. A cross-fitted replay counts each fold's own mechanism slab, because each fold's
-recursion consumed that slab. A row that more than one fold consumed therefore counts once per
-fold.
+`evaluated_score_cells` counts one cell for each row in each contributing node's reporting score
+mask. That mask is the node's `trained_on` set, which is the rows whose clever covariate is nonzero.
+Of those cells, `truncated_score_cells` counts the ones whose bounded cumulative product differs
+from the raw product.
+
+Neither count is a count of regression rows. The node regression is fitted on `fitted_on`, which is
+that score mask inside one fold's training rows.
+
+A cross-fitted replay counts one mechanism slab per outer fold, so every scored row counts once per
+fold. Each fold runs a complete backward pass over every row, and that pass divides by its own slab.
+
+The stitched out-of-fold pair the fit retains is the row-wise out-of-fold gather of those slabs, bit
+for bit. Every stitched cell is therefore a cell the fold that held that row out divided by.
+Counting the stitched pair alone reports the held-out copy of each scored row and no other copy. It
+misses the truncation that only a fold's own training rows carry.
+
+`tests/unit/test_longitudinal_truncation_refit.py` pins the consumed counts on a two-fold fixture.
+At the bound 0.12 it reports 2 truncated cells of 224 for `ey_regimen[always]`, beside a movement of
++0.057 in that estimate. Its `CROSSFIT_CELL_CENSUS` comment records the 0 of 112 that the stitched
+pair alone reported.
+
+An MSM coefficient reads every regimen and horizon cell for its cause, and each cell is its own
+backward pass. Its count adds one pass per cell to the same total. On a survival MSM that total can
+exceed the sample size times the node count, which bounds one complete pass. A longitudinal MSM runs
+at one fold, so no fold factor enters that comparison.
 
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
@@ -300,8 +323,8 @@ targeted prediction becomes the preceding regression's response. Their capabilit
 `refit` and ask for `include_refits=True`. The longitudinal row also requires explicit `bounds`.
 
 Longitudinal replay needs a stored recipe, a cloneable outcome learner, and a cloneable
-pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay reads each
-complete fold-specific mechanism slab, not stitched out-of-fold prefixes.
+pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay reads every
+complete fold-specific mechanism slab rather than the stitched out-of-fold pair alone.
 [Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
 `random_state` rule each learner must satisfy, and lists every omission code that makes the
 diagnostic unavailable.
