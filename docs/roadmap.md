@@ -562,8 +562,20 @@ Accept a result only when it covers the selected index and the selector's three 
 Those layers are outer nuisance folds, selection folds, and inner selection-training folds. The
 result must establish whether the current curve suffices or an additional contribution is
 required. It must state its remainder, rate conditions, and covariance for every supported target
-vector. Learner folds and repeat draws are separate split layers, and this contract does not
-cover them.
+vector. Learner folds and repeat draws are separate split layers.
+
+Treat analysis regimes as separate proof cells rather than automatic transports of the first
+selector result. An iid, complete-outcome, unweighted, unstratified, single-repeat result certifies
+only that cell.
+
+Missing-outcome fits additionally need the response-mechanism terms. Fixed probability weights
+need a declared weighted empirical-law result. Estimated weights also need their first-stage
+influence contribution.
+
+Cluster-robust fits need a cluster-level expansion. Stratified estimates need stratum-specific
+expansions and their joint covariance. Repeated cross-fitting needs the package's median and
+split-dispersion aggregation. Keep each extension reporting-only until its result and
+repeated-sampling evidence are registered here.
 
 One structural point governs the multi-arm case. The package picks one stopping index for every
 arm together. Any non-negligible selection contribution is driven by that shared rule but may
@@ -627,14 +639,15 @@ mixed-bias nuisance-product remainder is likewise not the first-order expansion 
 representation. Whether the ordinary curve suffices must be derived for this estimator and target,
 not inferred from either generic result.
 
-Four items stay open. State each verdict separately.
+Five items stay open. State each verdict separately.
 
 | open item | what a result must settle |
 | --- | --- |
 | one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters the mechanism of every other arm |
 | vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
 | uniformity | the estimator is deliberately superefficient, so a pointwise limit law does not give locally uniform coverage |
-| the registered measurement | at `n = 1,000`, the point-treatment pair resolves a finite-sample standard-error-ratio deficit under a correct outcome regression without showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither result identifies a first-order term |
+| the registered measurement | at `n = 1,000`, the point-treatment generated-design pair resolves a finite-sample standard-error-ratio deficit under a correct outcome regression without showing invalid coverage. The binary OAT study passes 13 of 14 property cells. Its sharp-null cell is red: the 99% rejection upper endpoint is 0.1008 against 0.10, and the coverage lower endpoint is 0.8992 against 0.90. The multi-arm pair does not resolve a deficit, and the multi-arm study passes 9 of 12 property cells. None of these results identifies a first-order term |
+| transport beyond the source law | missing-outcome fits need the response-mechanism expansion. Fixed probability weights need a weighted empirical-law result; estimated weights also need a first-stage contribution. Cluster-robust and stratified fits need dependence- and stratum-specific expansions. Repeated cross-fitting needs a result for the package's median and split-dispersion aggregation |
 
 Accept a result only when it covers the exact cross-fitted, multi-arm construction and distinguishes
 a fixed target from a target conditional on the learned design. It must establish whether the
