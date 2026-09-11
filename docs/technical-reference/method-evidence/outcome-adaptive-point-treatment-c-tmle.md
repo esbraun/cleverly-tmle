@@ -1,6 +1,6 @@
 # Outcome-adaptive point-treatment C-TMLE
 
-This study validates `CTMLE(strategy="oat")`, whose treatment mechanism is fitted on the vector of
+This study measures `CTMLE(strategy="oat")`, whose treatment mechanism is fitted on the vector of
 arm-specific outcome-regression predictions rather than on a selected subset of the original
 covariates. The canonical comparison uses archived tlverse
 [`ctmle3`](https://github.com/tlverse/ctmle3) 0.1.0 at commit
@@ -8,8 +8,14 @@ covariates. The canonical comparison uses archived tlverse
 contemporaneous `tmle3` at
 [`3a61005`](https://github.com/tlverse/tmle3/tree/3a610058cd89c17bb417c15fc891254388787f33) and
 `sl3` at
-[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc). The
-theory is Ju et al. (2019).
+[`821ca89`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc).
+
+The archive supplies implementation provenance for this OAT construction. Ju et al. (2019) derive
+greedy and preordered selector paths for the binary ATE, not this generated-design construction.
+Benkeser, Cai and van der Laan (2020) study the binary scalar case, where the mechanism already
+uses the estimated outcome regression. The `drtmle` `adapt_g` option builds the same design for
+any number of arms and reports the ordinary influence-curve covariance. Neither source covers the
+shipped joint all-arm targeting or simultaneous inference.
 
 ## What was compared
 
@@ -60,20 +66,20 @@ entry therefore describes the subject's setting and not a shared one.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `cross_fitted_oat` | positive | outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9826 to 1.1711 | pass |
+| `crossfit_overfitting` | `cross_fitted_oat` | positive | outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9321 to 1.1144 | pass |
 | `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.5116 to 0.6100 | pass |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9042 to 1.0047 | pass |
-| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9396 to 1.0430 | pass |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9337 to 0.9578, SE ratio 0.9506 to 1.0250 | pass |
+| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9040 to 1.0047 | pass |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9398 to 1.0430 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9342 to 0.9582, SE ratio 0.9507 to 1.0252 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0048 to 0.0075, margin 0.0206, SE ratio 0.9776 | pass |
-| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.3084 to -0.2904, margin 0.0302, SE ratio 0.9363 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0027, coverage 0.9136 to 0.9585, SE ratio 0.9667 | pass |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0019, coverage 0.9194 to 0.9627, SE ratio 0.9687 | pass |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0011, coverage 0.9238 to 0.9657, SE ratio 0.9542 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5287 to -0.4651 | pass |
+| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0048 to 0.0075, margin 0.0206, SE ratio 0.9774 | pass |
+| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.3097 to -0.2917, margin 0.0302, SE ratio 0.9361 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0028, coverage 0.9136 to 0.9585, SE ratio 0.9668 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0017, coverage 0.9208 to 0.9637, SE ratio 0.9686 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0012, coverage 0.9238 to 0.9657, SE ratio 0.9542 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5288 to -0.4651 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5033 to -0.5011 | pass |
-| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0725, 0.0509 to 0.0994 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0737, 0.0519 to 0.1008 | **fail** |
 <!-- /generated -->
 
 ## Measured values
@@ -90,7 +96,7 @@ the committed results and checked at the precision printed.
 | `paired_tests_total` | 5 | paired estimand tests |
 | `paired_tests_passed` | 5 | of those, passing |
 | `property_cells_total` | 14 | independent property cells |
-| `property_cells_passed` | 14 | of those, passing |
+| `property_cells_passed` | 13 | of those, passing |
 | `max_standardized_bias` | 0.0513 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9425 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9179 | lowest exact 99% coverage endpoint |
@@ -100,34 +106,34 @@ the committed results and checked at the precision printed.
 | `max_rmse_ratio_upper` | 1.0005 | largest paired RMSE-ratio upper bound |
 | `min_coverage_difference_lower` | 0 | smallest paired coverage-difference lower bound |
 | `max_calibration_excess_upper` | 0.000592 | largest paired SE-calibration-excess upper bound |
-| `properties[robustness_contract/outcome_correct]:standardized_bias` | 0.0166 | outcome-correct OAT bias |
-| `properties[robustness_contract/outcome_wrong]:standardized_bias` | -2.4768 | outcome-wrong negative control |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5287 | 99% lower endpoint of the empirical-spread rate |
+| `properties[robustness_contract/outcome_correct]:standardized_bias` | 0.0161 | outcome-correct OAT bias |
+| `properties[robustness_contract/outcome_wrong]:standardized_bias` | -2.4871 | outcome-wrong negative control |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5288 | 99% lower endpoint of the empirical-spread rate |
 | `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4651 | its upper endpoint, which must also exclude -0.25 |
-| `properties[root_n_rate/empirical_sd]:slope` | -0.4967 | fitted empirical-spread rate |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.4968 | fitted empirical-spread rate |
 | `properties[root_n_rate/reported_se]:slope` | -0.5022 | fitted reported-SE rate |
-| `properties[interval_calibration/correctly_specified]:coverage` | 0.9467 | calibration-cell coverage |
-| `properties[interval_calibration/correctly_specified]:se_ratio` | 0.9870 | calibration-cell SE ratio |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9506 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0250 | its 99% upper endpoint |
-| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0725 | rejection under the confounded sharp null |
-| `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0994 | its 99% upper endpoint, against 0.05 + 0.05 |
-| `properties[type_i_error/sharp_null]:coverage_ci_lower` | 0.9006 | its exact 99% coverage endpoint, against a floor of 0.90 |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9471 | calibration-cell coverage |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 0.9871 | calibration-cell SE ratio |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9507 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0252 | its 99% upper endpoint |
+| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0737 | rejection under the confounded sharp null |
+| `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.1008 | its 99% upper endpoint, against 0.05 + 0.05 |
+| `properties[type_i_error/sharp_null]:coverage_ci_lower` | 0.8992 | its exact 99% coverage endpoint, against a floor of 0.90 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the power control |
-| `properties[crossfit_overfitting/cross_fitted_oat]:coverage` | 0.9325 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` | -0.4361 | that arm's bias, in empirical standard deviations |
+| `properties[crossfit_overfitting/cross_fitted_oat]:coverage` | 0.9225 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` | -0.3902 | that arm's bias, in empirical standard deviations |
 | `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.6225 | coverage with the in-sample tree control |
-| `properties[crossfit_overfitting/cross_fitted_oat]:se_ratio` | 1.0681 | SE ratio with cross-fitting |
+| `properties[crossfit_overfitting/cross_fitted_oat]:se_ratio` | 1.0152 | SE ratio with cross-fitting |
 | `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5565 | SE ratio without cross-fitting |
-| `properties[crossfit_overfitting/cross_fitted_oat]:coverage_gain_ci_lower` | 0.2525 | paired 99% lower bound for coverage gained by cross-fitting |
+| `properties[crossfit_overfitting/cross_fitted_oat]:coverage_gain_ci_lower` | 0.2400 | paired 99% lower bound for coverage gained by cross-fitting |
 | `properties[generated_design/oracle_design]:se_ratio` | 0.9892 | SE ratio with the design pinned at the truth |
-| `properties[generated_design/oracle_design]:se_ratio_ci_lower` | 0.9396 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[generated_design/oracle_design]:se_ratio_ci_lower` | 0.9398 | its 99% lower endpoint, against a band of 0.93--1.07 |
 | `properties[generated_design/oracle_design]:se_ratio_ci_upper` | 1.0430 | its 99% upper endpoint |
-| `properties[generated_design/estimated]:se_ratio` | 0.9525 | the same ratio with the design estimated |
-| `properties[generated_design/estimated]:se_ratio_ci_lower` | 0.9042 | its 99% lower endpoint |
+| `properties[generated_design/estimated]:se_ratio` | 0.9524 | the same ratio with the design estimated |
+| `properties[generated_design/estimated]:se_ratio_ci_lower` | 0.9040 | its 99% lower endpoint |
 | `properties[generated_design/estimated]:se_ratio_ci_upper` | 1.0047 | its 99% upper endpoint |
-| `properties[generated_design/estimated]:se_ratio_deficit_lower` | -0.0546 | paired 99% lower endpoint for estimated minus pinned |
-| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0191 | its upper endpoint, which must clear the floor below |
+| `properties[generated_design/estimated]:se_ratio_deficit_lower` | -0.0547 | paired 99% lower endpoint for estimated minus pinned |
+| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0192 | its upper endpoint, which must clear the floor below |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -162,16 +168,18 @@ the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
+| This is reporting evidence | Thirteen of fourteen property cells pass. On the confounded sharp-null law, the rejection rate is `properties[type_i_error/sharp_null]:rejection_rate`; its 99% upper endpoint is `properties[type_i_error/sharp_null]:rejection_ci_upper`, just above the predeclared 0.10 ceiling, and its coverage lower endpoint is `properties[type_i_error/sharp_null]:coverage_ci_lower`, just below the 0.90 floor. The thresholds were not moved after observing the replacement construction |
 | OAT has a narrower robustness contract than selector C-TMLE | With the outcome regression correct, the bias interval must fit inside the equivalence margin. With it wrong, the control must be discriminated outside it. No treatment-correct-only claim is made, because OAT's mechanism is a projection on the generated outcome-regression design rather than a fit of treatment on the original covariates |
-| The reported interval omits the adaptive-`g` term | OAT fits the treatment mechanism on `Qbar`, so when `Qbar` is estimated the model class `g` is chosen from is random too, and the influence curve does not see that. The `generated_design` cells measure the consequence: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio` |
-| Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. The omission is worth a few percent of a reported standard error and does not show up as invalid coverage |
-| The design control's margin is a floor on a defect, not a tolerance | If the reported covariance is ever made to carry this term, the control stops being discriminated and this row goes red. That is the correct signal that the limitation has gone stale, rather than a regression |
+| The reported interval uses ordinary EIF plug-in covariance | OAT fits the treatment mechanism on estimated `Qbar` columns. Benkeser, Cai and van der Laan (2020) prove one binary treatment-specific-mean curve under six explicit conditions, and the implementation now follows their fold-local nuisance nesting. The package's two-column joint fluctuation and means, ATE, RR, and OR vector are a finite-dimensional extension rather than literally that theorem. The package does not diagnose the paper's rate, smoothness, remainder, and empirical-process conditions, whose setting is iid, complete-outcome, and unweighted. The `generated_design` cells compare finite-sample behaviour: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio`. [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the remaining exact-fit and multi-arm boundary |
+| Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. This is a finite-sample generated-design effect, not proof of an omitted first-order term, and it does not show up as invalid coverage |
+| The design control's margin is a detection threshold, not a tolerance | The registered margin detects the paired finite-sample effect. It does not decide whether an asymptotic correction exists. A source-backed resolution of F19 must determine whether and how this study changes |
 | The cross-fit overfitting cells are relative evidence | A fully grown tree on this law carries `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations of nuisance bias. The cell is gated on its SE ratio and on the paired gain rather than on the coverage floor. The primary GLM study carries the absolute gate |
 | The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. The archived stack fails the analogous continuous law because its length-two outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation and not a dropped replication. The row does not establish continuous or multi-arm parity, missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner libraries, or severe practical-positivity behaviour. Cross-fitted public behaviour rests on the property study |
 
-A nonparametric bootstrap reruns the whole construction and so carries the omitted terms. It was
-measured on this law and did not improve calibration over the reported interval, so it is not
-presented here as a remedy.
+A nonparametric bootstrap reruns the generated design and the rest of the adaptive construction.
+No registered cell measures its calibration here, so this page claims nothing about it. No
+reviewed source validates that bootstrap for the shipped construction. The targeted-HAL bootstrap
+result cited in the audit holds its data-adaptive complexity bound fixed rather than reselecting it.
 
 ## Reproduction
 

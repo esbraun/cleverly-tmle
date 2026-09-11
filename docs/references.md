@@ -35,7 +35,10 @@ previous reader had is not a citation; a page number is.
   normalizes `obsWeights`. It routes them through outcome and treatment fitting, targeting,
   plug-in evaluation, and influence-curve calculations. This source supports the weighted
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
-- Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
+  estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
+  10.1007/978-1-4419-9782-1_27. Its fold-local nuisance construction does not validate a
+  stopping index selected by risk aggregated over every evaluation row.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
@@ -119,13 +122,173 @@ previous reader had is not a citation; a page number is.
 
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
   estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
-  10.2202/1557-4679.1181.
+  10.2202/1557-4679.1181. Section 2.4 selects candidate depth by cross-validated targeted loss.
+  Theorem 4 assumes the expansion that defines the adaptive-mechanism influence contribution.
+  It does not derive that expansion for the candidate-depth selector. Section 4.1 proposes a
+  parametric delta method for a selected parametric mechanism model. Section 4.3 records random
+  cross-validation over-selection and leaves its irregularity as an open area.
+- van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
+  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. Section 5.4
+  targets both nuisance estimators and solves extra score equations for a binary
+  treatment-specific mean. The shipped selector does not perform those targeting steps.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
+- Ju, Chambaz & van der Laan (2018), [*Collaborative targeted inference from continuously indexed
+  nuisance parameter estimators*](https://arxiv.org/abs/1804.00102). Read first-hand. Theorem 1
+  permits an additional influence contribution along a twice-differentiable nuisance path for a
+  binary scalar target; Lemma 2 makes that contribution zero in an important correct-outcome,
+  product-rate regime. Separately, the estimator solves extra derivative-score equations and uses
+  an undersmoothing condition. It does not cover the package's discrete selector paths, nested
+  folds, or joint target vectors.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
-  DOI 10.1177/0962280217729845.
+  DOI 10.1177/0962280217729845. Sections 4.1 through 5 define the general, greedy, and preordered
+  binary-ATE paths. Section 7.4 forms each interval from the ordinary efficient influence curve.
+- Ju, Benkeser & van der Laan (2020), [*Robust inference on the average treatment effect using the
+  outcome highly adaptive lasso*](https://arxiv.org/abs/1806.06784), *Biometrics* 76(1):109-118,
+  DOI 10.1111/biom.13121. This is another adaptive-propensity construction with explicit
+  estimating equations and inference. It does not cover a generic selected candidate depth.
+- Benkeser, Cai & van der Laan (2020), [*A nonparametric super-efficient estimator of the average
+  treatment effect*](https://doi.org/10.1214/19-STS735), DOI 10.1214/19-STS735
+  ([preprint](https://arxiv.org/abs/1901.05056)). Theorem 1 derives asymptotic linearity with the
+  usual TMLE curve evaluated at the adaptive propensity limit for a treatment-specific mean.
+  Its six regularity conditions require the relevant score to be negligible, quarter-rate
+  convergence of the outcome and adaptive-propensity estimators, influence-curve convergence,
+  smoothness, a higher-order remainder, and an empirical-process condition. Section 3.1 gives a
+  cross-validated variance construction in which each fold's outcome and adaptive propensity are
+  both learned without that fold's rows. No separate first-order generated-design term appears in
+  the theorem's influence function.
+  Appendix D explicitly constructs the binary ATE with one propensity fit on
+  `(Qbar(1, W), Qbar(0, W))` and sketches a cross-validated C-TMLE. It does not derive treatment
+  with more than two levels, the shipped joint all-arm fluctuation and covariance, or simultaneous
+  inference.
+- van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
+  validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
+  24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
+  selector by the oracle risk. A risk bound is not a limit law. It supplies no sampling
+  distribution for a smooth functional of the selected estimator. It also does not show that the
+  selected index converges. This entry records the abstract only.
+- Shao (1993), [*Linear model selection by cross-validation*](https://doi.org/10.1080/01621459.1993.10476299),
+  *Journal of the American Statistical Association* 88(422):486-494, DOI
+  10.1080/01621459.1993.10476299. In its linear-model setting, ordinary
+  leave-a-fixed-fraction-out cross-validation need not consistently select the true model. It
+  supports requiring a separate selector-stability argument rather than inferring stability from
+  prediction-risk control.
+- Leeb & Pötscher (2006), [*Can one estimate the conditional distribution of post-model-selection
+  estimators?*](https://doi.org/10.1214/009053606000000821), *Annals of Statistics*
+  34(5):2554-2591, DOI 10.1214/009053606000000821. The paper proves that no estimator of the
+  conditional distribution of a post-model-selection estimator is uniformly consistent in its
+  finite-dimensional regression and subset-selection setting. The result extends to linear
+  functions of that estimator. Read first-hand from arXiv:math/0702703. Nobody here has established
+  that its hypotheses transfer to this candidate-path stopping index, so it is a warning against a
+  universal repair rather than a theorem about this estimator or its bootstrap.
+- Leeb & Pötscher (2008), [*Can one estimate the unconditional distribution of post-model-selection
+  estimators?*](https://arxiv.org/abs/0704.1584), *Econometric Theory* 24(2):338-376, DOI
+  10.1017/S0266466608080158. Read first-hand. The paper gives local minimax lower bounds and rules
+  out locally uniform consistency for the unconditional distribution in finite-dimensional
+  regression model selection. This is the closer warning for a refit bootstrap, but its transfer
+  to the shipped targeted-loss selector is likewise unproved.
+- Loftus (2015), [*Selective inference after
+  cross-validation*](https://arxiv.org/abs/1511.08866), arXiv:1511.08866. Read first-hand. Under a
+  Gaussian linear model, squared-error cross-validation combined with a training procedure whose
+  selection events are linear or quadratic can itself be represented by quadratic constraints,
+  allowing conditional selective tests for selected-model regression parameters. The package's
+  targeted Bernoulli or squared-error losses, nuisance estimation, and causal target curve have not
+  been reduced to this Gaussian quadratic-selection setting.
+- Markovic, Xia & Taylor (2017), [*Unifying approach to selective inference with applications to
+  cross-validation*](https://arxiv.org/abs/1703.06559), arXiv:1703.06559v3. The method conditions on
+  selection and derives selectively valid pivots when the vector of model-quality criteria and the
+  inference statistics are jointly asymptotically Gaussian; it also develops Gaussian-randomized
+  variants. The shipped selector neither randomizes its criterion nor establishes the required
+  joint Gaussian limit for its nested targeted-loss vector and joint target statistic. The paper
+  is therefore a candidate repair, not a validation of the reported covariance.
+- Hubbard, Kherad-Pajouh & van der Laan (2016), [*Statistical inference for data adaptive target
+  parameters*](https://doi.org/10.1515/ijb-2015-0013), *International Journal of Biostatistics*
+  12(1):3-19, DOI 10.1515/ijb-2015-0013. The paper defines a sample-split data-adaptive target
+  parameter. Read first-hand from the authors' eScholarship manuscript. Honest splitting permits
+  arbitrarily adaptive parameter generation. Theorem 3 also permits same-sample generation under
+  a uniform asymptotic expansion, Donsker, and influence-curve convergence conditions. Either route
+  reports a data-adaptive estimand rather than automatically recovering the fixed target reported
+  by the package.
+- van der Laan (L.), Carone, Luedtke & van der Laan (M.) (2026), [*Adaptive debiased machine
+  learning using data-driven model selection techniques*](https://arxiv.org/abs/2307.12544),
+  arXiv:2307.12544v2. Read first-hand. The framework gives regular, locally uniform inference for
+  an oracle projection parameter and names collaborative targeted learning as an application.
+  Its working model must approximate a fixed oracle model; a cross-validated sieve may use a
+  limiting dimension only when that limit exists and is nonrandom. Under the paper's approximation
+  and remainder conditions, selection is higher order and the model-based curve can be valid. The
+  oracle efficiency bound is *typically*, not necessarily, smaller than the nonparametric bound.
+  The shipped selector chooses one global depth from nested targeted-loss folds, and this audit has
+  not proved convergence to a fixed nonrandom oracle model or the required remainders. Applicability
+  could ratify the present curve or require a different one; it does not predetermine that verdict.
+- Cai & van der Laan (2020), [*Nonparametric bootstrap inference for the targeted highly adaptive
+  least absolute shrinkage and selection operator (LASSO)
+  estimator*](https://doi.org/10.1515/ijb-2017-0070), *International Journal of Biostatistics*
+  16(2), DOI 10.1515/ijb-2017-0070. Read first-hand from arXiv:1905.10299. The bootstrap fixes the
+  HAL sectional variation-norm bound at or above the original cross-validation choice; it does not
+  reselect that tuning rule in every bootstrap sample.
+- Tibshirani, Rinaldo, Tibshirani & Wasserman (2018), [*Uniform asymptotic inference and the
+  bootstrap after model selection*](https://arxiv.org/abs/1506.06266), *Annals of Statistics*
+  46(3):1255-1287, DOI 10.1214/17-AOS1584. The paper proves a conservative selective bootstrap in
+  fixed-dimensional regression and records failure as dimension grows. It prevents a blanket
+  claim that bootstrap can never work after selection, but does not validate this estimator.
+- Beran (1997), [*Diagnosing bootstrap
+  success*](https://www.math.utah.edu/~davar/math6070/2013/Beran1997.pdf), *Annals of the Institute
+  of Statistical Mathematics* 49:1-24, DOI 10.1023/A:1003114420352. Read first-hand. In its locally
+  asymptotically normal setting, superefficiency is sufficient for failure of the intuitive
+  bootstrap. This is another reason a refit bootstrap needs its own theorem, not a proof that every
+  bootstrap for an outcome-adaptive estimator fails.
+- Chernozhukov et al. (2018), [*Double/debiased machine learning for treatment and structural
+  parameters*](https://arxiv.org/abs/1608.00060), *Econometrics Journal* 21:C1-C68, DOI
+  10.1111/ectj.12097. Orthogonal-score inference permits internally selected nuisance algorithms
+  when each is trained wholly outside its score-evaluation fold and meets the required rates. The
+  package's global stopping depth depends on every row and is then reused for that row, so the
+  simple fold-independence argument does not apply.
+- Chen, Syrgkanis & Austern (2022), [*Debiased machine learning without sample-splitting for stable
+  estimators*](https://arxiv.org/abs/2206.01825), arXiv:2206.01825. Algorithmic stability is an
+  alternative to honest splitting for orthogonal estimators. No leave-one-out stability or
+  near-tie margin has been proved for the package's discrete argmin.
+- Li, Qiu, Wang & van der Laan (2025), [*Regularized Targeted Maximum Likelihood Estimation in
+  Highly Adaptive Lasso Implied Working Models*](https://arxiv.org/abs/2506.17214),
+  arXiv:2506.17214, and Xu & van der Laan (2026), [*Adaptive Targeted Maximum Likelihood Estimation
+  of the Mean Potential Outcome under a Treatment Rule*](https://arxiv.org/abs/2605.01671),
+  arXiv:2605.01671, are recent adjacent adaptive-working-model results. They use explicit working
+  projections or regularized targeting rather than the shipped global candidate-depth selector.
+- Hahn & Ridder (2013), [*Asymptotic variance of semiparametric estimators with generated
+  regressors*](https://doi.org/10.3982/ECTA9609), *Econometrica* 81(1):315-340, DOI
+  10.3982/ECTA9609. The abstract derives the first-step contribution to the influence function
+  when a later regression uses an estimated regressor. This is the general accounting for a
+  generated design. It does not treat a targeted plug-in estimator.
+- Escanciano & Pérez-Izquierdo (2023), [*Automatic locally robust GMM with
+  machine-learning-generated regressors*](https://arxiv.org/abs/2301.10643), arXiv:2301.10643.
+  Read first-hand. Moment functions orthogonal to the second step remove the *indirect* first-step
+  effect, not the direct effect of learning the generated regressor. The paper constructs
+  corrections for both effects. Its generic GMM result does not imply that the outcome-adaptive
+  TMLE's generated-design contribution is zero.
+- Rotnitzky, Smucler & Robins (2021), [*Characterization of parameters with a mixed bias
+  property*](https://doi.org/10.1093/biomet/asaa054), *Biometrika* 108(1):231-238, DOI
+  10.1093/biomet/asaa054. The bias of the one-step estimator is the mean product of the two
+  nuisance errors. This entry records the abstract only. Nobody here has checked the
+  treatment-specific mean against the paper's characterization.
+- Christgau, Lundborg & Hansen (2025), [*Efficient adjustment for complex covariates: Gaining
+  efficiency with DOPE*](https://arxiv.org/abs/2402.12980), arXiv:2402.12980v2. Read first-hand.
+  The setup allows a finite treatment set and fixed contrasts of treatment-specific means.
+  Algorithm 1 learns an outcome-adapted representation, the outcome regression and propensity, and
+  the final AIPW estimate on three disjoint samples. Theorem 4.3 gives ordinary-influence-function
+  inference centered at the data-adaptive target conditional on the learned representation.
+  Proposition 4.4 shows that root-rate representation learning can add a first-order delta-method
+  variance for a fixed target. Appendix E gives a cross-fitted algorithm but states that the usual
+  proof does not apply directly because the fold oracle terms depend on estimated representations.
+  Thus the multi-arm setup is directly relevant, while the shipped shared-multinomial targeting and
+  fixed-target joint covariance remain outside the proved result.
+- Waagepetersen, Risom, Hansen & Lundborg (2026), [*Outcome-adapted Automatic Debiased Machine
+  Learning*](https://arxiv.org/abs/2607.03351), arXiv:2607.03351. Read first-hand. The paper
+  decomposes sampling and representation errors and proves sample-split asymptotics for an
+  outcome-adapted AutoDML estimator. Its worked treatment example is a binary ATE, and the authors
+  explicitly leave cross-fitting outside the theory because it introduces dependence across fold
+  representations. It sharpens the generated-representation boundary but does not cover the
+  shipped targeted, shared-multinomial construction.
 - The R `ctmle` 0.1.2 implementation at commit
   [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
   `R/ctmle_discrete.R` defines `ctmleDiscrete`, which the pinned selector-parity study calls
@@ -134,11 +297,69 @@ previous reader had is not a citation; a page number is.
   `ctmleGeneral`, `stage2_general`, and `cv_general`. No argument list in those four files takes
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
+  [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
+  adds a binary logistic parameter-estimation term to each candidate's ATE curve.
+  [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
+  forms the interval from that variance at `best_k`. Neither block differentiates the
+  cross-validated stopping rule.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
-  `R/LF_oat.R` fits categorical treatment on the complete vector of treatment-specific
-  outcome predictions; `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means.
-  This is the implementation source for `CTMLE(strategy="oat")`.
+  [`LF_oat`, lines 110-133](https://github.com/tlverse/ctmle3/blob/a4ea77b07747dfee9b2eecb9cbca88262e0559ea/R/LF_oat.R#L110-L133)
+  fits categorical treatment on the complete vector of treatment-specific outcome predictions.
+  `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means. This is the implementation
+  source for `CTMLE(strategy="oat")`, not a published inference derivation.
+- The `benkeser/drtmle` 1.1.2 implementation at commit
+  [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c)
+  supplies multi-arm provenance for the same generated design. Its `adapt_g` option is written by
+  an author of Benkeser, Cai and van der Laan (2020).
+  [`R/estimate.R`, lines 70-92](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L70-L92)
+  replaces the covariate frame with one column of outcome predictions for each level in `a_0`.
+  [`R/drtmle.R`, line 209](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L209)
+  defaults `a_0` to every observed level, so that design is not restricted to two arms.
+  [`R/drtmle.R`, lines 256-262](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L256-L262)
+  turns the extra targeting off under `adapt_g`. The reported covariance at
+  [`R/drtmle.R`, lines 775-820](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L775-L820)
+  is the sample covariance of the influence-curve matrix divided by `n`. The string `adapt_g`
+  appears in no
+  variance file. `R/inf_functions.R` and `R/confint.R` each contain zero occurrences. This source
+  supplies no generated-design variance term.
+- C-TMLE inference source audit (RM5, 2026-09-11): no reviewed source derives the exact
+  asymptotic law of the shipped selector or the full multi-arm outcome-adaptive construction. The
+  binary scalar outcome-adaptive construction has a positive theorem after the fold-nesting
+  correction described below. The shipped binary vector is a finite-dimensional extension whose
+  exact scalar expansions are not stated in the paper. The contracts carry those separate
+  verdicts.
+
+  The selector path has outer nuisance, selection, and inner selection-training folds. Its
+  pointwise and simultaneous intervals use a plug-in curve that treats the selected candidate as
+  fixed; no conditional-coverage claim follows. The oracle inequality bounds risk and supplies no
+  limit law. Leeb and Pötscher (2006) give a nonuniformity result in a different regression model,
+  while Markovic, Xia and Taylor (2017) require a joint Gaussian selection-and-statistic limit that
+  has not been shown here. Adaptive debiased machine learning supplies the closest positive
+  framework, but the package's selected depth has not been proved to approximate its required
+  fixed nonrandom oracle model. [F18](roadmap.md#f18-selector-path-c-tmle-inference) records the
+  resulting proof obligations.
+
+  The outcome-adaptive path selects no candidate. Benkeser, Cai and van der Laan (2020) prove a
+  binary treatment-specific-mean result, explicitly construct the binary vector-design ATE, and
+  outline a cross-validated form.
+
+  DOPE proves ordinary-curve inference for finite treatment sets after a three-way split,
+  conditional on the learned representation, and also identifies a possible first-order
+  representation term for a fixed target. Its cross-fitted extension is an algorithm without a
+  completed proof. Outcome-adapted AutoDML likewise proves sample-split, not cross-fitted,
+  inference. These results narrow the remaining multi-arm gap but do not cover the shipped
+  shared-multinomial, jointly targeted construction.
+  [F19](roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what stays open
+  past those regimes.
+
+  The 2026-09-11 corrective pass read the theorem text available from arXiv and PubMed Central for
+  van der Laan and Gruber (2010), Ju, Chambaz and van der Laan (2018), Benkeser, Cai and van der
+  Laan (2020), both Leeb and Pötscher impossibility papers, Loftus (2015), Markovic, Xia and Taylor
+  (2017), Cai and van der Laan (2020), adaptive debiased machine learning v2, DOPE v2,
+  outcome-adapted AutoDML, and Escanciano and Pérez-Izquierdo (2023). Entries still marked
+  abstract-only are context, not premises of the F18 or F19 verdicts. Source code was inspected at
+  the pinned commits above.
 
 ## Longitudinal, survival and marginal structural models
 

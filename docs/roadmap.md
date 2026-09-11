@@ -15,14 +15,20 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. RM5, RM7, and
-RM8 carry an open source audit.
+The "next action" column states the remediation work. It is not a readiness label. RM7 and RM8
+carry an open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Selection-aware C-TMLE inference | complete the source audit | the selected candidate is treated as fixed when the reported interval is formed | [RM5](#rm5-selection-aware-c-tmle-inference) |
-| 0.2 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
-| 0.3 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+| 0.1 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.2 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
+
+The source audit found no result for the shipped global selector or for the complete jointly
+targeted outcome-adaptive inference surface. Selector post-selection inference remains in
+[F18](#f18-selector-path-c-tmle-inference). The fold-local binary nuisance replacement now has
+direct support, while the finite-dimensional joint binary extension and shared-multinomial vector
+extension remain in
+[F19](#f19-outcome-adaptive-c-tmle-generated-design-inference).
 
 Four additional gaps already have full line items. Keep them there instead of creating duplicate
 contracts: competing-event intervention targets in [F3](#f3-additional-longitudinal-estimands), a
@@ -72,6 +78,8 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
 | Multi-arm missing-outcome DR-TMLE | arm-indexed observation, treatment, and outcome corrections, with a remainder and rate conditions | binary randomized treatment only | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | ordinary EIF plug-in covariance that treats the selected candidate as fixed | [F18](#f18-selector-path-c-tmle-inference) |
+| Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | ordinary adaptive-propensity EIF covariance with a proved binary scalar construction and open joint-target extensions | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -118,7 +126,7 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. RM5, RM7, and RM8 hold the remaining remediation audits.
+records completed studies. RM7 and RM8 hold the remaining remediation audits.
 Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
 that audit supports the planned variance construction. Longitudinal sensitivity-bound estimation
 remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -127,22 +135,6 @@ remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 The sections below group contracts by subsystem. Their physical order does not override the main
 grid.
-
-### RM5. Selection-aware C-TMLE inference
-
-Audit the published C-TMLE theory against the exact greedy and outcome-adaptive selectors that the
-package ships. The candidate source is van der Laan and Gruber (2010), listed under
-[collaborative TMLE](references.md#collaborative-tmle). The
-[collaborative TMLE entry](technical-reference/collaborative-tmle.md) records that its
-adaptive-mechanism influence contribution has no validated selected-multinomial counterpart here.
-Implement no correction until a source covers the selected candidate, its nested fold use, and the
-reported influence curve. If no source covers a selector, keep its present conditional interval
-and move that selector's correction to the future grid.
-
-A supported construction must propagate selection through pointwise and simultaneous inference.
-It must retain the selected path and state when post-selection uncertainty is negligible.
-Acceptance needs a nonzero selection witness and repeated-sampling coverage where selection changes
-the chosen candidate. A fixed-candidate control must reduce to the current interval.
 
 ### RM7. Missing-outcome natural-course mean
 
@@ -495,7 +487,177 @@ assumptions match the supported data. The result must specify which rows may tra
 and which asymptotic argument licenses the interval. Ordered indices passed through iid fold
 machinery are not sufficient.
 
-## DR-TMLE investigation contracts
+## Collaborative and DR-TMLE investigation contracts
+
+### F18. Selector-path C-TMLE inference
+
+Keep the greedy, ordered, and discrete intervals labelled as fixed-candidate plug-in intervals.
+Each fit uses the ordinary EIF covariance after it selects one candidate. That computation does
+not establish conditional-on-selection or unconditional post-selection coverage.
+
+Van der Laan and Gruber (2010), Section 4, derive an abstract adaptive-mechanism contribution under
+fixed-limit and regularity assumptions. Their candidate-selection discussion does not derive the
+influence function after the shipped stopping-index procedure selects a candidate.
+
+Ju et al. (2018) permit a continuous-path contribution, but their Lemma 2 makes it zero in one
+correct-outcome, product-rate regime. Their derivative equations and undersmoothing conditions do
+not describe a discrete stopping index. Ju et al. (2019) report ordinary EIF intervals for binary
+ATE fits. The
+[source audit](references.md#collaborative-tmle) records the exact limits.
+
+Four further sources bound the available routes. The cross-validation oracle inequality controls
+selector risk but supplies no limit law. Leeb and Pötscher rule out locally uniform distribution
+estimation in finite-dimensional regression model selection, conditionally in 2006 and
+unconditionally in 2008; nobody has transferred either theorem to this selector. Loftus (2015)
+handles squared-error cross-validation when a Gaussian regression selection event is quadratic.
+Markovic, Xia and Taylor (2017) give selective pivots when the criterion vector and target
+statistics have a joint asymptotic Gaussian law, optionally after randomization. The shipped
+targeted-loss selector has neither the required quadratic Gaussian reduction nor a randomized or
+joint-Gaussian criterion-and-target result.
+
+Adaptive debiased machine learning is the closest positive route. Its v2 theorem permits
+model-based inference after selection when the learned working model approximates a fixed oracle
+model and the stated approximation and remainder conditions hold. For a cross-validated sieve,
+the limiting dimension must exist and be nonrandom. The package instead selects one global depth
+from nested targeted-loss folds. A proof must establish that this depth and its induced model meet
+those conditions.
+
+The oracle projection's efficiency bound is typically, not invariably, smaller
+than the nonparametric bound. Applicability could therefore ratify the current curve or require a
+different one; it does not predetermine the covariance verdict.
+
+Read data-adaptive-target inference as a second option. Honest splitting permits arbitrary target
+generation; the same-sample theorem instead needs a uniform expansion, Donsker control, and
+influence-curve convergence. Both concern a data-adaptive estimand rather than automatically the
+fixed target reported by the package. The shipped selector builds its path on the full sample and
+picks one global index without checking either regime.
+
+A direct positive route needs no selector influence term. If every candidate has the uniform
+vector expansion
+
+$$
+\widehat\psi_{n,k}-\psi_0=(P_n-P_0)D_0+r_{n,k},\qquad
+\max_{k\leq K_n}\lVert r_{n,k}\rVert=o_p(n^{-1/2}),
+$$
+
+with the same deterministic influence curve $D_0$, substitution of any data-dependent
+$\widehat k$ preserves that expansion. For a fixed target-vector dimension, and therefore a fixed
+number of treatment arms, uniform covariance consistency then validates the ordinary vector EIF
+covariance by Cramér--Wold. Growing dimension would instead require a high-dimensional Gaussian
+approximation. This elementary extension is plausible when every candidate converges fast enough
+to the same nuisance limits, but it is not automatic under one-sided robustness where candidate
+propensity limits and influence curves may differ.
+
+A second route is selector stability: a unique oracle candidate, a risk margin, uniform risk
+convergence, and stability of the learned covariate identity at a given depth reduce the fit to a
+fixed candidate with probability tending to one. An oracle risk inequality alone proves none of
+those facts; Shao's linear-model result is a concrete warning that prediction-efficient fixed-fold
+cross-validation need not consistently select a model. A third route is a construction change:
+select depth wholly within each outer training fold, then evaluate only on its held-out rows.
+Standard orthogonal-score arguments can then treat the complete selector as a nuisance-learning
+algorithm, subject to its rate conditions. The current global risk aggregation does not have that
+independence.
+
+Accept a result only when it covers the selected index and the selector's three split layers.
+Those layers are outer nuisance folds, selection folds, and inner selection-training folds. The
+result must establish whether the current curve suffices or an additional contribution is
+required. It must state its remainder, rate conditions, and covariance for every supported target
+vector. Learner folds and repeat draws are separate split layers.
+
+Treat analysis regimes as separate proof cells rather than automatic transports of the first
+selector result. An iid, complete-outcome, unweighted, unstratified, single-repeat result certifies
+only that cell.
+
+Missing-outcome fits additionally need the response-mechanism terms. Fixed probability weights
+need a declared weighted empirical-law result. Estimated weights also need their first-stage
+influence contribution.
+
+Cluster-robust fits need a cluster-level expansion. Stratified estimates need stratum-specific
+expansions and their joint covariance. Repeated cross-fitting needs the package's median and
+split-dispersion aggregation. Keep each extension reporting-only until its result and
+repeated-sampling evidence are registered here.
+
+One structural point governs the multi-arm case. The package picks one stopping index for every
+arm together. Any non-negligible selection contribution is driven by that shared rule but may
+enter each estimand through a different sensitivity. Its full vector influence function and its
+cross-covariance with the ordinary EIF are needed before changing the covariance or simultaneous
+critical value. A per-arm copy of a binary correction does not generally recover those terms. The
+selection criterion also reduces a target vector to one scalar risk, and any derivation must
+differentiate that reduction.
+
+If the result requires a new contribution, propagate it through pointwise and simultaneous
+inference. Acceptance needs a fixed-candidate reduction and repeated-sampling coverage where the
+chosen candidate changes. Retain each repeat's path and selected index, and define how selection
+enters the repeated estimate. Use an independently calibrated rule before stating that selection
+uncertainty is negligible.
+
+### F19. Outcome-adaptive C-TMLE generated-design inference
+
+Outcome-adaptive C-TMLE selects no candidate. It fits the categorical treatment mechanism on the
+estimated vector of arm-specific outcome predictions. The current interval uses ordinary
+adaptive-propensity EIF plug-in covariance. The cross-fitted implementation now follows the
+paper's fold-local nuisance nesting: one outcome model fitted on fold `v`'s training rows creates
+both sides of that fold's generated design, the adaptive propensity is fitted only on its training
+side, and both nuisances are evaluated on its held-out side. Under the paper's six regularity
+conditions, the ordinary adaptive-propensity curve needs no extra first-order generated-design
+term for one binary treatment-specific mean. Appendix D constructs a binary ATE with both arm
+predictions and one signed fluctuation coefficient, and outlines pooled-validation CV-C-TMLE.
+
+The archived `ctmle3` source supplies implementation provenance but no inference derivation.
+Benkeser, Cai and van der Laan (2020) prove a binary treatment-specific-mean result under explicit
+score, rate, smoothness, and empirical-process conditions. Appendix D explicitly uses both binary
+arm predictions in one adaptive propensity for the ATE and sketches a cross-validated C-TMLE. The
+generated design is therefore part of that paper rather than an omitted nuisance.
+
+The package instead jointly targets both arm means with two fluctuation columns and derives means,
+ATE, RR, and OR from that fit. A fixed-dimensional Cramér--Wold extension would be elementary once
+the scalar expansions for that exact shared design and fluctuation were established, but the paper
+does not state those expansions. Its model is also iid, complete-outcome, and unweighted.
+
+The implementation previously cross-fit the adaptive propensity on globally assembled out-of-fold
+outcome predictions. A propensity-training feature could then depend on outcomes from that
+propensity fold's evaluation rows. The fold-local replacement removes that path and has a mutation
+test that changes every evaluation outcome without moving either nuisance on those rows.
+
+The `drtmle` `adapt_g` option supplies multi-arm implementation provenance and reports ordinary
+influence-curve covariance, but it is not a multi-arm inference theorem.
+
+Two newer frameworks sharpen that boundary. DOPE allows a finite treatment set and fixed
+contrasts, and Theorem 4.3 proves ordinary-influence-function inference centered at a
+data-adaptive target conditional on a representation learned on an independent sample.
+Proposition 4.4 shows that root-rate representation learning can instead add a first-order
+delta-method variance when inference is for a fixed target. Its appendix gives a cross-fitted
+algorithm but explicitly leaves the dependent fold-oracle proof open. Outcome-adapted AutoDML
+also decomposes sampling and representation errors and proves a sample-split result; it does not
+prove the cross-fitted construction. Neither result covers this package's same-fold design and
+mechanism fitting, shared multinomial propensity, joint targeting, and simultaneous covariance.
+
+Generic generated-regressor orthogonality does not close the gap. Escanciano and
+Pérez-Izquierdo (2023) show that second-step orthogonality removes the indirect first-step effect,
+while the direct effect of learning the generated regressor remains and may require correction. A
+mixed-bias nuisance-product remainder is likewise not the first-order expansion of a learned
+representation. Whether the ordinary curve suffices must be derived for this estimator and target,
+not inferred from either generic result.
+
+Five items stay open. State each verdict separately.
+
+| open item | what a result must settle |
+| --- | --- |
+| one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters the mechanism of every other arm |
+| vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
+| uniformity | the estimator is deliberately superefficient, so a pointwise limit law does not give locally uniform coverage |
+| the registered measurement | at `n = 1,000`, the point-treatment generated-design pair resolves a finite-sample standard-error-ratio deficit under a correct outcome regression without showing invalid coverage. The binary OAT study passes 13 of 14 property cells. Its sharp-null cell is red: the 99% rejection upper endpoint is 0.1008 against 0.10, and the coverage lower endpoint is 0.8992 against 0.90. The multi-arm pair does not resolve a deficit, and the multi-arm study passes 9 of 12 property cells. None of these results identifies a first-order term |
+| transport beyond the source law | missing-outcome fits need the response-mechanism expansion. Fixed probability weights need a weighted empirical-law result; estimated weights also need a first-stage contribution. Cluster-robust and stratified fits need dependence- and stratum-specific expansions. Repeated cross-fitting needs a result for the package's median and split-dispersion aggregation |
+
+Accept a result only when it covers the exact cross-fitted, multi-arm construction and distinguishes
+a fixed target from a target conditional on the learned design. It must establish whether the
+current curve suffices or an additional representation contribution is required. The result must
+cover the requested joint means or contrasts and their covariance. It must also state its
+remainder and nuisance-rate conditions, and it must state a uniformity claim.
+
+If the result requires a new contribution, propagate it through pointwise and simultaneous
+inference. Acceptance needs a fixed-design reduction, a generated-design comparison, and
+registered coverage evidence for every claimed treatment and target dimension.
 
 ### F4. Multi-arm missing-outcome DR-TMLE
 

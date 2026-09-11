@@ -56,7 +56,7 @@ outcome-adaptive design.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9635 to 1.0923 | **fail** |
+| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9669 to 1.0969 | **fail** |
 | `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9719 to 1.1046 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9343 to 0.9630, SE ratio 0.9650 to 1.0553 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
@@ -115,6 +115,8 @@ This row has reporting policy, so its red cells publish. The generated-design pa
 resolve: the oracle design's SE-ratio interval leaves the calibration band, and the estimated
 design showed no measurable deficit against it. The n = 500 coverage bound also misses the floor.
 The row therefore prices no cost for estimating the treatment design.
+[F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what a
+source must settle before that changes.
 
 The archived R comparison requires numeric arm codes because of its counterfactual-prediction
 adapter. The study covers one binary-outcome law, ordinary GLM nuisance fits, pointwise intervals,

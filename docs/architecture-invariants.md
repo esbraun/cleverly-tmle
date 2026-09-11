@@ -81,9 +81,10 @@ fixed default preset, which is a declaration rather than a choice. What is exclu
 estimator by scanning `available_methods()`, or by comparing fits on the rows being estimated. The
 temptation grows with the catalog. `riesz_tmle` and `ep` already appear there as
 unavailable-with-reason, so a "use the best available method" convenience is one short function
-away. It would report an interval whose selection step nothing certified and whose influence
-curve does not account for it. *Reconsider when* a published selector supplies its own influence
-contribution and selection-aware inference, and certifies on draws that did not do the selecting.
+away. It would report an interval whose post-selection coverage nothing certified and for which no
+selection contribution, common-influence-curve reduction, or stable-oracle reduction had been
+derived. *Reconsider when* a published selector supplies selection-aware inference and certifies
+on draws that did not do the selecting.
 
 Identification is complete before nuisance fitting. Unsupported estimand/design/provider/method
 combinations fail at that boundary with a capability reason; a placeholder may not produce an
