@@ -17,7 +17,12 @@ previous reader had is not a citation; a page number is.
 ## Targeted learning, in general
 
 - van der Laan & Rubin (2006), [*Targeted Maximum Likelihood Learning*](https://doi.org/10.2202/1557-4679.1043),
-  DOI 10.2202/1557-4679.1043.
+  DOI 10.2202/1557-4679.1043. Read first-hand. Sections 1 and 3 treat a pathwise differentiable
+  Euclidean parameter and a submodel whose scores span every influence-curve component. Section
+  4.2, article pages 24–25, gives the expansion, remainder, Donsker, and $L_2$ conditions. Section
+  5.1, article pages 27–28, treats CAR-censored parameters. Its Equation (11) is the targeted influence-curve
+  equation after the observed-data curve is known. It does not derive RM8's missing-outcome curve
+  or response transfer.
 - Díaz Muñoz & van der Laan (2012), [*Population Intervention Causal Effects Based on
   Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), DOI
   10.1111/j.1541-0420.2011.01685.x.
@@ -74,12 +79,16 @@ previous reader had is not a citation; a page number is.
 
 - Hubbard & van der Laan (2008), [*Population intervention models in causal
   inference*](https://doi.org/10.1093/biomet/asm097), *Biometrika* 95(1):35–47.
-  [Section 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC2464276/) defines intervention-minus-observed
-  differences and intervention-to-observed ratios. Section 3 treats one fixed intervention and
-  includes the observed-outcome contribution in Equations (5) and (6).
-  `cleverly` reports the reversed difference as PAR and the ratio's complement as PAF.
-  These are the existing population-intervention parameters, evaluated anew after each
-  simulated-confounding perturbation. The paper supplies no simulated-confounding inference.
+  Read first-hand in the [author manuscript](https://pmc.ncbi.nlm.nih.gov/articles/PMC2464276/).
+  Section 2 declares complete iid observations $O=(W,A,Y)$. Equation (2) defines
+  intervention-minus-observed differences and intervention-to-observed ratios. Section 3 treats
+  one fixed intervention. Equations (3)–(6) add the observed-outcome contribution to the
+  intervention score. Section 4.4 treats relative risk. Section 4.6 and the Appendix give
+  influence-curve covariance and asymptotic inference.
+
+  `cleverly` reverses the paper's difference for PAR. It takes one minus the paper's ratio for PAF.
+  The paper contains no response indicator, response propensity, or MAR targeting equation. It
+  also supplies no simulated-confounding inference.
 - Díaz, Carone & van der Laan (2016), [*Second-Order Inference for the Mean of a Variable Missing
   at Random*](https://doi.org/10.1515/ijb-2015-0031), *International Journal of Biostatistics*
   12(1):333–349 ([author manuscript](https://arxiv.org/abs/1511.08369)). Read first-hand.
@@ -106,14 +115,43 @@ previous reader had is not a citation; a page number is.
   [ordinary-TMLE contract](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
   It does not cover population attributable risk, population attributable fraction, or the
   [cross-fitted successor](roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean).
+- Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
+  in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
+  in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
+  first-hand. Sections 2.1–2.2 state the observed-data model, identification assumptions, and
+  positivity conditions. Section 3, Equation (1), gives the treatment-by-response influence
+  curve. Equation (3) gives the logistic TMLE. Conditions 1–2 and Equations (4)–(5) give its
+  product-rate conditions.
+
+  The paper fixes a randomized binary treatment. It does not establish the package's observational
+  attributable-effect pair. Hubbard and van der Laan supply the complete-data treatment mechanism.
+  The reviewed sources do not supply its joint observational response transfer.
 - R `tmle3` at commit `ed72f8a`,
-  [`R/tmle3_Spec_PAR.R`, lines 20–27](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L27),
-  combines a treatment-specific mean with a natural-course mean.
+  [`R/tmle3_Spec_PAR.R`, lines 20–42](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_PAR.R#L20-L42),
+  combines a treatment-specific mean with a natural-course mean. It declares $O=(W,A,Y)$.
   The file [`R/delta_functions.R`, lines 18–25 and 66–78](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/delta_functions.R#L18-L78)
   gives PAR as observed-minus-intervention and PAF as one minus intervention/observed.
   Its PAF interval transforms a log contrast. The `cleverly` fraction uses the identity scale,
   including for descriptive simulated-confounding displacement. The existing canonical study
-  records that interval distinction; this surface adds no interval claim.
+  records that interval distinction.
+
+  [`R/Param_mean.R`, lines 49–72](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_mean.R#L49-L72)
+  uses $Y-\psi$ and requests no update nodes. It has no response score or respondent residual.
+  Therefore, `tmle3` is a complete-data reduction comparator rather than RM8 derivation evidence.
+- Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
+  exact MAR PAR and PAF construction. [RM8](roadmap.md#rm8-missing-outcome-attributable-effects)
+  records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
+  holds the missing published result.
+
+  Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
+  Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
+  Díaz and van der Laan give the treatment-by-response parent under randomized treatment. Van der
+  Laan and Rubin govern finite-dimensional targeting only after the observed-data curve is known.
+
+  None derives the package's observational natural-course and reference pair under an additional
+  response process. The audit therefore cannot fix its joint curve, targeting equations,
+  remainder, rate conditions, or covariance by citation. Package and comparator code do not remove
+  that stop.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
