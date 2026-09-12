@@ -828,16 +828,22 @@ class NaturalCourseMean:
     With complete outcomes this is the empirical mean of ``Y``. It reads the observed
     law alone, so it estimates no nuisance and makes no exchangeability assumption.
 
-    With a declared ``missingness=``, the same target is ``E[m(A, W)]``, where
-    ``m(A, W) = E(Y | Delta = 1, A, W)``. The complete-case mean is a different
-    parameter. This form estimates the outcome regression and the response mechanism,
-    and still estimates no treatment mechanism. It needs missingness at random given
-    ``(A, W)`` and response positivity. See
+    When some outcome is actually missing and ``missingness=`` is declared, the same
+    target is ``E[m(A, W)]``, where ``m(A, W) = E(Y | Delta = 1, A, W)``. The
+    complete-case mean is a different parameter. That form estimates the outcome
+    regression and the response mechanism, and still estimates no treatment mechanism.
+    It needs missingness at random given ``(A, W)`` and response positivity. See
     :doc:`observed-data extensions </technical-reference/point-treatment-tmle>` for the
     supported compositions, which are deliberately narrow: one scalar ordinary TMLE,
     binary treatment, no cross-fitting, no repeats, and either a binary outcome or a
     bounded continuous outcome with declared ``q_bounds``. Every other composition
     refuses before any learner is fitted.
+
+    Which of the two forms runs is settled by the data, not by the declaration. An
+    observation indicator that is one on every row leaves nothing missing, so the fit
+    takes the complete-outcome branch above and the narrow boundary does not apply to
+    it. The two agree there: with no missing outcome the empirical mean *is*
+    ``E[m(A, W)]``.
     """
 
     name: str = field(default="ey_obs", init=False)

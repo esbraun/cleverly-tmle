@@ -18,13 +18,19 @@ different: an observation mask, a requested estimand list, and one identified ta
 What they share is the message, so this module builds the error and the caller raises it.
 
 The natural-course mean's own name, its fit predicate and the two refusals that name it
-live here for the same reason.  Five modules across four subpackages ask "is this the
-missing-outcome natural-course fit?" -- the estimator, the assessment facade, the
-positivity report, the missingness tilt and the nuisance diagnostics.  This module
-imports only :mod:`cleverly.exceptions`, so every one of them can reach it at module
-scope, which the previous home under :mod:`cleverly.sensitivity` could not offer: that
-package's ``__init__`` imports :mod:`cleverly.assessment`, so an assessment-side import
-of it had to be written three times inside functions to break the cycle.
+live here for the same reason.  Three modules import them -- :mod:`cleverly.assessment`,
+:mod:`cleverly.sensitivity.positivity` and :mod:`cleverly.sensitivity.missingness` --
+and they sit in three different subpackages.  This module imports only
+:mod:`cleverly.exceptions`, so each one reaches it at module scope, which the previous
+home under :mod:`cleverly.sensitivity` could not offer: that package's ``__init__``
+imports :mod:`cleverly.assessment`, so an assessment-side import had to be written three
+times inside functions to break the cycle.
+
+Two readers deliberately do not import from here.  The estimator asks
+``_is_natural_course`` before any nuisance exists, and the nuisance diagnostics ask
+:attr:`~cleverly.estimators._nuisance.NuisanceEstimates.fits_treatment` after the fit.
+Those are the same question at two times, and neither can be answered by a predicate
+that reads a finished result.
 """
 
 from __future__ import annotations
@@ -43,8 +49,9 @@ __all__ = [
     "population_intervention_refusal",
 ]
 
-#: The natural-course mean's estimand name, written once so the string is not respelled
-#: at the eight sites that test for it.
+#: The natural-course mean's estimand name, for the modules that test for it rather
+#: than merely mention it.  Other spellings of the literal remain, in registries and in
+#: messages; this constant exists so that a *predicate* never respells it.
 NATURAL_COURSE_TARGET = "ey_obs"
 
 NATURAL_COURSE_TILT_REFUSAL = (
@@ -52,9 +59,13 @@ NATURAL_COURSE_TILT_REFUSAL = (
     "natural-course sensitivity parameter, which is not implemented"
 )
 
+#: Why the arm-propensity support report is unavailable, not merely inapplicable: a
+#: response-only overlap report could be written and has not been.
+#: ``docs/architecture-invariants.md`` separates the two words, and the capability row
+#: this sentence fills carries ``UNAVAILABLE``.
 NATURAL_COURSE_SUPPORT_REFUSAL = (
-    "NaturalCourseMean with missing outcomes fits no treatment propensity, so the "
-    "arm-propensity support report is not applicable; inspect the missingness row from "
+    "NaturalCourseMean with missing outcomes fits no treatment propensity, and a "
+    "response-only support report is not implemented; inspect the missingness row from "
     "diagnostics.nuisance_models() and the targeting score instead"
 )
 

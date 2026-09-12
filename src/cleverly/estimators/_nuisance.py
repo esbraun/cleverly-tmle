@@ -569,13 +569,18 @@ class NuisanceEstimates:
     def fits_treatment(self) -> bool:
         """Whether a treatment mechanism was estimated at all.
 
-        The one predicate seven readers share, rather than seven ``isinstance`` tests
-        against a private staging class: the summary line that names the propensity
-        bound, the positivity warning, the support report, the truncation curve and the
-        three nuisance-diagnostic rows all need the same fact.  Written here because
-        this container is the only object that holds the answer, and because a reader
-        that has to import :class:`UnfittedPropensity` to ask the question is a reader
-        that can also accidentally construct one.
+        The one predicate six readers share, rather than six ``isinstance`` tests
+        against a private staging class: the positivity warning, the support report, the
+        truncation curve's default axis and its refusal, and two nuisance-diagnostic
+        rows all need the same fact.  Written here because this container is the only
+        object that holds the answer, and because a reader that has to import
+        :class:`UnfittedPropensity` to ask the question is a reader that can also
+        accidentally construct one.
+
+        The summary line that names the propensity bound reads
+        :attr:`~cleverly.estimators.base.TMLEConfig.fits_treatment` instead.  That is
+        the same fact recorded at fit time, because a result read back from disk has a
+        config and need not still have nuisances.
         """
         return not isinstance(self.propensity, UnfittedPropensity)
 

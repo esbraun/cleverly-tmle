@@ -2308,6 +2308,14 @@ class DiagnosticsFacade(_CapabilityFacade):
                 "diagnostics.support(), or pass mechanism=True when a separate observation "
                 "mechanism was fitted"
             )
+        # Raised here for the reason stated above, rather than left to the module-level
+        # call inside ``compute``: that one would refuse only on a cache miss.
+        if not longitudinal and not mechanism and not self._result.nuisance.fits_treatment:
+            raise CapabilityError(
+                "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+                "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
+                "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
+            )
         # The longitudinal call takes no ``None``, and the refusal above is eager, so the
         # empty fallback here is unreachable on that path.
         grid: Sequence[CumulativeGBounds] = () if bounds is None else bounds

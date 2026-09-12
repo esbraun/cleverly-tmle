@@ -932,12 +932,20 @@ class TMLE:
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
         population_intervention = POPULATION_INTERVENTION_TARGETS.intersection(estimands)
+        # ``ey_obs`` shares ``par`` and ``paf``'s fate beside either declaration, but no
+        # longer their set: its missing-outcome score equation is implemented and theirs
+        # are not.  It has to rejoin them *here*, because ``estimands="all"`` asks for
+        # whatever the data supports rather than for a named list, and dropping a target
+        # the composition cannot express is what that request means.  Refusing instead
+        # would make ``estimands="all"`` fail on a design that worked before ``ey_obs``
+        # left the set.  An explicit list still refuses, below.
+        droppable = population_intervention | ({NATURAL_COURSE_TARGET} & set(estimands))
         if (
-            population_intervention
+            droppable
             and self.estimands == "all"
             and (data.has_missing_outcome or data.has_intermediate)
         ):
-            estimands = tuple(name for name in estimands if name not in population_intervention)
+            estimands = tuple(name for name in estimands if name not in droppable)
             population_intervention = frozenset()
         if population_intervention and data.has_missing_outcome:
             raise population_intervention_refusal(population_intervention, declaration="delta=")

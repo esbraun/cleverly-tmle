@@ -247,3 +247,53 @@ def test_ey_obs_beside_an_intermediate_refuses_on_a_complete_outcome() -> None:
             covariates=("W",),
             intermediate="Z",
         )
+
+
+def test_all_estimands_beside_an_intermediate_drops_ey_obs_rather_than_refusing() -> None:
+    """``estimands="all"`` asks for what the data supports, so it drops rather than fails.
+
+    The refusal above must not reach this path. ``all`` named no target, so a
+    composition it cannot express is a target to leave out, exactly as ``par`` and
+    ``paf`` are left out. Refusing here would break a design that worked before
+    ``ey_obs`` left ``POPULATION_INTERVENTION_TARGETS``, which is the shape of the
+    regression the refusal above repairs.
+    """
+    frame = _frame()
+    frame = frame.assign(Y=frame["Y"].fillna(0.0), Z=(np.arange(len(frame)) % 2).astype(float))
+    result = (
+        fast_tmle(estimands="all", cross_fit=False)
+        .fit(frame, outcome="Y", treatment="A", covariates=("W",), intermediate="Z")
+        .get(0.0)
+    )
+    assert result is not None
+    reported = set(result.estimates)
+    assert "ey_obs" not in reported
+    assert not reported & {"par", "paf"}
+    # It still reported the targets the composition does express, so the drop is a
+    # narrowing and not a silent empty fit.
+    assert {"ate", "ey1", "ey0"} <= reported
+
+
+def test_the_summary_names_the_propensity_bound_only_when_a_propensity_was_fitted() -> None:
+    """The witness for ``TMLEConfig.fits_treatment``.
+
+    Deleting the guard leaves every other test green, because the line it suppresses
+    is only wrong on the one fit that estimates no treatment mechanism. Both halves
+    are asserted here: an ordinary fit must keep the line, and this one must not,
+    so neither a missing guard nor an always-on one passes.
+    """
+    missing = _fit(_frame()).single()
+    assert not missing.config.fits_treatment
+    assert "propensity truncated" not in missing.summary()
+    # It still names the mechanism it did bound, so the suppression is narrow.
+    assert "P(Delta=1|A,W)" in missing.summary()
+
+    complete = _frame()
+    complete = complete.assign(Y=complete["Y"].fillna(0.0))
+    ordinary = (
+        fast_tmle(cross_fit=False)
+        .fit(complete, outcome="Y", treatment="A", covariates=("W",))
+        .single()
+    )
+    assert ordinary.config.fits_treatment
+    assert "propensity truncated" in ordinary.summary()

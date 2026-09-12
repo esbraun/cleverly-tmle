@@ -1323,8 +1323,12 @@ def truncation_curve(
         raise CapabilityError(
             "truncation_curve needs the fitted estimator that produced the result"
         )
-    # Resolved the same way the facade resolves it, so one operation does not have two
-    # defaults depending on which of its two public spellings the caller reached for.
+    # Resolved so that one operation does not have two defaults depending on which of
+    # its two public spellings the caller reached for.  The facade asks the *result*
+    # whether it is a natural-course fit; this asks the nuisances whether a treatment
+    # mechanism exists, because a module-level caller can hold a result the facade's
+    # estimand-name test would not recognise.  The two agree wherever both can run: a
+    # finished result carries an unfitted propensity only on this target.
     if mechanism is None:
         mechanism = not result.nuisance.fits_treatment
 
@@ -1343,11 +1347,15 @@ def truncation_curve(
     # Refused here rather than left to `Propensity.truncate`, which would raise a bare
     # `ValueError` naming an internal staging invariant -- and only after the whole grid
     # had been retargeted once.  The caller's mistake is naming an axis this fit does
-    # not have, so the message names the axis it does.
+    # not have, so the message names the axis it does.  It is written here rather than
+    # reusing the support report's sentence: that one sends the reader to
+    # `nuisance_models()` *instead*, which is the wrong next step for a caller who can
+    # have this very curve by changing one argument.
     if not mechanism and not result.nuisance.fits_treatment:
         raise CapabilityError(
-            f"{NATURAL_COURSE_SUPPORT_REFUSAL}; pass mechanism=True to sweep the bound "
-            "on P(Delta = 1 | A, W), which is the only mechanism this fit truncates"
+            "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+            "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
+            "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
         )
 
     def pair_for(lower: float) -> tuple[float, float]:
