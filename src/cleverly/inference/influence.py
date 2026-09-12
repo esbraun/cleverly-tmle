@@ -80,6 +80,7 @@ __all__ = [
     "median_estimates",
     "missing_outcome_correction_parts",
     "msm_coefficients",
+    "natural_course_mean",
     "ratio_estimates",
     "reduced_correction_parts",
     "reduced_corrections",
@@ -438,6 +439,31 @@ class ArmMean(NamedTuple):
 
     psi: float
     influence_curve: FloatArray
+
+
+def natural_course_mean(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray,
+) -> ArmMean:
+    r"""The MAR natural-course mean and efficient influence curve.
+
+    .. math::
+
+        \hat\psi = P_n m^*(A,W), \qquad
+        D^*(O) = \frac{\Delta}{\pi(A,W)}\{Y-m^*(A,W)\}+m^*(A,W)-\psi.
+
+    No treatment mechanism appears: the plug-in integrates over the empirical joint
+    distribution of ``(A, W)`` rather than substituting a fitted treatment law.
+    """
+    _expect(submodel, "natural_course")
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    prediction = np.asarray(targeted.observed, dtype=float)
+    psi = float(np.average(prediction, weights=w))
+    residual = _residual(outcome, targeted, observed)
+    return ArmMean(psi, w * (submodel.observed[:, 0] * residual + prediction - psi))
 
 
 def counterfactual_means(

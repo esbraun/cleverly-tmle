@@ -175,6 +175,13 @@ def functional(probs: Any, estimand: str) -> Any:
     observed = p[:, :, OBSERVED_ZERO] + p[:, :, OBSERVED_ONE]  # P(W = w, A = a, Delta = 1)
     q = p[:, :, OBSERVED_ONE] / observed  # E[Y | A = a, Delta = 1, W = w]
 
+    # The natural-course mean keeps the empirical joint law of (A, W), rather than
+    # replacing A by an intervention or by a fitted treatment mechanism.  Keeping this
+    # branch in the observed-data oracle is the non-circular statement of the target:
+    # Qbar is learned among respondents, while every row contributes to the marginal.
+    if estimand == "ey_obs":
+        return (p_wa * q).sum()
+
     psi_one = (p_w * q[:, 1]).sum()
     psi_zero = (p_w * q[:, 0]).sum()
 
@@ -258,10 +265,36 @@ TRUTH = {
         "or",
         "att",
         "atc",
+        "ey_obs",
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
     )
 }
+
+
+def complete_frame() -> pd.DataFrame:
+    """An exact complete-outcome realization of this law's ``(W, A, Y)`` margin.
+
+    The constants were selected so each full-data cell has an integer count at
+    :data:`N`.  ``Delta`` is retained and equals one everywhere, which exercises the
+    declared-response limit rather than silently switching to a different input schema.
+    """
+    rows: list[tuple[float, float, float]] = []
+    for w in range(3):
+        for a in range(2):
+            arm = G[w] if a == 1 else 1.0 - G[w]
+            base = P_W[w] * arm
+            for y in range(2):
+                outcome = Q[w, a] if y == 1 else 1.0 - Q[w, a]
+                count = round(N * base * outcome)
+                if not np.isclose(count, N * base * outcome):  # pragma: no cover - constants
+                    raise AssertionError("the complete-data cell is not an integer count")
+                rows.extend([(float(w), float(a), float(y))] * count)
+    frame = pd.DataFrame(rows, columns=("W", "A", "Y"))
+    frame["Delta"] = 1.0
+    if len(frame) != N:  # pragma: no cover - declaration guard
+        raise AssertionError("the complete-data cells do not sum to N")
+    return frame
 
 
 def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30) -> float:

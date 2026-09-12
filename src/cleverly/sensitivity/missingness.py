@@ -56,6 +56,10 @@ import numpy as np
 from .._typing import FloatArray
 from ..exceptions import CapabilityError
 from ..inference.delta import normal_ci
+from ..targets.population_intervention import (
+    NATURAL_COURSE_TILT_REFUSAL,
+    is_natural_course_fit,
+)
 from ..utils.bounds import expit, logit
 from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
@@ -84,6 +88,11 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
 )
 
 
+def _refuse_natural_course(result: TMLEResult) -> None:
+    if is_natural_course_fit(result):
+        raise CapabilityError(NATURAL_COURSE_TILT_REFUSAL)
+
+
 def missingness_tilt(
     result: TMLEResult,
     gamma: Sequence[float] | None = None,
@@ -97,6 +106,10 @@ def missingness_tilt(
     ``gamma[<level>]`` column per arm giving the tilt that arm received -- equal to
     ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
+
+    Refuses a missing-outcome ``NaturalCourseMean`` fit.  The tilt above is arm-specific,
+    and that target is not indexed by arm, so it needs a natural-course sensitivity
+    parameter that is not implemented.
 
     Parameters
     ----------
@@ -123,6 +136,7 @@ def missingness_tilt(
         One row per ``(gamma, estimand)``, with one ``gamma[<level>]`` column per
         arm giving the tilt that arm received.
     """
+    _refuse_natural_course(result)
     data = result.data
     if not data.has_missing_outcome:
         raise CapabilityError(
@@ -338,6 +352,9 @@ def tipping_gamma(
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
     by different amounts.
 
+    Refuses a missing-outcome ``NaturalCourseMean`` fit, for the reason
+    :func:`missingness_tilt` gives: it searches over that same arm-specific tilt.
+
     Parameters
     ----------
     result : TMLEResult
@@ -360,6 +377,7 @@ def tipping_gamma(
         The tilt at which the conclusion reaches its null, or ``None`` when no tilt
         inside ``search`` does.
     """
+    _refuse_natural_course(result)
     from scipy import optimize
 
     def deviation(value: float) -> float:

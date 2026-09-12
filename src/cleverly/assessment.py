@@ -31,6 +31,11 @@ from ._assessment_cache import (
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError
+from .targets.population_intervention import (
+    NATURAL_COURSE_SUPPORT_REFUSAL,
+    NATURAL_COURSE_TILT_REFUSAL,
+    is_natural_course_fit,
+)
 from .utils.frames import emit_frame
 from .utils.memos import without_memos
 from .utils.text import format_draw, format_table
@@ -527,6 +532,18 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if family == "point" and is_natural_course_fit(result):
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason=NATURAL_COURSE_SUPPORT_REFUSAL,
+            )
+            if row.operation == "support"
+            else row
+            for row in rows
+        )
     if (
         family == "point"
         and result.data.is_continuous_treatment
@@ -2214,7 +2231,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         bounds: Sequence[float] | Sequence[CumulativeGBounds] | None = None,
         *,
         estimands: Sequence[str] | None = None,
-        mechanism: bool = False,
+        mechanism: bool | None = None,
     ) -> Any:
         """Evaluate fitted estimates across a sequence of mechanism bounds.
 
@@ -2241,8 +2258,12 @@ class DiagnosticsFacade(_CapabilityFacade):
             ``(lower, upper)`` pair is preserved exactly.
         estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
-        mechanism : bool
-            For an incremental intervention, vary a separate observation mechanism.
+        mechanism : bool or None
+            Vary the observation mechanism rather than treatment. ``None`` resolves to
+            the only axis the fit has: the observation mechanism for a missing-outcome
+            ``NaturalCourseMean`` fit, which estimates no treatment law, and treatment
+            for every other fit. Passing ``False`` explicitly on a natural-course fit
+            names an axis that fit does not have, and is refused rather than redirected.
 
         Returns
         -------
@@ -2262,6 +2283,13 @@ class DiagnosticsFacade(_CapabilityFacade):
         """
         self._require("truncation_curve")
         longitudinal = _family(self._result) == "longitudinal"
+        # Resolve the default before any refusal reads it, so that every check below
+        # sees the axis the curve will actually vary. An explicit ``False`` survives
+        # untouched and reaches ``truncation_curve``'s own refusal, which names the
+        # missing treatment mechanism; silently redirecting it would answer a question
+        # the caller did not ask.
+        if mechanism is None:
+            mechanism = not longitudinal and is_natural_course_fit(self._result)
         # Every refusal is raised here rather than inside ``compute`` below, so that an
         # unanswerable request is refused whether or not the cache already holds a row.
         if longitudinal and bounds is None:
@@ -2280,7 +2308,14 @@ class DiagnosticsFacade(_CapabilityFacade):
                 "diagnostics.support(), or pass mechanism=True when a separate observation "
                 "mechanism was fitted"
             )
-
+        # Raised here for the reason stated above, rather than left to the module-level
+        # call inside ``compute``: that one would refuse only on a cache miss.
+        if not longitudinal and not mechanism and not self._result.nuisance.fits_treatment:
+            raise CapabilityError(
+                "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+                "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
+                "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
+            )
         # The longitudinal call takes no ``None``, and the refusal above is eager, so the
         # empty fallback here is unreachable on that path.
         grid: Sequence[CumulativeGBounds] = () if bounds is None else bounds
@@ -3292,6 +3327,7 @@ class SensitivityFacade(_CapabilityFacade):
             if longitudinal
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
+        natural_course = missing and is_natural_course_fit(self._result)
         # Whether a *point* fit is replayable is settled by ``requires_replay`` below.
         # This row only says whether the analysis exists for the family at all.
         benchmarkable = not longitudinal
@@ -3356,17 +3392,19 @@ class SensitivityFacade(_CapabilityFacade):
                 execution="retarget",
                 cost="moderate",
                 interpretation=interpretation,
-                available=missing,
+                available=missing and not natural_course,
                 status=(
                     AssessmentStatus.PASSED
-                    if missing
+                    if missing and not natural_course
                     else AssessmentStatus.UNAVAILABLE
-                    if longitudinal
+                    if longitudinal or natural_course
                     else AssessmentStatus.NOT_APPLICABLE
                 ),
                 reason=(
                     None
-                    if missing
+                    if missing and not natural_course
+                    else NATURAL_COURSE_TILT_REFUSAL
+                    if natural_course
                     else "no longitudinal missingness-tilt adapter is implemented"
                     if longitudinal
                     else "the identified functional has no observation mechanism"

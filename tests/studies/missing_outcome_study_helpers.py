@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator
 
 from tests import discrete_law_mar as mar
 from tests.studies.evidence.properties import finite_support_sample
@@ -61,3 +63,40 @@ def efficiency_sd(probs: np.ndarray, estimand: str) -> float:
     """
     curve = mar.eif(estimand, probs=probs)
     return float(np.sqrt(np.sum(np.asarray(probs).reshape(-1) * curve**2)))
+
+
+class FailTreatment(BaseEstimator):
+    """A treatment learner whose use is the failure the natural-course target must expose.
+
+    Shared because four call sites need the same class: the canonical driver, the
+    property study, and the two exact-law modules. The natural-course mean fits no
+    treatment mechanism at all, so any call here is a defect rather than a worse fit.
+    """
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> FailTreatment:
+        raise AssertionError("the natural-course mean must not fit a treatment mechanism")
+
+    def predict_proba(self, X: Any) -> Any:
+        raise AssertionError("the natural-course mean must not predict a treatment mechanism")
+
+
+class NaturalCourseLaw:
+    """The finite MAR nuisance functions used by both primary outcome laws."""
+
+    def __init__(self, *, q: np.ndarray = mar.Q, pi: np.ndarray = mar.PI) -> None:
+        self.q = np.asarray(q, dtype=float)
+        self.pi = np.asarray(pi, dtype=float)
+
+    def outcome_mean(self, w: Any, a: Any, z: Any = None) -> np.ndarray:
+        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
+        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
+        return self.q[levels, arms]
+
+    def missingness(self, w: Any, a: Any) -> np.ndarray:
+        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
+        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
+        return self.pi[levels, arms]
+
+    def propensity(self, w: Any) -> np.ndarray:
+        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
+        return mar.G[levels]

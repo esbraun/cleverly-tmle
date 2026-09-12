@@ -31,6 +31,12 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
     and what makes any contrast across ``K`` arms a functional of one targeted
     distribution rather than a fluctuation of its own.
 
+``natural_course`` (used for missing-outcome ``EY_OBS``)
+    One scalar column, :math:`h(A,W)=1/\pi(A,W)`. The target averages
+    :math:`\bar Q(A,W)` over the empirical joint law of treatment and covariates, so no
+    treatment propensity enters either the clever covariate or the parameter. See
+    :func:`natural_course_submodel`.
+
 ``att`` / ``atc``
     One column per *non-reference arm*, contrasting that arm with the reference and
     reweighting one of the two by the propensity odds :math:`g_a / g_r` -- a single
@@ -71,9 +77,9 @@ which is why :func:`~cleverly.fluctuation.iterative._score` averages over all ``
 rows rather than over the observed ones: an unobserved row contributes a genuine zero,
 not a missing value.
 
-**What double robustness means once :math:`\pi` is in the denominator.**  The obvious
-generalisation -- "consistent if any one of the three nuisances is right" -- is false.
-Only the *product* :math:`g_a \pi_a` appears in the estimating equation, so the
+**What double robustness means for arm-indexed targets once :math:`\pi` is in the
+denominator.**  The obvious generalisation -- "consistent if any one of the three nuisances is
+right" -- is false. Only the *product* :math:`g_a \pi_a` appears in that estimating equation, so the
 remainder of the von Mises expansion is
 
 .. math::
@@ -87,6 +93,11 @@ missingness model is wrong; conversely, errors in the two mechanisms can cancel
 exactly.  ``tests/unit/test_remainder_mar.py`` checks both statements at machine
 precision, and ``tests/unit/test_influence_gateaux_mar.py`` checks that the influence
 curve above is the efficient one for the observed-data model.
+
+``natural_course`` is the two-nuisance exception. Its remainder is
+:math:`E_0[(1-\pi_0/\hat\pi)(\hat m-m_0)]`, so the outcome regression or the response mechanism
+alone may supply consistency. ``tests/unit/test_remainder_natural_course_mar.py`` checks both
+halves, and ``tests/unit/test_influence_gateaux_natural_course_mar.py`` checks its efficient curve.
 
 ``ipsi`` is the exception to the paragraph above, and in the strict direction.  There
 :math:`g` is inside the *estimand* rather than only in the estimating equation, so the
@@ -138,6 +149,7 @@ __all__ = [
     "mean_submodel",
     "msm_submodel",
     "mtp_submodel",
+    "natural_course_submodel",
     "regime_submodel",
     "register_submodel",
     "restrict",
@@ -462,6 +474,62 @@ def mean_submodel(
         "mean",
         # One column per arm, in the order ``names`` gives.
         {arm: j for j, arm in enumerate(arms)},
+    )
+
+
+def natural_course_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
+) -> Submodel:
+    r"""The scalar missing-outcome natural-course score, with no treatment mechanism.
+
+    .. math::
+
+        h(A, W) = 1 / \pi(A, W)
+
+    This is intentionally a separate group from :func:`mean_submodel`.  The latter
+    targets counterfactual arm means and divides by ``g(a | W)``; the natural-course
+    parameter averages ``m(A, W)`` over the observed joint law of ``(A, W)`` and has no
+    treatment nuisance.  ``propensity`` is accepted only for the registry's uniform
+    builder signature and is never read.
+    """
+    del (
+        propensity,
+        arm_fractions,
+        reference,
+        intermediate_density,
+        selection,
+        regimes,
+        shifts,
+        msm,
+        incremental,
+    )
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    n = a.shape[0]
+    k = len(arms)
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    realised = np.zeros(n, dtype=float)
+    arm_values: dict[float, FloatArray] = {}
+    for column, arm in enumerate(arms):
+        inverse = 1.0 / pi[:, column]
+        realised = np.where(a == arm, inverse, realised)
+        arm_values[arm] = inverse[:, None]
+    return Submodel(
+        realised[:, None],
+        arm_values,
+        ("h_natural_course",),
+        "natural_course",
     )
 
 
@@ -1161,6 +1229,7 @@ def register_submodel(
 
 
 register_submodel("mean", mean_submodel)
+register_submodel("natural_course", natural_course_submodel)
 register_submodel("att", att_submodel)
 register_submodel("atc", atc_submodel)
 register_submodel("regime", regime_submodel)

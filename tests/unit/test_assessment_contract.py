@@ -25,6 +25,7 @@ from cleverly import (
     ExplicitAdjustmentProvider,
     IdentificationProvider,
     LongitudinalTreatment,
+    NaturalCourseMean,
     PointTreatment,
     PositivityWarning,
     RegimeMean,
@@ -48,6 +49,7 @@ from cleverly.assessment import (
     _defaults_to_ambiguous_estimand,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.estimators import TMLE
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
@@ -57,8 +59,122 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _fit_wide_refusal,
 )
 from cleverly.sensitivity.positivity import positivity_report
+from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from cleverly.validation.nuisance import nuisance_diagnostics
+from tests import discrete_law_mar
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.unit._confounding_support import forbid_draw_and_refit
+
+
+@pytest.fixture(scope="module")
+def natural_course_result():  # type: ignore[no-untyped-def]
+    law = discrete_law_mar.DiscreteLaw()
+    study = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+        ),
+    )
+    return study.identify(NaturalCourseMean()).estimate(
+        outcome_learner=OracleOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        cross_fit=False,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def raw_natural_course_result():  # type: ignore[no-untyped-def]
+    law = discrete_law_mar.DiscreteLaw()
+    return (
+        TMLE(
+            estimands=("ey_obs",),
+            outcome_learner=OracleOutcome(law),
+            treatment_learner=OracleTreatment(law),
+            missingness_learner=OracleMissingness(law),
+            cross_fit=False,
+            simultaneous=False,
+        )
+        .fit(
+            discrete_law_mar.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+        )
+        .single()
+    )
+
+
+def test_natural_course_assessment_refuses_arm_specific_surfaces(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    reasons = set()
+    for operation in ("missingness", "tipping_gamma"):
+        capability = natural_course_result.sensitivity.capability(operation)
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        reasons.add(capability.reason)
+        with pytest.raises(CapabilityError, match="natural-course sensitivity parameter"):
+            getattr(natural_course_result.sensitivity, operation)()
+    assert len(reasons) == 1
+
+    combined = natural_course_result.sensitivity.run_all(include_retargets=True)
+    for operation in ("missingness", "tipping_gamma"):
+        assert combined[operation].status is AssessmentStatus.UNAVAILABLE
+        assert combined[operation].detail in reasons
+
+
+def test_natural_course_diagnostics_are_truthful_without_a_propensity(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    support = natural_course_result.diagnostics.capability("support")
+    assert not support.available
+    # The row and the raise must carry the *same* sentence, not two paraphrases of it:
+    # docs/architecture-invariants.md makes the capability row the single declared
+    # reason, so an identity check is what pins that and a substring match is not.
+    assert support.reason == NATURAL_COURSE_SUPPORT_REFUSAL
+    with pytest.raises(CapabilityError) as refusal:
+        natural_course_result.diagnostics.support()
+    # The facade prefixes the operation it refused, so the declared reason is the tail
+    # of the raise rather than the whole of it.
+    assert str(refusal.value).endswith(NATURAL_COURSE_SUPPORT_REFUSAL)
+    nuisance = natural_course_result.diagnostics.nuisance_models()
+    assert tuple(model.name for model in nuisance.models) == ("missingness", "outcome")
+    assert nuisance.treatment_role is None
+
+
+def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
+    raw_natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    assert raw_natural_course_result.parameter_keys == {}
+    support = raw_natural_course_result.diagnostics.capability("support")
+    assert not support.available
+    assert support.reason == NATURAL_COURSE_SUPPORT_REFUSAL
+    for operation in ("missingness", "tipping_gamma"):
+        assert not raw_natural_course_result.sensitivity.capability(operation).available
+
+    bounds = (0.01, 0.05)
+    default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)
+    explicit = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds, mechanism=True)
+    pd.testing.assert_frame_equal(default, explicit, check_exact=True)
+    combined = raw_natural_course_result.diagnostics.run_all(include_retargets=True)
+    assert combined["truncation_curve"].status is AssessmentStatus.COMPLETED
+
+
+def test_natural_course_placebo_refuses_before_refitting(
+    natural_course_result,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    forbid_draw_and_refit(monkeypatch, natural_course_result.estimator)
+    with pytest.raises(CapabilityError, match="outcome level"):
+        natural_course_result.diagnostics.refute(
+            estimand="ey_obs", tests=("placebo",), random_state=19
+        )
 
 
 @pytest.fixture(scope="module")
@@ -2387,3 +2503,45 @@ def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
     joblib.dump(report, path)
     assert type(joblib.load(path).report("contour")) is type(fresh)
     assert calls == [1]
+
+
+def test_natural_course_keeps_the_two_refutations_that_still_read(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """The other half of the placebo refusal's sentence.
+
+    ``docs/user-guide/results-assessment.md`` tells the reader that ``subset`` and
+    ``random_common_cause`` keep their usual stability interpretations for this target.
+    Only the refusal was pinned, so a later change that widened it to the whole refuter
+    would have contradicted that sentence with every test still green.
+
+    ``subset`` alone, because ``random_common_cause`` appends a covariate column and this
+    fixture's oracle learners read their law off a fixed design width. That is a property
+    of the oracle, not of the target, and swapping in a flexible learner here would trade
+    an exact fixture for a slower one to test the refuter rather than this estimand.
+    """
+    report = natural_course_result.diagnostics.refute(
+        estimand="ey_obs",
+        tests=("subset",),
+        random_state=19,
+    )
+    (run,) = report.tests
+    assert run.name == "subset"
+    assert run.estimand == "ey_obs"
+    # It refit rather than returning an empty shell: the refutation has values to read.
+    assert len(run.values) > 1
+    assert run.original == pytest.approx(natural_course_result.psi("ey_obs"))
+
+
+def test_natural_course_explicit_treatment_axis_is_refused_not_redirected(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """``mechanism=False`` names an axis this fit does not have.
+
+    The default resolves to the observation mechanism because that is the only axis
+    fitted. An explicit request for the treatment axis is a different thing, and
+    answering it with the observation curve would return a number for a question the
+    caller did not ask.
+    """
+    with pytest.raises(CapabilityError, match="fits no treatment propensity"):
+        natural_course_result.diagnostics.truncation_curve(bounds=(0.01, 0.05), mechanism=False)

@@ -433,6 +433,11 @@ It can pass or fail because it measures stability under the declared error.
 It stays outside `DEFAULT_TESTS` because every draw resamples, perturbs, and refits.
 Plain bootstrap inference does not add measurement error.
 
+The placebo refutation permutes treatment and interprets movement toward zero as evidence for an
+effect claim. `NaturalCourseMean` is an outcome level, not an effect, so that interpretation does
+not apply and the operation refuses it before refitting. The `random_common_cause` and `subset`
+refutations retain their usual stability interpretations for this target.
+
 Two defaults govern generated-outcome calls, and they are separate objects. `n_replicates` defaults to
 `DEFAULT_OUTCOME_REPLICATES`, which is 100 draws. `outcome_rule` defaults to
 `EmpiricalInclusionRule()`, which needs 40 successful draws, uses alpha 0.05, and fails when any
@@ -462,6 +467,11 @@ Support and truncation stability live under `result.diagnostics`. Point-treatmen
 methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
 `contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
 simulated surface needs an explicit strength grid, so `run_all()` never starts it.
+
+For a missing-outcome `NaturalCourseMean()` result, the arm-specific `missingness()` tilt and
+`tipping_gamma()` search are unavailable. Those procedures perturb arm-indexed outcome regressions
+and parameters; the natural-course target needs its own sensitivity parameter. The combined
+assessment reports the same unavailable capability instead of substituting an armwise analysis.
 
 ```python
 from cleverly.sensitivity import ConfounderStrengthGrid

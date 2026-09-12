@@ -58,6 +58,7 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
 from ..inference.influence import median_estimates
 from ..targets import TARGETS, parameter_stem
+from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.records import _DefaultingUnpickle
@@ -769,7 +770,18 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     -------
     PositivityReport
         Overlap read off the stored nuisance fits, without refitting.
+
+    Raises
+    ------
+    CapabilityError
+        If the fit estimated no treatment mechanism. A missing-outcome
+        ``NaturalCourseMean`` fit has no propensity for an arm-wise support report to
+        read; inspect the missingness row of ``diagnostics.nuisance_models()`` instead.
+    DataError
+        If the treatment is continuous, which has no per-arm propensity either.
     """
+    if not result.nuisance.fits_treatment:
+        raise CapabilityError(NATURAL_COURSE_SUPPORT_REFUSAL)
     if result.data.is_continuous_treatment:
         raise DataError(
             f"{result.data.treatment_name} is continuous, so there is no per-arm "
@@ -1244,7 +1256,7 @@ def truncation_curve(
     bounds: Any = None,
     *,
     estimands: Any = None,
-    mechanism: bool = False,
+    mechanism: bool | None = None,
 ) -> Any:
     """Re-estimate across a grid of truncation bounds.
 
@@ -1286,12 +1298,14 @@ def truncation_curve(
         fit gives three rows per bound pair and on a two-armed fit gives one.  A name that
         is neither is refused, because it has no fitted pair and no fitted estimate for a
         row to reference, and an empty selection is refused because it names no row.
-    mechanism : bool
+    mechanism : bool or None
         Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
-        instead of the one on ``g(W)``.  That probability divides the clever covariate
-        exactly as the propensity does, so it has a truncation curve for exactly the
-        same reason -- and it is the one that goes unexamined, because it has no
-        familiar name.  Requires a fit with ``delta=`` or ``intermediate=``.
+        instead of the one on ``g(W)``.  ``None`` resolves to the only axis the fit
+        has: the observation mechanism on a natural-course fit, which estimates no
+        treatment law, and ``g(W)`` on every other fit.  That probability divides the
+        clever covariate exactly as the propensity does, so it has a truncation curve
+        for exactly the same reason -- and it is the one that goes unexamined, because
+        it has no familiar name.  Requires a fit with ``delta=`` or ``intermediate=``.
 
         Note what the curve does and does not show.  Truncating a mechanism cannot move
         the *estimand*: the plug-in is an average of targeted predictions and contains
@@ -1309,6 +1323,14 @@ def truncation_curve(
         raise CapabilityError(
             "truncation_curve needs the fitted estimator that produced the result"
         )
+    # Resolved so that one operation does not have two defaults depending on which of
+    # its two public spellings the caller reached for.  The facade asks the *result*
+    # whether it is a natural-course fit; this asks the nuisances whether a treatment
+    # mechanism exists, because a module-level caller can hold a result the facade's
+    # estimand-name test would not recognise.  The two agree wherever both can run: a
+    # finished result carries an unfitted propensity only on this target.
+    if mechanism is None:
+        mechanism = not result.nuisance.fits_treatment
 
     # Every reported alias against the target that answers it, in report order. The
     # selection below reads it, and so does the row loop, so the registry is asked once.
@@ -1321,6 +1343,19 @@ def truncation_curve(
             "mechanism=True needs a fit with missing outcomes or an intermediate "
             "variable; without one there is no mechanism in the clever covariate to "
             "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+        )
+    # Refused here rather than left to `Propensity.truncate`, which would raise a bare
+    # `ValueError` naming an internal staging invariant -- and only after the whole grid
+    # had been retargeted once.  The caller's mistake is naming an axis this fit does
+    # not have, so the message names the axis it does.  It is written here rather than
+    # reusing the support report's sentence: that one sends the reader to
+    # `nuisance_models()` *instead*, which is the wrong next step for a caller who can
+    # have this very curve by changing one argument.
+    if not mechanism and not result.nuisance.fits_treatment:
+        raise CapabilityError(
+            "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+            "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
+            "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
         )
 
     def pair_for(lower: float) -> tuple[float, float]:
@@ -1503,7 +1538,12 @@ def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: 
     # to a constant rescales both clever-covariate columns by the same factor, and the
     # fluctuation ``epsilon * h`` is invariant to that, so ``psi`` sits flat across the
     # whole sweep however badly the bound is binding.
-    candidates = [result.nuisance.missingness]
+    missingness = (
+        result.nuisance.missingness_at_realised_arm(result.data.treatment)
+        if not result.nuisance.fits_treatment
+        else result.nuisance.missingness
+    )
+    candidates = [missingness]
     if result.nuisance.intermediate is not None and result.intermediate_value is not None:
         candidates.append(result.nuisance.intermediate_density(result.intermediate_value, 0.0))
     parts = [

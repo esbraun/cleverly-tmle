@@ -29,6 +29,7 @@ from cleverly import (
     CounterfactualMean,
     LongitudinalTreatment,
     ModifiedTreatmentPolicyEffect,
+    NaturalCourseMean,
     PointTreatment,
     RegimeContrast,
     RiskRatio,
@@ -40,6 +41,7 @@ from cleverly.datasets import (
     make_nonlinear_ate,
     make_shift_dose,
 )
+from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads, save
 from cleverly.interventions import Shift
 from cleverly.sensitivity import ConfounderStrengthGrid
@@ -50,6 +52,8 @@ from cleverly.validation import (
     RelativeGaussianNoise,
 )
 from cleverly.validation.score import DEFAULT_TOLERANCE
+from tests import discrete_law_mar
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 
 
 def _assert_same_graph(left: Any, right: Any, *, path: str = "result") -> None:
@@ -136,6 +140,81 @@ def point_result():  # type: ignore[no-untyped-def]
         random_state=7,
         simultaneous=False,
     )
+
+
+@pytest.fixture
+def natural_course_result():  # type: ignore[no-untyped-def]
+    law = discrete_law_mar.DiscreteLaw()
+    study = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+        ),
+    )
+    return study.identify(NaturalCourseMean()).estimate(
+        outcome_learner=OracleOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        cross_fit=False,
+        simultaneous=False,
+    )
+
+
+def test_natural_course_round_trip_retains_score_and_capability_contract(
+    natural_course_result, tmp_path: Path
+) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "natural-course.joblib"
+    save(natural_course_result, path)
+    restored = load(path)
+    assert restored.psi("ey_obs") == natural_course_result.psi("ey_obs")
+    assert tuple(restored.fluctuations) == ("natural_course",)
+    np.testing.assert_array_equal(
+        restored["ey_obs"].influence_curve,
+        natural_course_result["ey_obs"].influence_curve,
+    )
+    np.testing.assert_array_equal(
+        restored.nuisance.missingness,
+        natural_course_result.nuisance.missingness,
+    )
+    assert restored.diagnostics.score_equations().passed
+    for operation in ("missingness", "tipping_gamma"):
+        capability = restored.sensitivity.capability(operation)
+        assert not capability.available
+        assert "natural-course sensitivity parameter" in str(capability.reason)
+
+
+def test_raw_natural_course_round_trip_recovers_unstructured_capabilities(tmp_path: Path) -> None:
+    law = discrete_law_mar.DiscreteLaw()
+    result = (
+        TMLE(
+            estimands=("ey_obs",),
+            outcome_learner=OracleOutcome(law),
+            treatment_learner=OracleTreatment(law),
+            missingness_learner=OracleMissingness(law),
+            cross_fit=False,
+            simultaneous=False,
+        )
+        .fit(
+            discrete_law_mar.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+        )
+        .single()
+    )
+    assert result.parameter_keys == {}
+
+    path = tmp_path / "raw-natural-course.joblib"
+    save(result, path)
+    restored = load(path)
+    assert not restored.diagnostics.capability("support").available
+    assert not restored.sensitivity.capability("missingness").available
+    curve = restored.diagnostics.truncation_curve(bounds=(0.01, 0.05))
+    assert set(curve["upper_bound"]) == {1.0}
 
 
 @pytest.fixture

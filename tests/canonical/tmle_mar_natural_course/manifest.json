@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "study": "ordinary missing-outcome natural-course TMLE",
+  "slug": "mar-natural-course-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mar-natural-course-tmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "210d4b76594aec76de3fa8b9d542afd1e5f2355d",
+      "cleverly_worktree_clean": false,
+      "python": "3.11.13",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261007,
+    "resampling_seed": 20261008,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_natural_course": [
+        "ey_obs"
+      ],
+      "continuous_mar_natural_course": [
+        "ey_obs"
+      ]
+    },
+    "construction": "ordinary MAR natural-course TMLE",
+    "source": "Diaz, Carone, and van der Laan (2016), Section 2, equations 1-5",
+    "cross_fit": false,
+    "fluctuation": "logistic",
+    "targeting": "iterative",
+    "target_weights": false,
+    "simultaneous_intervals": false,
+    "q_bounds": [
+      0.0,
+      1.0
+    ],
+    "missingness_bound": 0.01,
+    "treatment_mechanism": "deliberately unavailable and asserted unused",
+    "nuisance_predictions": "exact response probabilities and binary outcome means; correctly specified affine outcome learner for the continuous law",
+    "continuous_outcome": "beta with concentration 24",
+    "comparator_search": "The repository's pinned R tmle 2.1.1 adapter reports MAR intervention-arm means, not this natural-course target; the cited paper specifies the estimator but no maintained public implementation with a matching callable target was identified.",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_natural_course.py": "38f16f077b7cb610b3fb2d2829d25f5573509ea22d7e805a55fd63011dba30d0",
+    "tests/studies/mar_natural_course_properties.py": "f663765535e21507b03f29f34cf4af5740ccf636d58ffb76209be29bb9ab7697",
+    "tests/studies/missing_outcome_study_helpers.py": "be9b5437eea0f990d0ac16696d56aed0968cbab84dcf01dff2379ca87e4b1b45",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "92758fa96c493d26633e0f8b6bf372ddcfc37a8f06e856d311885de964ae7c52",
+    "tests/studies/evidence/property_verdicts.py": "79735103a47cf01784dc1ece8b50e6f20214258e308cf54a533d7c87023535d1",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "bc6e31c8c8b92a6377cbf38cd1f4a2021fd7f8b3d77be4f964aaeb88162c5772",
+    "summary.csv": "263117664a71d6166390946b18cc8560384f2c33f62c65edb355928d8575c97f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "e5969f8f8f7b0ce833cc2fbb46875dab2f4b1f2fcb65b09078217aa8b65fa7f2",
+    "property-replicates.csv.gz": "bfeba8010616f59496af4871b148692ad3b338a1c8aaf225bc156494b98d9b04",
+    "properties.csv": "85ef16e672bbe179a5af23ade34ef689d4cee1e6e8bf9e4a72434966e3736e0f"
+  }
+}

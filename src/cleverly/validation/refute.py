@@ -1468,7 +1468,10 @@ def refute(
     estimand : str
         Alias the tests are run for.
     tests : sequence of str
-        Which refutations to run.
+        Which refutations to run. ``NaturalCourseMean`` refuses ``placebo`` before any
+        refit: that test permutes treatment and reads movement toward zero as evidence
+        for an effect, and an outcome level need not approach zero. ``subset`` and
+        ``random_common_cause`` keep their usual stability interpretations there.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
         perturbation, and 100 for each generated-outcome test and for
@@ -1512,6 +1515,16 @@ def refute(
     if unknown:
         raise ValueError(
             f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
+        )
+    keys = getattr(result, "parameter_keys", {})
+    key = keys.get(estimand) if keys else None
+    target = getattr(key, "estimand", estimand)
+    if target == "ey_obs" and "placebo" in requested:
+        raise CapabilityError(
+            "the placebo refutation permutes treatment and expects a null effect, but "
+            "NaturalCourseMean is an outcome level and need not approach zero. Drop "
+            "'placebo' from tests=; random_common_cause and subset retain their usual "
+            "stability interpretations."
         )
     if n_replicates is not None and (
         isinstance(n_replicates, bool)

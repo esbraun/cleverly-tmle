@@ -15,7 +15,7 @@ anything, with a valid interval, while letting a machine-learning model fit both
 | observational data, confounders measured | a doubly-robust estimate: consistent if the outcome regression **or** the treatment mechanism is consistent | you must name the estimand first. The method will not tell you which contrast you meant |
 | you want flexible learners for the nuisances | the estimate stays a plug-in, so it respects the outcome's bounds and the parameter's range | a valid interval needs a *product* rate on the two nuisances, which flexible learners do not guarantee. See [CV-TMLE](cv-tmle.md#what-this-solves) |
 | you want more than a difference in means | arm means, ATE, ATT, ATC, natural-course mean, PAR, PAF, risk ratio, and odds ratio from one fit | each target is a separate registered parameter with its own influence curve. Two axes cannot share one fit |
-| some outcomes are missing, or you want an effect at a fixed intermediate | missingness and a controlled direct effect compose into the same clever covariate | positivity is then needed for the product of the mechanisms, not for the treatment alone |
+| some outcomes are missing, or you want an effect at a fixed intermediate | missingness and a controlled direct effect compose into the same clever covariate | arm-indexed targets need positivity for the product of the mechanisms; the natural-course mean needs response positivity only |
 | the exposure is continuous, or the policy is a rule rather than a level | regimes, modified treatment policies, and incremental tilts run through the same engine | each axis is a different estimand with a different influence curve. They are not interchangeable |
 
 Reach for a different entry in four cases.
@@ -89,29 +89,67 @@ $$
 \operatorname{PAF}=1-\frac{E(Y^{a_0})}{E(Y)}.
 $$
 
-The intervention mean uses the targeted arm mean. The complete-data natural-course mean uses the
-empirical distribution. PAF is undefined when the observed outcome risk is zero. The construction
-follows Diaz Munoz and van der Laan (2012).
+The intervention mean uses the targeted arm mean. With complete outcomes, the natural-course mean
+uses the empirical distribution. PAF is undefined when the observed outcome risk is zero. The
+complete-data construction follows Díaz Muñoz and van der Laan (2012); the missing-outcome
+natural-course construction is stated below.
 
 ### Missing outcomes and controlled direct effects
 
-With an observation indicator $\Delta$, the outcome residual carries an extra inverse weight from
-the observation mechanism $\pi(A,W)=P(\Delta=1\mid A,W)$. The missing-at-random composition needs
-positivity of $\pi$ wherever the intervention places mass. Missingness is a design role. Missing
-adjustment values and missing treatment values are not implicitly covered.
+With an observation indicator $\Delta$, let $X=(A,W)$,
+$m(X)=E(Y\mid\Delta=1,X)$, and $\pi(X)=P(\Delta=1\mid X)$. Under missingness at random given
+$(A,W)$ and response positivity, `NaturalCourseMean` identifies
+
+$$
+\psi=E\{m(X)\}, \qquad
+D(O)=\frac{\Delta}{\pi(X)}\{Y-m(X)\}+m(X)-\psi.
+$$
+
+The estimator fits the logistic fluctuation among respondents with the clever covariate
+$1/\pi(X)$. It then averages the targeted outcome regression over every input row. This target
+has two nuisance functions: the outcome regression and the response mechanism. It is consistent
+when either is correct, and its exact remainder is
+
+$$
+R_2(P,P_0)=E_0\left[\left\{1-\frac{\pi_0(X)}{\pi(X)}\right\}
+  \{m(X)-m_0(X)\}\right].
+$$
+
+For the reported first-order interval, the fitted response probability is bounded away from zero,
+the estimated influence curve converges in $L_2(P_0)$ inside one Donsker class, and the remainder
+is $o_P(n^{-1/2})$. A sufficient remainder rate is
+$\|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2})$. The efficiency claim also
+requires the bounded response fit to converge to $\pi_0$; clipping cannot supply that condition if
+the true response probability falls below the bound on a set with positive probability.
+
+No treatment mechanism enters this target. The first supported implementation is an iid scalar
+ordinary-TMLE fit with binary treatment, no cross-fitting or repeats, no observation weights,
+clusters, strata, or `intermediate=`, and iterative unweighted logistic targeting. It accepts a
+binary outcome or a continuous outcome with fixed `q_bounds`. Every other composition refuses
+before any learner is fitted. The [refusals table](scope-and-refusals.md) carries the full list.
+
+The source is Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
+[ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
+checks both robustness halves, targeting and complete-case controls, root-$n$ behavior,
+efficiency, and interval calibration.
+
+For arm-indexed counterfactual means, the outcome residual instead carries the inverse product of
+the treatment mechanism $g(A\mid W)$ and the observation mechanism $\pi(A,W)$. That
+missing-at-random composition needs positivity of both mechanisms wherever the intervention places
+mass. Missingness is a design role. Missing adjustment values and missing treatment values are not
+implicitly covered.
 
 For a declared intermediate $Z$, `ControlledDirectEffect(intermediate=z)` targets the treatment
 contrast with $Z$ fixed at $z$. Its clever covariate composes the treatment, intermediate, and
 observation mechanisms. This is a controlled direct effect at a specified level. It is not a
 mediation decomposition.
 
-**Double robustness means something different here, and the difference is worth stating.** Without
-missingness the fit is consistent if $Q$ is right or if $g$ is right. With missingness it is
-consistent if $Q$ is right, or if the *product* $g\pi$ is right. A correct propensity buys nothing
-on its own when the missingness model is wrong, and errors in the two mechanisms can cancel
-exactly.
+**Double robustness differs between these targets.** The natural-course mean is consistent if
+$m$ is right or if $\pi$ is right. An arm-indexed target with missingness is consistent if $Q$ is
+right, or if the *product* $g\pi$ is right. A correct treatment mechanism buys nothing on its own
+when the response mechanism is wrong, and errors in the two mechanisms can cancel exactly.
 
-Implementation:
+Arm-indexed and controlled-direct-effect implementation:
 [`estimators/direct_effect.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/direct_effect.py).
 Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction.
 
@@ -206,7 +244,7 @@ so a modified treatment policy has variance at least as large as the regime indu
 The added term is a conditional variance, and it is positive wherever the shift moves the dose.
 Delegating one to the other omits that term and reports a standard error that is too small.
 
-Theory: Diaz Munoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Diaz, Williams,
+Theory: Díaz Muñoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Díaz, Williams,
 Hoffman and Schenck (2023). Implementation:
 [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),

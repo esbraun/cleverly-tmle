@@ -262,24 +262,25 @@ class Propensity:
 
 @dataclass(frozen=True)
 class UnfittedPropensity(Propensity):
-    """The ``fit_treatment=False`` staging value: a mechanism that was never estimated.
+    """The ``fit_treatment=False`` value: a mechanism that was never estimated.
 
     :func:`fit_nuisances` has to return the ordinary container even when it skipped the
     treatment model, because the outcome and missingness fits travel in it.  What it must
     *not* return is an array a consumer can quietly use.  Zeros would be usable: they clip
     to :meth:`Propensity.bounded`'s floor and give a finite, plausible, wrong estimate.  So
-    the values are ``NaN`` and every read accessor raises -- the collaborative caller
-    replaces the whole object before targeting, and any path that does not is a defect
-    rather than a slightly worse fit.  :meth:`arm` and :meth:`truncate` refuse directly,
+    the values are ``NaN`` and every read accessor raises. A collaborative caller replaces
+    the whole object before targeting; the missing-outcome natural-course target retains it
+    because that target must not read a treatment mechanism. :meth:`arm` and
+    :meth:`truncate` refuse directly,
     and :meth:`Propensity.bounded` refuses through :meth:`truncate`, so one override
     covers both truncating accessors.
     """
 
     def _unfitted(self) -> ValueError:
         return ValueError(
-            "this treatment mechanism was never fitted: it is the fit_treatment=False "
-            "staging value that a collaborative estimator must replace with its own g "
-            "before any targeting, diagnostic or sensitivity code reads it"
+            "this treatment mechanism was never fitted: a collaborative "
+            "estimator must replace the fit_treatment=False value before reading g, and "
+            "a natural-course target must not read it at all"
         )
 
     def arm(self, arm: float) -> FloatArray:
@@ -563,6 +564,54 @@ class NuisanceEstimates:
         if not self.propensity.arms and self.msm is not None and self.msm.continuous:
             return self.msm.arms
         return self.propensity.arms
+
+    @property
+    def fits_treatment(self) -> bool:
+        """Whether a treatment mechanism was estimated at all.
+
+        The one predicate six readers share, rather than six ``isinstance`` tests
+        against a private staging class: the positivity warning, the support report, the
+        truncation curve's default axis and its refusal, and two nuisance-diagnostic
+        rows all need the same fact.  Written here because this container is the only
+        object that holds the answer, and because a reader that has to import
+        :class:`UnfittedPropensity` to ask the question is a reader that can also
+        accidentally construct one.
+
+        The summary line that names the propensity bound reads
+        :attr:`~cleverly.estimators.base.TMLEConfig.fits_treatment` instead.  That is
+        the same fact recorded at fit time, because a result read back from disk has a
+        config and need not still have nuisances.
+        """
+        return not isinstance(self.propensity, UnfittedPropensity)
+
+    def missingness_at_realised_arm(self, treatment: FloatArray) -> FloatArray | None:
+        """``P(Delta = 1 | A, W)`` read at each row's *own* treatment, ``(n,)``.
+
+        The stored array is ``(n, K)``, one column per arm, so reading it whole asks a
+        positivity question about counterfactual arms.  A target whose clever covariate
+        divides by the response probability at the realised arm -- the natural-course
+        mean is the one shipped example -- must report the column it actually divided
+        by.  Returns ``None`` when no response mechanism was fitted.
+
+        Parameters
+        ----------
+        treatment : ndarray
+            The realised treatment codes, ``(n,)``.
+
+        Returns
+        -------
+        ndarray or None
+            The per-row response probability, or ``None`` when ``missingness`` is unset.
+        """
+        if self.missingness is None:
+            return None
+        matrix = np.asarray(self.missingness, dtype=float)
+        observed = np.asarray(treatment, dtype=float).reshape(-1)
+        realised = np.zeros(observed.shape[0], dtype=float)
+        for column, arm in enumerate(self.arms):
+            mask = observed == arm
+            realised[mask] = matrix[mask, column]
+        return realised
 
     def at_level(self, value: float) -> NuisanceEstimates:
         """The same nuisances, with the outcome regression evaluated at ``Z = value``."""
@@ -998,10 +1047,10 @@ def fit_nuisances(
     later step to get wrong.
 
     ``fit_treatment=False`` is the outcome-first staging path used by collaborative
-    estimators, which replace the ordinary treatment model before any targeting or
-    reporting occurs.  It is intentionally internal: the returned propensity is an
-    :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise, so a
-    caller that fails to replace it stops rather than reporting a plausible number.
+    estimators and the no-treatment-mechanism path used by a missing-outcome natural-course
+    target. It is intentionally internal: the returned propensity is an
+    :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise. A
+    collaborative caller must replace it; a natural-course caller must avoid it.
 
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
@@ -1080,10 +1129,11 @@ def fit_nuisances(
                 tuple(incremental), data, propensity.values, reference=incremental_reference
             )
     else:
-        # A staging value, not an estimated mechanism.  Keeping the arm metadata and
+        # An explicit absent value, not an estimated mechanism. Keeping the arm metadata and
         # matrix shape valid lets the shared outcome/missingness pipeline return its
-        # ordinary container; CTMLE replaces this before any consumer can read it, and
-        # `UnfittedPropensity` is what turns "does not" into "cannot".
+        # ordinary container; CTMLE replaces this before any consumer can read it, while
+        # the natural-course group retains it and never reads it. `UnfittedPropensity` is
+        # what turns "does not" into "cannot" for every accidental consumer.
         propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
     retained = data.covariate_names

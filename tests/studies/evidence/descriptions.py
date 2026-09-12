@@ -41,6 +41,7 @@ ARMS: dict[str, str] = {
     "ate": "average treatment effect",
     "static": "static plan",
     "dynamic": "dynamic plan",
+    "ey_obs": "observed outcome mean under the natural course",
     "third_arm": "third-arm static plan",
     "static_t1": "static plan at horizon one",
     "static_t2": "static plan at horizon two",
@@ -110,6 +111,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
+    "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
     "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
     "cleverly-multi-arm-ctmle-selector": "`cleverly` multi-arm selector C-TMLE",
@@ -179,7 +181,11 @@ SCENARIOS: dict[str, str] = {
     "binary_incremental_odds": "binary-outcome law with three incremental odds multipliers",
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
+    "binary_mar_natural_course": "binary-outcome observational natural-course law with MAR outcomes",
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
+    "continuous_mar_natural_course": (
+        "bounded continuous-outcome observational natural-course law with MAR outcomes"
+    ),
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
     "continuous_selected_weighted_nuisances": (
         "continuous-outcome law selected by a covariate-dependent density"
@@ -511,6 +517,11 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("double_robustness", "treatment_correct"): (
         "only the treatment mechanism is correctly specified",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "response_correct"): (
+        "only the outcome-observation mechanism is correctly specified",
         "bias interval inside the equivalence margin, with the reported standard error "
         "on the scale of the empirical spread",
     ),
@@ -928,6 +939,7 @@ def cell(
     exact_efficiency: bool = False,
     role: str | None = None,
     nuisance_count: int = 2,
+    response_nuisance: bool = False,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -958,6 +970,8 @@ def cell(
             words = {3: "three", 4: "four"}
             count = words.get(nuisance_count, str(nuisance_count))
             tested = f"all {count} required nuisance functions are correctly specified"
+    if family == "double_robustness" and base == "both_correct" and response_nuisance:
+        tested = "both the outcome regression and the outcome-response mechanism are correct"
     if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"

@@ -38,6 +38,7 @@ rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
+| missing-outcome `NaturalCourseMean` with cross-fitting or repeats, observation weights, clusters, strata, nonbinary treatment, `intermediate=`, joint targeting, bootstrap, linear or weighted targeting, C-TMLE, DR-TMLE, or a continuous outcome without declared `q_bounds` | the first supported construction is the iid scalar ordinary-TMLE result in [observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects). Cross-fitted response mechanisms and the other compositions need separate contracts and evidence |
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
@@ -61,7 +62,8 @@ Several former gaps have landed. `cleverly` now supports multi-valued longitudin
 nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, DR-TMLE, `ATT`,
 and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
 support `delta=`, `intermediate=`, and weights. `cleverly` also supports multi-arm
-omitted-variable and MNAR sensitivity analyses.
+omitted-variable and MNAR sensitivity analyses. Ordinary TMLE supports the iid scalar
+missing-outcome natural-course mean under its named first-implementation boundaries.
 
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
