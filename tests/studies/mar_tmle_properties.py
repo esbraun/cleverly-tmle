@@ -30,6 +30,8 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
 )
 from tests.studies.missing_outcome_study_helpers import (
+    WRONG_PI,
+    WRONG_Q,
     efficiency_sd,
     probabilities,
     sample_discrete,
@@ -53,9 +55,7 @@ MISSINGNESS_DISPLACEMENT = 0.25
 TARGET = "ate"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-WRONG_Q = 1.0 - mar.Q
 WRONG_G = np.array([0.70, 0.30, 0.70])
-WRONG_PI = np.array([[0.80, 0.75], [0.55, 0.45], [0.30, 0.25]])
 WRONG_PROBS = probabilities(WRONG_Q, g=WRONG_G, pi=WRONG_PI)
 NULL_Q = np.column_stack([np.array([0.30, 0.50, 0.70])] * 2)
 NULL_PROBS = probabilities(NULL_Q)

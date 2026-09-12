@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
@@ -18,7 +17,6 @@ from tests.studies.canonical_mar_natural_course import (
     ESTIMANDS,
     NUISANCE_BOUND,
     STUDY,
-    initial_estimate,
 )
 from tests.studies.evidence.properties import (
     ReplicationSpec,
@@ -36,9 +34,10 @@ from tests.studies.evidence.property_verdicts import (
 )
 from tests.studies.missing_outcome_study_helpers import (
     FailTreatment,
-    NaturalCourseLaw,
+    natural_course_law,
     sample_discrete,
 )
+from tests.studies.point_study_helpers import natural_course_initial_estimate
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -56,19 +55,11 @@ TARGET = "ey_obs"
 SCENARIO = "binary_mar_natural_course"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-WRONG_Q = 1.0 - mar.Q
-WRONG_PI = np.array([[0.80, 0.75], [0.55, 0.45], [0.30, 0.25]])
 TRUTH = float(mar.functional(mar.PROBS, TARGET))
 
 
-def _law(configuration: str) -> NaturalCourseLaw:
-    q = mar.Q if configuration in {"both_correct", "outcome_correct"} else WRONG_Q
-    pi = mar.PI if configuration in {"both_correct", "response_correct"} else WRONG_PI
-    return NaturalCourseLaw(q=q, pi=pi)
-
-
 def _fit(frame: pd.DataFrame, configuration: str, *, delta: bool = True) -> Any:
-    law = _law(configuration)
+    law = natural_course_law(configuration)
     return (
         TMLE(
             estimands=ESTIMANDS,
@@ -130,7 +121,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 n=n,
                 requested=requested,
                 truth=TRUTH,
-                estimate=initial_estimate(result),
+                estimate=natural_course_initial_estimate(result),
                 standard_error=float(result[TARGET].std_error),
                 critical=CRITICAL,
             )

@@ -227,7 +227,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # Off the declared cells, like the three blocks above, rather than off ``hasattr`` on the
     # module.  A duck-typed guard publishes a threshold because a constant happens to be
     # importable, which is a fact about a file rather than about what the study claims -- and
-    # it goes quiet the day the constant is renamed, taking the published row with it.  A
+    # it goes quiet the day the constant is renamed, taking the published row with it.
     # A noise control is the band's negative arm. A study that declines the exact-efficiency
     # ratio may instead declare only the direct shrunken-SE mutation for calibration.
     calibration_cells = record.property_cells.get("interval_calibration", ())

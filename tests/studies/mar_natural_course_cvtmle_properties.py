@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from sklearn.base import BaseEstimator
 from sklearn.tree import DecisionTreeClassifier
 
 from cleverly.utils.parallel import map_parallel
@@ -22,15 +22,23 @@ from tests.studies.canonical_mar_natural_course_cvtmle import (
     flexible_outcome_learner,
     flexible_response_learner,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    ReplicationSpec,
+    control_row,
+    replicate_row,
+    replication_payloads,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
 )
-from tests.studies.evidence.seeds import stream_seed
-from tests.studies.missing_outcome_study_helpers import NaturalCourseLaw, sample_discrete
+from tests.studies.missing_outcome_study_helpers import (
+    NaturalCourseLaw,
+    natural_course_law,
+    sample_discrete,
+)
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -41,15 +49,7 @@ OVERFIT_N = 500
 SHRUNKEN_SE_FACTOR = 0.70
 TARGET = "ey_obs"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
-WRONG_Q = 1.0 - mar.Q
-WRONG_PI = np.array([[0.80, 0.75], [0.55, 0.45], [0.30, 0.25]])
 NOISE_COLUMNS = tuple(f"N{index}" for index in range(1, 9))
-
-
-def _law(configuration: str) -> NaturalCourseLaw:
-    q = mar.Q if configuration == "outcome_correct" else WRONG_Q
-    pi = mar.PI if configuration == "response_correct" else WRONG_PI
-    return NaturalCourseLaw(q=q, pi=pi)
 
 
 def _with_noise(frame: pd.DataFrame, seed: int) -> pd.DataFrame:
@@ -62,7 +62,7 @@ def _with_noise(frame: pd.DataFrame, seed: int) -> pd.DataFrame:
 
 
 def _fit_union(frame: pd.DataFrame, configuration: str) -> Any:
-    law = _law(configuration)
+    law = natural_course_law(configuration)
     return fit_cleverly(
         frame,
         outcome_learner=OracleOutcome(law),
@@ -72,21 +72,6 @@ def _fit_union(frame: pd.DataFrame, configuration: str) -> Any:
 
 def _fully_grown_outcome() -> DecisionTreeClassifier:
     return DecisionTreeClassifier(min_samples_leaf=1, random_state=23)
-
-
-class _NoiseAwareOracleMissingness(BaseEstimator):
-    """Return the exact response probability while ignoring the noise controls."""
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _NoiseAwareOracleMissingness:
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        design = np.asarray(X, dtype=float)
-        arm = np.rint(design[:, 0]).astype(int)
-        level = np.rint(design[:, 1]).astype(int)
-        probability = mar.PI[level, arm]
-        return np.column_stack((1.0 - probability, probability))
 
 
 def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
@@ -107,7 +92,8 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
         result = fit_cleverly(
             frame,
             outcome_learner=_fully_grown_outcome(),
-            missingness_learner=_NoiseAwareOracleMissingness(),
+            # The law reads ``W`` from the first covariate column and ignores the noise.
+            missingness_learner=OracleMissingness(NaturalCourseLaw()),
             cross_fit=configuration != "in_sample",
             adjustment=("W", *NOISE_COLUMNS),
         )
@@ -145,64 +131,60 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
-    payloads: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
-    for configuration in ("outcome_correct", "response_correct", "both_wrong"):
-        for replicate in range(DOUBLE_ROBUST_REPLICATES):
-            seed = stream_seed(
-                STUDY, "property_sample", "double_robustness", configuration, replicate
-            )
-            payloads.append(
-                (
-                    (
-                        "double_robustness",
-                        configuration,
-                        replicate,
-                        DOUBLE_ROBUST_N,
-                        DOUBLE_ROBUST_REPLICATES,
-                        seed,
-                        configuration,
-                    ),
-                )
-            )
-    for replicate in range(CALIBRATION_REPLICATES):
-        seed = stream_seed(
-            STUDY, "property_sample", "interval_calibration", "flexible_learning", replicate
+def _specs() -> tuple[list[ReplicationSpec], list[ReplicationSpec]]:
+    """Return the independent specifications and the paired overfitting arms."""
+    independent = [
+        ReplicationSpec(
+            "double_robustness",
+            configuration,
+            DOUBLE_ROBUST_N,
+            DOUBLE_ROBUST_REPLICATES,
+            configuration,
         )
-        payloads.append(
-            (
-                (
-                    "interval_calibration",
-                    "ey_obs__flexible_learning",
-                    replicate,
-                    CALIBRATION_N,
-                    CALIBRATION_REPLICATES,
-                    seed,
-                    "flexible_learning",
-                ),
-            )
+        for configuration in ("outcome_correct", "response_correct", "both_wrong")
+    ]
+    independent.append(
+        ReplicationSpec(
+            "interval_calibration",
+            "ey_obs__flexible_learning",
+            CALIBRATION_N,
+            CALIBRATION_REPLICATES,
+            "flexible_learning",
+            seed_key="flexible_learning",
         )
+    )
     # Both arms deliberately share every draw; only the sample-splitting policy changes.
-    for replicate in range(OVERFIT_REPLICATES):
-        seed = stream_seed(STUDY, "property_sample", "crossfit_overfitting", "paired", replicate)
+    paired = [
+        ReplicationSpec(
+            "crossfit_overfitting",
+            cell,
+            OVERFIT_N,
+            OVERFIT_REPLICATES,
+            configuration,
+            seed_key="paired",
+        )
         for cell, configuration in (
             ("stacked_mar_natural_course_cvtmle", "cross_fit"),
             ("in_sample_control", "in_sample"),
-        ):
-            payloads.append(
-                (
-                    (
-                        "crossfit_overfitting",
-                        cell,
-                        replicate,
-                        OVERFIT_N,
-                        OVERFIT_REPLICATES,
-                        seed,
-                        configuration,
-                    ),
-                )
-            )
-    return payloads
+        )
+    ]
+    return independent, paired
+
+
+def _payloads(
+    replicates: int | None = None,
+) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+    """Expand the specifications, optionally truncated to ``replicates`` per cell.
+
+    The paired arms alternate replicate by replicate, so each draw's two fits sit together.
+    """
+    independent, paired = _specs()
+    if replicates is not None:
+        independent = [replace(spec, replicates=replicates) for spec in independent]
+        paired = [replace(spec, replicates=replicates) for spec in paired]
+    cross_fit, in_sample = (replication_payloads(STUDY, [spec]) for spec in paired)
+    alternating = [payload for pair in zip(cross_fit, in_sample, strict=True) for payload in pair]
+    return replication_payloads(STUDY, independent) + alternating
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -212,18 +194,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 def generate_smoke_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
     """Fit one declared replication of every property cell without summarizing it."""
-    selected: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
-    seen: set[tuple[str, str]] = set()
-    for wrapped in _payloads():
-        payload = list(wrapped[0])
-        key = (str(payload[0]), str(payload[1]))
-        if key in seen:
-            continue
-        seen.add(key)
-        payload[2] = 0
-        payload[4] = 1
-        selected.append((tuple(payload),))  # type: ignore[arg-type]
-    outcomes = map_parallel(_fit_replication, selected, n_jobs=n_jobs)
+    outcomes = map_parallel(_fit_replication, _payloads(replicates=1), n_jobs=n_jobs)
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
@@ -232,6 +203,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         rows,
         STUDY,
         extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        rate_labels=(),
     )
     calibration_verdicts(
         summary,

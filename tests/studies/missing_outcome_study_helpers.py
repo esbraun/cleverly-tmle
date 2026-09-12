@@ -80,6 +80,23 @@ class FailTreatment(BaseEstimator):
         raise AssertionError("the natural-course mean must not predict a treatment mechanism")
 
 
+#: The misspecified outcome regression the MAR property studies declare: ``1 - Qbar``.
+WRONG_Q = 1.0 - mar.Q
+#: The misspecified response mechanism the MAR property studies declare, indexed ``[w, a]``.
+WRONG_PI = np.array([[0.80, 0.75], [0.55, 0.45], [0.30, 0.25]])
+
+
+def _levels(w: Any) -> np.ndarray:
+    """Read the ``W`` level from a vector or from the first column of a design block.
+
+    Any later columns are covariates the finite law ignores, such as noise controls.
+    """
+    values = np.asarray(w, dtype=float)
+    if values.ndim == 2:
+        values = values[:, 0]
+    return np.rint(values.reshape(-1)).astype(int)
+
+
 class NaturalCourseLaw:
     """The finite MAR nuisance functions used by both primary outcome laws."""
 
@@ -88,15 +105,21 @@ class NaturalCourseLaw:
         self.pi = np.asarray(pi, dtype=float)
 
     def outcome_mean(self, w: Any, a: Any, z: Any = None) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
+        levels = _levels(w)
         arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
         return self.q[levels, arms]
 
     def missingness(self, w: Any, a: Any) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
+        levels = _levels(w)
         arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
         return self.pi[levels, arms]
 
     def propensity(self, w: Any) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
-        return mar.G[levels]
+        return mar.G[_levels(w)]
+
+
+def natural_course_law(configuration: str) -> NaturalCourseLaw:
+    """Return the oracle law for one double-robustness nuisance configuration."""
+    q = mar.Q if configuration in {"both_correct", "outcome_correct"} else WRONG_Q
+    pi = mar.PI if configuration in {"both_correct", "response_correct"} else WRONG_PI
+    return NaturalCourseLaw(q=q, pi=pi)

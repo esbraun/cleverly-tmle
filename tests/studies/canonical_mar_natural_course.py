@@ -22,7 +22,7 @@ from tests.studies.missing_outcome_study_helpers import (
     efficiency_sd,
     sample_discrete,
 )
-from tests.studies.point_study_helpers import primary_rows
+from tests.studies.point_study_helpers import natural_course_initial_estimate, primary_rows
 
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 2_000
@@ -170,13 +170,6 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str, *, law: NaturalCourseLaw | 
     )
 
 
-def initial_estimate(result: Any) -> float:
-    values = np.asarray(
-        result.nuisance.scaler.unscale_levels(result.nuisance.outcome.observed), dtype=float
-    )
-    return float(np.average(values, weights=np.asarray(result.data.weights, dtype=float)))
-
-
 def cleverly_rows(
     frame: pd.DataFrame,
     truth: Mapping[str, float],
@@ -191,7 +184,7 @@ def cleverly_rows(
         scenario=scenario,
         replicate=replicate,
         estimands=ESTIMANDS,
-        initials={"ey_obs": initial_estimate(result)},
+        initials={"ey_obs": natural_course_initial_estimate(result)},
     )
 
 
