@@ -15,13 +15,12 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. RM8 and RM9
-carry open source audits.
+The "next action" column states the remediation work. It is not a readiness label. RM9 carries the
+remaining open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
-| 0.2 | Cross-fitted missing-outcome natural-course mean | complete the source audit | the implemented iid mean deliberately refuses a cross-fitted response mechanism and repeated splits | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
+| 0.1 | Cross-fitted missing-outcome natural-course mean | complete the source audit | the implemented iid mean deliberately refuses a cross-fitted response mechanism and repeated splits | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -36,9 +35,9 @@ multi-arm stress surface in [F8](#f8-multi-arm-simulated-confounding-stress-surf
 refutation replay in [F13](#f13-longitudinal-simulated-confounding-replay), and longitudinal
 sensitivity bounds in [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
-[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) is a neighbour rather than a duplicate. It
-tracks the joint observed-mean curve and covariance for the collaborative and doubly robust
-families. RM8 covers the same two parameters for ordinary TMLE under `missingness=`.
+[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the collaborative and doubly robust
+families. The RM8 audit moved ordinary TMLE under `missingness=` to
+[F20](#f20-missing-outcome-attributable-effects).
 
 The examples also expose the joint point-treatment parameter axes. No published targeting and
 inference result covers that composition, so it is a hard stop in
@@ -80,6 +79,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions | named pre-fit refusals and conditional-on-weight intervals remain | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | ordinary EIF plug-in covariance that treats the selected candidate as fixed | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | ordinary adaptive-propensity EIF covariance with a proved binary scalar construction and open joint-target extensions | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| Missing-outcome attributable effects | a direct observed-data derivation for the joint natural-course and reference-intervention means, their remainder, and attributable-effect inference | complete-data PAR and PAF, one iid MAR natural-course mean, and arm-specific missing-outcome means remain separate | [F20](#f20-missing-outcome-attributable-effects) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -127,9 +127,10 @@ An item is complete only when all applicable conditions hold:
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. The iid missing-at-random natural-course mean is implemented and
-registered there. RM8 and RM9 hold the remaining remediation audits. Replicate-weight designs are
-the next source-audit item in the main grid. Implement them only after that audit supports the
-planned variance construction.
+registered there. RM9 holds the remaining remediation audit. Replicate-weight designs are the next
+source-audit item in the main grid. Implement them only after that audit supports the planned
+variance construction.
+
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
 
@@ -140,22 +141,20 @@ grid.
 
 ### RM8. Missing-outcome attributable effects
 
-Add population attributable risk and population attributable fraction with missing outcomes as
-their own observed-law targets. Audit each influence curve rather than composing the current ATE and
-observed-mean results algebraically. The fraction must define its zero-denominator behavior and the
-joint covariance of its numerator and denominator.
+The 2026-09-12 source audit did not find a published derivation for the exact missing-outcome
+attributable-effect construction. The reviewed sources establish only separate component results.
 
-This row depends on the implemented iid missing-outcome natural-course mean. Its complete-outcome
-reduction reads that observed-law mean. Hubbard and van der Laan (2008) govern the complete-outcome
-PAR and PAF, and the audit must carry them to a declared response process.
+Hubbard and van der Laan (2008) derive complete-outcome PAR and PAF. Díaz, Carone and van der Laan
+(2016) derive one scalar MAR natural-course mean. Díaz and van der Laan (2017) derive arm-specific
+means for randomized treatment with missing outcomes. Van der Laan and Rubin (2006) require the
+observed-data influence curve before targeting it.
 
-[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) states the same joint-curve requirement
-for the collaborative and doubly robust families. This row covers ordinary TMLE under
-`missingness=` only.
+Combining these pieces locally would create the missing observational response transfer, joint
+remainder, and inference contract. The [audit record](references.md#point-treatment-and-stochastic-interventions)
+therefore moves this item to [F20](#f20-missing-outcome-attributable-effects).
 
-Acceptance requires exact reduction to the complete-outcome PAR and PAF, a nonzero response-score
-witness, denominator-boundary refusals, and repeated-sampling evidence for both difference and ratio
-scales. Keep the public pre-fit refusal until all pieces are registered.
+Keep the public pre-fit refusal. Complete-data PAR and PAF remain supported. The iid MAR
+natural-course mean and arm-specific missing-outcome means also remain separate supported results.
 
 ### RM9. Cross-fitted missing-outcome natural-course mean
 
@@ -656,6 +655,27 @@ remainder and nuisance-rate conditions, and it must state a uniformity claim.
 If the result requires a new contribution, propagate it through pointwise and simultaneous
 inference. Acceptance needs a fixed-design reduction, a generated-design comparison, and
 registered coverage evidence for every claimed treatment and target dimension.
+
+### F20. Missing-outcome attributable effects
+
+Wait for a published derivation of PAR and PAF under a declared outcome-response process. The
+result must cover the package's observational reference intervention and natural-course mean in
+one observed-data law.
+
+The result must give both parent influence curves and their joint targeting equations. It must
+also give the exact remainder, nuisance-rate conditions, and treatment and response positivity
+conditions. Inference must use same-row covariance for the natural-course and reference parents.
+
+The PAF result must define zero and near-zero denominator behavior. It must also establish an
+interval scale under a denominator bounded away from zero.
+
+A future implementation must reduce exactly to complete-data PAR and PAF. It needs nonzero
+response-score witnesses for the natural and reference paths. It also needs denominator and
+covariance mutation controls plus repeated-sampling evidence on both attributable scales.
+
+Audit every post-fit capability before changing the refusal. Keep unsupported assessments
+unavailable with a target-specific reason. Do not infer this construction from existing ATE,
+natural-course, or arm-specific results.
 
 ### F4. Multi-arm missing-outcome DR-TMLE
 
