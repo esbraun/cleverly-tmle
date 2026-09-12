@@ -33,7 +33,13 @@ import numpy as np
 
 from .._typing import FloatArray, IntArray
 
-__all__ = ["cluster_sums", "cross_validated_variance", "influence_variance"]
+__all__ = [
+    "cluster_sums",
+    "cross_validated_variance",
+    "influence_variance",
+    "stacked_second_moment_covariance",
+    "stacked_second_moment_variance",
+]
 
 
 def _contiguous_codes(codes: IntArray) -> int | None:
@@ -229,6 +235,72 @@ def cross_validated_variance(
     if n_clusters < 2:
         raise ValueError("need at least 2 clusters to estimate a cluster-robust variance")
     return float(sum(contributions) / n_folds**2)
+
+
+def stacked_second_moment_variance(influence_curve: FloatArray) -> float:
+    r"""Variance of a stacked CV-TMLE estimate from the raw second moment of its curve.
+
+    .. math::
+
+        \widehat{\mathrm{Var}}(\hat\psi) = \frac{1}{n^2}\sum_{i=1}^{n} \mathrm{IC}_i^2.
+
+    The stacked cross-fitted natural-course mean (the RM9 contract) evaluates its point
+    and curve on all held-out rows at once, with one pooled fluctuation.  Each row's curve
+    uses nuisances fitted without that row, so the pooled curve need not have empirical
+    mean zero, and centring it would erase that component.  The rows are weighted equally
+    at ``1/n`` because the point estimate is the row-weighted mean of the stacked
+    predictions.  :func:`cross_validated_variance` is the equal-fold-weight counterpart,
+    and differs from this whenever the folds are unequal.
+
+    The arithmetic is ``mean(IC**2) / n`` in that association.  The committed RM9 study
+    artifacts were generated from it, and a different association moves their last bits.
+
+    Parameters
+    ----------
+    influence_curve : ndarray
+        ``(n,)`` stacked influence curve, one entry per held-out row.
+
+    Returns
+    -------
+    float
+        Variance of the estimator.
+    """
+    ic = np.asarray(influence_curve, dtype=float).reshape(-1)
+    n = ic.shape[0]
+    if n < 2:
+        raise ValueError("need at least 2 observations to estimate a variance")
+    return float(np.mean(np.square(ic)) / n)
+
+
+def stacked_second_moment_covariance(influence_curves: FloatArray) -> FloatArray:
+    r"""Joint raw second-moment covariance of several stacked CV-TMLE curves.
+
+    Entry :math:`(j, k)` is :math:`n^{-2}\sum_i \mathrm{IC}_{ij}\mathrm{IC}_{ik}`.  The
+    diagonal comes from :func:`stacked_second_moment_variance`, so a one-estimate
+    selection returns exactly the stored variance.
+
+    Parameters
+    ----------
+    influence_curves : ndarray
+        ``(n, k)`` influence curves, one column per estimand.
+
+    Returns
+    -------
+    ndarray
+        ``(k, k)`` covariance matrix of the estimators.
+    """
+    ic = np.asarray(influence_curves, dtype=float)
+    if ic.ndim != 2:
+        raise ValueError(f"expected an (n, m) matrix of influence curves; got shape {ic.shape}")
+    n, k = ic.shape
+    covariance = np.empty((k, k), dtype=float)
+    for row in range(k):
+        covariance[row, row] = stacked_second_moment_variance(ic[:, row])
+        for column in range(row):
+            value = float(np.mean(ic[:, row] * ic[:, column]) / n)
+            covariance[row, column] = value
+            covariance[column, row] = value
+    return covariance
 
 
 def influence_covariance(

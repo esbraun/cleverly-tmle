@@ -25,7 +25,11 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import _average_over_folds
 from cleverly.fluctuation import restrict, stitch
 from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
-from cleverly.inference import cross_validated_variance, influence_variance
+from cleverly.inference import (
+    cross_validated_variance,
+    influence_covariance,
+    influence_variance,
+)
 from cleverly.learners.crossfit import Folds, make_folds
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
@@ -773,3 +777,37 @@ def test_influence_variance_is_unchanged_by_the_new_helper() -> None:
     rng = np.random.default_rng(8)
     ic = rng.normal(size=50)
     assert influence_variance(ic) == pytest.approx(float(np.var(ic, ddof=1) / 50), rel=1e-12)
+
+
+class TestTheFoldEvaluatedCovarianceRule:
+    """A fold-evaluated fit keeps the centred covariance rule at every selection size.
+
+    Its stored variance is the cross-validated one, and the covariance and contrasts read
+    the curve instead. A rule that returned the stored variance for a one-name selection
+    would make ``covariance(["ate"])`` disagree with the diagonal of a joint selection.
+    """
+
+    def test_one_name_and_a_joint_selection_share_the_diagonal(self, canonical_report) -> None:
+        cluster = canonical_report.data.cluster
+        curves = np.column_stack(
+            [canonical_report[name].influence_curve for name in ("ate", "ey1")]
+        )
+        single = canonical_report.covariance(["ate"])
+        joint = canonical_report.covariance(["ate", "ey1"])
+        np.testing.assert_array_equal(joint, influence_covariance(curves, cluster))
+        assert single[0, 0] == influence_covariance(curves[:, :1], cluster)[0, 0]
+        # ``np.cov`` over one column and over two can differ in the last bit.
+        assert single[0, 0] == pytest.approx(joint[0, 0], rel=1e-12)
+        assert canonical_report["ate"].covariance_rule == "centered"
+        # The witness: the stored cross-validated variance is a different number.
+        assert single[0, 0] != pytest.approx(canonical_report["ate"].variance, rel=1e-6)
+
+    def test_a_one_input_contrast_uses_its_own_curve(self, canonical_report) -> None:
+        estimate = canonical_report["ate"]
+        doubled = canonical_report.contrast(
+            lambda point: 2.0 * point[0], ["ate"], gradient=lambda point: np.array([2.0])
+        )
+        expected = influence_variance(doubled.influence_curve, canonical_report.data.cluster)
+        assert doubled.variance == expected
+        assert doubled.covariance_rule == "centered"
+        assert doubled.variance != 4.0 * estimate.variance

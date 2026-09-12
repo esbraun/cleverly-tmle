@@ -19,6 +19,7 @@ band in the library rests on that one formula being right.
 from __future__ import annotations
 
 import tracemalloc
+from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
@@ -51,11 +52,13 @@ from cleverly.inference import (
     simultaneous_bands,
     two_sided_pvalue,
 )
+from cleverly.inference.cluster import stacked_second_moment_variance
 from cleverly.inference.multiplier import (
     _block_size,
     _fill_multipliers,
     _multipliers,
 )
+from cleverly.inference.results import estimate_covariance, smooth_contrast
 from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
 
@@ -1115,3 +1118,76 @@ class TestUnscaling:
 
         with pytest.raises(ValueError, match="only defined for an unscaled"):
             unscale(1.5, np.zeros(3), OutcomeScaler(-1.0, 1.0), "ratio")
+
+
+class TestTheCovarianceRule:
+    """Each estimate declares how its joint covariance is read off its curve.
+
+    The curves carry a nonzero mean on purpose. At mean zero the raw second moment and
+    the centred covariance differ only by ``n / (n - 1)``, which a loose check cannot see.
+    """
+
+    @staticmethod
+    def _estimates(rule: str) -> dict[str, ParameterEstimate]:
+        rng = np.random.default_rng(41)
+        curves = rng.normal(loc=0.4, size=(30, 2))
+        return {
+            name: replace(
+                make_estimate(name, 0.3 + index, curves[:, index], n=30),
+                covariance_rule=rule,
+            )
+            for index, name in enumerate(("first", "second"))
+        }
+
+    def test_the_centered_rule_is_the_sample_covariance_at_every_size(self) -> None:
+        estimates = self._estimates("centered")
+        curves = np.column_stack([value.influence_curve for value in estimates.values()])
+        joint = estimate_covariance(estimates, None)
+        np.testing.assert_array_equal(joint, influence_covariance(curves))
+        single = estimate_covariance(estimates, ["second"])
+        np.testing.assert_array_equal(single, influence_covariance(curves[:, 1:]))
+        # ``np.cov`` over one column and over two can differ in the last bit.
+        assert single[0, 0] == pytest.approx(joint[1, 1], rel=1e-12)
+
+    def test_the_second_moment_rule_is_the_uncentered_moment_at_every_size(self) -> None:
+        estimates = self._estimates("second_moment")
+        curves = np.column_stack([value.influence_curve for value in estimates.values()])
+        joint = estimate_covariance(estimates, None)
+        np.testing.assert_allclose(joint, curves.T @ curves / 30**2, rtol=1e-12, atol=0.0)
+        for index, name in enumerate(estimates):
+            single = estimate_covariance(estimates, [name])
+            assert single[0, 0] == joint[index, index]
+            assert single[0, 0] == stacked_second_moment_variance(curves[:, index])
+        assert not np.allclose(joint, influence_covariance(curves), rtol=1e-3)
+
+    def test_a_contrast_inherits_the_rule_and_its_variance_is_the_quadratic_form(self) -> None:
+        estimates = self._estimates("second_moment")
+        gradient = np.array([1.5, -0.5])
+        contrast = smooth_contrast(
+            estimates,
+            lambda point: float(gradient @ point),
+            ["first", "second"],
+            n=30,
+            gradient=lambda point: gradient,
+        )
+        assert contrast.covariance_rule == "second_moment"
+        quadratic = float(gradient @ estimate_covariance(estimates, None) @ gradient)
+        assert contrast.variance == pytest.approx(quadratic, rel=1e-12)
+        assert contrast.variance != pytest.approx(
+            influence_variance(contrast.influence_curve), rel=1e-3
+        )
+
+    def test_a_mixed_selection_refuses(self) -> None:
+        mixed = {
+            "first": self._estimates("centered")["first"],
+            "second": self._estimates("second_moment")["second"],
+        }
+        with pytest.raises(ValueError, match="different covariance rules"):
+            estimate_covariance(mixed, None)
+        with pytest.raises(ValueError, match="different covariance rules"):
+            smooth_contrast(mixed, lambda point: float(point[0]), ["first", "second"], n=30)
+
+    def test_the_second_moment_rule_refuses_clusters(self) -> None:
+        estimates = self._estimates("second_moment")
+        with pytest.raises(ValueError, match="independent rows only"):
+            estimate_covariance(estimates, ["first"], cluster=np.arange(30) // 2)
