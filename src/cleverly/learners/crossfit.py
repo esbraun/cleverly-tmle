@@ -63,7 +63,7 @@ from sklearn.model_selection import (
     StratifiedKFold,
 )
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
 
 __all__ = [
@@ -519,8 +519,8 @@ class SplitPlan:
 
 def missing_training_support(
     folds: Folds,
-    support: Sequence[tuple[str, np.ndarray, np.ndarray]],
-) -> tuple[int, str, np.ndarray] | None:
+    support: Sequence[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]],
+) -> tuple[int, str, FloatArray | BoolArray] | None:
     """Find the first training complement that lacks a value the whole sample holds.
 
     A nuisance fitted on a complement that never saw a value cannot predict it on the

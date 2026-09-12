@@ -111,8 +111,9 @@ CONFIGURATION = {
         "outcome regression and response mechanism"
     ),
     "comparator_search": (
-        "Rejected R tmle 2.1.1 because its maintained MAR API reports intervention-arm "
-        "means, not the natural-course target; rejected tmle3 at ed72f8a because its "
+        "Did not compare R tmle 2.1.1: the repository adapter reads intervention-arm means, "
+        "and no study has run its population-mean path, which accepts supplied outcome and "
+        "response predictions, on fold predictions; rejected tmle3 at ed72f8a because its "
         "generic treatment-specific outcome fit can use the Delta = 0 pseudo-outcomes when "
         "it predicts under Delta = 1, while this estimator fits that regression on "
         "respondents only; rejected zEpid 0.9.1 because its cross-fit TMLE targets inside "

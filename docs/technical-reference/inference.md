@@ -38,7 +38,9 @@ Its pooled curve therefore need not have mean zero, and centering would remove t
 curve. This estimator is scalar, so its rule reaches a one-name `covariance()` and a one-input
 smooth contrast.
 
-Two selections are refused with `ValueError`:
+The internal covariance helpers in `cleverly.inference.results` refuse two selections with
+`ValueError`. A public fit cannot reach either refusal. The only `"second_moment"` estimate is
+scalar, and its fit refuses clusters. The refusals guard a later estimate that declares the rule.
 
 | selection | reason |
 | --- | --- |

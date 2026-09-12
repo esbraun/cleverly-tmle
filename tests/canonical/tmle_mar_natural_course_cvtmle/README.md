@@ -21,12 +21,12 @@ The property study has four parts:
 
 The overfitting pair is the data-adaptive evidence.
 
-No canonical implementation is compared. The source audit in `docs/references.md` rejects each
-candidate:
+No canonical implementation is compared. `docs/references.md` records the source locator for each
+reason below:
 
 | candidate | reason it is not a comparator |
 | --- | --- |
-| R `tmle` 2.1.1 | its MAR path reports intervention-arm means, not the natural-course mean |
+| R `tmle` 2.1.1 | not yet tested. The repository adapter reads intervention-arm means. The population-mean path accepts supplied predictions, but no study has run it on fold predictions |
 | `tmle3` at commit `ed72f8a` | its generic treatment-specific outcome fit can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`, while `cleverly` fits that regression on respondents only |
 | zEpid 0.9.1 | its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation |
 | Newey and Robins (2018) | the construction fits the outcome and inverse response regressions on distinct subsamples, which is a different estimator |

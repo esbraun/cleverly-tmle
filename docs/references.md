@@ -40,6 +40,16 @@ previous reader had is not a citation; a page number is.
   normalizes `obsWeights`. It routes them through outcome and treatment fitting, targeting,
   plug-in evaluation, and influence-curve calculations. This source supports the weighted
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
+
+  The same file has a population-mean path for missing outcomes. Lines 1737–1739 set a missing or
+  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. For the original
+  sample, lines 2008–2022 fit one fluctuation on the respondent rows. Line 1564 gives the
+  influence curve `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
+
+  The path accepts supplied `Q` and `pDelta1` predictions. The repository's MAR adapter,
+  `tests/canonical/tmle_mar/run_study.R`, passes a binary `A` and reads the arm means. No study
+  has run the population-mean path on fold predictions. This entry therefore does not establish or
+  exclude that path as a stacked MAR natural-course comparator.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
   10.1007/978-1-4419-9782-1_27. Read first-hand in the
@@ -75,6 +85,10 @@ previous reader had is not a citation; a page number is.
   The `calculate_joint_estimate` median branch implements the same point and variance
   calculation.
   It is secondary aggregation evidence and not a comparator for the complete estimator.
+  In the same file, `targeting_step`
+  ([lines 1644–1672](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1644-L1672))
+  fits a separate logistic fluctuation in each split. `SingleCrossfitTMLE` calls it at lines
+  1119–1122, and `DoubleCrossfitTMLE` calls it at lines 1545–1548. zEpid therefore targets inside each fold, not with one pooled fluctuation.
 - Levy (2018), [*An Easy Implementation of CV-TMLE*](https://arxiv.org/abs/1811.04573),
   arXiv:1811.04573. Read first-hand. The abstract distinguishes the original fold-wise plug-in
   evaluation from a stacked validation update and whole-sample plug-in. It states exact overlap

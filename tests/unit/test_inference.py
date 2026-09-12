@@ -1191,3 +1191,11 @@ class TestTheCovarianceRule:
         estimates = self._estimates("second_moment")
         with pytest.raises(ValueError, match="independent rows only"):
             estimate_covariance(estimates, ["first"], cluster=np.arange(30) // 2)
+        with pytest.raises(ValueError, match="independent rows only"):
+            smooth_contrast(
+                estimates,
+                lambda point: float(point[0]),
+                ["first"],
+                n=30,
+                cluster=np.arange(30) // 2,
+            )
