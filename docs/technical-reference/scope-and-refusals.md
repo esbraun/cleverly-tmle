@@ -38,7 +38,8 @@ rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| missing-outcome `NaturalCourseMean` with cross-fitting or repeats, observation weights, clusters, strata, nonbinary treatment, joint targeting, simultaneous bands, bootstrap, linear or weighted targeting, C-TMLE, or DR-TMLE | the first supported construction is the iid scalar ordinary-TMLE result in [observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects). Cross-fitted response mechanisms and the other compositions need separate contracts and evidence |
+| missing-outcome `NaturalCourseMean` with cross-fitting or repeats, observation weights, clusters, strata, nonbinary treatment, `intermediate=`, joint targeting, bootstrap, linear or weighted targeting, C-TMLE, or DR-TMLE | the first supported construction is the iid scalar ordinary-TMLE result in [observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects). Cross-fitted response mechanisms and the other compositions need separate contracts and evidence |
+| a simultaneous band on a missing-outcome `NaturalCourseMean` | no refusal names the band. A band needs two estimates, and the joint-targeting refusal above leaves one, so `simultaneous=True` stays the harmless default |
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |

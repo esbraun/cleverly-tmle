@@ -16,18 +16,80 @@ the three callers can reach it.
 Each caller keeps its own condition, because the three conditions are genuinely
 different: an observation mask, a requested estimand list, and one identified target.
 What they share is the message, so this module builds the error and the caller raises it.
+
+The natural-course mean's own name, its fit predicate and the two refusals that name it
+live here for the same reason.  Five modules across four subpackages ask "is this the
+missing-outcome natural-course fit?" -- the estimator, the assessment facade, the
+positivity report, the missingness tilt and the nuisance diagnostics.  This module
+imports only :mod:`cleverly.exceptions`, so every one of them can reach it at module
+scope, which the previous home under :mod:`cleverly.sensitivity` could not offer: that
+package's ``__init__`` imports :mod:`cleverly.assessment`, so an assessment-side import
+of it had to be written three times inside functions to break the cycle.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from ..exceptions import CapabilityError
 
 __all__ = [
+    "NATURAL_COURSE_SUPPORT_REFUSAL",
+    "NATURAL_COURSE_TARGET",
+    "NATURAL_COURSE_TILT_REFUSAL",
     "POPULATION_INTERVENTION_TARGETS",
+    "is_natural_course_fit",
     "population_intervention_refusal",
 ]
+
+#: The natural-course mean's estimand name, written once so the string is not respelled
+#: at the eight sites that test for it.
+NATURAL_COURSE_TARGET = "ey_obs"
+
+NATURAL_COURSE_TILT_REFUSAL = (
+    "the implemented missingness tilt is arm-specific; NaturalCourseMean needs a "
+    "natural-course sensitivity parameter, which is not implemented"
+)
+
+NATURAL_COURSE_SUPPORT_REFUSAL = (
+    "NaturalCourseMean with missing outcomes fits no treatment propensity, so the "
+    "arm-propensity support report is not applicable; inspect the missingness row from "
+    "diagnostics.nuisance_models() and the targeting score instead"
+)
+
+
+def is_natural_course_fit(result: Any) -> bool:
+    """Whether ``result`` is the missing-outcome natural-course fit.
+
+    Both halves are load-bearing.  A fit reports the natural-course mean *and* has
+    missing outcomes, or it is an ordinary complete-data ``ey_obs`` fit that shares the
+    estimand name and nothing else: the complete-data mean fits no mechanism at all,
+    while this one fits a response mechanism and no treatment law.  Testing the estimand
+    alone made a complete-outcome fit refuse the missingness tilt for the natural-course
+    reason rather than for the true one, which is that it has no observation mechanism.
+
+    Parameters
+    ----------
+    result : object
+        A fitted result. Read through :func:`getattr` so this module keeps importing
+        only :mod:`cleverly.exceptions` and stays reachable from every caller.
+
+    Returns
+    -------
+    bool
+        True when every structured parameter is the natural-course mean and the fit
+        declared an observation mask.
+    """
+    data = getattr(result, "data", None)
+    if not getattr(data, "has_missing_outcome", False):
+        return False
+    keys = getattr(result, "parameter_keys", {})
+    if keys:
+        return all(getattr(key, "estimand", None) == NATURAL_COURSE_TARGET for key in keys.values())
+    estimates = getattr(result, "estimates", {})
+    return bool(estimates) and set(estimates) == {NATURAL_COURSE_TARGET}
+
 
 #: The attributable estimands whose missing-outcome construction remains open, in report order.
 _ORDERED = ("par", "paf")

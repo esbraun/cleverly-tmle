@@ -56,6 +56,10 @@ import numpy as np
 from .._typing import FloatArray
 from ..exceptions import CapabilityError
 from ..inference.delta import normal_ci
+from ..targets.population_intervention import (
+    NATURAL_COURSE_TILT_REFUSAL,
+    is_natural_course_fit,
+)
 from ..utils.bounds import expit, logit
 from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
@@ -65,11 +69,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
 
 __all__ = ["DEFAULT_GAMMA_GRID", "missingness_tilt", "tipping_gamma"]
-
-NATURAL_COURSE_TILT_REFUSAL = (
-    "the implemented missingness tilt is arm-specific; NaturalCourseMean needs a "
-    "natural-course sensitivity parameter, which is not implemented"
-)
 
 #: Default tilt values.  On the logit scale, ``gamma = 1`` shifts a mean of 0.5 to
 #: about 0.73 -- a substantial departure from MAR, so the grid spans well past the
@@ -89,17 +88,8 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
 )
 
 
-def is_natural_course_result(result: TMLEResult) -> bool:
-    """Whether every structured parameter in ``result`` is NaturalCourseMean."""
-    keys = getattr(result, "parameter_keys", {})
-    if keys:
-        return all(getattr(key, "estimand", None) == "ey_obs" for key in keys.values())
-    estimates = getattr(result, "estimates", {})
-    return bool(estimates) and set(estimates) == {"ey_obs"}
-
-
 def _refuse_natural_course(result: TMLEResult) -> None:
-    if is_natural_course_result(result):
+    if is_natural_course_fit(result):
         raise CapabilityError(NATURAL_COURSE_TILT_REFUSAL)
 
 
@@ -116,6 +106,10 @@ def missingness_tilt(
     ``gamma[<level>]`` column per arm giving the tilt that arm received -- equal to
     ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
+
+    Refuses a missing-outcome ``NaturalCourseMean`` fit.  The tilt above is arm-specific,
+    and that target is not indexed by arm, so it needs a natural-course sensitivity
+    parameter that is not implemented.
 
     Parameters
     ----------
@@ -357,6 +351,9 @@ def tipping_gamma(
     With ``arm_gamma=`` the number is the magnitude at which that *direction* tips the
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
     by different amounts.
+
+    Refuses a missing-outcome ``NaturalCourseMean`` fit, for the reason
+    :func:`missingness_tilt` gives: it searches over that same arm-specific tilt.
 
     Parameters
     ----------

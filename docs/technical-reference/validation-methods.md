@@ -1363,6 +1363,11 @@ replaces a column and leaves every row in its position. A `run_all(include_refit
 records the refusal as an `unavailable` row and continues to the rest of the battery. See
 [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the table.
 
+`NaturalCourseMean` refuses the `placebo` operation before it refits anything. The operation
+permutes treatment and reads movement toward zero as evidence for an effect claim. This estimand
+is an outcome level, so it need not approach zero and that reading does not apply. The `subset`
+and `random_common_cause` operations keep their usual stability interpretations for this target.
+
 `refute()` draws its randomization from the seed of the fit, unless the caller passes
 `random_state`. A fit that carries a seed gives the same refutation on every call. A fit that
 carries no seed gives a different refutation on every call.

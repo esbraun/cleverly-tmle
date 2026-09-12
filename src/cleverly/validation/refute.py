@@ -1468,7 +1468,10 @@ def refute(
     estimand : str
         Alias the tests are run for.
     tests : sequence of str
-        Which refutations to run.
+        Which refutations to run. ``NaturalCourseMean`` refuses ``placebo`` before any
+        refit: that test permutes treatment and reads movement toward zero as evidence
+        for an effect, and an outcome level need not approach zero. ``subset`` and
+        ``random_common_cause`` keep their usual stability interpretations there.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
         perturbation, and 100 for each generated-outcome test and for

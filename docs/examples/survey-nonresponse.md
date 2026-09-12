@@ -354,8 +354,14 @@ except CapabilityError as error:
 ```
 
 The natural-course mean, the population attributable risk, and the attributable fraction all involve
-the observed law. Under missingness at random each would need its own outcome and response score
-equation, and the complete-case mean is a different parameter. So "what fraction of poor experience
+the observed law. Under missingness at random each needs its own outcome and response score
+equation, because the complete-case mean is a different parameter. The natural-course mean now has
+that score equation. `NaturalCourseMean()` is supported for one scalar ordinary fit, which
+[observed-data extensions](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+states. The method above cross-fits, so this study still refuses it.
+
+The risk and the fraction keep their refusal. Their joint construction stays open under
+[RM8](../roadmap.md#rm8-missing-outcome-attributable-effects). So "what fraction of poor experience
 is attributable to usual discharge support" and "many patients did not answer" cannot be asked in
 one fit.
 

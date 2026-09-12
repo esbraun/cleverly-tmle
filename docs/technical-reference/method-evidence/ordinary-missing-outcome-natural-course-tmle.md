@@ -7,11 +7,13 @@ mechanism. Binary and bounded-continuous primary laws share the same conditional
 observation process; the continuous outcome is beta distributed and uses fixed bounds `(0, 1)`.
 
 No canonical implementation is compared. The repository's pinned R `tmle` 2.1.1 adapter covers
-MAR intervention-arm means rather than this natural-course parameter. Díaz, Carone, and van der
-Laan (2016), Section 2 and equations 1--5 give the estimator construction, but the source and
+MAR intervention-arm means rather than this natural-course parameter. Díaz, Carone and van der
+Laan (2016), Section 2 and Equations (1)–(5) give the estimator construction, but the source and
 repository search found no maintained public implementation exposing a matching callable target.
-Exact-law Gateaux and remainder checks elsewhere in the test suite and this independent
-repeated-sampling study provide the validation evidence.
+The validation evidence is therefore internal. `tests/unit/test_influence_gateaux_natural_course_mar.py`
+pins the target, the efficient influence curve, and the targeting score against the exact law.
+`tests/unit/test_remainder_natural_course_mar.py` pins the signed second-order remainder and both
+double-robustness halves. This repeated-sampling study supplies the rest.
 
 ## Accuracy against known truth
 

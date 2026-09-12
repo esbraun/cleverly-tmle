@@ -140,12 +140,13 @@ from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
 from ..targets.base import stratum_alias
 from ..targets.population_intervention import (
+    NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
     population_intervention_refusal,
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import NuisanceEstimates, RepeatFit, UnfittedPropensity, fit_nuisances
+from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
 from .base import (
     CVTargeting,
     TMLEConfig,
@@ -180,7 +181,31 @@ DEFAULT_NUISANCE_BOUND = 0.01
 #: bounds -- at that point the estimate rests on extrapolation, not on data.
 _TRUNCATION_WARN_FRACTION = 0.05
 
-_NATURAL_COURSE_TARGET = "ey_obs"
+
+def _is_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
+    """Whether this fit is the missing-outcome natural-course mean.
+
+    The one place the composition is spelled.  Three callers need it before the
+    nuisances exist -- the config that records whether ``g`` was fitted, the fit that
+    passes ``fit_treatment=``, and the group selection that picks the fluctuation -- so
+    none of them can ask :attr:`NuisanceEstimates.fits_treatment`, which is the same
+    question answered after the fact.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, read for its observation mask.
+    estimands : tuple of str
+        The resolved estimand names.
+
+    Returns
+    -------
+    bool
+        True when the outcome is missing for some rows and the only target is the
+        natural-course mean.
+    """
+    return data.has_missing_outcome and tuple(estimands) == (NATURAL_COURSE_TARGET,)
+
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
 #: is raised twice: cheaply from the requested estimands before the fit, and again at the
@@ -916,14 +941,22 @@ class TMLE:
             population_intervention = frozenset()
         if population_intervention and data.has_missing_outcome:
             raise population_intervention_refusal(population_intervention, declaration="delta=")
-        if population_intervention and data.has_intermediate:
+        # ``ey_obs`` left ``POPULATION_INTERVENTION_TARGETS`` when its missing-outcome
+        # score equation landed, and that set was the only thing refusing it beside a
+        # controlled mediator intervention.  The natural-course boundary below cannot
+        # cover this: it returns early on a complete outcome, which is exactly the case
+        # that slipped.  Without this line the fit runs, publishes the plain empirical
+        # mean of Y once per level of Z, and labels each copy a controlled direct
+        # effect -- a different estimand reported under a name it did not earn.
+        beside_intermediate = population_intervention | ({NATURAL_COURSE_TARGET} & set(estimands))
+        if beside_intermediate and data.has_intermediate:
             # A ``CleverlyError`` like the ``delta=`` refusal three lines above, and for
             # the reason docs/architecture-invariants.md gives: a caller must not have to
             # catch an implementation-language exception beside a library one for two
             # refusals of the same shape. The reason differs, so the sentence is written
             # here rather than built by ``population_intervention_refusal``.
             raise CapabilityError(
-                f"{sorted(population_intervention)} do not yet support intermediate=: "
+                f"{sorted(beside_intermediate)} do not yet support intermediate=: "
                 "combining the natural course with a controlled mediator intervention "
                 "needs a separately identified population-intervention parameter"
             )
@@ -1104,9 +1137,9 @@ class TMLE:
             return tuple(
                 name
                 for name in estimands
-                if name != _NATURAL_COURSE_TARGET and name not in POPULATION_INTERVENTION_TARGETS
+                if name != NATURAL_COURSE_TARGET and name not in POPULATION_INTERVENTION_TARGETS
             )
-        if _NATURAL_COURSE_TARGET not in estimands:
+        if NATURAL_COURSE_TARGET not in estimands:
             return estimands
 
         def refuse(reason: str) -> None:
@@ -1126,7 +1159,13 @@ class TMLE:
             refuse("the treatment must have exactly two arms")
         if self.cross_fit:
             refuse("set cross_fit=False; a cross-fitted response-mechanism construction is open")
-        if self.repeats != 1:
+        # Kept although the two pre-existing guards between them already cover it:
+        # `cross_fit=True` is refused on the line above, and `repeats > 1` with
+        # `cross_fit=False` raises the generic "makes no split" ValueError before this
+        # runs.  It is written here so the supported surface reads as one list rather
+        # than as a list plus two coincidences, and so that a later change to either
+        # guard cannot quietly admit repeated splits to this target.
+        if self.repeats != 1:  # pragma: no cover - unreachable behind the two guards above
             refuse("set repeats=1")
         if self.fluctuation != "logistic":
             refuse("set fluctuation='logistic'")
@@ -1476,7 +1515,7 @@ class TMLE:
         every stage of the split is redrawn per draw, and a stage that is not would be
         held fixed across draws that were supposed to be independent.
         """
-        natural_course = data.has_missing_outcome and config.estimands == (_NATURAL_COURSE_TARGET,)
+        natural_course = _is_natural_course(data, config.estimands)
         return (
             self._fit_nuisances(
                 data,
@@ -1532,6 +1571,7 @@ class TMLE:
                 )
                 if present
             ),
+            fits_treatment=not _is_natural_course(data, estimands),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             estimands=estimands,
@@ -1577,7 +1617,7 @@ class TMLE:
         # leverage.  Which cells are outside is `Propensity.truncate`'s rule rather than a
         # predicate written here, so the warning counts the rows the targeting step really
         # truncates even when the bound pair is asymmetric.
-        if not isinstance(nuisance.propensity, UnfittedPropensity):
+        if nuisance.fits_treatment:
             outside = nuisance.propensity.truncate(config.g_bounds).fraction
             if outside > _TRUNCATION_WARN_FRACTION:
                 warnings.warn(
@@ -1603,14 +1643,12 @@ class TMLE:
         # its complement when z = 0, so reading the raw array checks the wrong tail: a
         # sample with P(Z = 1 | A, W) = 0.999 is a severe positivity violation for the
         # z = 0 effect and none at all for the z = 1 one.
-        natural_course = isinstance(nuisance.propensity, UnfittedPropensity)
-        missingness_values = nuisance.missingness
-        if natural_course and missingness_values is not None:
-            matrix = np.asarray(missingness_values, dtype=float)
-            realised = np.zeros(data.n, dtype=float)
-            for column, arm in enumerate(nuisance.arms):
-                realised[data.treatment == arm] = matrix[data.treatment == arm, column]
-            missingness_values = realised
+        natural_course = not nuisance.fits_treatment
+        missingness_values = (
+            nuisance.missingness_at_realised_arm(data.treatment)
+            if natural_course
+            else nuisance.missingness
+        )
         candidates: list[tuple[str, FloatArray | None]] = [
             ("P(Delta = 1 | A, W)", missingness_values)
         ]
@@ -1727,9 +1765,7 @@ class TMLE:
         )
 
         groups = (
-            ["natural_course"]
-            if data.has_missing_outcome and requested == (_NATURAL_COURSE_TARGET,)
-            else self._groups(requested)
+            ["natural_course"] if _is_natural_course(data, requested) else self._groups(requested)
         )
         for group in groups:
             bounds = g_bounds_for(group, mean_bounds, conditional_bounds)

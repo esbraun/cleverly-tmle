@@ -7,7 +7,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
@@ -17,7 +16,12 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
-from tests.studies.missing_outcome_study_helpers import efficiency_sd, sample_discrete
+from tests.studies.missing_outcome_study_helpers import (
+    FailTreatment,
+    NaturalCourseLaw,
+    efficiency_sd,
+    sample_discrete,
+)
 from tests.studies.point_study_helpers import primary_rows
 
 PRIMARY_REPLICATES = 800
@@ -30,38 +34,6 @@ NUISANCE_BOUND = 0.01
 BETA_CONCENTRATION = 24.0
 TRUTH = float(mar.functional(mar.PROBS, "ey_obs"))
 EFFICIENCY_SD = efficiency_sd(mar.PROBS, "ey_obs")
-
-
-class _FailTreatment(BaseEstimator):
-    """Expose any accidental treatment-mechanism use by this target."""
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _FailTreatment:
-        raise AssertionError("the natural-course mean must not fit a treatment mechanism")
-
-    def predict_proba(self, X: Any) -> Any:
-        raise AssertionError("the natural-course mean must not predict a treatment mechanism")
-
-
-class NaturalCourseLaw:
-    """The finite MAR nuisance functions used by both primary outcome laws."""
-
-    def __init__(self, *, q: np.ndarray = mar.Q, pi: np.ndarray = mar.PI) -> None:
-        self.q = np.asarray(q, dtype=float)
-        self.pi = np.asarray(pi, dtype=float)
-
-    def outcome_mean(self, w: Any, a: Any, z: Any = None) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
-        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
-        return self.q[levels, arms]
-
-    def missingness(self, w: Any, a: Any) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
-        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape).astype(int)
-        return self.pi[levels, arms]
-
-    def propensity(self, w: Any) -> np.ndarray:
-        levels = np.rint(np.asarray(w, dtype=float).reshape(-1)).astype(int)
-        return mar.G[levels]
 
 
 STUDY = StudyRecord(
@@ -180,7 +152,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str, *, law: NaturalCourseLaw | 
         TMLE(
             estimands=ESTIMANDS,
             outcome_learner=outcome,
-            treatment_learner=_FailTreatment(),
+            treatment_learner=FailTreatment(),
             missingness_learner=OracleMissingness(declared),
             cross_fit=False,
             fluctuation="logistic",

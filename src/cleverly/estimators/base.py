@@ -116,6 +116,13 @@ class TMLEConfig:
     #: fit had neither missing outcomes nor an intermediate variable, in which case the
     #: bound exists on the config but never touched anything.
     bounded_mechanisms: tuple[str, ...] = ()
+    #: Whether a treatment mechanism was estimated.  ``False`` only for the
+    #: missing-outcome natural-course mean, whose clever covariate divides by the
+    #: response probability alone.  Recorded rather than re-derived from the estimand
+    #: list, because "reports ey_obs and bounded some mechanism" is true of fits that
+    #: did estimate and truncate ``g`` -- and those fits must still print the bound they
+    #: applied.
+    fits_treatment: bool = True
     #: The arm code every contrast estimand is taken against.  Part of the *estimand*
     #: rather than a setting: ``ate[medium vs low]`` and ``ate[medium vs high]`` are
     #: different parameters, so which one was reported has to be recorded alongside the
@@ -202,8 +209,7 @@ class TMLEConfig:
         # truncated into g_bounds and reporting the bound would name a step that did not
         # happen. What bounds a density ratio there is the cap the analyst declared,
         # which is part of the estimand and so appears in the parameter names instead.
-        natural_course_mar = self.estimands == ("ey_obs",) and bool(self.bounded_mechanisms)
-        if self.parameter_axis != "shift" and not natural_course_mar:
+        if self.parameter_axis != "shift" and self.fits_treatment:
             bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
             if self.auto_bounds_n is not None:
                 # Named because it is a deliberate divergence from R's rule, and because a

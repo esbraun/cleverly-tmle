@@ -153,15 +153,16 @@ def test_bounded_continuous_outcome_is_supported() -> None:
     assert np.isfinite(result.psi("ey_obs"))
 
 
-def test_response_warning_reads_only_the_realized_natural_course() -> None:
-    law = _RealizedResponseSupport()
+def _response_frame(law: Any) -> pd.DataFrame:
     w = np.tile(np.array([0.0, 1.0]), 100)
     a = w.copy()
     delta = (np.arange(w.size) % 5 != 0).astype(float)
     mean = law.outcome_mean(w, a)
     y = (np.arange(w.size) % 3 < np.rint(3 * mean)).astype(float)
-    frame = pd.DataFrame({"Y": np.where(delta == 1.0, y, np.nan), "A": a, "W": w, "Delta": delta})
+    return pd.DataFrame({"Y": np.where(delta == 1.0, y, np.nan), "A": a, "W": w, "Delta": delta})
 
+
+def _fit_for_warnings(law: Any) -> list[warnings.WarningMessage]:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         fast_tmle(
@@ -170,6 +171,79 @@ def test_response_warning_reads_only_the_realized_natural_course() -> None:
             missingness_learner=OracleMissingness(law),
             cross_fit=False,
             nuisance_bound=0.01,
-        ).fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        ).fit(_response_frame(law), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+    return list(caught)
 
+
+def test_response_warning_reads_only_the_realized_natural_course() -> None:
+    """The negative half: dangerous *off-course* cells must not raise the warning.
+
+    Paired with the positive half below, which uses the same frame and the mirrored
+    law. One alone would pass on a construction that always warns or never does.
+    """
+    caught = _fit_for_warnings(_RealizedResponseSupport())
     assert not any(issubclass(item.category, PositivityWarning) for item in caught)
+
+
+class _LowRealizedResponse:
+    """The mirror of :class:`_RealizedResponseSupport`: the realized cells are the bad ones."""
+
+    @staticmethod
+    def outcome_mean(w: Any, a: Any, z: Any = None) -> np.ndarray:
+        levels = np.asarray(w, dtype=float).reshape(-1)
+        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape)
+        return 0.25 + 0.15 * arms + 0.10 * levels
+
+    @staticmethod
+    def missingness(w: Any, a: Any) -> np.ndarray:
+        levels = np.rint(np.asarray(w, dtype=float).reshape(-1))
+        arms = np.broadcast_to(np.asarray(a, dtype=float), levels.shape)
+        return np.where(arms == levels, 0.002, 0.9)
+
+
+def test_a_low_realized_response_warns_with_the_natural_course_guidance() -> None:
+    """The positive half of the realized-arm reduction.
+
+    Its negative half above shows no warning when the *off-course* cells are the
+    dangerous ones. Without this case the reduction would also pass if it silenced the
+    warning outright, so the two together pin which column is read rather than only
+    that some column is.
+    """
+    positivity = [
+        item for item in _fit_for_warnings(_LowRealizedResponse()) if _is_positivity(item)
+    ]
+    assert positivity, "a response probability of 0.002 under a 0.01 bound must warn"
+    message = str(positivity[0].message)
+    assert "P(Delta = 1 | A, W)" in message
+    # The natural-course sentence, not the arm-indexed one: this fit has no g(W) for
+    # the clever covariate to divide by, so guidance naming g would be false.
+    assert "natural-course response-residual covariate" in message
+    assert "res.diagnostics.nuisance_models()" in message
+    assert "just as g(W) does" not in message
+
+
+def _is_positivity(item: warnings.WarningMessage) -> bool:
+    return issubclass(item.category, PositivityWarning) and "P(Delta = 1" in str(item.message)
+
+
+def test_ey_obs_beside_an_intermediate_refuses_on_a_complete_outcome() -> None:
+    """The complete-outcome composition the natural-course boundary cannot see.
+
+    ``_resolve_estimands_for_data`` returns at its first branch when no outcome is
+    missing, so its ``intermediate=`` refusal never runs here. The guard that does run
+    keyed on ``POPULATION_INTERVENTION_TARGETS``, which ``ey_obs`` left when its
+    missing-outcome score equation landed. Without a replacement the fit succeeded and
+    published the plain empirical mean of ``Y`` once per level of ``Z``, labelling each
+    copy a controlled direct effect.
+    """
+    frame = _frame()
+    frame = frame.assign(Y=frame["Y"].fillna(0.0), Z=(np.arange(len(frame)) % 2).astype(float))
+    estimator = fast_tmle(estimands=("ey_obs",), cross_fit=False)
+    with pytest.raises(CapabilityError, match=r"\['ey_obs'\] do not yet support intermediate="):
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            intermediate="Z",
+        )

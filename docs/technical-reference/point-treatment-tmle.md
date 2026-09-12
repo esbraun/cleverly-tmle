@@ -91,7 +91,7 @@ $$
 
 The intervention mean uses the targeted arm mean. With complete outcomes, the natural-course mean
 uses the empirical distribution. PAF is undefined when the observed outcome risk is zero. The
-complete-data construction follows Diaz Munoz and van der Laan (2012); the missing-outcome
+complete-data construction follows Díaz Muñoz and van der Laan (2012); the missing-outcome
 natural-course construction is stated below.
 
 ### Missing outcomes and controlled direct effects
@@ -105,10 +105,10 @@ $$
 D(O)=\frac{\Delta}{\pi(X)}\{Y-m(X)\}+m(X)-\psi.
 $$
 
-The logistic fluctuation is fit among respondents with clever covariate $1/\pi(X)$, then the
-targeted outcome regression is averaged over every input row. This target has two nuisance
-functions: the outcome regression and response mechanism. It is consistent when either is
-correct, and its exact remainder is
+The estimator fits the logistic fluctuation among respondents with the clever covariate
+$1/\pi(X)$. It then averages the targeted outcome regression over every input row. This target
+has two nuisance functions: the outcome regression and the response mechanism. It is consistent
+when either is correct, and its exact remainder is
 
 $$
 R_2(P,P_0)=E_0\left[\left\{1-\frac{\pi_0(X)}{\pi(X)}\right\}
@@ -124,15 +124,17 @@ the true response probability falls below the bound on a set with positive proba
 
 No treatment mechanism enters this target. The first supported implementation is an iid scalar
 ordinary-TMLE fit with binary treatment, no cross-fitting or repeats, no observation weights,
-clusters, or strata, and iterative unweighted logistic targeting. It accepts a binary outcome or
-a continuous outcome with fixed `q_bounds`. The source is Díaz, Carone and van der Laan (2016),
-Section 2 and Equations (1)–(5). The registered
+clusters, strata, or `intermediate=`, and iterative unweighted logistic targeting. It accepts a
+binary outcome or a continuous outcome with fixed `q_bounds`. Every other composition refuses
+before any learner is fitted. The [refusals table](scope-and-refusals.md) carries the full list.
+
+The source is Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
 [ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
 checks both robustness halves, targeting and complete-case controls, root-$n$ behavior,
 efficiency, and interval calibration.
 
 For arm-indexed counterfactual means, the outcome residual instead carries the inverse product of
-the treatment mechanism $g(A\mid W)$ and observation mechanism $\pi(A,W)$. That
+the treatment mechanism $g(A\mid W)$ and the observation mechanism $\pi(A,W)$. That
 missing-at-random composition needs positivity of both mechanisms wherever the intervention places
 mass. Missingness is a design role. Missing adjustment values and missing treatment values are not
 implicitly covered.
@@ -242,7 +244,7 @@ so a modified treatment policy has variance at least as large as the regime indu
 The added term is a conditional variance, and it is positive wherever the shift moves the dose.
 Delegating one to the other omits that term and reports a standard error that is too small.
 
-Theory: Diaz Munoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Diaz, Williams,
+Theory: Díaz Muñoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Diaz, Williams,
 Hoffman and Schenck (2023). Implementation:
 [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),

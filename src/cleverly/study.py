@@ -823,7 +823,22 @@ class CounterfactualMean:
 
 @dataclass(frozen=True)
 class NaturalCourseMean:
-    """Request the observed-course outcome mean."""
+    """Request the observed-course outcome mean.
+
+    With complete outcomes this is the empirical mean of ``Y``. It reads the observed
+    law alone, so it estimates no nuisance and makes no exchangeability assumption.
+
+    With a declared ``missingness=``, the same target is ``E[m(A, W)]``, where
+    ``m(A, W) = E(Y | Delta = 1, A, W)``. The complete-case mean is a different
+    parameter. This form estimates the outcome regression and the response mechanism,
+    and still estimates no treatment mechanism. It needs missingness at random given
+    ``(A, W)`` and response positivity. See
+    :doc:`observed-data extensions </technical-reference/point-treatment-tmle>` for the
+    supported compositions, which are deliberately narrow: one scalar ordinary TMLE,
+    binary treatment, no cross-fitting, no repeats, and either a binary outcome or a
+    bounded continuous outcome with declared ``q_bounds``. Every other composition
+    refuses before any learner is fitted.
+    """
 
     name: str = field(default="ey_obs", init=False)
     definition: str = field(default="natural-course outcome mean, E[Y]", init=False)

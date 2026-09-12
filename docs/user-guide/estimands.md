@@ -44,12 +44,17 @@ Multi-valued treatments preserve original arm labels in `ParameterKey.value` and
 `ParameterKey.reference`.
 
 `NaturalCourseMean()` can also target the mean before outcome nonresponse when the study declares
-`missingness=`. That path uses the outcome regression and response mechanism, not a treatment
-model. Its first supported surface is deliberately narrow: ordinary TMLE with binary treatment,
-one iid sample, `CrossFitting(enabled=False)`, iterative unweighted logistic targeting, and no
-weights, clusters, strata, bootstrap, or joint target. A continuous outcome needs fixed
-`q_bounds`. The default method cross-fits, so this path requires an explicit method declaration.
-See the [missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
+`missingness=`. That path uses the outcome regression and the response mechanism. It uses no
+treatment model.
+
+Its first supported surface is deliberately narrow: ordinary TMLE with binary treatment, one iid
+sample, `CrossFitting(enabled=False)`, and iterative unweighted logistic targeting. It accepts no
+weights, clusters, strata, `intermediate=`, bootstrap, or joint target. A continuous outcome needs
+fixed `q_bounds`. The default method cross-fits, so this path requires an explicit method
+declaration.
+
+The [refusals table](../technical-reference/scope-and-refusals.md) carries the full list. See the
+[missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
 
 ## Known regimes
 

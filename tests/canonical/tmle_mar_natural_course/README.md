@@ -11,8 +11,8 @@ root-n contraction and exact-EIF efficiency, interval calibration and two derive
 targeting necessity, and the consequence of silently switching to a complete-case analysis.
 
 There is no external comparison in this row. The repository's pinned R `tmle` 2.1.1 adapter
-implements the MAR intervention-arm means, not this natural-course target. Díaz, Carone, and van
-der Laan (2016), Section 2 and equations 1--5 specify the estimator, but the source and repository
+implements the MAR intervention-arm means, not this natural-course target. Díaz, Carone and van
+der Laan (2016), Section 2 and Equations (1)–(5) specify the estimator, but the source and repository
 search did not identify a maintained public implementation with a matching callable target. The
 study therefore commits a schema-valid empty `equivalence.csv` and rests on exact-law and
 repeated-sampling evidence.

@@ -565,6 +565,49 @@ class NuisanceEstimates:
             return self.msm.arms
         return self.propensity.arms
 
+    @property
+    def fits_treatment(self) -> bool:
+        """Whether a treatment mechanism was estimated at all.
+
+        The one predicate seven readers share, rather than seven ``isinstance`` tests
+        against a private staging class: the summary line that names the propensity
+        bound, the positivity warning, the support report, the truncation curve and the
+        three nuisance-diagnostic rows all need the same fact.  Written here because
+        this container is the only object that holds the answer, and because a reader
+        that has to import :class:`UnfittedPropensity` to ask the question is a reader
+        that can also accidentally construct one.
+        """
+        return not isinstance(self.propensity, UnfittedPropensity)
+
+    def missingness_at_realised_arm(self, treatment: FloatArray) -> FloatArray | None:
+        """``P(Delta = 1 | A, W)`` read at each row's *own* treatment, ``(n,)``.
+
+        The stored array is ``(n, K)``, one column per arm, so reading it whole asks a
+        positivity question about counterfactual arms.  A target whose clever covariate
+        divides by the response probability at the realised arm -- the natural-course
+        mean is the one shipped example -- must report the column it actually divided
+        by.  Returns ``None`` when no response mechanism was fitted.
+
+        Parameters
+        ----------
+        treatment : ndarray
+            The realised treatment codes, ``(n,)``.
+
+        Returns
+        -------
+        ndarray or None
+            The per-row response probability, or ``None`` when ``missingness`` is unset.
+        """
+        if self.missingness is None:
+            return None
+        matrix = np.asarray(self.missingness, dtype=float)
+        observed = np.asarray(treatment, dtype=float).reshape(-1)
+        realised = np.zeros(observed.shape[0], dtype=float)
+        for column, arm in enumerate(self.arms):
+            mask = observed == arm
+            realised[mask] = matrix[mask, column]
+        return realised
+
     def at_level(self, value: float) -> NuisanceEstimates:
         """The same nuisances, with the outcome regression evaluated at ``Z = value``."""
         fit = self.outcome_by_level.get(check_level(value))

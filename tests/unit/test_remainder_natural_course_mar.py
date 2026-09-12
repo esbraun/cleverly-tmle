@@ -14,10 +14,19 @@ with
     R_2(P,P_0)=E_0[(1-\pi_0/\pi)(m-m_0)].
 
 Every expectation below is an exact empirical sum over
-:mod:`tests.discrete_law_mar`.  The library supplies the targeted regression and its
-reported influence curve; the right side is evaluated independently from the law's
-arrays.  Thus the test catches the remainder sign, either missing nuisance factor, and a
-score equation that targets a different parameter.
+:mod:`tests.discrete_law_mar`.  The library supplies the targeted regression; the right
+side is evaluated independently from the law's arrays.  Thus the test catches the
+remainder sign, either missing nuisance factor, and a score equation that targets a
+different parameter.
+
+What this file does **not** check is the *reported* influence curve.  Targeting solves
+:math:`P_n[\Delta(Y-m^*)/\pi]=0` and :math:`\psi` is the plug-in average of
+:math:`m^*`, so :math:`P_n D` is identically zero whatever curve the library reports,
+and the expansion below reduces to :math:`\psi-\psi_0`.  Deleting the response-residual
+term from the reported curve leaves every assertion here green.
+:mod:`tests.unit.test_influence_gateaux_natural_course_mar` is what pins the curve, by
+comparing it against the definition-level Gateaux derivative and against an independent
+longhand construction.
 """
 
 from __future__ import annotations
@@ -26,22 +35,14 @@ from typing import Any
 
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome
+from tests.studies.missing_outcome_study_helpers import FailTreatment
 
 WRONG_PI = law.PI + np.array([[0.30, -0.15], [-0.20, 0.25], [-0.35, 0.10]])
 WRONG_Q = law.Q + np.array([[0.10, -0.15], [-0.15, 0.10], [0.05, 0.20]])
-
-
-class _FailTreatment(BaseEstimator):
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _FailTreatment:
-        raise AssertionError("the natural-course remainder contains no treatment mechanism")
-
-    def predict_proba(self, X: Any) -> Any:
-        raise AssertionError("the natural-course remainder contains no treatment mechanism")
 
 
 def _fit(pi_hat: np.ndarray, q_hat: np.ndarray) -> Any:
@@ -51,7 +52,7 @@ def _fit(pi_hat: np.ndarray, q_hat: np.ndarray) -> Any:
     return (
         TMLE(
             outcome_learner=OracleOutcome(candidate),
-            treatment_learner=_FailTreatment(),
+            treatment_learner=FailTreatment(),
             missingness_learner=OracleMissingness(candidate),
             cross_fit=False,
             fluctuation="logistic",

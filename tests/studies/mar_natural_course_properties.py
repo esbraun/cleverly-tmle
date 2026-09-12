@@ -18,8 +18,6 @@ from tests.studies.canonical_mar_natural_course import (
     ESTIMANDS,
     NUISANCE_BOUND,
     STUDY,
-    NaturalCourseLaw,
-    _FailTreatment,
     initial_estimate,
 )
 from tests.studies.evidence.properties import (
@@ -36,7 +34,11 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
-from tests.studies.missing_outcome_study_helpers import sample_discrete
+from tests.studies.missing_outcome_study_helpers import (
+    FailTreatment,
+    NaturalCourseLaw,
+    sample_discrete,
+)
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -71,7 +73,7 @@ def _fit(frame: pd.DataFrame, configuration: str, *, delta: bool = True) -> Any:
         TMLE(
             estimands=ESTIMANDS,
             outcome_learner=OracleOutcome(law),
-            treatment_learner=_FailTreatment() if delta else OracleTreatment(law),
+            treatment_learner=FailTreatment() if delta else OracleTreatment(law),
             missingness_learner=OracleMissingness(law) if delta else None,
             cross_fit=False,
             fluctuation="logistic",
