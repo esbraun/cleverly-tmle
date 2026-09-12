@@ -527,6 +527,24 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    from .sensitivity.missingness import is_natural_course_result
+
+    if family == "point" and is_natural_course_result(result) and result.data.has_missing_outcome:
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason=(
+                    "NaturalCourseMean fits no treatment propensity, and a response-only "
+                    "support report is not implemented; inspect nuisance_models and "
+                    "score_equations"
+                ),
+            )
+            if row.operation == "support"
+            else row
+            for row in rows
+        )
     if (
         family == "point"
         and result.data.is_continuous_treatment
@@ -2242,7 +2260,9 @@ class DiagnosticsFacade(_CapabilityFacade):
         estimands : sequence of str or None
             Reported estimands to include. All compatible estimands are the default.
         mechanism : bool
-            For an incremental intervention, vary a separate observation mechanism.
+            Vary the observation mechanism rather than treatment. This is the only
+            available axis, and therefore the effective default, for a missing-outcome
+            ``NaturalCourseMean`` fit.
 
         Returns
         -------
@@ -2280,6 +2300,11 @@ class DiagnosticsFacade(_CapabilityFacade):
                 "diagnostics.support(), or pass mechanism=True when a separate observation "
                 "mechanism was fitted"
             )
+        if not longitudinal and self._result.data.has_missing_outcome:
+            from .sensitivity.missingness import is_natural_course_result
+
+            if is_natural_course_result(self._result):
+                mechanism = True
 
         # The longitudinal call takes no ``None``, and the refusal above is eager, so the
         # empty fallback here is unreachable on that path.
@@ -3292,6 +3317,12 @@ class SensitivityFacade(_CapabilityFacade):
             if longitudinal
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
+        from .sensitivity.missingness import (
+            NATURAL_COURSE_TILT_REFUSAL,
+            is_natural_course_result,
+        )
+
+        natural_course = missing and is_natural_course_result(self._result)
         # Whether a *point* fit is replayable is settled by ``requires_replay`` below.
         # This row only says whether the analysis exists for the family at all.
         benchmarkable = not longitudinal
@@ -3356,17 +3387,19 @@ class SensitivityFacade(_CapabilityFacade):
                 execution="retarget",
                 cost="moderate",
                 interpretation=interpretation,
-                available=missing,
+                available=missing and not natural_course,
                 status=(
                     AssessmentStatus.PASSED
-                    if missing
+                    if missing and not natural_course
                     else AssessmentStatus.UNAVAILABLE
-                    if longitudinal
+                    if longitudinal or natural_course
                     else AssessmentStatus.NOT_APPLICABLE
                 ),
                 reason=(
                     None
-                    if missing
+                    if missing and not natural_course
+                    else NATURAL_COURSE_TILT_REFUSAL
+                    if natural_course
                     else "no longitudinal missingness-tilt adapter is implemented"
                     if longitudinal
                     else "the identified functional has no observation mechanism"

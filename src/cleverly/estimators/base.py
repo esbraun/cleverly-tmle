@@ -202,7 +202,8 @@ class TMLEConfig:
         # truncated into g_bounds and reporting the bound would name a step that did not
         # happen. What bounds a density ratio there is the cap the analyst declared,
         # which is part of the estimand and so appears in the parameter names instead.
-        if self.parameter_axis != "shift":
+        natural_course_mar = self.estimands == ("ey_obs",) and bool(self.bounded_mechanisms)
+        if self.parameter_axis != "shift" and not natural_course_mar:
             bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
             if self.auto_bounds_n is not None:
                 # Named because it is a deliberate divergence from R's rule, and because a

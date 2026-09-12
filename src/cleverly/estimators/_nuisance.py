@@ -262,24 +262,25 @@ class Propensity:
 
 @dataclass(frozen=True)
 class UnfittedPropensity(Propensity):
-    """The ``fit_treatment=False`` staging value: a mechanism that was never estimated.
+    """The ``fit_treatment=False`` value: a mechanism that was never estimated.
 
     :func:`fit_nuisances` has to return the ordinary container even when it skipped the
     treatment model, because the outcome and missingness fits travel in it.  What it must
     *not* return is an array a consumer can quietly use.  Zeros would be usable: they clip
     to :meth:`Propensity.bounded`'s floor and give a finite, plausible, wrong estimate.  So
-    the values are ``NaN`` and every read accessor raises -- the collaborative caller
-    replaces the whole object before targeting, and any path that does not is a defect
-    rather than a slightly worse fit.  :meth:`arm` and :meth:`truncate` refuse directly,
+    the values are ``NaN`` and every read accessor raises. A collaborative caller replaces
+    the whole object before targeting; the missing-outcome natural-course target retains it
+    because that target must not read a treatment mechanism. :meth:`arm` and
+    :meth:`truncate` refuse directly,
     and :meth:`Propensity.bounded` refuses through :meth:`truncate`, so one override
     covers both truncating accessors.
     """
 
     def _unfitted(self) -> ValueError:
         return ValueError(
-            "this treatment mechanism was never fitted: it is the fit_treatment=False "
-            "staging value that a collaborative estimator must replace with its own g "
-            "before any targeting, diagnostic or sensitivity code reads it"
+            "this treatment mechanism was never fitted: a collaborative "
+            "estimator must replace the fit_treatment=False value before reading g, and "
+            "a natural-course target must not read it at all"
         )
 
     def arm(self, arm: float) -> FloatArray:
@@ -998,10 +999,10 @@ def fit_nuisances(
     later step to get wrong.
 
     ``fit_treatment=False`` is the outcome-first staging path used by collaborative
-    estimators, which replace the ordinary treatment model before any targeting or
-    reporting occurs.  It is intentionally internal: the returned propensity is an
-    :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise, so a
-    caller that fails to replace it stops rather than reporting a plausible number.
+    estimators and the no-treatment-mechanism path used by a missing-outcome natural-course
+    target. It is intentionally internal: the returned propensity is an
+    :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise. A
+    collaborative caller must replace it; a natural-course caller must avoid it.
 
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
@@ -1080,10 +1081,11 @@ def fit_nuisances(
                 tuple(incremental), data, propensity.values, reference=incremental_reference
             )
     else:
-        # A staging value, not an estimated mechanism.  Keeping the arm metadata and
+        # An explicit absent value, not an estimated mechanism. Keeping the arm metadata and
         # matrix shape valid lets the shared outcome/missingness pipeline return its
-        # ordinary container; CTMLE replaces this before any consumer can read it, and
-        # `UnfittedPropensity` is what turns "does not" into "cannot".
+        # ordinary container; CTMLE replaces this before any consumer can read it, while
+        # the natural-course group retains it and never reads it. `UnfittedPropensity` is
+        # what turns "does not" into "cannot" for every accidental consumer.
         propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
     retained = data.covariate_names

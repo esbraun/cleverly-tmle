@@ -45,6 +45,7 @@ from ..inference.influence import (
     ipsi_means,
     make_estimate,
     msm_coefficients,
+    natural_course_mean,
     regime_means,
     shift_means,
     unscale,
@@ -404,17 +405,20 @@ class TargetContext:
     def observed_mean(self) -> ArmMean:
         r"""The natural-course mean :math:`E[Y]` and its empirical influence curve.
 
-        This is deliberately available only for a fully observed outcome.  Under MAR the
-        efficient curve gains an outcome-regression and missingness block, and the mean
-        fluctuation used for static interventions does not solve that additional score.
-        Refusing that composition is what keeps PAR/PAF from silently becoming a
-        complete-case parameter.
+        Complete outcomes retain the empirical construction exactly.  Under MAR, the
+        dedicated ``natural_course`` fluctuation supplies the response-weighted residual
+        score without introducing a treatment mechanism.  The ordinary ``mean`` group
+        remains refused there so PAR/PAF cannot silently become complete-case parameters.
         """
         if not np.all(self.observed):
-            # Every target reading this property is refused together, because the context
-            # is shared by the group and does not know which of the three asked.  The
-            # raised CapabilityError is still a ValueError, which is what lets a fold that
-            # declares ``undefined_when`` keep dropping ``paf`` on a zero-risk subsample.
+            if self.submodel.group == "natural_course":
+                return natural_course_mean(
+                    self.scaled,
+                    self.targeted,
+                    self.submodel,
+                    self.weights,
+                    self.observed,
+                )
             raise population_intervention_refusal(
                 POPULATION_INTERVENTION_TARGETS, declaration="delta="
             )

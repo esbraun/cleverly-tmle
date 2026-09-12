@@ -1513,6 +1513,16 @@ def refute(
         raise ValueError(
             f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
         )
+    keys = getattr(result, "parameter_keys", {})
+    key = keys.get(estimand) if keys else None
+    target = getattr(key, "estimand", estimand)
+    if target == "ey_obs" and "placebo" in requested:
+        raise CapabilityError(
+            "the placebo refutation permutes treatment and expects a null effect, but "
+            "NaturalCourseMean is an outcome level and need not approach zero. Drop "
+            "'placebo' from tests=; random_common_cause and subset retain their usual "
+            "stability interpretations."
+        )
     if n_replicates is not None and (
         isinstance(n_replicates, bool)
         or not isinstance(n_replicates, (int, np.integer))

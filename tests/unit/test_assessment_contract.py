@@ -25,6 +25,7 @@ from cleverly import (
     ExplicitAdjustmentProvider,
     IdentificationProvider,
     LongitudinalTreatment,
+    NaturalCourseMean,
     PointTreatment,
     PositivityWarning,
     RegimeMean,
@@ -48,6 +49,7 @@ from cleverly.assessment import (
     _defaults_to_ambiguous_estimand,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.estimators import TMLE
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
@@ -58,7 +60,114 @@ from cleverly.sensitivity._simulated_confounding_request import (
 )
 from cleverly.sensitivity.positivity import positivity_report
 from cleverly.validation.nuisance import nuisance_diagnostics
+from tests import discrete_law_mar
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.unit._confounding_support import forbid_draw_and_refit
+
+
+@pytest.fixture(scope="module")
+def natural_course_result():  # type: ignore[no-untyped-def]
+    law = discrete_law_mar.DiscreteLaw()
+    study = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+        ),
+    )
+    return study.identify(NaturalCourseMean()).estimate(
+        outcome_learner=OracleOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        cross_fit=False,
+        simultaneous=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def raw_natural_course_result():  # type: ignore[no-untyped-def]
+    law = discrete_law_mar.DiscreteLaw()
+    return (
+        TMLE(
+            estimands=("ey_obs",),
+            outcome_learner=OracleOutcome(law),
+            treatment_learner=OracleTreatment(law),
+            missingness_learner=OracleMissingness(law),
+            cross_fit=False,
+            simultaneous=False,
+        )
+        .fit(
+            discrete_law_mar.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+        )
+        .single()
+    )
+
+
+def test_natural_course_assessment_refuses_arm_specific_surfaces(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    reasons = set()
+    for operation in ("missingness", "tipping_gamma"):
+        capability = natural_course_result.sensitivity.capability(operation)
+        assert not capability.available
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        reasons.add(capability.reason)
+        with pytest.raises(CapabilityError, match="natural-course sensitivity parameter"):
+            getattr(natural_course_result.sensitivity, operation)()
+    assert len(reasons) == 1
+
+    combined = natural_course_result.sensitivity.run_all(include_retargets=True)
+    for operation in ("missingness", "tipping_gamma"):
+        assert combined[operation].status is AssessmentStatus.UNAVAILABLE
+        assert combined[operation].detail in reasons
+
+
+def test_natural_course_diagnostics_are_truthful_without_a_propensity(
+    natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    support = natural_course_result.diagnostics.capability("support")
+    assert not support.available
+    assert "response-only support report is not implemented" in str(support.reason)
+    with pytest.raises(CapabilityError, match="response-only support report"):
+        natural_course_result.diagnostics.support()
+    nuisance = natural_course_result.diagnostics.nuisance_models()
+    assert tuple(model.name for model in nuisance.models) == ("missingness", "outcome")
+    assert nuisance.treatment_role is None
+
+
+def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
+    raw_natural_course_result,
+) -> None:  # type: ignore[no-untyped-def]
+    assert raw_natural_course_result.parameter_keys == {}
+    support = raw_natural_course_result.diagnostics.capability("support")
+    assert not support.available
+    assert "response-only support report is not implemented" in str(support.reason)
+    for operation in ("missingness", "tipping_gamma"):
+        assert not raw_natural_course_result.sensitivity.capability(operation).available
+
+    bounds = (0.01, 0.05)
+    default = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds)
+    explicit = raw_natural_course_result.diagnostics.truncation_curve(bounds=bounds, mechanism=True)
+    pd.testing.assert_frame_equal(default, explicit, check_exact=True)
+    combined = raw_natural_course_result.diagnostics.run_all(include_retargets=True)
+    assert combined["truncation_curve"].status is AssessmentStatus.COMPLETED
+
+
+def test_natural_course_placebo_refuses_before_refitting(
+    natural_course_result,
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    forbid_draw_and_refit(monkeypatch, natural_course_result.estimator)
+    with pytest.raises(CapabilityError, match="outcome level"):
+        natural_course_result.diagnostics.refute(
+            estimand="ey_obs", tests=("placebo",), random_state=19
+        )
 
 
 @pytest.fixture(scope="module")

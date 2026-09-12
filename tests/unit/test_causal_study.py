@@ -764,7 +764,6 @@ def test_cde_conditional_mechanism_positivity_names_both_arms_and_population(
 @pytest.mark.parametrize(
     ("estimand", "roadmap"),
     [
-        (NaturalCourseMean(), "RM7"),
         (PopulationAttributableRisk(), "RM8"),
         (PopulationAttributableFraction(), "RM8"),
     ],
@@ -783,6 +782,27 @@ def test_missing_population_interventions_refuse_at_identification_boundary(
                 missingness="Delta",
             ),
         ).identify(estimand)
+
+
+def test_missing_natural_course_identification_names_only_its_two_nuisances() -> None:
+    effect = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W",),
+            missingness="Delta",
+        ),
+    ).identify(NaturalCourseMean())
+    assert effect.functional.expression == "E_{A,W}[E(Y | Delta=1, A, W)]"
+    assert effect.identification.required_nuisances == (
+        "outcome_regression",
+        "missingness_mechanism",
+    )
+    assumptions = " ".join(effect.identification.assumptions)
+    assert "missingness at random" in assumptions
+    assert "response positivity" in assumptions
+    assert "no treatment mechanism" in effect.identification.dr_condition
 
 
 def test_point_treatment_targets_state_no_interference_separately() -> None:
@@ -1229,13 +1249,12 @@ def test_the_natural_course_mean_matches_the_empirical_mean_exactly() -> None:
 @pytest.mark.parametrize(
     ("estimand", "roadmap"),
     [
-        (NaturalCourseMean(), "RM7"),
         (PopulationAttributableRisk(), "RM8"),
         (PopulationAttributableFraction(), "RM8"),
     ],
-    ids=["ey_obs", "par", "paf"],
+    ids=["par", "paf"],
 )
-def test_a_genuinely_missing_outcome_still_refuses_the_population_interventions(
+def test_a_genuinely_missing_outcome_still_refuses_the_attributable_interventions(
     estimand: Any, roadmap: str
 ) -> None:
     frame, _ = make_linear_ate(n=120, seed=19)
@@ -1265,7 +1284,7 @@ def test_one_refusal_sentence_and_one_exception_type_serve_all_three_call_sites(
     apart, and docs/architecture-invariants.md requires a method-configuration failure to
     derive from ``CleverlyError``.
     """
-    assert frozenset({"ey_obs", "par", "paf"}) == POPULATION_INTERVENTION_TARGETS
+    assert frozenset({"par", "paf"}) == POPULATION_INTERVENTION_TARGETS
     frame, _ = make_linear_ate(n=120, seed=19)
     frame = frame.copy()
     frame["Delta"] = 1
@@ -1281,7 +1300,7 @@ def test_one_refusal_sentence_and_one_exception_type_serve_all_three_call_sites(
         ),
     )
     with pytest.raises(CapabilityError) as identified:
-        study.identify(NaturalCourseMean())
+        study.identify(PopulationAttributableRisk())
     with pytest.raises(CapabilityError) as fitted:
         TMLE(estimands=("par",), **FAST_KWARGS).fit(
             frame,
@@ -1329,7 +1348,7 @@ def test_the_target_context_refusal_is_a_cleverly_error_and_still_a_value_error(
     assert isinstance(error, CleverlyError)
     assert isinstance(error, ValueError)
     assert isinstance(error, CapabilityError)
-    assert "ey_obs, par and paf do not yet support delta=" in str(error)
+    assert "par and paf do not yet support delta=" in str(error)
 
 
 # ------------------------------------------------------------------ no silent fall-through

@@ -216,6 +216,9 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             exact_efficiency=_has_exact_efficiency(row),
             role=str(row.role),
             nuisance_count=record.nuisance_count,
+            response_nuisance=(
+                "response_correct" in record.property_cells.get(str(row.property), ())
+            ),
         )
         rows.append(
             (

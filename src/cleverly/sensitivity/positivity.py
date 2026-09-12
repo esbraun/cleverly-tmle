@@ -53,6 +53,7 @@ from ..data.weighting import (
     top_weight_share,
     validate_score_loads,
 )
+from ..estimators._nuisance import UnfittedPropensity
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
@@ -770,6 +771,12 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     PositivityReport
         Overlap read off the stored nuisance fits, without refitting.
     """
+    if isinstance(result.nuisance.propensity, UnfittedPropensity):
+        raise CapabilityError(
+            "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+            "the arm-propensity support report is not applicable. Inspect the missingness "
+            "row from diagnostics.nuisance_models() and the targeting score instead."
+        )
     if result.data.is_continuous_treatment:
         raise DataError(
             f"{result.data.treatment_name} is continuous, so there is no per-arm "
@@ -1503,7 +1510,15 @@ def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: 
     # to a constant rescales both clever-covariate columns by the same factor, and the
     # fluctuation ``epsilon * h`` is invariant to that, so ``psi`` sits flat across the
     # whole sweep however badly the bound is binding.
-    candidates = [result.nuisance.missingness]
+    missingness = result.nuisance.missingness
+    if isinstance(result.nuisance.propensity, UnfittedPropensity) and missingness is not None:
+        matrix = np.asarray(missingness, dtype=float)
+        realised = np.zeros(result.data.n, dtype=float)
+        for column, arm in enumerate(result.nuisance.arms):
+            mask = result.data.treatment == arm
+            realised[mask] = matrix[mask, column]
+        missingness = realised
+    candidates = [missingness]
     if result.nuisance.intermediate is not None and result.intermediate_value is not None:
         candidates.append(result.nuisance.intermediate_density(result.intermediate_value, 0.0))
     parts = [

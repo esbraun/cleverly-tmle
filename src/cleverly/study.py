@@ -30,6 +30,7 @@ from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
     MISSINGNESS_MECHANISM,
+    OUTCOME_REGRESSION,
     Identification,
     arm_alias,
     parameter_name,
@@ -1420,6 +1421,11 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
                 return f"E_W[{regression(arm)}]"
 
             if self.target == "ey_obs":
+                if self.missingness is not None:
+                    return (
+                        f"E_{{{self.treatment},W}}[E({self.outcome} | "
+                        f"{self.missingness}=1, {self.treatment}, W)]"
+                    )
                 return f"E({self.outcome}) under the observed treatment course"
             if self.target == "att":
                 return (
@@ -1756,8 +1762,14 @@ def _bound_dr_condition(
     """
     target = functional.target
     missingness = functional.missingness
-    if target == "ey_obs":
+    if target == "ey_obs" and missingness is None:
         return "the complete-data empirical mean has no nuisance-model remainder"
+    if target == "ey_obs":
+        return (
+            "consistent if either m(A, W) = E(Y | Delta = 1, A, W) is consistent "
+            f"or P({missingness} = 1 | {design.treatment}, W) is consistent; no "
+            "treatment mechanism enters the remainder"
+        )
     if direct:
         mechanism = "g * q_z" + (" * pi" if missingness is not None else "")
         bound = (
@@ -1844,7 +1856,9 @@ def _point_identification(
             if design.intermediate is None:
                 assumptions.append(item)
             continue
-        if target == "ey_obs" and not item.startswith(COMPLETE_OUTCOME_PREFIX):
+        if target == "ey_obs":
+            if missingness is None and item.startswith(COMPLETE_OUTCOME_PREFIX):
+                assumptions.append(item)
             continue
         if target in {"att", "atc"} and item.startswith(REFERENCE_ONLY_POSITIVITY_PREFIX):
             continue
@@ -1881,7 +1895,13 @@ def _point_identification(
             continue
         assumptions.append(item)
 
-    nuisances = [] if target == "ey_obs" else list(base.required_nuisances)
+    nuisances = (
+        [OUTCOME_REGRESSION]
+        if target == "ey_obs" and missingness is not None
+        else []
+        if target == "ey_obs"
+        else list(base.required_nuisances)
+    )
     if direct:
         nuisances.append(INTERMEDIATE_MECHANISM)
     if missingness is not None and target not in POPULATION_INTERVENTION_TARGETS:
@@ -1894,7 +1914,12 @@ def _point_identification(
             f"missingness at random for {missingness}: {design.outcome} is independent "
             f"of {missingness} given {conditioning}"
         )
-        if axis == "shift":
+        if target == "ey_obs":
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment}, W) > 0 almost surely"
+            )
+        elif axis == "shift":
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
@@ -1940,17 +1965,26 @@ def _point_identification(
             f"comparison arm a and at {design.treatment} = "
             f"{functional.reference_arm!r}, so the odds are finite"
         )
-    if target == "ey_obs":
+    if target == "ey_obs" and missingness is None:
         assumptions.append(
             "the natural-course mean is a functional of the observed law alone: neither "
             f"the adjustment set {list(design.adjustment)} nor a treatment mechanism "
             "enters it, which is why this record requires no nuisance estimate"
         )
+    elif target == "ey_obs":
+        assumptions.append(
+            "the natural-course mean averages m(A, W) over the empirical joint law of "
+            "(A, W); the response and outcome regressions enter, but no treatment "
+            "mechanism or treatment-exchangeability assumption does"
+        )
+    references = base.references
+    if target == "ey_obs" and missingness is not None:
+        references = (*references, "Díaz, Carone & van der Laan (2016)")
     return Identification(
         assumptions=tuple(assumptions),
         required_nuisances=tuple(nuisances),
         dr_condition=_bound_dr_condition(base, design, functional, direct=direct),
-        references=base.references,
+        references=references,
     )
 
 

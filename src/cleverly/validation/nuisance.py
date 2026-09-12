@@ -47,6 +47,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
+from ..estimators._nuisance import UnfittedPropensity
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -575,7 +576,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     collaborative = result.fitted_method == "collaborative_tmle" or selection is not None
     selection_omission = NUISANCE_SELECTION_MISSING if collaborative and selection is None else None
 
-    if data.is_binary_treatment:
+    if data.is_binary_treatment and not isinstance(nuisance.propensity, UnfittedPropensity):
         models.append(
             _binary_report(
                 "propensity",
@@ -585,7 +586,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 nuisance.diagnostics.get("propensity"),
             )
         )
-    elif not data.is_continuous_treatment:
+    elif not data.is_continuous_treatment and not isinstance(
+        nuisance.propensity, UnfittedPropensity
+    ):
         # One one-vs-rest report per arm, rather than a single multi-class summary.
         # Positivity is an arm-by-arm property -- the estimate can rest on a badly
         # calibrated denominator for one arm while the pooled log loss looks fine --
@@ -656,7 +659,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         backend=result.data.backend,
         selection=selection,
         treatment_role=(
-            "collaborative_working_model"
+            None
+            if isinstance(nuisance.propensity, UnfittedPropensity)
+            else "collaborative_working_model"
             if collaborative
             else "estimated_treatment_law"
             if not data.is_continuous_treatment

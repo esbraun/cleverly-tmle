@@ -1,10 +1,9 @@
-"""The population-intervention estimands, and the one refusal the three of them share.
+"""The attributable population-intervention estimands and their shared refusal.
 
-``ey_obs``, ``par`` and ``paf`` are the estimands whose functional contains the
-natural-course mean :math:`E[Y]`.  Under missingness at random that mean is not the
-empirical mean of the observed rows, so all three are refused.  ``docs/roadmap.md`` RM7
-contracts the score equation for ``ey_obs``.  RM8 keeps its audit open for ``par`` and
-``paf``.
+``par`` and ``paf`` contain both the natural-course mean and a reference-intervention
+mean.  Their joint missing-outcome construction remains outside the implemented surface
+and is tracked by ``docs/roadmap.md`` RM8.  The scalar natural-course mean itself has its
+own missing-outcome score equation and therefore no longer belongs to this refusal.
 
 Three modules that do not import one another reach this refusal: the target context that
 would compute the mean, the estimator that resolves an estimand list, and the study that
@@ -30,23 +29,17 @@ __all__ = [
     "population_intervention_refusal",
 ]
 
-#: The estimands whose functional reads the natural-course mean ``E[Y]``, in report order.
-_ORDERED = ("ey_obs", "par", "paf")
+#: The attributable estimands whose missing-outcome construction remains open, in report order.
+_ORDERED = ("par", "paf")
 
 #: The estimands whose functional reads the natural-course mean ``E[Y]``.
 POPULATION_INTERVENTION_TARGETS = frozenset(_ORDERED)
 
-#: The roadmap row that tracks each one.  RM8 depends on RM7.  The RM7 audit is complete,
-#: and its implementation is not.
-_ROADMAP_ROW = {"ey_obs": "RM7", "par": "RM8", "paf": "RM8"}
+#: The roadmap row that tracks each one.
+_ROADMAP_ROW = {"par": "RM8", "paf": "RM8"}
 
-_ROADMAP_SENTENCE = {
-    ("RM7",): "docs/roadmap.md RM7 tracks this identification boundary.",
-    ("RM8",): "docs/roadmap.md RM8 tracks this identification boundary.",
-    ("RM7", "RM8"): (
-        "docs/roadmap.md RM7 tracks this stop for the natural-course mean, and "
-        "docs/roadmap.md RM8 tracks it for par and paf."
-    ),
+_ROADMAP_SENTENCE: dict[tuple[str, ...], str] = {
+    ("RM8",): "docs/roadmap.md RM8 tracks this identification boundary."
 }
 
 
@@ -70,7 +63,7 @@ def population_intervention_refusal(
     targets : iterable of str
         The estimand names the caller is refusing. Names outside
         :data:`POPULATION_INTERVENTION_TARGETS` are ignored, and an iterable naming none
-        of them is read as all three, which is the shared-context case.
+        of them is read as both, which is the shared-context case.
     declaration : str
         How the caller's own API spells the missingness declaration, so the message
         names the keyword the reader wrote.

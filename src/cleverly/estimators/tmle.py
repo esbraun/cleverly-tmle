@@ -145,7 +145,7 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import NuisanceEstimates, RepeatFit, UnfittedPropensity, fit_nuisances
 from .base import (
     CVTargeting,
     TMLEConfig,
@@ -179,6 +179,8 @@ DEFAULT_NUISANCE_BOUND = 0.01
 #: Warn when this fraction of the sample has a propensity outside the truncation
 #: bounds -- at that point the estimate rests on extrapolation, not on data.
 _TRUNCATION_WARN_FRACTION = 0.05
+
+_NATURAL_COURSE_TARGET = "ey_obs"
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
 #: is raised twice: cheaply from the requested estimands before the fit, and again at the
@@ -671,6 +673,13 @@ class TMLE:
             strata=strata,
             treatment_kind=treatment_kind,
         )
+        # The intermediate path otherwise fits shared nuisances before `_fit_single`.
+        # Resolve this boundary here as well so every unsupported intermediate
+        # composition fails before any learner is fitted. The ordinary path resolves in
+        # `_fit_single`, after its axis-specific structural checks have named their own
+        # refusals.
+        if prepared.has_intermediate:
+            self._resolve_estimands_for_data(prepared)
 
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
@@ -887,7 +896,7 @@ class TMLE:
                 "stratum probabilities and conditional treatment shares to be rebuilt "
                 "inside every validation fold; use the default pooled targeting scheme"
             )
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        estimands = self._resolve_estimands_for_data(data)
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -959,7 +968,7 @@ class TMLE:
                 if index == 0:
                     extra = draw_extra
 
-        self._warn_on_positivity(nuisances[0], config, intermediate_value)
+        self._warn_on_positivity(data, nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
         per_repeat: list[dict[str, ParameterEstimate]] = []
@@ -1083,6 +1092,61 @@ class TMLE:
             return OutcomeScaler.identity()
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
+
+    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+        """Resolve targets and enforce the first supported natural-course composition."""
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        if not data.has_missing_outcome:
+            return estimands
+        if self.estimands == "all":
+            # The default remains the set of jointly targetable parameters.  This is a
+            # deliberately scalar construction, while PAR/PAF remain tracked by RM8.
+            return tuple(
+                name
+                for name in estimands
+                if name != _NATURAL_COURSE_TARGET and name not in POPULATION_INTERVENTION_TARGETS
+            )
+        if _NATURAL_COURSE_TARGET not in estimands:
+            return estimands
+
+        def refuse(reason: str) -> None:
+            raise CapabilityError(
+                "NaturalCourseMean with missing outcomes currently supports one scalar "
+                f"ordinary TMLE under its first-implementation contract; {reason}"
+            )
+
+        if len(estimands) != 1:
+            refuse("request ey_obs by itself; joint targeting is not implemented")
+        if self._assessment_method != "tmle":
+            refuse(
+                "use ordinary TMLE; collaborative and doubly robust estimator variants "
+                "need separate targeting and inference results"
+            )
+        if not data.is_binary_treatment:
+            refuse("the treatment must have exactly two arms")
+        if self.cross_fit:
+            refuse("set cross_fit=False; a cross-fitted response-mechanism construction is open")
+        if self.repeats != 1:
+            refuse("set repeats=1")
+        if self.fluctuation != "logistic":
+            refuse("set fluctuation='logistic'")
+        if self.targeting != "iterative":
+            refuse("set targeting='iterative'")
+        if self.target_weights:
+            refuse("set target_weights=False")
+        if self.n_bootstrap:
+            refuse("set n_bootstrap=0; bootstrap inference is not implemented")
+        if data.is_weighted:
+            refuse("observation weights are not implemented")
+        if data.cluster is not None:
+            refuse("clustered inference is not implemented")
+        if data.has_strata:
+            refuse("baseline strata are not implemented")
+        if data.has_intermediate:
+            refuse("intermediate= is not implemented")
+        if data.family != "binomial" and self.q_bounds is None:
+            refuse("continuous outcomes require fixed, analyst-declared q_bounds")
+        return estimands
 
     @property
     def _axis(self) -> ParameterAxis:
@@ -1412,7 +1476,18 @@ class TMLE:
         every stage of the split is redrawn per draw, and a stage that is not would be
         held fixed across draws that were supposed to be independent.
         """
-        return self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed), {}
+        natural_course = data.has_missing_outcome and config.estimands == (_NATURAL_COURSE_TARGET,)
+        return (
+            self._fit_nuisances(
+                data,
+                folds,
+                scaler,
+                intermediate_value,
+                seed=seed,
+                fit_treatment=not natural_course,
+            ),
+            {},
+        )
 
     @staticmethod
     def _bounds_n(data: CausalData) -> float:
@@ -1491,6 +1566,7 @@ class TMLE:
 
     def _warn_on_positivity(
         self,
+        data: CausalData,
         nuisance: NuisanceEstimates,
         config: TMLEConfig,
         intermediate_value: float | None = None,
@@ -1501,18 +1577,20 @@ class TMLE:
         # leverage.  Which cells are outside is `Propensity.truncate`'s rule rather than a
         # predicate written here, so the warning counts the rows the targeting step really
         # truncates even when the bound pair is asymmetric.
-        outside = nuisance.propensity.truncate(config.g_bounds).fraction
-        if outside > _TRUNCATION_WARN_FRACTION:
-            warnings.warn(
-                f"{outside:.1%} of units have an estimated treatment probability outside the "
-                f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
-                "units still contribute, but their contributions use bounded rather than fitted "
-                "mechanism values and are sensitive to this regularization. Inspect "
-                "res.diagnostics.support() and res.diagnostics.truncation_curve() before "
-                "trusting the estimate.",
-                PositivityWarning,
-                stacklevel=3,
-            )
+        if not isinstance(nuisance.propensity, UnfittedPropensity):
+            outside = nuisance.propensity.truncate(config.g_bounds).fraction
+            if outside > _TRUNCATION_WARN_FRACTION:
+                warnings.warn(
+                    f"{outside:.1%} of units have an estimated treatment probability outside the "
+                    f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
+                    "units still contribute, but their contributions use bounded rather "
+                    "than fitted "
+                    "mechanism values and are sensitive to this regularization. Inspect "
+                    "res.diagnostics.support() and res.diagnostics.truncation_curve() before "
+                    "trusting the estimate.",
+                    PositivityWarning,
+                    stacklevel=3,
+                )
 
         # The propensity is not the only denominator in the clever covariate. A
         # missingness or intermediate probability near zero gives a row exactly the same
@@ -1525,8 +1603,16 @@ class TMLE:
         # its complement when z = 0, so reading the raw array checks the wrong tail: a
         # sample with P(Z = 1 | A, W) = 0.999 is a severe positivity violation for the
         # z = 0 effect and none at all for the z = 1 one.
+        natural_course = isinstance(nuisance.propensity, UnfittedPropensity)
+        missingness_values = nuisance.missingness
+        if natural_course and missingness_values is not None:
+            matrix = np.asarray(missingness_values, dtype=float)
+            realised = np.zeros(data.n, dtype=float)
+            for column, arm in enumerate(nuisance.arms):
+                realised[data.treatment == arm] = matrix[data.treatment == arm, column]
+            missingness_values = realised
         candidates: list[tuple[str, FloatArray | None]] = [
-            ("P(Delta = 1 | A, W)", nuisance.missingness)
+            ("P(Delta = 1 | A, W)", missingness_values)
         ]
         if nuisance.intermediate is not None and intermediate_value is not None:
             candidates.append(
@@ -1541,12 +1627,21 @@ class TMLE:
                 continue
             below = float(np.mean(np.asarray(values, dtype=float) < config.missingness_bound))
             if below > _TRUNCATION_WARN_FRACTION:
+                guidance = (
+                    "That probability is the sole denominator in the natural-course "
+                    "response-residual covariate, so those rows carry outsized leverage and "
+                    "the bound is trading bias for variance. Inspect "
+                    "res.diagnostics.nuisance_models() and re-run with a different "
+                    "nuisance_bound."
+                    if natural_course
+                    else "That probability divides the clever covariate just as g(W) does, "
+                    "so those rows carry outsized leverage and the bound is trading bias for "
+                    "variance. Inspect res.diagnostics.support() and re-run with a different "
+                    "nuisance_bound."
+                )
                 warnings.warn(
                     f"{below:.1%} of estimated {label} values fall below the nuisance bound "
-                    f"{config.missingness_bound:.4g}. That probability divides the clever "
-                    "covariate just as g(W) does, so those rows carry outsized leverage and "
-                    "the bound is trading bias for variance. Inspect "
-                    "res.diagnostics.support() and re-run with a different nuisance_bound.",
+                    f"{config.missingness_bound:.4g}. {guidance}",
                     PositivityWarning,
                     stacklevel=3,
                 )
@@ -1631,7 +1726,12 @@ class TMLE:
             [] if nuisance.folds.is_single else [test for _, test in nuisance.folds]
         )
 
-        for group in self._groups(requested):
+        groups = (
+            ["natural_course"]
+            if data.has_missing_outcome and requested == (_NATURAL_COURSE_TARGET,)
+            else self._groups(requested)
+        )
+        for group in groups:
             bounds = g_bounds_for(group, mean_bounds, conditional_bounds)
             # A group whose parameter is defined *through* the mechanism has a second
             # score equation, so its targeting alternates and returns the nuisances
@@ -2548,7 +2648,8 @@ class TMLE:
         # mean-group estimands are different functionals of the same targeted
         # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
-        for target in targets_for(group, requested):
+        target_group = "mean" if group == "natural_course" else group
+        for target in targets_for(target_group, requested):
             try:
                 # One target is one functional, not one number: with K arms `ey` is a mean
                 # per arm and `ate` a contrast per non-reference arm, and each comes back

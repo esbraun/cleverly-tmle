@@ -66,6 +66,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = ["DEFAULT_GAMMA_GRID", "missingness_tilt", "tipping_gamma"]
 
+NATURAL_COURSE_TILT_REFUSAL = (
+    "the implemented missingness tilt is arm-specific; NaturalCourseMean needs a "
+    "natural-course sensitivity parameter, which is not implemented"
+)
+
 #: Default tilt values.  On the logit scale, ``gamma = 1`` shifts a mean of 0.5 to
 #: about 0.73 -- a substantial departure from MAR, so the grid spans well past the
 #: range most analyses would consider plausible.
@@ -82,6 +87,20 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
     1.5,
     2.0,
 )
+
+
+def is_natural_course_result(result: TMLEResult) -> bool:
+    """Whether every structured parameter in ``result`` is NaturalCourseMean."""
+    keys = getattr(result, "parameter_keys", {})
+    if keys:
+        return all(getattr(key, "estimand", None) == "ey_obs" for key in keys.values())
+    estimates = getattr(result, "estimates", {})
+    return bool(estimates) and set(estimates) == {"ey_obs"}
+
+
+def _refuse_natural_course(result: TMLEResult) -> None:
+    if is_natural_course_result(result):
+        raise CapabilityError(NATURAL_COURSE_TILT_REFUSAL)
 
 
 def missingness_tilt(
@@ -123,6 +142,7 @@ def missingness_tilt(
         One row per ``(gamma, estimand)``, with one ``gamma[<level>]`` column per
         arm giving the tilt that arm received.
     """
+    _refuse_natural_course(result)
     data = result.data
     if not data.has_missing_outcome:
         raise CapabilityError(
@@ -360,6 +380,7 @@ def tipping_gamma(
         The tilt at which the conclusion reaches its null, or ``None`` when no tilt
         inside ``search`` does.
     """
+    _refuse_natural_course(result)
     from scipy import optimize
 
     def deviation(value: float) -> float:

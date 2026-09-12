@@ -330,12 +330,23 @@ def build_submodel(
             tuple(f"h_msm{j}" for j in range(nuisance.msm.n_terms)),
             "msm",
         )
-    propensity = nuisance.bounded_propensity(bounds)
     missingness = (
         nuisance.bounded_missingness(lower)
         if missingness_override is None
         else np.clip(np.asarray(missingness_override, dtype=float), lower, 1.0)
     )
+    if group == "natural_course":
+        # This target deliberately fits no treatment model.  Supplying an inert array keeps the
+        # registry's uniform builder signature while the natural-course builder ignores
+        # it; do not read the UnfittedPropensity sentinel here.
+        return submodel_for(
+            group,
+            data.treatment,
+            np.empty(data.n, dtype=float),
+            arms=nuisance.arms,
+            missingness=missingness,
+        )
+    propensity = nuisance.bounded_propensity(bounds)
     intermediate_density, selection = clever_covariate_inputs(
         data, nuisance, intermediate_value, lower
     )
