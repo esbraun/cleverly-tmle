@@ -9,7 +9,7 @@ This page describes what happens to the curve after that, once for all of them.
 
 ## Influence-curve variance
 
-For an estimate with influence values $D_i$ and independent observations, `cleverly` reports
+For an estimate with influence values $D_i$ and independent observations, the default rule is
 
 $$
 \widehat{\operatorname{Var}}(\hat\psi)=\frac{1}{n}\cdot\frac{1}{n-1}\sum_{i=1}^n(D_i-\bar D)^2 ,
@@ -20,6 +20,38 @@ with the corresponding covariance matrix when a fit reports several parameters.
 The curve is centered rather than assumed to be centered. Targeting drives $\bar D$ to
 approximately zero. Reading the mean off the sample, instead of substituting zero, is what makes
 the reported variance a statement about the curve that was actually computed.
+
+## Covariance rules
+
+Each `ParameterEstimate` declares a `covariance_rule`. `result.covariance()` and
+`result.contrast()` apply that rule to the influence curves at every selection size. A contrast
+inherits the rule of its inputs.
+
+| rule | declared by | covariance entry $(j,k)$ | stored `variance` |
+| --- | --- | --- | --- |
+| `"centered"` | every estimate except the one below. This is the default | the sample covariance of the curves above, at the observation or cluster unit | the same centered value, except on a fold-evaluated fit or a repeated fit |
+| `"second_moment"` | the stacked cross-fitted missing-outcome `NaturalCourseMean` | $n^{-2}\sum_i D_{ij}D_{ik}$, the raw second moment | the same raw second moment |
+
+The stacked natural-course estimator evaluates every row with nuisances fitted without that row.
+Its pooled curve therefore need not have mean zero, and centering would remove that component. The
+[point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines the
+curve. This estimator is scalar, so its rule reaches a one-name `covariance()` and a one-input
+smooth contrast.
+
+Two selections are refused with `ValueError`:
+
+| selection | reason |
+| --- | --- |
+| estimates that declare different rules | no derivation here supplies the cross-covariance between a centered curve and a raw second moment |
+| a `"second_moment"` estimate on a clustered result | the raw second-moment rule is defined for independent rows only |
+
+A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
+uncentered fold second moments. Its estimates still declare `"centered"`. The covariance diagonal
+therefore differs from the stored variance on that fit.
+`tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
+`tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
+both refusals. A repeated fit refuses `covariance()` and `contrast()` altogether, as the
+[CV-TMLE reference](cv-tmle.md) states.
 
 ## Clusters
 

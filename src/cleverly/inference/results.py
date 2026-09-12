@@ -96,8 +96,8 @@ def estimate_covariance(
     """Joint covariance under the rule the selected estimates declare.
 
     The ``"centered"`` rule is the sample covariance at the observation or declared cluster
-    unit. The ``"second_moment"`` rule is the raw second moment. Both rules give the same
-    diagonal for any selection size.
+    unit. The ``"second_moment"`` rule is the raw second moment. Under either rule, an
+    estimate's diagonal entry does not depend on which other estimates are selected.
     """
     chosen = select_estimates(estimates, names)
     rule = covariance_rule(estimates, chosen, cluster=cluster)

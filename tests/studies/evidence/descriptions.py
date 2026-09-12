@@ -603,7 +603,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "flexible_learning"): (
-        "separate data-adaptive trees learn the outcome and response nuisances out of fold",
+        "separate depth-five trees fit the outcome and response nuisances out of fold; on this "
+        "six-cell law each tree fits the saturated, correct model",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "treatment_correct"): (

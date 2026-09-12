@@ -748,7 +748,9 @@ class TMLEResult:
         that one rule. The ordinary rule is the sample covariance of the
         curves. On a fold-evaluated CV-TMLE fit, the diagonal therefore differs from the
         stored cross-validated variance. The stacked cross-fitted natural-course mean
-        declares the raw second moment, which is also its stored variance.
+        declares the raw second moment, which is also its stored variance. A selection that
+        mixes rules, or a raw second-moment selection on a clustered result, raises
+        ``ValueError``.
 
         Parameters
         ----------

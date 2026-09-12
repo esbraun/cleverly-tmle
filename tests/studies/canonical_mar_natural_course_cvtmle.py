@@ -112,10 +112,13 @@ CONFIGURATION = {
     ),
     "comparator_search": (
         "Rejected R tmle 2.1.1 because its maintained MAR API reports intervention-arm "
-        "means, not the natural-course target; rejected tmle3 because no maintained "
-        "callable task was identified for this exact missing-outcome, pooled stacked "
-        "natural-course construction; rejected zEpid because its cross-fit TMLE targets "
-        "treatment contrasts rather than this response-weighted natural-course mean."
+        "means, not the natural-course target; rejected tmle3 at ed72f8a because its "
+        "generic treatment-specific outcome fit can use the Delta = 0 pseudo-outcomes when "
+        "it predicts under Delta = 1, while this estimator fits that regression on "
+        "respondents only; rejected zEpid 0.9.1 because its cross-fit TMLE targets inside "
+        "each fold rather than with one pooled fluctuation; rejected Newey and Robins (2018) "
+        "because their construction fits the outcome and inverse response regressions on "
+        "distinct subsamples, which is a different estimator."
     ),
 }
 

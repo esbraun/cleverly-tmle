@@ -1,19 +1,43 @@
 # Stacked missing-outcome natural-course CV-TMLE
 
-This study validates the narrow RM9 estimator for the observed outcome mean under MAR: one
-package-generated unstratified ten-fold split, respondent-only outcome-regression fitting on each
-training complement, a separately fitted response mechanism, one pooled logistic fluctuation, and
-whole-sample plug-in and influence-curve evaluation. The primary rows fit separate data-adaptive
-classification trees for both nuisances through the public `TMLEMethod` and `CrossFitting` API.
+This study validates the RM9 estimator of the observed outcome mean under MAR. The table gives the
+studied construction. The primary rows declare it through the public `TMLEMethod` and
+`CrossFitting` API.
 
-No canonical implementation is compared. The maintained R `tmle` 2.1.1 API was rejected because
-its MAR path reports intervention-arm means; `tmle3` was rejected because no maintained callable
-task was identified for this exact missing-outcome pooled stacked natural-course construction; and
-zEpid was rejected because its cross-fit TMLE targets treatment contrasts. The committed
-`equivalence.csv` therefore has zero rows. Díaz, Carone and van der Laan (2016), Section 2,
-Equations (1)–(5), supplies the natural-course MAR functional, efficient influence curve, targeting
-update, and two-nuisance remainder; Levy (2018), Section 3.1, supplies the stacked CV-TMLE
-construction and whole-sample influence-curve variance.
+| component | studied setting |
+| --- | --- |
+| partition | one package-generated, unstratified ten-fold split |
+| outcome regression | fitted on the respondents in each training complement |
+| response mechanism | fitted separately on each training complement |
+| targeting | one pooled logistic fluctuation over the stacked held-out rows |
+| evaluation | plug-in and influence curve over the whole sample |
+| primary learners | separate classification trees with depth five and minimum leaf size 25 |
+
+The law has six `(A, W)` covariate cells. The smallest respondent cell has an expected 72 rows in
+an 1,800-row training complement, which exceeds the minimum leaf size. Each depth-five tree can
+therefore fit the saturated model, and that model is correct for this law. The primary and
+flexible-learning rows thus do not test calibration under a misspecified data-adaptive learner.
+The paired overfitting arm supplies the data-adaptive evidence. It fits a fully grown outcome tree
+with eight noise covariates beside the exact response mechanism.
+
+No canonical implementation is compared, so the committed `equivalence.csv` has zero rows. The
+source audit in [`docs/references.md`](../../references.md) rejects each candidate for the reason
+below.
+
+| candidate | reason it is not a comparator |
+| --- | --- |
+| R `tmle` 2.1.1 | its MAR path reports intervention-arm means, not the natural-course mean |
+| `tmle3` at commit `ed72f8a` | its generic treatment-specific outcome fit can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`. `cleverly` fits that regression on respondents only |
+| zEpid 0.9.1 | its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation |
+| Newey and Robins (2018) | the construction fits the outcome and inverse response regressions on distinct subsamples. That is a different estimator |
+
+| source | locator | what it supplies |
+| --- | --- | --- |
+| Díaz, Carone and van der Laan (2016) | Section 2, Equations (1)–(5) | the MAR natural-course functional, efficient influence curve, targeting update, and two-nuisance remainder |
+| Levy (2018) | abstract | the stacked validation update and the whole-sample plug-in |
+| Levy (2018) | Section 3.1 | the asymptotic expansion after the pooled score is solved, which supports the influence-curve interval |
+| Zheng and van der Laan (2011) | Sections 2 and 2.1 | the training-complement nuisance fits and the untargeted empirical-distribution component |
+| Zheng and van der Laan (2011) | Theorem 2 | the partial-targeting expansion and its conditions |
 
 ## Accuracy against known truth
 
@@ -38,16 +62,24 @@ empty and schema-valid.
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0156 to -0.0135, margin 0.0034, SE ratio 1.5963 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000595 to 0.0013, margin 0.0032, SE ratio 1.4842 | pass |
 | `double_robustness` | `response_correct` | positive | only the outcome-observation mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0012 to 0.0019, margin 0.0053, SE ratio 0.9666 | pass |
-| `interval_calibration` | `ey_obs__flexible_learning` | positive | observed outcome mean under the natural course: separate data-adaptive trees learn the outcome and response nuisances out of fold | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9422 to 0.9665, SE ratio 0.9807 to 1.0602 | pass |
+| `interval_calibration` | `ey_obs__flexible_learning` | positive | observed outcome mean under the natural course: separate depth-five trees fit the outcome and response nuisances out of fold; on this six-cell law each tree fits the saturated, correct model | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9422 to 0.9665, SE ratio 0.9807 to 1.0602 | pass |
 | `interval_calibration` | `ey_obs__shrunken_se_control` | control | observed outcome mean under the natural course: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8126 to 0.8558, SE ratio 0.6864 to 0.7411 | pass |
 <!-- /generated -->
 
-The flexible-learning cell jointly checks empirical coverage and reported-SE calibration. Its
-derived shrunken-SE arm verifies that the calibration instrument detects invalid inference. A
-paired experiment fits the identical fully grown outcome tree on identical samples, changing only
-whether its predictions are cross-fitted. The union-model cells separately make the outcome
-regression or response mechanism correct, while the both-wrong control must retain detectable
-bias.
+The flexible-learning cell checks empirical coverage and reported-SE calibration together. Its
+trees fit the correct saturated model, as the first section states. The derived shrunken-SE arm
+multiplies each reported standard error by 0.70 and must fall below the calibration band.
+
+The paired overfitting experiment is the data-adaptive check. It draws 400 samples of 500 rows and
+adds eight noise covariates to each. Both arms fit the same fully grown outcome tree and the exact
+response mechanism on each sample. Only cross-fitting differs between the arms. Coverage is 0.9500
+with cross-fitting and 0.6950 in sample.
+
+The union-model cells make either the outcome regression or the response mechanism correct. The
+both-wrong control passes on bias discrimination. Its 99% bias interval, -0.0156 to -0.0135, lies
+outside the 0.0034 margin. Its standardized bias is -1.0593. Its interval coverage stays at 0.9858,
+because its reported standard error is 1.5963 times the empirical spread. The control therefore
+shows detectable bias rather than an interval failure.
 
 ## Measured values and declared margins
 
@@ -100,15 +132,18 @@ bias.
   three-level baseline covariate.
 - It covers exactly one package-generated unstratified ten-fold draw, pooled targeting,
   whole-sample evaluation, pointwise Wald inference, and bounded nuisance predictions.
-- The flexible primary learners are single classification trees. The study does not establish
-  performance for every learner library or tuning procedure.
-- The exact EIF bound describes the finite law, but the learned-nuisance calibration cell does not
-  claim efficiency-bound attainment.
-- There is no external parity claim; the audited candidates do not expose the same target and
-  estimator construction.
-- The study excludes repeated splits, stratified or supplied folds, fold targeting or evaluation,
-  continuous or multinomial treatment, continuous outcomes, weights, clusters, baseline strata,
-  intermediates, missing treatment, MNAR outcomes, and simultaneous intervals.
+- The primary and flexible-learning rows use depth-five trees that fit the saturated, correct
+  model on this six-cell law. Those rows do not test calibration under nuisance misspecification.
+  The overfitting arm is the data-adaptive evidence, and it uses the exact response mechanism. The
+  study does not establish performance for every learner library or tuning procedure.
+- The exact EIF bound describes the finite law. The flexible-learning cell does not claim
+  efficiency-bound attainment.
+- The study makes no external parity claim. The comparator table above gives the reason for each
+  audited candidate.
+- The study excludes repeated splits, stratified or supplied folds, and fold targeting or
+  evaluation. It excludes continuous or multinomial treatment, continuous outcomes, weights,
+  clusters, and baseline strata. It also excludes intermediates, missing treatment, MNAR outcomes,
+  and simultaneous intervals.
 
 ## Reproduction
 

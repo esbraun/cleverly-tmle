@@ -839,14 +839,18 @@ class NaturalCourseMean:
     binary outcome and one package-generated unstratified V-fold partition. It uses one
     pooled fluctuation and evaluates the point and influence curve on all stacked held-out
     rows. The in-sample estimator is ordinary TMLE. The cross-fitted estimator is stacked
-    CV-TMLE. Both are scalar estimators with binary treatment. They refuse weights,
-    clusters, baseline strata, intermediates, and repeated splits before fitting.
+    CV-TMLE. Both are scalar estimators with binary treatment. Every other composition
+    raises ``CapabilityError`` before any learner is fitted. The
+    :doc:`scope and refusals </technical-reference/scope-and-refusals>` page lists each
+    refusal, including joint targets, bootstrap inference, and linear or one-step
+    targeting.
 
     Which of the two forms runs is settled by the data, not by the declaration. An
     observation indicator that is one on every row leaves nothing missing, so the fit
     takes the complete-outcome branch above and the narrow boundary does not apply to
     it. The two agree there: with no missing outcome the empirical mean *is*
-    ``E[m(A, W)]``.
+    ``E[m(A, W)]``. That branch is not the stacked estimator, so it refuses
+    ``stratify_by="none"``.
     """
 
     name: str = field(default="ey_obs", init=False)

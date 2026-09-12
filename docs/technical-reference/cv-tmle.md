@@ -116,6 +116,8 @@ diagnostics; the split-adjusted variance above supplies the pointwise interval.
 The binary missing-outcome `NaturalCourseMean` supports one narrow stacked CV-TMLE configuration.
 It uses one generated V-fold partition, pooled targeting, and whole-sample evaluation. Set
 `stratify_folds="none"`, `repeats=1`, `targeting_scheme="pooled"`, and `cv_evaluation=False`.
+[Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every refused composition. The paragraphs below give the reasons for the fold refusals.
 
 The audited sources draw the partition externally. They do not support outcome-adaptive or
 treatment-stratified partitions for this target. A supplied plan also remains refused until its

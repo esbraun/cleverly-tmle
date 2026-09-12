@@ -2,17 +2,38 @@
 
 This directory freezes the registered repeated-sampling study for the one-repeat, pooled,
 whole-sample-evaluated stacked CV-TMLE estimator of `ey_obs` under MAR. The primary study fits
-separate data-adaptive classification trees for the outcome regression and response mechanism.
+separate depth-five classification trees, with minimum leaf size 25, for the outcome regression and
+the response mechanism.
 
-The property study checks learned-nuisance interval calibration, a derived shrunken-standard-error
-control, both directions of the two-nuisance union model and a both-wrong control, and the coverage
-gain from fitting the same fully grown outcome tree out of fold rather than in sample.
+The law has six `(A, W)` covariate cells, and each expected training-complement cell holds more
+than 25 rows. Those trees therefore fit the saturated model, which is correct for this law. The
+primary rows and the flexible-learning calibration cell do not test calibration under a
+misspecified data-adaptive learner.
 
-No maintained external package was found with the exact target and construction. R `tmle` 2.1.1
-was rejected because its MAR API reports intervention-arm means; `tmle3` was rejected because no
-maintained callable task for this missing-outcome pooled stacked natural-course construction was
-identified; and zEpid was rejected because its cross-fit TMLE targets treatment contrasts. The
-study therefore commits a schema-valid, zero-row `equivalence.csv`.
+The property study has four parts:
+
+| part | what it checks |
+| --- | --- |
+| flexible-learning calibration | coverage and SE calibration with the saturated depth-five trees |
+| shrunken-SE control | the same fits with each standard error multiplied by 0.70 |
+| union model | each nuisance correct in turn, and a both-wrong control that must show detectable bias |
+| overfitting pair | a fully grown outcome tree with eight noise covariates and the exact response mechanism, fitted out of fold and in sample on the same draws |
+
+The overfitting pair is the data-adaptive evidence.
+
+No canonical implementation is compared. The source audit in `docs/references.md` rejects each
+candidate:
+
+| candidate | reason it is not a comparator |
+| --- | --- |
+| R `tmle` 2.1.1 | its MAR path reports intervention-arm means, not the natural-course mean |
+| `tmle3` at commit `ed72f8a` | its generic treatment-specific outcome fit can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`, while `cleverly` fits that regression on respondents only |
+| zEpid 0.9.1 | its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation |
+| Newey and Robins (2018) | the construction fits the outcome and inverse response regressions on distinct subsamples, which is a different estimator |
+
+The study therefore commits a schema-valid, zero-row `equivalence.csv`. The `comparator_search`
+string in `manifest.json` records the reasons written at generation time.
+`tests/canonical/provenance-revisions.md` records the correction.
 
 Run a disposable primary smoke study from the repository root:
 

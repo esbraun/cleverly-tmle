@@ -148,8 +148,13 @@ D_i=\frac{\Delta_i}{\pi_v(X_i)}\{Y_i-m_{v,\widehat\epsilon}(X_i)\}
     +m_{v,\widehat\epsilon}(X_i)-\widehat\psi.
 $$
 
-The variance is $P_nD_i^2/n$. The estimator requires at least one respondent and one nonrespondent
-in each training complement. It checks every complement before either learner receives data.
+The variance is $P_nD_i^2/n$, the raw second moment of the curve. The estimate declares the
+`"second_moment"` covariance rule, so `covariance()` and contrasts use the same moment. See
+[covariance rules](inference.md#covariance-rules).
+
+The estimator requires at least one respondent and one nonrespondent in each training complement.
+It checks every complement before either learner receives data. A sample with fewer than two of
+either response kind is refused before the fold check, and the message names `cross_fit=False`.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
 response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
@@ -168,22 +173,22 @@ $$
 The stacked remainder $\sum_v(n_v/n)R_{2,v}$ must be $o_P(n^{-1/2})$. The corresponding product
 rate for the response and targeted outcome errors is sufficient.
 
-Levy (2018) supplies the stacked update and whole-sample evaluation after relabeling the response
-indicator as its treatment. Zheng and van der Laan (2011) supply the training-complement nuisance
-construction and empirical distribution component. The [CV-TMLE reference](cv-tmle.md) gives the
-fold-weighting boundary.
+After relabeling the response indicator as its treatment, Levy (2018) supplies the stacked update
+and whole-sample plug-in in its abstract. Levy's Section 3.1 supplies the asymptotic expansion
+after the pooled score is solved. Zheng and van der Laan (2011), Sections 2 and 2.1, supply the
+training-complement nuisance construction and the untargeted empirical-distribution component.
+Their Theorem 2 gives the partial-targeting expansion and its conditions. The
+[CV-TMLE reference](cv-tmle.md) gives the fold-weighting boundary.
 
-No treatment mechanism enters either implementation. The ordinary fit accepts a binary outcome or
-a continuous outcome with fixed `q_bounds`. The stacked fit accepts a binary outcome only. Both
-fits require one scalar `ey_obs`, binary treatment, unweighted iid rows, and iterative unweighted
-logistic targeting. They refuse clusters, strata, `intermediate=`, bootstrap, and joint targets.
+No treatment mechanism enters either implementation. Both fits require one scalar `ey_obs`,
+binary treatment, unweighted iid rows, and iterative unweighted logistic targeting. The ordinary
+fit accepts a binary outcome or a continuous outcome with fixed `q_bounds`. The stacked fit accepts
+a binary outcome. Configure it with `CrossFitting(enabled=True, repeats=1, stratify_by="none",
+targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. The registered study uses
+`n_folds=10`.
 
-Configure the stacked fit with `CrossFitting(enabled=True, n_folds=10, repeats=1,
-stratify_by="none", targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. Other
-estimators refuse `stratify_by="none"`. This target also refuses stratified or supplied folds,
-fold-specific targeting, fold evaluation, and repeated splits.
-
-The [refusals table](scope-and-refusals.md) carries the full list. The source for the ordinary fit is
+[Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every refusal for both fits. The source for the ordinary fit is
 Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
 [ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
 checks both robustness halves, targeting, complete-case controls, root-$n$ behavior, efficiency,

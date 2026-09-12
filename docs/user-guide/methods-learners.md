@@ -108,7 +108,9 @@ model. `cleverly` validates learner task compatibility and sample-weight support
 - `stratify_by="treatment"` balances treatment arms in the outer split. Add the outcome with
   `"treatment+outcome"` for a rare binary outcome.
 - `stratify_by="none"` draws unstratified folds. Only the binary missing-outcome
-  `NaturalCourseMean` contract accepts this setting.
+  `NaturalCourseMean` contract accepts this setting. Its
+  [contract table](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
+  lists every refusal.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library
 candidate, before an estimator variant multiplies it again. The examples in this documentation set
@@ -153,7 +155,9 @@ rows, in that order.
 
 The binary missing-outcome `NaturalCourseMean` stacked estimator does not accept `split_plan=`. Its
 audited contract covers package-generated near-balanced folds only. The result still records the
-realized plan for provenance.
+realized plan for provenance. The
+[contract table](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists its other refusals.
 
 [Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
 the whole contract: the counts, the row binding, what validation checks, and every refusal.
