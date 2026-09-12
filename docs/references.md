@@ -42,22 +42,62 @@ previous reader had is not a citation; a page number is.
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
-  10.1007/978-1-4419-9782-1_27. Its fold-local nuisance construction does not validate a
-  stopping index selected by risk aggregated over every evaluation row.
+  10.1007/978-1-4419-9782-1_27. Read first-hand in the
+  [author working paper](https://biostats.bepress.com/ucbbiostat/paper273/). Sections 2 and 2.1,
+  article pages 3–5, train both the relevant initial estimator and its nuisance on each training
+  complement. They choose one fluctuation by pooled validation loss and average the fold plug-ins.
+  Section 2.1 leaves a linear empirical-distribution component untargeted. Theorem 2, article pages
+  14–18, gives the partial-targeting expansion and conditions without a complexity restriction on
+  the initial nuisance classes. Its split vector is an external random draw over a finite support.
+  The common fluctuation must converge, and its finite-dimensional fluctuation class must satisfy
+  the theorem's entropy condition.
+
+  Set the theorem's updated component to the outcome regression, its nuisance to the response
+  mechanism, and its empirical component to the distribution of `(A, W)`. The Díaz, Carone and van
+  der Laan mean then has the theorem's required decomposition. Its empirical-law influence term is
+  the centered targeted outcome regression. Its remaining term is the response-weighted residual.
+  The Díaz exact product remainder supplies the theorem's second-order condition.
+
+  This result supports the original pooled, fold-evaluated construction for one realized V-fold
+  partition. It does not validate a stopping index selected by risk over every evaluation row, a
+  separate fluctuation in each fold, or repeated-split aggregation. Its fold expectation also does
+  not justify treating an arbitrarily imbalanced supplied partition as a row-weighted stacked
+  sample.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
-  Journal* 21(1):C1-C68. Definition 3.3 defines the coordinatewise median point;
+  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 defines the coordinatewise median point.
   Equation (3.14) defines the median of the within-partition variance plus squared split
-  displacement.
+  displacement. Corollary 3.3 gives the fixed-repeat interval under the paper's DML assumptions.
+  It does not establish that a targeted MAR plug-in satisfies those assumptions.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
   calculation.
   It is secondary aggregation evidence and not a comparator for the complete estimator.
-- Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
-  distinguishes the original fold-wise plug-in evaluation from the common targeting
-  regression pooled over validation folds.
+- Levy (2018), [*An Easy Implementation of CV-TMLE*](https://arxiv.org/abs/1811.04573),
+  arXiv:1811.04573. Read first-hand. The abstract distinguishes the original fold-wise plug-in
+  evaluation from a stacked validation update and whole-sample plug-in. It states exact overlap
+  for a pooled treatment-specific mean. Section 3.1 supplies the asymptotic expansion after the
+  pooled score is solved. The conclusion limits the exact-overlap statement to parameters whose
+  clever covariates contain no empirical means.
+
+  Relabel the response indicator as Levy's binary treatment and `(A, W)` as its covariates. Let the
+  observed pseudo-outcome be `U = Delta * Y`. Then `E(U | Delta = 1, A, W)` is the Díaz outcome
+  regression, and Levy's treatment-specific mean is the missing-at-random natural-course mean.
+  The map from `(X, Delta, Delta * Y)` to `(X, T, U)` is a bijective relabeling of the observed
+  record. Levy's parameter and influence curve do not read the outcome regression under `T = 0`.
+  They therefore reduce to the Díaz observed-data parameter and curve without adding an
+  identification or tangent-space result.
+
+  The respondent-row fluctuation covariate is `1 / pi`. Its efficient-influence-function
+  multiplier is `Delta / pi`. Neither contains an empirical mean.
+
+  Levy's exact finite-sample overlap applies when the folds have equal sizes. Package-generated
+  near-balanced folds instead give the stacked and original fold weights a bounded $O(1/n)$
+  difference for fixed $V$. This difference is first-order negligible, but it is not zero when fold
+  sizes differ. The mapping supports RM9's stacked, pooled, whole-sample construction for one
+  near-balanced V-fold partition. Levy gives no repeated-split result.
 - Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
   `R/tmle3_Update.R` selects the
@@ -67,7 +107,9 @@ previous reader had is not a citation; a page number is.
   log-risk and log-odds contrasts. Used as an implementation reference, not as an oracle for the
   estimand derivation or as a moving specification. The simulated-confounding surface reports its
   ratio movement on the same log scale. Levy (2018) is the stable marker for the default stacked
-  construction.
+  construction. It is not an exact RM9 comparator. A generic treatment-specific outcome learner
+  can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`, while the package's
+  missing-outcome regression trains on respondents only.
 - The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
   here at [`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
   `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,
@@ -109,6 +151,11 @@ previous reader had is not a citation; a page number is.
   establish weighted, clustered, stratified, cross-fitted, repeated-split, joint-target, or
   simultaneous inference. Section 5 bootstraps a second-order expansion. It does not establish
   the package's ordinary refit bootstrap.
+- Newey & Robins (2018), [*Cross-Fitting and Fast Remainder Rates for Semiparametric
+  Estimation*](https://arxiv.org/abs/1801.09138), arXiv:1801.09138. Read first-hand. Section 3
+  treats a mean with randomly missing data. Its doubly robust construction estimates the outcome
+  and inverse response regressions on distinct subsamples. It is not the package's
+  complement-trained pooled CV-TMLE, so it does not govern RM9.
 - Missing-outcome natural-course implementation record (2026-09-11): the source above supports
   one scalar missing-at-random mean from iid observations, with its first-order interval. Its
   stated limits bound the implemented
