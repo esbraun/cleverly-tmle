@@ -15,12 +15,12 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. RM7 and RM8
-carry an open source audit.
+The "next action" column states the remediation work. It is not a readiness label. RM8 carries an
+open source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Missing-outcome natural-course mean | complete the source audit | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
+| 0.1 | Missing-outcome natural-course mean | add the audited iid missing-at-random mean | the observed-law mean is refused when outcomes are missing, even though the response process is declared | [RM7](#rm7-missing-outcome-natural-course-mean) |
 | 0.2 | Missing-outcome attributable effects | complete the source audit | population attributable risk and fraction are refused when outcomes are missing | [RM8](#rm8-missing-outcome-attributable-effects) |
 
 The source audit found no result for the shipped global selector or for the complete jointly
@@ -126,10 +126,11 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. RM7 and RM8 hold the remaining remediation audits.
-Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
-that audit supports the planned variance construction. Longitudinal sensitivity-bound estimation
-remains in [F16](#f16-longitudinal-sensitivity-bound-estimation).
+records completed studies. The RM7 audit supports one iid missing-at-random mean. RM8 holds the
+remaining remediation audit. Replicate-weight designs are the next source-audit item in the main
+grid. Implement them only after that audit supports the planned variance construction.
+Longitudinal sensitivity-bound estimation remains in
+[F16](#f16-longitudinal-sensitivity-bound-estimation).
 
 ## Detailed implementation contracts
 
@@ -138,20 +139,127 @@ grid.
 
 ### RM7. Missing-outcome natural-course mean
 
-Derive and implement the observed-law mean when the outcome is missing at random under the declared
-response process. The contract must state the target population, observed-data functional, response
-score, positivity condition, nuisance-rate conditions, and whether the treatment mechanism enters
-the parameter or only estimation.
+Add `NaturalCourseMean()` under `missingness=` for ordinary TMLE. As deliberate first-PR
+engineering boundaries, cover one scalar target with binary treatment from iid observations.
+Accept a binary outcome or a continuous outcome with fixed declared `q_bounds`. Require the
+`TMLE` settings `cross_fit=False`, `fluctuation="logistic"`, `targeting="iterative"`, and
+`target_weights=False`. The workflow API spells the first as `CrossFitting(enabled=False)` and
+carries the other three on `Targeting`.
 
-Two candidate sources start the audit. Hubbard and van der Laan (2008) define the complete-outcome
-population-intervention parameters that this mean feeds. Díaz and van der Laan (2017) define the
-missing-outcome observed-data model and influence function for a randomized treatment. Neither is
-recorded in [references](references.md) as covering this composition, so the audit must find the
-result or refuse the parameter.
+Treat `target_weights=True` as a follow-up extension that needs its own package tests. The source
+audit records the weighted intercept fluctuation that this setting would use.
+
+Let $X=(A,W)$ contain the observed treatment and baseline covariates. Let
+$m_P(x)=E_P(Y\mid\Delta=1,X=x)$ and $\pi_P(x)=P_P(\Delta=1\mid X=x)$. The target is
+
+$$
+\psi(P)=E_P\{m_P(X)\}.
+$$
+
+The target population is represented by all input rows before outcome response. It keeps the
+observed joint law of treatment and covariates. Identification requires
+$Y\mathrel{\perp\!\!\!\perp}\Delta\mid X$ and $\pi_0(X)>0$ almost surely. Asymptotic linearity
+needs more than identification. It also requires strong positivity, $\pi_0(X)\geq c>0$ almost
+surely, so that the efficient variance
+$E_0\{\sigma_0^2(X)/\pi_0(X)\}+\operatorname{Var}_0\{m_0(X)\}$ is finite, where
+$\sigma_0^2(x)=\operatorname{Var}_0(Y\mid\Delta=1,X=x)$.
+
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5), govern this item. The
+[source audit](references.md#point-treatment-and-stochastic-interventions) gives the locators, the
+notation map, and the limits. The target's efficient influence curve is
+
+$$
+D_P(O)=\frac{\Delta}{\pi_P(X)}\{Y-m_P(X)\}+m_P(X)-\psi(P).
+$$
+
+Its exact second-order remainder is
+
+$$
+R_2(P,P_0)=\int\left\{1-\frac{\pi_0(x)}{\pi_P(x)}\right\}
+  \{m_P(x)-m_0(x)\}\,dP_{X,0}(x).
+$$
+
+The remainder vanishes when either $m_P=m_0$ or $\pi_P=\pi_0$. The double-robustness statement
+therefore names the outcome regression or the response mechanism. It names no treatment mechanism,
+unlike the mechanism product rule that the arm-indexed targets carry under `missingness=`.
+
+Fit the logistic fluctuation among rows with $\Delta=1$:
+
+$$
+\operatorname{logit}\hat m_\epsilon(x)
+  =\operatorname{logit}\hat m(x)+\frac{\epsilon}{\hat\pi(x)}.
+$$
+
+Solve $P_n[\Delta\{Y-\hat m^\star(X)\}/\hat\pi(X)]=0$. Report the plug-in
+$P_n\hat m^\star(X)$. Do not delegate this target to the multiplier-one incremental mean, whose
+influence curve has the same algebra. See its
+[`ey_ipsi` row](technical-reference/evidence.md#the-table).
+
+That estimator substitutes a fitted treatment mechanism for the empirical law of $A$. It therefore
+carries a remainder term that this target does not.
+
+The treatment mechanism enters the parameter only through the natural distribution of $A$ in $X$.
+It is not a separately estimated nuisance, and this parameter needs no treatment positivity or
+treatment exchangeability assumption.
+
+For the first interval, require $\hat\pi\geq b>0$ uniformly, which gives
+$\|1/\hat\pi\|_\infty=O_P(1)$. Require $P_0\{D(\hat P^\star)-D(P_0)\}^2=o_P(1)$, so the estimated
+curve converges to the true one. Require $D(\hat P^\star)$ to belong to one Donsker class with
+probability tending to one. Require $R_2(\hat P^\star,P_0)=o_P(n^{-1/2})$. A sufficient rate
+condition is
+
+$$
+\|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2}).
+$$
+
+Clipping the response-mechanism fit at $b$ supplies that bound. For the stated efficient interval,
+also require the clipped $\hat\pi$ to converge to $\pi_0$. A sufficient compatibility condition is
+uniform $\pi_0>b$ and consistency of the raw response-score learner. If $\pi_0<b$ on a set with
+positive probability, clipping alone cannot establish that convergence.
+
+Under `missingness=`, refuse cross-fitting, repeated splits, observation weights, clusters, and
+strata. Also refuse nonbinary treatment, joint targeting, simultaneous bands, and bootstrap
+inference. Keep the current complete-outcome behavior for those compositions, which the
+complete-outcome path accepts today. Keep C-TMLE, DR-TMLE, intermediate, shift, and incremental
+compositions at their existing boundaries.
+
+Remove `ey_obs` from the shared refusal in `src/cleverly/targets/population_intervention.py`. Its
+one set, one sentence, and one exception type then serve `par` and `paf` alone. Keep that one
+shared implementation, and keep the three call sites reading it. Restate its message so it names
+RM8's open audit. Refuse the unsupported `ey_obs` compositions in the estimator instead.
+
+`POPULATION_INTERVENTION_TARGETS` has two consumers beyond that refusal. It selects the mechanism
+product consistency statement, and it suppresses the missingness assumption line in
+`src/cleverly/study.py`. Both must follow `ey_obs` out of the set. The pinned set identity in
+`tests/unit/test_causal_study.py` must follow as well.
+
+The package default cross-fits, so a `NaturalCourseMean()` request under the method in the
+[survey non-response example](examples/survey-nonresponse.md) stays refused after this row lands.
+That example's own refusal demonstration asks for `paf`, which RM8 governs. A cross-fitted response
+mechanism needs its own audited contract. Open a successor row for it rather than holding priority
+0.1 open.
+
+An `ey_obs`-only result must mark the arm-specific missingness tilt and tipping gamma unavailable.
+The combined assessment must report the same state. Add a natural-course sensitivity parameter
+before either assessment can run for this result.
 
 Acceptance requires exact-law, Gateaux, remainder, and deliberate response-score mutation checks.
-The complete-outcome limit must agree exactly with the existing natural-course mean. Add
-repeated-sampling evidence before exposing an interval.
+Prove that no treatment learner or propensity prediction enters the fit. Add separate witnesses
+with the outcome regression correct and response score wrong, and with the two roles reversed.
+Add a law where the respondent-only empirical mean differs from the target. The $\pi\equiv1$ limit
+must reduce exactly to the existing empirical `ey_obs` mean and its $Y-\psi$ influence curve. Add
+repeated-sampling coverage and standard-error calibration before exposing the interval.
+
+The identification record must state missingness at random given $(A,W)$ and response positivity.
+It must name only the outcome regression and response mechanism as nuisances. Pin its target
+expression, double-robustness statement, typed parameter key, and current method availability in
+tests.
+
+Three shipped statements become false for this target once outcomes are missing.
+`src/cleverly/study.py` returns "the complete-data empirical mean has no nuisance-model remainder"
+for `ey_obs`. It records that no adjustment set enters the mean and that the record needs no
+nuisance estimate. It also reports an empty nuisance list. Restate all three, and pin the restated
+text.
 
 ### RM8. Missing-outcome attributable effects
 
