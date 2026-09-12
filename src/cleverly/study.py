@@ -834,10 +834,13 @@ class NaturalCourseMean:
     regression and the response mechanism, and still estimates no treatment mechanism.
     It needs missingness at random given ``(A, W)`` and response positivity. See
     :doc:`observed-data extensions </technical-reference/point-treatment-tmle>` for the
-    supported compositions, which are deliberately narrow: one scalar ordinary TMLE,
-    binary treatment, no cross-fitting, no repeats, and either a binary outcome or a
-    bounded continuous outcome with declared ``q_bounds``. Every other composition
-    refuses before any learner is fitted.
+    supported compositions. The in-sample estimator accepts a binary outcome or a bounded
+    continuous outcome with declared ``q_bounds``. The cross-fitted estimator accepts a
+    binary outcome and one package-generated unstratified V-fold partition. It uses one
+    pooled fluctuation and evaluates the point and influence curve on all stacked held-out
+    rows. The in-sample estimator is ordinary TMLE. The cross-fitted estimator is stacked
+    CV-TMLE. Both are scalar estimators with binary treatment. They refuse weights,
+    clusters, baseline strata, intermediates, and repeated splits before fitting.
 
     Which of the two forms runs is settled by the data, not by the declaration. An
     observation indicator that is one on every row leaves nothing missing, so the fit

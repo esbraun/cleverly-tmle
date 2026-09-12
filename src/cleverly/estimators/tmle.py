@@ -353,6 +353,10 @@ class TMLE:
         and the cross-fitting argument conditions on the split.  That is a statement about
         which splits are conditioned on, not a bias -- and the alternative it is weighed
         against is a fold that cannot fit the regression at all.
+
+        ``"none"`` generates ordinary unstratified V-folds. It is currently reserved for
+        the audited one-repeat, pooled, whole-sample cross-fitted binary
+        :class:`~cleverly.NaturalCourseMean` with missing outcomes.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
@@ -592,9 +596,9 @@ class TMLE:
                 "baseline is decided by the design you gave msm=, usually by an intercept "
                 "column. A difference of two coefficients comes from result.contrast()."
             )
-        if self.stratify_folds not in ("treatment", "treatment+outcome"):
+        if self.stratify_folds not in ("none", "treatment", "treatment+outcome"):
             raise ValueError(
-                "stratify_folds must be 'treatment' or 'treatment+outcome'; got "
+                "stratify_folds must be 'none', 'treatment', or 'treatment+outcome'; got "
                 f"{self.stratify_folds!r}"
             )
         if self.density_bins < 3:
@@ -922,6 +926,7 @@ class TMLE:
                 "inside every validation fold; use the default pooled targeting scheme"
             )
         estimands = self._resolve_estimands_for_data(data)
+        self._validate_fold_strata_for_data(data, estimands)
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -994,6 +999,7 @@ class TMLE:
             scaler = self._scaler(data)
             draws = self._repeat_draws(data)
             fold_draws = [folds for folds, _ in draws]
+            self._preflight_natural_course_folds(data, estimands, fold_draws)
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
             # -- describes the first draw.  It is then the *same* config for every draw,
@@ -1153,7 +1159,7 @@ class TMLE:
         def refuse(reason: str) -> None:
             raise CapabilityError(
                 "NaturalCourseMean with missing outcomes currently supports one scalar "
-                f"ordinary TMLE under its first-implementation contract; {reason}"
+                f"TMLE under its audited implementation contracts; {reason}"
             )
 
         if len(estimands) != 1:
@@ -1165,16 +1171,18 @@ class TMLE:
             )
         if not data.is_binary_treatment:
             refuse("the treatment must have exactly two arms")
-        if self.cross_fit:
-            refuse("set cross_fit=False; a cross-fitted response-mechanism construction is open")
-        # Kept although the two pre-existing guards between them already cover it:
-        # `cross_fit=True` is refused on the line above, and `repeats > 1` with
-        # `cross_fit=False` raises the generic "makes no split" ValueError before this
-        # runs.  It is written here so the supported surface reads as one list rather
-        # than as a list plus two coincidences, and so that a later change to either
-        # guard cannot quietly admit repeated splits to this target.
-        if self.repeats != 1:  # pragma: no cover - unreachable behind the two guards above
+        if self.cross_fit and self.stratify_folds != "none":
+            refuse("the cross-fitted estimator requires stratify_folds='none'")
+        if self.repeats != 1:
             refuse("set repeats=1")
+        if self.cross_fit and self.targeting_scheme != "pooled":
+            refuse("the cross-fitted estimator requires targeting_scheme='pooled'")
+        if self.cross_fit and self.cv_evaluation:
+            refuse("the cross-fitted estimator requires cv_evaluation=False")
+        if self.cross_fit and self.split_plan is not None:
+            refuse(
+                "the cross-fitted estimator requires package-generated folds; leave split_plan=None"
+            )
         if self.fluctuation != "logistic":
             refuse("set fluctuation='logistic'")
         if self.targeting != "iterative":
@@ -1191,9 +1199,61 @@ class TMLE:
             refuse("baseline strata are not implemented")
         if data.has_intermediate:
             refuse("intermediate= is not implemented")
-        if data.family != "binomial" and self.q_bounds is None:
-            refuse("continuous outcomes require fixed, analyst-declared q_bounds")
+        if data.family != "binomial":
+            if self.cross_fit:
+                refuse("the cross-fitted estimator requires a binary outcome")
+            if self.q_bounds is None:
+                refuse("continuous outcomes require fixed, analyst-declared q_bounds")
         return estimands
+
+    def _validate_fold_strata_for_data(self, data: CausalData, estimands: tuple[str, ...]) -> None:
+        """Reserve unstratified outer folds for the audited RM9 estimator."""
+        if self.stratify_folds != "none":
+            return
+        if (
+            self._assessment_method == "tmle"
+            and self.cross_fit
+            and self.repeats == 1
+            and self.targeting_scheme == "pooled"
+            and not self.cv_evaluation
+            and self.split_plan is None
+            and data.is_binary_treatment
+            and data.family == "binomial"
+            and not data.is_weighted
+            and data.cluster is None
+            and not data.has_strata
+            and not data.has_intermediate
+            and _is_natural_course(data, estimands)
+        ):
+            return
+        raise CapabilityError(
+            "stratify_folds='none' is currently reserved for the one-repeat, pooled, "
+            "whole-sample, package-generated cross-fitted binary NaturalCourseMean with "
+            "missing outcomes on iid unweighted data; use the established fold policy "
+            "for every other estimator"
+        )
+
+    @staticmethod
+    def _preflight_natural_course_folds(
+        data: CausalData,
+        estimands: tuple[str, ...],
+        folds: Sequence[Folds],
+    ) -> None:
+        """Check response support in every training complement before nuisance fitting."""
+        if not _is_natural_course(data, estimands) or any(draw.is_single for draw in folds):
+            return
+        observed = np.asarray(data.observed, dtype=bool)
+        for repeat, draw in enumerate(folds):
+            for fold, (train, _) in enumerate(draw):
+                n_response = int(np.count_nonzero(observed[train]))
+                n_nonresponse = int(train.size - n_response)
+                if n_response == 0 or n_nonresponse == 0:
+                    absent = "respondent" if n_response == 0 else "nonrespondent"
+                    raise DataError(
+                        "cross-fitted NaturalCourseMean cannot fit its response and outcome "
+                        f"nuisances because repeat {repeat}, fold {fold}'s training complement "
+                        f"contains no {absent}; reduce n_folds or use a different random_state"
+                    )
 
     @property
     def _axis(self) -> ParameterAxis:
@@ -2030,6 +2090,8 @@ class TMLE:
                     "distinct value its own stratum and refuse to split at all; leave "
                     "stratify_folds='treatment'."
                 )
+        if self.stratify_folds == "none":
+            return None
         if data.is_continuous_treatment:
             return None
         if self.stratify_folds == "treatment":
@@ -2067,8 +2129,10 @@ class TMLE:
             stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)
-        else:
+        elif self.stratify_folds == "treatment+outcome":
             stratify_by = (data.treatment_name, data.outcome_name)
+        else:
+            stratify_by = ()
         clustered = cross_fit and data.cluster is not None
         if supplied is not None:
             scheme = "supplied"
@@ -2699,6 +2763,12 @@ class TMLE:
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
                 for estimate in target.build(context):
+                    if group == "natural_course" and self.cross_fit:
+                        curve = np.asarray(estimate.influence_curve, dtype=float)
+                        estimate = replace(
+                            estimate,
+                            variance=float(np.mean(np.square(curve)) / estimate.n),
+                        )
                     out[estimate.name] = estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a

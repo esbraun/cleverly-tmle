@@ -112,6 +112,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
+    "cleverly-stacked-mar-natural-course-cvtmle": (
+        "`cleverly` stacked missing-outcome natural-course CV-TMLE"
+    ),
     "cleverly-mar-tmle": "`cleverly` missing-outcome TMLE",
     "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
     "cleverly-multi-arm-ctmle-selector": "`cleverly` multi-arm selector C-TMLE",
@@ -182,6 +185,9 @@ SCENARIOS: dict[str, str] = {
     "binary_known_stochastic": "binary-outcome law with a known stochastic treatment density",
     "binary_mar_observational": "binary-outcome observational law with MAR outcomes",
     "binary_mar_natural_course": "binary-outcome observational natural-course law with MAR outcomes",
+    "binary_mar_natural_course_flexible": (
+        "binary-outcome observational natural-course law with learned MAR nuisances"
+    ),
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
     "continuous_mar_natural_course": (
         "bounded continuous-outcome observational natural-course law with MAR outcomes"
@@ -461,6 +467,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "stacked CV-TMLE with a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
+    ("crossfit_overfitting", "stacked_mar_natural_course_cvtmle"): (
+        "stacked MAR natural-course CV-TMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
     ("crossfit_overfitting", "in_sample_control"): (
         "the same flexible learner fitted in sample, with no cross-fitting",
         "SE ratio must fall below the overfitting ceiling",
@@ -590,6 +600,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("interval_calibration", "correctly_specified"): (
         "both nuisances are correctly specified",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "flexible_learning"): (
+        "separate data-adaptive trees learn the outcome and response nuisances out of fold",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "treatment_correct"): (

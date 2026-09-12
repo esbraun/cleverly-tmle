@@ -105,6 +105,10 @@ model. `cleverly` validates learner task compatibility and sample-weight support
   that would build a simultaneous band refuses instead. The band needs a single draw's joint
   influence curves. Pass `simultaneous=False` to a repeated fit.
 - `cross_fit=False` explicitly sets a one-fold, no-cross-fit analysis.
+- `stratify_by="treatment"` balances treatment arms in the outer split. Add the outcome with
+  `"treatment+outcome"` for a rare binary outcome.
+- `stratify_by="none"` draws unstratified folds. Only the binary missing-outcome
+  `NaturalCourseMean` contract accepts this setting.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library
 candidate, before an estimator variant multiplies it again. The examples in this documentation set
@@ -120,8 +124,8 @@ rolling-origin refusal would survive a time index; it asks for a different stora
 
 ## Reuse an outer split
 
-Every point-treatment result records its realized outer folds as an immutable `split_plan`.
-Supply that plan to compare methods on exactly the same validation rows.
+Every point-treatment result records its realized outer folds as an immutable `split_plan`. Most
+point-treatment methods accept that plan to compare methods on the same validation rows.
 
 ```python
 reused_method = TMLEMethod(
@@ -146,6 +150,10 @@ the plan cannot serve raises `MethodConfigurationError` instead of changing the 
 
 A plan read off a result is bound to the rows that produced it, by position. Reuse it on those
 rows, in that order.
+
+The binary missing-outcome `NaturalCourseMean` stacked estimator does not accept `split_plan=`. Its
+audited contract covers package-generated near-balanced folds only. The result still records the
+realized plan for provenance.
 
 [Reusable outer split plans](../technical-reference/cv-tmle.md#reusable-outer-split-plans) states
 the whole contract: the counts, the row binding, what validation checks, and every refusal.

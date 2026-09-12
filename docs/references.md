@@ -96,8 +96,8 @@ previous reader had is not a citation; a page number is.
   Levy's exact finite-sample overlap applies when the folds have equal sizes. Package-generated
   near-balanced folds instead give the stacked and original fold weights a bounded $O(1/n)$
   difference for fixed $V$. This difference is first-order negligible, but it is not zero when fold
-  sizes differ. The mapping supports RM9's stacked, pooled, whole-sample construction for one
-  near-balanced V-fold partition. Levy gives no repeated-split result.
+  sizes differ. The mapping supports the implemented stacked, pooled, whole-sample construction for
+  one near-balanced V-fold partition. Levy gives no repeated-split result.
 - Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
   `R/tmle3_Update.R` selects the
@@ -157,11 +157,12 @@ previous reader had is not a citation; a page number is.
   and inverse response regressions on distinct subsamples. It is not the package's
   complement-trained pooled CV-TMLE, so it does not govern RM9.
 - Missing-outcome natural-course implementation record (2026-09-11): the source above supports
-  one scalar missing-at-random mean from iid observations, with its first-order interval. Its
-  stated limits bound the implemented
+  one scalar missing-at-random mean from iid observations, with its ordinary first-order interval.
+  Its stated limits bound the
   [ordinary-TMLE contract](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
-  It does not cover population attributable risk, population attributable fraction, or the
-  [cross-fitted successor](roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean).
+  Zheng and van der Laan (2011) and Levy (2018) separately support the implemented stacked
+  cross-fitted contract. None of these results covers population attributable risk or population
+  attributable fraction.
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read

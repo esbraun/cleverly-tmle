@@ -74,7 +74,7 @@ def _fit(frame: pd.DataFrame, **estimator_overrides: Any) -> Any:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"cross_fit": True}, "cross_fit=False"),
+        ({"cross_fit": True}, "stratify_folds='none'"),
         ({"fluctuation": "linear"}, "fluctuation='logistic'"),
         ({"targeting": "one_step"}, "targeting='iterative'"),
         ({"target_weights": True}, "target_weights=False"),

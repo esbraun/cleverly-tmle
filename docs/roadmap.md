@@ -15,12 +15,12 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
-The "next action" column states the remediation work. It is not a readiness label. The RM9 source
-audit supports one narrow implementation next.
+The "next action" column states the remediation work. It is not a readiness label. The first RM9
+implementation is complete. RM9 retains two separate extensions from the same source audit.
 
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Cross-fitted missing-outcome natural-course mean | add the audited one-repeat stacked CV-TMLE | the implemented iid mean refuses a supported cross-fitted response mechanism | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
+| 0.1 | Remaining missing-outcome CV-TMLE extensions | audit the scale and fold-weighting laws, then write separate contracts for the bounded-continuous stacked and binary fold-evaluated estimators | the binary stacked estimator is implemented, but its two source-backed extensions need distinct contracts and evidence | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -131,10 +131,10 @@ An item is complete only when all applicable conditions hold:
 ## Sensitivity and validation priority
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
-records completed studies. The iid missing-at-random natural-course mean is implemented and
-registered there. RM9 holds the next remediation implementation. Replicate-weight designs are the
-next source-audit item in the main grid. Implement them only after RM9 is complete and that audit
-supports the planned variance construction.
+records completed studies. The ordinary and binary stacked missing-at-random natural-course means
+are implemented and registered there. RM9 holds their two supported follow-ups. Replicate-weight
+designs are the next source-audit item in the main grid. Implement them only after RM9 is complete
+and that audit supports the planned variance construction.
 
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -163,120 +163,23 @@ natural-course mean and arm-specific missing-outcome means also remain separate 
 
 ### RM9. Cross-fitted missing-outcome natural-course mean
 
-The 2026-09-12 source audit supports one cross-fitted extension of the implemented iid
-`NaturalCourseMean()` under `missingness=`. Implement one realized V-fold partition, which is one
-repeat, of stacked CV-TMLE. Use a pooled update, whole-sample evaluation, and package-generated
-near-balanced outer folds. Add an unstratified fold option, and require it for this target. Keep
-outcome- or treatment-stratified folds, `targeting_scheme="fold"`, `cv_evaluation=True`, supplied
-split plans, and `repeats > 1` outside this next pull request.
+The binary one-repeat stacked estimator is implemented. Its scientific and public contracts now
+live in the [point-treatment](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+and [CV-TMLE](technical-reference/cv-tmle.md) references. Its validation results live in the
+[implementation validation grid](technical-reference/method-evidence/validation-grid.md).
 
-The audited sources draw the fold partition externally. They do not establish an outcome-adaptive
-or treatment-stratified partition.
+RM9 retains two separate follow-ups. First, the bounded-continuous stacked extension needs an exact
+contract for scaling the fluctuation, score, point, and influence curve. Second, the original
+pooled, fold-evaluated construction needs its own implementation review and registered evidence
+row. Its fold plug-in and variance law define a separate estimator.
 
-The original fold-evaluated construction has published support, but it is a separate estimator and
-needs a separate evidence row. RM9 also retains the bounded-continuous stacked extension, whose
-outcome scaling needs its own exact contract. RM9 owns both follow-ups after the binary stacked
-implementation. F21 holds the two variants for which this audit found no direct interval result.
+Audit the outcome-scaling and fold-weighting laws before either change. Keep supplied split plans
+refused until the audit covers their balance and weighting requirements. Do not use one extension's
+evidence for the other.
 
-Let $X=(A,W)$, let $\Delta$ be the response indicator, and let the observed pseudo-outcome be
-$U=\Delta Y$. For fold $v$, fit both $m_v(X)=E(U\mid\Delta=1,X)$ and
-$\pi_v(X)=P(\Delta=1\mid X)$ on that fold's training complement. Fit the outcome regression on
-respondents in that complement. Predict both nuisances only on the held-out rows. Do not fit or
-read a treatment propensity.
-
-The map from the observed MAR record $(X,\Delta,\Delta Y)$ to Levy's record $(X,T,U)$ sets
-$T=\Delta$ and $U=\Delta Y$. It is a bijective relabeling of the observed variables. Levy's
-treatment-specific-mean parameter and influence curve do not read the outcome regression under
-$T=0$. They therefore reduce exactly to the Díaz parameter and observed-data curve. This is a
-special case of the published estimator, not a composition of adjacent results.
-
-Use one common fluctuation coefficient across the stacked held-out rows:
-
-$$
-\operatorname{logit}m_{v,\epsilon}(X)
-=\operatorname{logit}m_v(X)+\frac{\epsilon}{\pi_v(X)},
-\qquad
-P_n\!\left[\frac{\Delta}{\pi_v(X)}\{Y-m_{v,\epsilon}(X)\}\right]=0.
-$$
-
-Here $v$ is the fold that holds each row. Evaluate the point and influence curve on the same
-stacked rows:
-
-$$
-\widehat\psi=P_n m_{v,\widehat\epsilon}(X),
-\qquad
-D_i=\frac{\Delta_i}{\pi_v(X_i)}\{Y_i-m_{v,\widehat\epsilon}(X_i)\}
-    +m_{v,\widehat\epsilon}(X_i)-\widehat\psi.
-$$
-
-The variance is $P_nD_i^2/n$. This construction is the treatment-specific-mean case of Levy's
-stacked pooled CV-TMLE after the Díaz, Carone and van der Laan relabeling. Zheng and van der Laan's
-partial-targeting theorem supplies the training-complement nuisance construction and the empirical
-distribution component.
-
-Levy's finite-sample equality with original CV-TMLE applies to equal-size folds. Package-generated
-near-balanced folds can differ by one row. For bounded fold estimates, fixed $V$ makes the resulting
-weighting difference $O(1/n)$. It is first-order negligible, but it is not zero.
-
-Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
-response positivity, $L_2$ convergence of the estimated curve, or the second-order condition. The
-common fluctuation coefficient must converge, and its finite-dimensional fluctuation class must
-satisfy the source's entropy condition. The fold-specific exact remainder remains
-
-$$
-R_{2,v}=P_0\!\left[
-  \left\{1-\frac{\pi_0(X)}{\pi_v(X)}\right\}
-  \{m_{v,\widehat\epsilon}(X)-m_0(X)\}
-\right].
-$$
-
-The stacked remainder $\sum_v(n_v/n)R_{2,v}$ must be $o_P(n^{-1/2})$. A sufficient condition is the
-corresponding product rate for the response and targeted outcome errors. Do not substitute the
-ordinary iid Donsker condition for these cross-fitted conditions.
-
-Keep the first implementation scalar and explicit. It accepts only the sole resolved target
-`ey_obs`, binary treatment, an iid unweighted and unclustered study, no baseline strata or
-intermediate, and a binary outcome. Interpret the result under the MAR and response-positivity
-assumptions. Keep bounded-continuous outcomes refused until a later contract states the scale
-transform in the fluctuation, score, point, and influence curve.
-
-The public method configuration is `CrossFitting(enabled=True, n_folds=10, repeats=1,
-stratify_by="none", targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. The
-estimator engine records those fields as `cross_fit=True`, `n_folds=10`, `repeats=1`,
-`stratify_folds="none"`, `targeting_scheme="pooled"`, and `cv_evaluation=False`. Preserve every
-other current pre-fit and post-fit refusal. Refuse the new unstratified option outside this exact
-RM9 cell until each other estimator receives its own split-law audit.
-
-Realize all folds before nuisance fitting. Then require at least one respondent and one
-nonrespondent in every training complement. Run this preflight before the response or outcome
-learner sees data. Add deliberate rare-response and rare-nonresponse assignments that fail at this
-preflight.
-
-Acceptance needs independent leakage controls for the outcome and response fits. Add exact pooled
-score and influence-curve checks, the signed fold-specific remainder identity, and mutations that
-rotate fold-specific predictions onto the wrong held-out rows or remove the response contribution.
-Keep the complete-observation reduction and nonzero response-score mutation. Add controls that fail
-if the fit or influence curve reads a treatment propensity.
-
-Register a new method study with predeclared coverage and standard-error calibration under flexible
-nuisance learning. Compare the cross-fitted result with an in-sample fit under the same flexible
-learner, and add a deliberately shrunken-standard-error control. Test the two union-model rescue
-directions and pair them with a both-wrong control.
-
-The maintained-implementation search found no exact comparator. `tmle3` provides the stacked TSM
-targeting control flow, but its generic treatment-specific outcome fit can use the `T=0`
-pseudo-outcomes when it predicts under `T=1`. The package fits this regression on respondents only.
-zEpid targets inside each fold, and Newey and Robins implement a different estimator. Record the
-search as a zero-row comparator artifact. Do not extend the existing iid study to stand in for this
-estimator.
-
-Register the study as its own estimator variant. Add its evidence document and validation-grid
-row. Audit every existing study whose shared cross-fit, nuisance, targeting, or influence code
-changes. Regenerate each affected row, and state why an unchanged row is not affected.
-
-Update the `NaturalCourseMean` docstring and the point-treatment, CV-TMLE, scope-and-refusal, and
-evidence documents in the implementation pull request. Keep the public contract, method matrix,
-study record, and refusal messages consistent.
+Keep fold-targeted updates and repeated-split reports in
+[F21](#f21-other-missing-outcome-cv-tmle-variants). The 2026-09-12 audit found no direct interval
+result for either composition.
 
 ### P1. EP learner
 
@@ -801,11 +704,11 @@ split-dispersion variance to the targeted MAR plug-in. A future result must cove
 created by targeting before it can justify the package's repeated report for this target.
 
 The pooled, fold-evaluated estimator from Zheng and van der Laan is not part of this hard stop. It
-has published support, but it is outside RM9's next pull request because its fold plug-in and
-variance law define a separate estimator. After the stacked pull request, RM9 advances to that
-implementation review and registered evidence row. RM9 also retains the bounded-continuous stacked
-extension. Audit the outcome scaling and fold-weighting laws before either follow-up. A later
-change must audit supplied folds before it admits them for either evaluation rule.
+has published support, but its fold plug-in and variance law define a separate estimator. RM9
+retains its implementation review and registered evidence row. RM9 also retains the
+bounded-continuous stacked extension. Audit the outcome-scaling and fold-weighting laws before
+either follow-up. A later change must audit supplied folds before it admits them for either
+evaluation rule.
 
 ### F4. Multi-arm missing-outcome DR-TMLE
 

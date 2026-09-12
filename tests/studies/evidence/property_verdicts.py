@@ -315,20 +315,24 @@ def apply_shared_verdicts(
 
     rates: list[dict[str, Any]] = []
     ladder = rows.loc[rows["property"] == "root_n_and_efficiency"]
-    for label in rate_labels:
-        prefix = f"{label}__" if label else ""
-        selected = ladder.loc[ladder["cell"].str.startswith(prefix)]
-        for statistic, suffix in (("spread", "empirical_sd"), ("reported", "reported_se")):
-            _rate_row(
-                rates,
-                selected,
-                record,
-                summary.columns,
-                label=label,
-                cell=f"{prefix}{suffix}",
-                statistic=statistic,
-                suffix=suffix,
-            )
+    if not ladder.empty:
+        for label in rate_labels:
+            prefix = f"{label}__" if label else ""
+            selected = ladder.loc[ladder["cell"].str.startswith(prefix)]
+            for statistic, suffix in (
+                ("spread", "empirical_sd"),
+                ("reported", "reported_se"),
+            ):
+                _rate_row(
+                    rates,
+                    selected,
+                    record,
+                    summary.columns,
+                    label=label,
+                    cell=f"{prefix}{suffix}",
+                    statistic=statistic,
+                    suffix=suffix,
+                )
     return summary, rates
 
 

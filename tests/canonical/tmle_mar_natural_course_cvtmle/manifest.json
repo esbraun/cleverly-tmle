@@ -1,0 +1,94 @@
+{
+  "schema_version": 2,
+  "study": "stacked missing-outcome natural-course CV-TMLE",
+  "slug": "stacked-mar-natural-course-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stacked-mar-natural-course-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "12bd9639bb919fa4b9988a5ebf9a5558905480c6",
+      "cleverly_worktree_clean": false,
+      "python": "3.11.13",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261109,
+    "resampling_seed": 20261110,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_natural_course_flexible": [
+        "ey_obs"
+      ]
+    },
+    "construction": "one-repeat stacked MAR natural-course CV-TMLE",
+    "source": "D\u00edaz, Carone, and van der Laan (2016), Section 2, equations 1-5; Levy (2018), Section 3.1",
+    "cross_fit": true,
+    "n_folds": 10,
+    "repeats": 1,
+    "stratify_folds": "none",
+    "targeting_scheme": "pooled",
+    "fold_evaluation": false,
+    "split_plan": null,
+    "fluctuation": "logistic",
+    "targeting": "iterative",
+    "target_weights": false,
+    "simultaneous_intervals": false,
+    "missingness_bound": 0.01,
+    "treatment_mechanism": "deliberately unavailable and asserted unused",
+    "primary_nuisance_predictions": "separate depth-five classification trees with minimum leaf size 25 for the outcome regression and response mechanism",
+    "comparator_search": "Rejected R tmle 2.1.1 because its maintained MAR API reports intervention-arm means, not the natural-course target; rejected tmle3 because no maintained callable task was identified for this exact missing-outcome, pooled stacked natural-course construction; rejected zEpid because its cross-fit TMLE targets treatment contrasts rather than this response-weighted natural-course mean.",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_natural_course_cvtmle.py": "1eea14d972dd7f36b38287f3008e3eaffdbb4f3cabd4402134c81dfec3b575ef",
+    "tests/studies/mar_natural_course_cvtmle_properties.py": "cc01ae046e14e70a1d3411c2c59de62821c308f75ed2a9cdc1c785db182f9cad",
+    "tests/studies/missing_outcome_study_helpers.py": "7ad727efb8f671070ab6929105d1a227cc0d6252662eb50a4843ac8b2625053c",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "92758fa96c493d26633e0f8b6bf372ddcfc37a8f06e856d311885de964ae7c52",
+    "tests/studies/evidence/property_verdicts.py": "053e0e1dae154db0e63f3e08da1b861e25dae8533e2e7685a303b71f5d7fac82",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "ea5fb32b54603137332b0c5795be3da47588dcfbd6ddea26c6ca2f355b5ed7f9",
+    "summary.csv": "c5e5c67794bd073ff119c2f41cf1070843d4025fa414ef2f7a3dbcace0e1fe94",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "09335e4a4da5544496e8364a7cfe9ac9930f284c2853c89fc9e3633bac832261",
+    "property-replicates.csv.gz": "d4a278253d5f4891ac0c4d599a6322a50daff3c470498ee0cae8f594238ef5b5",
+    "properties.csv": "56d8968ad49cabeabd8ebfe91e205e8890b0d6a2f5e093b391fd84b8639dc79f"
+  }
+}

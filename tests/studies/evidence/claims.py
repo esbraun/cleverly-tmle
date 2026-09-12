@@ -228,15 +228,17 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # module.  A duck-typed guard publishes a threshold because a constant happens to be
     # importable, which is a fact about a file rather than about what the study claims -- and
     # it goes quiet the day the constant is renamed, taking the published row with it.  A
-    # noise control is the band's own negative arm: it exists to land *outside* the upper
-    # edge, so a study that declares one has declared a band for it to fail.
-    if any(
-        cell.endswith("noise_control")
-        for cell in record.property_cells.get("interval_calibration", ())
-    ):
+    # A noise control is the band's negative arm. A study that declines the exact-efficiency
+    # ratio may instead declare only the direct shrunken-SE mutation for calibration.
+    calibration_cells = record.property_cells.get("interval_calibration", ())
+    has_noise_control = any(cell.endswith("noise_control") for cell in calibration_cells)
+    has_shrunken_se_control = any(
+        cell.endswith("shrunken_se_control") for cell in calibration_cells
+    )
+    if has_noise_control or (has_shrunken_se_control and not record.calibration_efficiency_ratio):
         properties = record.properties()
         declared["margin:shrunken_se_factor"] = properties.SHRUNKEN_SE_FACTOR
-        if record.calibration_efficiency_ratio:
+        if record.calibration_efficiency_ratio and has_noise_control:
             low, high = properties.EFFICIENCY_RATIO_BAND
             declared.update(
                 {

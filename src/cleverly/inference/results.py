@@ -9,13 +9,14 @@ method-specific reporting and diagnostics separate.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from .._typing import FloatArray
 from .cluster import influence_covariance
-from .delta import delta_method
+from .delta import _gradient_at, delta_method
 from .influence import ParameterEstimate, Scale, make_estimate
 
 __all__ = [
@@ -63,6 +64,8 @@ def estimate_covariance(
 ) -> FloatArray:
     """Joint covariance at the observation or declared cluster unit."""
     chosen = select_estimates(estimates, names)
+    if len(chosen) == 1:
+        return np.asarray([[estimates[chosen[0]].variance]], dtype=float)
     curves = np.column_stack([estimates[name].influence_curve for name in chosen])
     return influence_covariance(curves, cluster=cluster)
 
@@ -87,7 +90,7 @@ def smooth_contrast(
         [estimates[key].influence_curve for key in chosen],
         gradient=gradient,
     )
-    return make_estimate(
+    estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
         curve,
@@ -96,3 +99,11 @@ def smooth_contrast(
         scale=scale,
         alpha=alpha,
     )
+    if len(chosen) == 1:
+        point = np.asarray([estimates[chosen[0]].psi], dtype=float)
+        derivative = float(_gradient_at(function, point, gradient=gradient, step=1e-6)[0])
+        estimate = replace(
+            estimate,
+            variance=derivative**2 * estimates[chosen[0]].variance,
+        )
+    return estimate

@@ -158,6 +158,18 @@ def delta_method(
         raise ValueError(f"got {psi.shape[0]} estimate(s) but {curves.shape[1]} influence curve(s)")
 
     value = float(function(psi))
+    grad = _gradient_at(function, psi, gradient=gradient, step=step)
+    return value, np.asarray(curves @ grad, dtype=float)
+
+
+def _gradient_at(
+    function: Callable[[FloatArray], float],
+    psi: FloatArray,
+    *,
+    gradient: Callable[[FloatArray], FloatArray] | None,
+    step: float,
+) -> FloatArray:
+    """Evaluate the analytic or central-difference gradient used by ``delta_method``."""
     if gradient is not None:
         grad = np.asarray(gradient(psi), dtype=float).reshape(-1)
     else:
@@ -170,4 +182,4 @@ def delta_method(
             grad[j] = (float(function(forward)) - float(function(backward))) / (2.0 * h)
     if grad.shape[0] != psi.shape[0]:
         raise ValueError(f"gradient has length {grad.shape[0]}, expected {psi.shape[0]}")
-    return value, np.asarray(curves @ grad, dtype=float)
+    return grad
