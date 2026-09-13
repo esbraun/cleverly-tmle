@@ -537,8 +537,13 @@ def _check_categorical_fold_support(
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
                 "every treatment-mechanism training set must contain every observed level. "
-                "Use fewer folds, supply folds that preserve treatment support, or collect "
-                "more observations at the rare level"
+                + (
+                    ""
+                    if folds.is_single
+                    else "Use more folds so each training set is larger, n_folds=1, supply "
+                    "folds that preserve treatment support, or "
+                )
+                + "collect more observations at the rare level"
             )
 
 
@@ -760,7 +765,12 @@ def prepare_node(
             f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
             "the sequential regression there has nothing to fit. The regimen is not "
             "supported by this sample."
-            + ("" if outer_fold is None else " Use fewer folds, or a supported regimen.")
+            + (
+                ""
+                if outer_fold is None
+                else " Use more folds so each training complement is larger, n_folds=1, "
+                "or a supported regimen."
+            )
             + _risk_set_hint(data, plan, time)
             + _rule_hint(plan, data, at_risk, time)
         )
@@ -855,8 +865,9 @@ def _check_outcome_varies(
             " The check applies to each outer fold's training rows, not to the sample as a "
             "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
             "training complement. That is stricter than a single-fold fit, which fits on "
-            "every row, and the same frame can be estimable at n_folds=1. Use fewer folds, "
-            "or an estimand this fold count supports."
+            "every row, and the same frame can be estimable at n_folds=1. More folds give "
+            "each training complement more rows. Use more folds, n_folds=1, or an estimand "
+            "this fold count supports."
         )
     )
     raise LongitudinalError(

@@ -29,7 +29,8 @@ under cross-fitting than under one fold.
 
 `make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
 refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
-regimen's followers. Pass fewer folds, or collect more data.
+regimen's followers. Pass `n_folds=1`, use more folds so each training set is larger, or collect
+more data.
 
 ### Not written yet
 
