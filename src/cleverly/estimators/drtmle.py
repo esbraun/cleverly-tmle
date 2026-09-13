@@ -89,11 +89,10 @@ covariate by :math:`1_a(g_r-g)/(g g_r)`, separately for every discrete arm.
 :func:`~cleverly.estimators.targeting.solve_with_reduction` solves the three equations
 together.
 
-**What this is not.**  The point estimate is a plain TMLE's, to the precision the extra
-fluctuations move it -- the three empirical means are all driven to zero, so the extra terms
-cannot move :math:`\hat\Psi` and only move its variance.  Read a ``DRTMLE`` fit as the same
-estimate with an interval that is entitled to be believed under weaker conditions, not as a
-better estimate.
+**What this is not.**  It is not a better point estimate.  The extra fluctuations update
+:math:`\hat{\bar Q}`, :math:`\hat g`, or both, so :math:`\hat\Psi` differs from a plain TMLE's in
+finite samples.  The design aims at asymptotic linearity when one primary nuisance is
+inconsistent, so the interval is entitled to be believed under weaker conditions.
 
 **And it is not the efficient one.**  Under misspecification the canonical gradient at
 :math:`P_0` is still :math:`D^*`.  What the three equations leave is
@@ -101,12 +100,10 @@ better estimate.
 nuisance limits, and the estimator is generally **not efficient** there -- so the interval is
 one that stays valid where a plain TMLE's stops being valid, and nothing more than that.
 When both nuisances are consistent, the corrections converge to zero and the curve approaches
-the ordinary efficient curve.  At the true nuisance functions, they vanish row by row.  The
-distinction is easy to lose because the numbers point the other way: in the
-guide's worked example the corrected standard error is the **smaller** of the two, 0.06828
-against 0.06850, which is a fact about one draw and not a general narrowing.  A doubly-robust
-fit's ``score_check`` says so in its own verdict rather than signing the fit off as having
-solved the efficient score equation.
+the ordinary efficient curve.  At the true nuisance functions, they vanish row by row.  On one
+draw the corrected standard error can be the smaller of the two; that is a fact about the
+draw and not a general narrowing.  A doubly-robust fit's ``score_check`` says so in its own
+verdict rather than signing the fit off as having solved the efficient score equation.
 
 **What it costs.** Three reduced-family fits per arm per round for the univariate reduction,
 or two for the bivariate reduction, plus a mechanism fluctuation. Each family is fitted once,

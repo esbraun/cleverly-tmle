@@ -78,6 +78,9 @@ __all__ = [
 ]
 
 
+_LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
+
+
 @dataclass(frozen=True)
 class Folds:
     """A cross-fitting partition.

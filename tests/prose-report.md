@@ -14,5 +14,4 @@ prevent. `tests/prose.py` records which rules were rejected and why.
 | file | rule | id | excerpt | disposition |
 | --- | --- | --- | --- | --- |
 | `docs/architecture-invariants.md` | paragraph-length | `ce9f213d1bbc` | 7 sentences: A -level arm enters a design matrix as drop-... | accepted: one argument for the encoding plus its *Reconsider when*; a break anywhere leaves half a reason |
-| `docs/examples/twins-causal-inference.ipynb` | paragraph-length | `4e4b739da442` | 7 sentences: Twins also offer a simple stress test: withi... | accepted: seven short sentences, one idea each, which is the rule the sentence limit asks for |
 | `docs/technical-reference/method-evidence/how-to-read.md` | paragraph-length | `2ba73c4ede38` | 7 sentences: A Monte Carlo study accumulates evidence by... | accepted: seven short sentences building one argument about significance tests; merging any two hides a step, and this is now the only copy since validation-methods.md links here |

@@ -29,7 +29,8 @@ under cross-fitting than under one fold.
 
 `make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
 refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
-regimen's followers. Pass fewer folds, or collect more data.
+regimen's followers. Pass `n_folds=1`, use more folds so each training set is larger, or collect
+more data.
 
 ### Not written yet
 
@@ -96,7 +97,7 @@ receives data.
 | response-support failure | what the message says |
 | --- | --- |
 | the sample holds fewer than two respondents or fewer than two nonrespondents | no fold count or `random_state` can succeed. Use `cross_fit=False` |
-| one training complement holds no respondent or no nonrespondent | it names the repeat and the fold. Reduce `n_folds` or use a different `random_state` |
+| one training complement holds no respondent or no nonrespondent | it names the repeat and the fold. Increase `n_folds` so each training complement is larger, use `n_folds=1`, or use a different `random_state` |
 
 `stratify_by="none"` is reserved for the stacked contract. A frame that declares `missingness=` but
 has no missing outcome takes the complete-outcome branch. Under `stratify_by="none"`, that fit
