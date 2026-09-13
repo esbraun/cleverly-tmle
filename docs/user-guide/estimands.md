@@ -47,13 +47,32 @@ Multi-valued treatments preserve original arm labels in `ParameterKey.value` and
 `missingness=`. That path uses the outcome regression and the response mechanism. It uses no
 treatment model.
 
-Its first supported surface is deliberately narrow: ordinary TMLE with binary treatment, one iid
-sample, `CrossFitting(enabled=False)`, and iterative unweighted logistic targeting. It accepts no
-weights, clusters, strata, `intermediate=`, bootstrap, or joint target. A continuous outcome needs
-fixed `q_bounds`. The default method cross-fits, so this path requires an explicit method
-declaration.
+`cleverly` supports two scalar TMLE configurations for this target. An ordinary fit uses
+`CrossFitting(enabled=False)`. It accepts a binary outcome or a continuous outcome with fixed
+`q_bounds`. A stacked CV-TMLE fit accepts a binary outcome and uses this cross-fitting declaration:
 
-The [refusals table](../technical-reference/scope-and-refusals.md) carries the full list. See the
+```python
+stacked_mar = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        missingness_learner=LogisticRegression(max_iter=1000),
+    ),
+    cross_fitting=CrossFitting(
+        n_folds=10,
+        repeats=1,
+        stratify_by="none",
+        targeting_scheme="pooled",
+        fold_evaluation=False,
+    ),
+)
+```
+
+Pass `stacked_mar` when you estimate `NaturalCourseMean()` from a study with `missingness=`. The
+fit generates one near-balanced outer partition. Both configurations require binary treatment,
+unweighted iid rows, and iterative unweighted logistic targeting.
+
+[Missing-outcome natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every refused composition for both configurations. See the
 [missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
 
 ## Known regimes

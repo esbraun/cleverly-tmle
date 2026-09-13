@@ -115,23 +115,86 @@ R_2(P,P_0)=E_0\left[\left\{1-\frac{\pi_0(X)}{\pi(X)}\right\}
   \{m(X)-m_0(X)\}\right].
 $$
 
-For the reported first-order interval, the fitted response probability is bounded away from zero,
-the estimated influence curve converges in $L_2(P_0)$ inside one Donsker class, and the remainder
-is $o_P(n^{-1/2})$. A sufficient remainder rate is
-$\|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2})$. The efficiency claim also
-requires the bounded response fit to converge to $\pi_0$; clipping cannot supply that condition if
-the true response probability falls below the bound on a set with positive probability.
+For the ordinary first-order interval, the fitted response probability is bounded away from zero.
+The estimated influence curve converges in $L_2(P_0)$ inside one Donsker class. The remainder is
+$o_P(n^{-1/2})$. A sufficient remainder rate is
+$\|\hat\pi-\pi_0\|_{P_0}\|\hat m^\star-m_0\|_{P_0}=o_P(n^{-1/2})$.
 
-No treatment mechanism enters this target. The first supported implementation is an iid scalar
-ordinary-TMLE fit with binary treatment, no cross-fitting or repeats, no observation weights,
-clusters, strata, or `intermediate=`, and iterative unweighted logistic targeting. It accepts a
-binary outcome or a continuous outcome with fixed `q_bounds`. Every other composition refuses
-before any learner is fitted. The [refusals table](scope-and-refusals.md) carries the full list.
+The efficiency claim also requires the bounded response fit to converge to $\pi_0$. Clipping cannot
+supply that condition below the true response probability on a set with positive probability.
 
-The source is Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
+#### Stacked CV-TMLE for this target
+
+The cross-fitted implementation uses one package-generated, near-balanced V-fold partition. For
+fold $v$, it fits $m_v$ and $\pi_v$ on the training complement. The outcome regression uses only
+respondents in that complement. Both nuisances predict only the held-out rows.
+
+One common fluctuation coefficient targets the stacked predictions:
+
+$$
+\operatorname{logit}m_{v,\epsilon}(X)
+=\operatorname{logit}m_v(X)+\frac{\epsilon}{\pi_v(X)},
+\qquad
+P_n\!\left[\frac{\Delta}{\pi_v(X)}\{Y-m_{v,\epsilon}(X)\}\right]=0.
+$$
+
+Here $v$ is the fold that holds each row. The estimator evaluates the point and influence curve on
+the same stacked rows:
+
+$$
+\widehat\psi=P_n m_{v,\widehat\epsilon}(X),
+\qquad
+D_i=\frac{\Delta_i}{\pi_v(X_i)}\{Y_i-m_{v,\widehat\epsilon}(X_i)\}
+    +m_{v,\widehat\epsilon}(X_i)-\widehat\psi.
+$$
+
+The variance is $P_nD_i^2/n$, the raw second moment of the curve. The estimate declares the
+`"second_moment"` covariance rule, so `covariance()` and contrasts use the same moment. See
+[covariance rules](inference.md#covariance-rules).
+
+The estimator requires at least one respondent and one nonrespondent in each training complement.
+It checks every complement before either learner receives data. A sample with fewer than two of
+either response kind is refused before the fold check, and the message names `cross_fit=False`.
+
+Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
+response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
+The common coefficient must converge. Its finite-dimensional fluctuation class must satisfy the
+source's entropy condition.
+
+The fold-specific remainder is
+
+$$
+R_{2,v}=P_0\!\left[
+  \left\{1-\frac{\pi_0(X)}{\pi_v(X)}\right\}
+  \{m_{v,\widehat\epsilon}(X)-m_0(X)\}
+\right].
+$$
+
+The stacked remainder $\sum_v(n_v/n)R_{2,v}$ must be $o_P(n^{-1/2})$. The corresponding product
+rate for the response and targeted outcome errors is sufficient.
+
+After relabeling the response indicator as its treatment, Levy (2018) supplies the stacked update
+and whole-sample plug-in in its abstract. Levy's Section 3.1 supplies the asymptotic expansion
+after the pooled score is solved. Zheng and van der Laan (2011), Sections 2 and 2.1, supply the
+training-complement nuisance construction and the untargeted empirical-distribution component.
+Their Theorem 2 gives the partial-targeting expansion and its conditions. The
+[CV-TMLE reference](cv-tmle.md) gives the fold-weighting boundary.
+
+No treatment mechanism enters either implementation. Both fits require one scalar `ey_obs`,
+binary treatment, unweighted iid rows, and iterative unweighted logistic targeting. The ordinary
+fit accepts a binary outcome or a continuous outcome with fixed `q_bounds`. The stacked fit accepts
+a binary outcome. Configure it with `CrossFitting(enabled=True, repeats=1, stratify_by="none",
+targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. The registered study uses
+`n_folds=10`.
+
+[Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every refusal for both fits. The source for the ordinary fit is
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
 [ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
-checks both robustness halves, targeting and complete-case controls, root-$n$ behavior,
-efficiency, and interval calibration.
+checks both robustness halves, targeting, complete-case controls, root-$n$ behavior, efficiency,
+and interval calibration. The separate
+[stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
+checks the cross-fitted estimator under its own contract.
 
 For arm-indexed counterfactual means, the outcome residual instead carries the inverse product of
 the treatment mechanism $g(A\mid W)$ and the observation mechanism $\pi(A,W)$. That

@@ -40,6 +40,7 @@ from cleverly.estimators import TMLE
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome
 from tests.studies.missing_outcome_study_helpers import FailTreatment
+from tests.unit._natural_course_support import exact_remainder
 
 WRONG_PI = law.PI + np.array([[0.30, -0.15], [-0.20, 0.25], [-0.35, 0.10]])
 WRONG_Q = law.Q + np.array([[0.10, -0.15], [-0.15, 0.10], [0.05, 0.20]])
@@ -84,8 +85,7 @@ def _exact_remainder(result: Any, pi_hat: np.ndarray) -> float:
     w = frame["W"].to_numpy(dtype=int)
     a = frame["A"].to_numpy(dtype=int)
     m_star = np.asarray(_fluctuation(result).targeted.observed, dtype=float)
-    m_zero = law.Q[w, a]
-    return float(np.mean((1.0 - law.PI[w, a] / pi_hat[w, a]) * (m_star - m_zero)))
+    return exact_remainder(w, a, pi_hat[w, a], m_star)
 
 
 class TestTheExactRemainder:

@@ -38,7 +38,7 @@ rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| missing-outcome `NaturalCourseMean` with cross-fitting or repeats, observation weights, clusters, strata, nonbinary treatment, `intermediate=`, joint targeting, bootstrap, linear or weighted targeting, C-TMLE, DR-TMLE, or a continuous outcome without declared `q_bounds` | the first supported construction is the iid scalar ordinary-TMLE result in [observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects). Cross-fitted response mechanisms and the other compositions need separate contracts and evidence |
+| missing-outcome `NaturalCourseMean` outside its two scalar TMLE contracts | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators |
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
@@ -62,11 +62,47 @@ Several former gaps have landed. `cleverly` now supports multi-valued longitudin
 nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, DR-TMLE, `ATT`,
 and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
 support `delta=`, `intermediate=`, and weights. `cleverly` also supports multi-arm
-omitted-variable and MNAR sensitivity analyses. Ordinary TMLE supports the iid scalar
-missing-outcome natural-course mean under its named first-implementation boundaries.
+omitted-variable and MNAR sensitivity analyses. TMLE supports the scalar missing-outcome
+natural-course mean with ordinary fitting or one generated split of stacked CV-TMLE.
+[Missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) gives the
+boundaries of each path.
 
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
+
+### Missing-outcome natural-course contracts
+
+`NaturalCourseMean()` with `missingness=` and at least one missing outcome has two TMLE contracts.
+`CrossFitting(enabled=...)` selects the contract. The table gives each requirement and the
+compositions that each contract refuses.
+
+| requirement | ordinary TMLE, `enabled=False` | stacked CV-TMLE, `enabled=True` |
+| --- | --- | --- |
+| target | `ey_obs` alone. A joint request is refused | `ey_obs` alone. A joint request is refused |
+| estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused | `TMLE`. `CTMLE` and `DRTMLE` are refused |
+| treatment | two arms. A multi-valued treatment is refused | two arms. A multi-valued treatment is refused |
+| outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome is refused |
+| outer folds | one fold | package-generated folds with `stratify_by="none"`. Stratified folds and `split_plan=` are refused |
+| repeats | `repeats=1`. Repeated splits are refused | `repeats=1`. Repeated splits are refused |
+| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
+| inference | influence-curve Wald interval. `n_bootstrap > 0` is refused | influence-curve Wald interval. `n_bootstrap > 0` is refused |
+| rows | observation weights, clusters, baseline strata, and `intermediate=` are refused | observation weights, clusters, baseline strata, and `intermediate=` are refused |
+| response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
+
+Each composition refusal raises `CapabilityError` before any learner is fitted. The two
+response-support checks raise `DataError` after the folds are drawn and before either learner
+receives data.
+
+| response-support failure | what the message says |
+| --- | --- |
+| the sample holds fewer than two respondents or fewer than two nonrespondents | no fold count or `random_state` can succeed. Use `cross_fit=False` |
+| one training complement holds no respondent or no nonrespondent | it names the repeat and the fold. Reduce `n_folds` or use a different `random_state` |
+
+`stratify_by="none"` is reserved for the stacked contract. A frame that declares `missingness=` but
+has no missing outcome takes the complete-outcome branch. Under `stratify_by="none"`, that fit
+raises `CapabilityError` before any learner is fitted. The message asks for the established fold
+policy. Other point-treatment fits, such as `ATE` under TMLE or DR-TMLE, refuse `stratify_by="none"`
+with the same message.
 
 ### Replay-only unavailability
 

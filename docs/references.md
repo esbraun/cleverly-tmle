@@ -40,6 +40,24 @@ previous reader had is not a citation; a page number is.
   normalizes `obsWeights`. It routes them through outcome and treatment fitting, targeting,
   plug-in evaluation, and influence-curve calculations. This source supports the weighted
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
+
+  The same file has a population-mean path for missing outcomes. Lines 1681–1683 set a missing or
+  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. Lines 1947–1967 fit
+  one fluctuation on the respondent rows. Line 1512 gives the influence curve
+  `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
+
+  Lines 1045–1080 and 1279–1288 accept and transform supplied `Q` predictions. Lines 1340–1464
+  pass supplied mechanism predictions through without a model fit. The registered stacked MAR
+  natural-course study supplies the stitched out-of-fold `Q(A,W)` and `pDelta1(A,W)` values.
+  Its adapter duplicates each realized-arm prediction and passes a constant synthetic `A`.
+  It carries the original treatment beside `W`, preserving the conditioning set represented by
+  each supplied prediction. This selects the population-mean path without fitting a treatment
+  mechanism.
+
+  The R path uses the centered, `n - 1` divisor sample variance `var(IC) / n` and bounds its
+  binary-outcome interval to `[0, 1]`. `cleverly` uses the uncentered second moment
+  `mean(IC^2) / n` and an unbounded Wald interval. The registered comparison keeps both native
+  rules. Its interior law does not activate the R interval bound.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
   10.1007/978-1-4419-9782-1_27. Read first-hand in the
@@ -75,6 +93,10 @@ previous reader had is not a citation; a page number is.
   The `calculate_joint_estimate` median branch implements the same point and variance
   calculation.
   It is secondary aggregation evidence and not a comparator for the complete estimator.
+  In the same file, `targeting_step`
+  ([lines 1644–1672](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1644-L1672))
+  fits a separate logistic fluctuation in each split. `SingleCrossfitTMLE` calls it at lines
+  1119–1122, and `DoubleCrossfitTMLE` calls it at lines 1545–1548. zEpid therefore targets inside each fold, not with one pooled fluctuation.
 - Levy (2018), [*An Easy Implementation of CV-TMLE*](https://arxiv.org/abs/1811.04573),
   arXiv:1811.04573. Read first-hand. The abstract distinguishes the original fold-wise plug-in
   evaluation from a stacked validation update and whole-sample plug-in. It states exact overlap
@@ -96,8 +118,8 @@ previous reader had is not a citation; a page number is.
   Levy's exact finite-sample overlap applies when the folds have equal sizes. Package-generated
   near-balanced folds instead give the stacked and original fold weights a bounded $O(1/n)$
   difference for fixed $V$. This difference is first-order negligible, but it is not zero when fold
-  sizes differ. The mapping supports RM9's stacked, pooled, whole-sample construction for one
-  near-balanced V-fold partition. Levy gives no repeated-split result.
+  sizes differ. The mapping supports the implemented stacked, pooled, whole-sample construction for
+  one near-balanced V-fold partition. Levy gives no repeated-split result.
 - Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
   `R/tmle3_Update.R` selects the
@@ -157,11 +179,12 @@ previous reader had is not a citation; a page number is.
   and inverse response regressions on distinct subsamples. It is not the package's
   complement-trained pooled CV-TMLE, so it does not govern RM9.
 - Missing-outcome natural-course implementation record (2026-09-11): the source above supports
-  one scalar missing-at-random mean from iid observations, with its first-order interval. Its
-  stated limits bound the implemented
+  one scalar missing-at-random mean from iid observations, with its ordinary first-order interval.
+  Its stated limits bound the
   [ordinary-TMLE contract](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
-  It does not cover population attributable risk, population attributable fraction, or the
-  [cross-fitted successor](roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean).
+  Zheng and van der Laan (2011) and Levy (2018) separately support the implemented stacked
+  cross-fitted contract. None of these results covers population attributable risk or population
+  attributable fraction.
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read

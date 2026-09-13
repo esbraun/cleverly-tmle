@@ -80,6 +80,7 @@ and
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
 | `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
+| `stratify_folds="none"` | draws an unstratified, near-balanced outer partition | no. Supported only for the binary missing-outcome `NaturalCourseMean` contract below |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
 | `targeting_scheme="fold"` | one fluctuation fit inside each validation fold | **yes**. It removes cross-fold coupling through the fluctuation fit. Python `zEpid` 0.9.1 corroborates this construction at two folds |
 | `cv_evaluation=True` | fold plug-in evaluation with cross-validated variance | **yes**. This is fold-evaluated CV-TMLE |
@@ -109,6 +110,41 @@ Coordinatewise medians do not preserve identities among several estimands. Repea
 refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
 multiplier construction would use the retained central-draw curve. That curve supports marginal
 diagnostics; the split-adjusted variance above supplies the pointwise interval.
+
+### Missing-outcome natural-course mean
+
+The binary missing-outcome `NaturalCourseMean` supports one narrow stacked CV-TMLE configuration.
+It uses one generated V-fold partition, pooled targeting, and whole-sample evaluation. Set
+`stratify_folds="none"`, `repeats=1`, `targeting_scheme="pooled"`, and `cv_evaluation=False`.
+[Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every refused composition. The paragraphs below give the reasons for the fold refusals.
+
+The audited sources draw the partition externally. They do not support outcome-adaptive or
+treatment-stratified partitions for this target. A supplied plan also remains refused until its
+balance and weighting rules receive a separate audit.
+
+Each nuisance fit uses a training complement and predicts its held-out rows. The outcome learner
+fits respondents only. The response learner fits the response indicator. The targeting step then
+uses one coefficient across all stacked held-out rows. The point and influence curve use those same
+rows. No treatment mechanism is fitted or read.
+
+Package-generated folds can differ in size by one row. Levy's exact finite-sample equality with the
+original fold-evaluated estimator applies to equal-size folds. For fixed $V$ and bounded fold
+estimates, the weighting difference is $O(1/n)$. It is first-order negligible, but it is not zero.
+
+The original pooled, fold-evaluated construction has published support. It remains a separate
+estimator because its fold plug-in and variance law differ. Bounded-continuous stacked outcomes also
+remain refused until their scale transform has an exact contract. The
+[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean) tracks both follow-ups.
+
+Fold-specific targeting and repeated-split reporting remain separate hard stops. The source audit
+found no direct interval result for either composition. See
+[F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants).
+
+The registered
+[stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
+records the repeated-sampling evidence. It also compares the pooled target against the R `tmle`
+2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions.
 
 ## Reusable outer split plans
 

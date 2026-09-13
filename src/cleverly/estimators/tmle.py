@@ -81,7 +81,7 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import numpy as np
 
@@ -118,7 +118,7 @@ from ..fluctuation.iterative import (
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cross_validated_variance
+from ..inference.cluster import cross_validated_variance, stacked_second_moment_variance
 from ..inference.influence import (
     CorrectionParts,
     ParameterEstimate,
@@ -131,7 +131,13 @@ from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
-from ..learners.crossfit import CrossFitPlan, Folds, SplitPlan, make_folds
+from ..learners.crossfit import (
+    CrossFitPlan,
+    Folds,
+    SplitPlan,
+    make_folds,
+    missing_training_support,
+)
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
@@ -353,6 +359,10 @@ class TMLE:
         and the cross-fitting argument conditions on the split.  That is a statement about
         which splits are conditioned on, not a bias -- and the alternative it is weighed
         against is a fold that cannot fit the regression at all.
+
+        ``"none"`` generates ordinary unstratified V-folds. It is currently reserved for
+        the audited one-repeat, pooled, whole-sample cross-fitted binary
+        :class:`~cleverly.NaturalCourseMean` with missing outcomes.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
@@ -592,10 +602,10 @@ class TMLE:
                 "baseline is decided by the design you gave msm=, usually by an intercept "
                 "column. A difference of two coefficients comes from result.contrast()."
             )
-        if self.stratify_folds not in ("treatment", "treatment+outcome"):
+        if self.stratify_folds not in get_args(FoldStrata):
+            allowed = ", ".join(repr(value) for value in get_args(FoldStrata))
             raise ValueError(
-                "stratify_folds must be 'treatment' or 'treatment+outcome'; got "
-                f"{self.stratify_folds!r}"
+                f"stratify_folds must be one of {allowed}; got {self.stratify_folds!r}"
             )
         if self.density_bins < 3:
             raise ValueError(
@@ -698,16 +708,15 @@ class TMLE:
             strata=strata,
             treatment_kind=treatment_kind,
         )
-        # The intermediate path otherwise fits shared nuisances before `_fit_single`.
-        # Resolve this boundary here as well so every unsupported intermediate
-        # composition fails before any learner is fitted. The ordinary path resolves in
-        # `_fit_single`, after its axis-specific structural checks have named their own
-        # refusals.
-        if prepared.has_intermediate:
-            self._resolve_estimands_for_data(prepared)
-
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
+
+        # The intermediate path otherwise fits shared nuisances before `_fit_single`.
+        # Resolve this boundary here as well, which includes the fold-policy reservation,
+        # so every unsupported intermediate composition fails before any learner is
+        # fitted. The ordinary path resolves in `_fit_single`, after its axis-specific
+        # structural checks have named their own refusals.
+        estimands = self._resolve_estimands_for_data(prepared)
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -719,7 +728,7 @@ class TMLE:
         # targeting step is run twice against the shared fits.
         levels = (0.0, 1.0)
         if self._shares_nuisances_across_levels():
-            shared = self._prepare_shared(prepared, levels)
+            shared = self._prepare_shared(prepared, levels, estimands)
             results: dict[float | None, TMLEResult] = {
                 value: self._fit_single(prepared, intermediate_value=value, shared=shared)
                 for value in levels
@@ -741,7 +750,7 @@ class TMLE:
         return type(self)._nuisances is TMLE._nuisances
 
     def _prepare_shared(
-        self, data: CausalData, levels: Sequence[float]
+        self, data: CausalData, levels: Sequence[float], estimands: tuple[str, ...]
     ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]]:
         """Fit the level-independent nuisances once, for every requested level.
 
@@ -752,7 +761,7 @@ class TMLE:
         """
         scaler = self._scaler(data)
         draws = []
-        for folds, seed in self._repeat_draws(data):
+        for folds, seed in self._repeat_draws(data, estimands):
             draws.append(
                 (
                     folds,
@@ -992,7 +1001,7 @@ class TMLE:
             config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
-            draws = self._repeat_draws(data)
+            draws = self._repeat_draws(data, estimands)
             fold_draws = [folds for folds, _ in draws]
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
@@ -1135,7 +1144,17 @@ class TMLE:
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
     def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
-        """Resolve targets and enforce the first supported natural-course composition."""
+        """Resolve targets and enforce every data-dependent refusal that precedes fitting.
+
+        The natural-course contracts run first, so the fold-policy reservation after them
+        can rely on every condition they enforce.
+        """
+        estimands = self._resolve_natural_course_contract(data)
+        self._validate_fold_strata_for_data(data, estimands)
+        return estimands
+
+    def _resolve_natural_course_contract(self, data: CausalData) -> tuple[str, ...]:
+        """Resolve targets and enforce the supported natural-course compositions."""
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         if not data.has_missing_outcome:
             return estimands
@@ -1153,7 +1172,7 @@ class TMLE:
         def refuse(reason: str) -> None:
             raise CapabilityError(
                 "NaturalCourseMean with missing outcomes currently supports one scalar "
-                f"ordinary TMLE under its first-implementation contract; {reason}"
+                f"TMLE under its audited implementation contracts; {reason}"
             )
 
         if len(estimands) != 1:
@@ -1165,16 +1184,18 @@ class TMLE:
             )
         if not data.is_binary_treatment:
             refuse("the treatment must have exactly two arms")
-        if self.cross_fit:
-            refuse("set cross_fit=False; a cross-fitted response-mechanism construction is open")
-        # Kept although the two pre-existing guards between them already cover it:
-        # `cross_fit=True` is refused on the line above, and `repeats > 1` with
-        # `cross_fit=False` raises the generic "makes no split" ValueError before this
-        # runs.  It is written here so the supported surface reads as one list rather
-        # than as a list plus two coincidences, and so that a later change to either
-        # guard cannot quietly admit repeated splits to this target.
-        if self.repeats != 1:  # pragma: no cover - unreachable behind the two guards above
+        if self.cross_fit and self.stratify_folds != "none":
+            refuse("the cross-fitted estimator requires stratify_folds='none'")
+        if self.repeats != 1:
             refuse("set repeats=1")
+        if self.cross_fit and self.targeting_scheme != "pooled":
+            refuse("the cross-fitted estimator requires targeting_scheme='pooled'")
+        if self.cross_fit and self.cv_evaluation:
+            refuse("the cross-fitted estimator requires cv_evaluation=False")
+        if self.cross_fit and self.split_plan is not None:
+            refuse(
+                "the cross-fitted estimator requires package-generated folds; leave split_plan=None"
+            )
         if self.fluctuation != "logistic":
             refuse("set fluctuation='logistic'")
         if self.targeting != "iterative":
@@ -1191,9 +1212,64 @@ class TMLE:
             refuse("baseline strata are not implemented")
         if data.has_intermediate:
             refuse("intermediate= is not implemented")
-        if data.family != "binomial" and self.q_bounds is None:
-            refuse("continuous outcomes require fixed, analyst-declared q_bounds")
+        if data.family != "binomial":
+            if self.cross_fit:
+                refuse("the cross-fitted estimator requires a binary outcome")
+            if self.q_bounds is None:
+                refuse("continuous outcomes require fixed, analyst-declared q_bounds")
         return estimands
+
+    def _validate_fold_strata_for_data(self, data: CausalData, estimands: tuple[str, ...]) -> None:
+        """Reserve unstratified outer folds for the audited RM9 estimator.
+
+        Only :meth:`_resolve_estimands_for_data` calls this, after
+        :meth:`_resolve_natural_course_contract` has refused every cross-fitted
+        natural-course composition outside that contract. The one remaining condition is
+        therefore that this fit is that estimator.
+        """
+        if self.stratify_folds != "none":
+            return
+        if self.cross_fit and _is_natural_course(data, estimands):
+            return
+        raise CapabilityError(
+            "stratify_folds='none' is currently reserved for the one-repeat, pooled, "
+            "whole-sample, package-generated cross-fitted binary NaturalCourseMean with "
+            "missing outcomes on iid unweighted data; use the established fold policy "
+            "for every other estimator"
+        )
+
+    @staticmethod
+    def _preflight_natural_course_folds(
+        data: CausalData,
+        estimands: tuple[str, ...],
+        folds: Sequence[Folds],
+    ) -> None:
+        """Check response support in every training complement before nuisance fitting."""
+        if not _is_natural_course(data, estimands) or any(draw.is_single for draw in folds):
+            return
+        observed = np.asarray(data.observed, dtype=bool)
+        n_response = int(np.count_nonzero(observed))
+        if n_response < 2 or observed.size - n_response < 2:
+            kind = "respondent" if n_response < 2 else "nonrespondent"
+            count = n_response if n_response < 2 else observed.size - n_response
+            raise DataError(
+                "cross-fitted NaturalCourseMean needs at least two of each response kind, "
+                f"and the sample has {count} {kind}(s). Every partition leaves some training "
+                "complement without one, so no fold count or random_state can fit the "
+                "response and outcome nuisances; use cross_fit=False"
+            )
+        labels = {False: "nonrespondent", True: "respondent"}
+        support = (("response", observed, np.unique(observed)),)
+        for repeat, draw in enumerate(folds):
+            gap = missing_training_support(draw, support)
+            if gap is not None:
+                fold, _, missing = gap
+                raise DataError(
+                    "cross-fitted NaturalCourseMean cannot fit its response and outcome "
+                    f"nuisances because repeat {repeat}, fold {fold}'s training complement "
+                    f"contains no {labels[bool(missing[0])]}; reduce n_folds or use a "
+                    "different random_state"
+                )
 
     @property
     def _axis(self) -> ParameterAxis:
@@ -1337,8 +1413,13 @@ class TMLE:
             random_state=plan.random_state if seed is None else seed,
         )
 
-    def _repeat_draws(self, data: CausalData) -> tuple[tuple[Folds, int | None], ...]:
+    def _repeat_draws(
+        self, data: CausalData, estimands: tuple[str, ...]
+    ) -> tuple[tuple[Folds, int | None], ...]:
         """Realize and validate all outer draws before fitting any nuisance model.
+
+        Every realized draw also passes :meth:`_preflight_natural_course_folds`, so each
+        fit path that draws folds checks response support before its first learner fit.
 
         The supplied path asks :meth:`SplitPlan.validate` whether the labels can serve
         these rows, and asks nothing else.  It does *not* compare the plan's fold count
@@ -1362,6 +1443,7 @@ class TMLE:
                 stratify=stratify,
                 source_fingerprint=data_fingerprint(data),
             )
+        self._preflight_natural_course_folds(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
 
     def _resolve_learner(
@@ -2030,6 +2112,8 @@ class TMLE:
                     "distinct value its own stratum and refuse to split at all; leave "
                     "stratify_folds='treatment'."
                 )
+        if self.stratify_folds == "none":
+            return None
         if data.is_continuous_treatment:
             return None
         if self.stratify_folds == "treatment":
@@ -2063,7 +2147,7 @@ class TMLE:
         cross_fit = self.cross_fit
         supplied = self.split_plan
         stratify_by: tuple[str, ...]
-        if not cross_fit or data.is_continuous_treatment:
+        if not cross_fit or data.is_continuous_treatment or self.stratify_folds == "none":
             stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)
@@ -2699,6 +2783,14 @@ class TMLE:
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
                 for estimate in target.build(context):
+                    if group == "natural_course" and self.cross_fit:
+                        # The stacked RM9 estimator declares the raw second moment, so
+                        # its covariance and contrasts read the same rule as its variance.
+                        estimate = replace(
+                            estimate,
+                            variance=stacked_second_moment_variance(estimate.influence_curve),
+                            covariance_rule="second_moment",
+                        )
                     out[estimate.name] = estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
@@ -2793,7 +2885,7 @@ class TMLE:
         """
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
-        draws = self._repeat_draws(data)
+        draws = self._repeat_draws(data, estimands)
         fold_draws = [folds for folds, _ in draws]
         config = self._config(data, estimands, scaler, fold_draws[0])
         per_repeat = []

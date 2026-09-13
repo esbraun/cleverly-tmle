@@ -9,16 +9,22 @@ method-specific reporting and diagnostics separate.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from .._typing import FloatArray
-from .cluster import influence_covariance
+from .cluster import (
+    influence_covariance,
+    stacked_second_moment_covariance,
+    stacked_second_moment_variance,
+)
 from .delta import delta_method
-from .influence import ParameterEstimate, Scale, make_estimate
+from .influence import CovarianceRule, ParameterEstimate, Scale, make_estimate
 
 __all__ = [
+    "covariance_rule",
     "estimate_covariance",
     "estimate_curves",
     "select_estimates",
@@ -55,15 +61,49 @@ def estimate_curves(estimates: Mapping[str, ParameterEstimate]) -> dict[str, Flo
     return {name: estimate.influence_curve for name, estimate in estimates.items()}
 
 
+def covariance_rule(
+    estimates: Mapping[str, ParameterEstimate],
+    names: Sequence[str],
+    *,
+    cluster: Any = None,
+) -> CovarianceRule:
+    """The one covariance rule every selected estimate declares.
+
+    A selection that mixes rules is refused. No derivation here supplies the
+    cross-covariance between a centred curve and a raw second moment.
+    """
+    rules = {estimates[name].covariance_rule for name in names}
+    if len(rules) != 1:
+        raise ValueError(
+            f"the selected estimates {list(names)} declare different covariance rules "
+            f"{sorted(rules)}; select estimates that share one rule"
+        )
+    rule = rules.pop()
+    if rule == "second_moment" and cluster is not None:
+        raise ValueError(
+            "the raw second-moment covariance rule is defined for independent rows only, "
+            "and this result declares clusters"
+        )
+    return rule
+
+
 def estimate_covariance(
     estimates: Mapping[str, ParameterEstimate],
     names: Sequence[str] | None,
     *,
     cluster: Any = None,
 ) -> FloatArray:
-    """Joint covariance at the observation or declared cluster unit."""
+    """Joint covariance under the rule the selected estimates declare.
+
+    The ``"centered"`` rule is the sample covariance at the observation or declared cluster
+    unit. The ``"second_moment"`` rule is the raw second moment. Under either rule, an
+    estimate's diagonal entry does not depend on which other estimates are selected.
+    """
     chosen = select_estimates(estimates, names)
+    rule = covariance_rule(estimates, chosen, cluster=cluster)
     curves = np.column_stack([estimates[name].influence_curve for name in chosen])
+    if rule == "second_moment":
+        return stacked_second_moment_covariance(curves)
     return influence_covariance(curves, cluster=cluster)
 
 
@@ -79,15 +119,21 @@ def smooth_contrast(
     scale: Scale = "difference",
     gradient: Callable[[FloatArray], FloatArray] | None = None,
 ) -> ParameterEstimate:
-    """Apply the delta method to a smooth function of jointly estimated parameters."""
+    """Apply the delta method to a smooth function of jointly estimated parameters.
+
+    The derived estimate inherits the covariance rule of its inputs, and its variance
+    applies that rule to the derived influence curve. Under either rule, that variance
+    equals the quadratic form of the gradient with :func:`estimate_covariance`.
+    """
     chosen = select_estimates(estimates, names)
+    rule = covariance_rule(estimates, chosen, cluster=cluster)
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
         [estimates[key].influence_curve for key in chosen],
         gradient=gradient,
     )
-    return make_estimate(
+    estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
         curve,
@@ -96,3 +142,10 @@ def smooth_contrast(
         scale=scale,
         alpha=alpha,
     )
+    if rule == "second_moment":
+        estimate = replace(
+            estimate,
+            variance=stacked_second_moment_variance(curve),
+            covariance_rule=rule,
+        )
+    return estimate

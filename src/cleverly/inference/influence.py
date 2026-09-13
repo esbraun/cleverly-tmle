@@ -68,6 +68,7 @@ from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two
 
 __all__ = [
     "CorrectionParts",
+    "CovarianceRule",
     "ICParts",
     "ParameterEstimate",
     "Scale",
@@ -89,6 +90,11 @@ __all__ = [
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
+
+#: How an estimate's joint covariance is read off its influence curve.  A class-level
+#: default on :class:`ParameterEstimate`, so a pickle written before the field existed
+#: loads as ``"centered"``, the rule every such estimate used.
+CovarianceRule = Literal["centered", "second_moment"]
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,12 @@ class ParameterEstimate:
         Present for ratios only: the estimate on the log scale.
     bootstrap : BootstrapSummary or None
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
+    covariance_rule : {"centered", "second_moment"}
+        How joint covariance and delta-method contrasts are computed from the influence
+        curve. ``"centered"`` uses the sample covariance at the observation or cluster
+        unit, which can differ from :attr:`variance` on a fold-evaluated or repeated fit.
+        ``"second_moment"`` uses the raw second moment that the stacked cross-fitted
+        natural-course mean reports as its variance.
 
     Attributes
     ----------
@@ -169,6 +181,7 @@ class ParameterEstimate:
     alpha: float = 0.05
     log_psi: float | None = None
     bootstrap: BootstrapSummary | None = None
+    covariance_rule: CovarianceRule = "centered"
 
     @property
     def std_error(self) -> float:

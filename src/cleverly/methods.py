@@ -138,7 +138,7 @@ class CrossFitting:
         Inner folds used by ensemble learners.
     repeats : int, default=1
         Independent outer-fold assignments to combine by their median.
-    stratify_by : {"treatment", "treatment+outcome"}, default="treatment"
+    stratify_by : {"none", "treatment", "treatment+outcome"}, default="treatment"
         Fold-stratification policy.
     targeting_scheme : {"pooled", "fold"}, default="pooled"
         Pooled or fold-specific targeting scheme.

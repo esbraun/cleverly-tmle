@@ -1,0 +1,105 @@
+{
+  "schema_version": 2,
+  "study": "stacked missing-outcome natural-course CV-TMLE",
+  "slug": "stacked-mar-natural-course-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stacked-mar-natural-course-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "f89984103f948b84d9d8cb8ca23c416165d3ea15",
+      "cleverly_worktree_clean": false,
+      "python": "3.11.13",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "tmle-r-population-mean",
+      "tmle_version": "2.1.1",
+      "tmle_source_sha256": "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_inference": "native R tmle centered sample variance and bounded binary-outcome interval"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261109,
+    "resampling_seed": 20261110,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_natural_course_flexible": [
+        "ey_obs"
+      ]
+    },
+    "construction": "one-repeat stacked MAR natural-course CV-TMLE",
+    "source": "D\u00edaz, Carone, and van der Laan (2016), Section 2, equations 1-5; Levy (2018), Section 3.1",
+    "cross_fit": true,
+    "n_folds": 10,
+    "repeats": 1,
+    "stratify_folds": "none",
+    "targeting_scheme": "pooled",
+    "fold_evaluation": false,
+    "split_plan": null,
+    "fluctuation": "logistic",
+    "targeting": "iterative",
+    "target_weights": false,
+    "simultaneous_intervals": false,
+    "missingness_bound": 0.01,
+    "treatment_mechanism": "deliberately unavailable and asserted unused",
+    "primary_nuisance_predictions": "separate depth-five classification trees with minimum leaf size 25 for the outcome regression and response mechanism",
+    "comparator_search": "Used R tmle 2.1.1 through its population-mean path with the same stitched out-of-fold outcome and response predictions and one pooled fluctuation. Its native var(IC)/n uses a centered n-1 sample variance, while this estimator uses the uncentered mean(IC^2)/n; rejected tmle3 at ed72f8a because its generic treatment-specific outcome fit can use the Delta = 0 pseudo-outcomes when it predicts under Delta = 1, while this estimator fits that regression on respondents only; rejected zEpid 0.9.1 because its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation; rejected Newey and Robins (2018) because their construction fits the outcome and inverse response regressions on distinct subsamples, which is a different estimator.",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_natural_course_cvtmle.py": "573ac68ba364f84a48cd3cce730dd77e263c3b512880180d92658ad23b2311e5",
+    "tests/studies/mar_natural_course_cvtmle_properties.py": "a42efbe5202c5cdaf8346596d9adaced4abcb8c4947922c64f4d9208062c6546",
+    "tests/studies/missing_outcome_study_helpers.py": "1de61c4b6b3bc7d3af3c8f2d673018f474a5a7cd0fb5aa3da8198b2ba756beff",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
+    "tests/studies/evidence/property_verdicts.py": "79735103a47cf01784dc1ece8b50e6f20214258e308cf54a533d7c87023535d1",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle_mar/Dockerfile": "e1ddb86f1ed8ff57960fea5ade5b5429b9e92d4b86ffcaa7d1a3ef199401c18e",
+    "tests/canonical/tmle_mar_natural_course_cvtmle/run_study.R": "8c7faf98f5b028a85a8832f250def5f21fd79268d342e495379fc3547c618795",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "fcf2a3a1d884b4bef929cadc0d9109bb6d53d72708e2a2720e87087feebeca65",
+    "summary.csv": "bf056ee6defefe713a396b5768a28472c4402e2f770cd71c8e2e99bb90666382",
+    "equivalence.csv": "5877c45f5e696c4e080e4d0ba1ffe7d2b4c24a9568f24543e9f396030261b2de",
+    "performance-tests.csv": "65fe527012ad35fbe5c4ea01c8fc94fe6e174000a2b1971019999cd7fd28ae9e",
+    "property-replicates.csv.gz": "d4a278253d5f4891ac0c4d599a6322a50daff3c470498ee0cae8f594238ef5b5",
+    "properties.csv": "56d8968ad49cabeabd8ebfe91e205e8890b0d6a2f5e093b391fd84b8639dc79f"
+  }
+}

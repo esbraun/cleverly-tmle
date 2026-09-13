@@ -37,3 +37,14 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/tmle_learned_weighted/run_study.R` | `2ed957cb726ba1b9ac48f1ebd7374dfa0e3600faeb46b785031f80a7c73adb24` | `9ed6d17d16c9fd56907edcad35b3aca037180e2923d60daf443c159290e081ac` | result-neutral: the runner gained the empty-sample guard `if (!nrow(samples)) stop("samples contain no observations")`, which `tests/canonical/tmle_weighted/run_study.R` already carried. The guard raises only on a sample file with zero rows. The recorded run fitted 800 replications of 2,000 rows, so the branch never executes for the committed artifacts. Nothing else in the runner moved, and the edit restores parity between the two weighted runners |
 | `tests/canonical/tmle_cde/run_study.R` | `ace28808cdd303c84a19c896a5c270db2545b92a236a2d3f35a86808c1994258` | `d1e0aeb838fd85a4f422dd29acebaad6c30df003353b01675afb777f38cfb85a` | result-neutral: the runner now reads one sample block per replicate and applies both existing level recodes to that frame. The former file repeated the same frame under two scenario labels. Each `tmle` call receives the same `Y`, `A`, `W`, `Z`, `Delta`, `Q`, `Q.Z1`, `g1W`, `pZ1`, and `pDelta1` values as before. The edit also removes an `identical()` guard over columns built from the same vectors, so that guard could never fail. The fit calls and exported scenario keys are unchanged |
 | `tests/canonical/tmle_cde/probe_native_result2.R` | `e4ba2f586cb11dcca1a086d449ea6cfd12123a5cba070db7bad7e95ada81c087` | `3c20d4d5355742d25997e4a692a6db0001a6a015633a911e84236f12722cefb2` | result-neutral: the probe selects replication zero from the deduplicated sample file instead of selecting its former level-one duplicate. Both former scenario blocks contained identical observed and nuisance rows. The native second-result call, supplied truth, and output labels are unchanged |
+
+## Descriptive manifest text
+
+A manifest's `configuration` block can also carry a descriptive string that no computation reads.
+When the study module corrects such a string, the manifest keeps the text written at generation
+time, for the same reason it keeps a recorded hash. The row below states the correction and why it
+leaves every artifact unchanged. No test parses this table. The gated table above keeps its own
+header.
+
+| study | manifest field | correction | judgement |
+| --- | --- | --- | --- |

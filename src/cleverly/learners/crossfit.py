@@ -63,7 +63,7 @@ from sklearn.model_selection import (
     StratifiedKFold,
 )
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
 
 __all__ = [
@@ -72,6 +72,7 @@ __all__ = [
     "SplitPlan",
     "check_integrity",
     "make_folds",
+    "missing_training_support",
     "refuse_scheme",
     "resolve_n_folds",
 ]
@@ -506,20 +507,51 @@ class SplitPlan:
         realized = self.to_folds()
         for repeat, folds in enumerate(realized):
             check_integrity(folds, cluster=codes)
-            training_sets = (
-                (np.arange(n, dtype=np.int64),)
-                if folds.is_single
-                else tuple(train for train, _ in folds)
-            )
-            for fold, train in enumerate(training_sets):
-                for name, values, present in support:
-                    missing = np.setdiff1d(present, np.unique(values[train]))
-                    if missing.size:
-                        raise DataError(
-                            f"split-plan repeat {repeat}, fold {fold} has no {name}(s) "
-                            f"{missing.tolist()} in its training complement"
-                        )
+            gap = missing_training_support(folds, support)
+            if gap is not None:
+                fold, name, missing = gap
+                raise DataError(
+                    f"split-plan repeat {repeat}, fold {fold} has no {name}(s) "
+                    f"{missing.tolist()} in its training complement"
+                )
         return realized
+
+
+def missing_training_support(
+    folds: Folds,
+    support: Sequence[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]],
+) -> tuple[int, str, FloatArray | BoolArray] | None:
+    """Find the first training complement that lacks a value the whole sample holds.
+
+    A nuisance fitted on a complement that never saw a value cannot predict it on the
+    held-out rows. :meth:`SplitPlan.validate` and the cross-fitted natural-course
+    preflight in :class:`~cleverly.TMLE` both ask this question, so it is answered once.
+
+    Parameters
+    ----------
+    folds : Folds
+        One realized partition. A single fold trains on every row.
+    support : sequence of tuple
+        ``(name, values, present)`` triples: a label for the error, one value per row,
+        and the values every training complement must contain.
+
+    Returns
+    -------
+    tuple or None
+        ``(fold, name, missing)`` for the first fold, in fold order and then support
+        order, whose complement lacks a value. ``None`` when every complement has them all.
+    """
+    training_sets = (
+        (np.arange(folds.n, dtype=np.int64),)
+        if folds.is_single
+        else tuple(train for train, _ in folds)
+    )
+    for fold, train in enumerate(training_sets):
+        for name, values, present in support:
+            missing = np.setdiff1d(present, np.unique(values[train]))
+            if missing.size:
+                return fold, name, missing
+    return None
 
 
 def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:

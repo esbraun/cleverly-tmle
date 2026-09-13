@@ -90,6 +90,25 @@ def initial_estimates(result: Any, estimands: Sequence[str] = ()) -> dict[str, f
     return initials
 
 
+def natural_course_initial_estimate(result: Any) -> float:
+    """Return the untargeted natural-course mean over the observed treatment arms.
+
+    Parameters
+    ----------
+    result : Any
+        One fitted single natural-course result.
+
+    Returns
+    -------
+    float
+        The weighted mean of the unscaled initial outcome predictions at the observed arms.
+    """
+    values = np.asarray(
+        result.nuisance.scaler.unscale_levels(result.nuisance.outcome.observed), dtype=float
+    )
+    return float(np.average(values, weights=np.asarray(result.data.weights, dtype=float)))
+
+
 def primary_rows(
     *,
     result: Any,

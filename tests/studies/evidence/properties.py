@@ -84,13 +84,18 @@ def bootstrap_draw_blocks(values: np.ndarray, *, replicates: int, rng: np.random
 
 @dataclass(frozen=True)
 class ReplicationSpec:
-    """One repeated-sampling configuration before it expands into seeded replications."""
+    """One repeated-sampling configuration before it expands into seeded replications.
+
+    ``seed_key`` names the sample stream when it differs from ``cell``.  Two cells that share
+    one key draw identical samples, which is how a paired comparison holds the data fixed.
+    """
 
     property: str
     cell: str
     n: int
     replicates: int
     configuration: str
+    seed_key: str | None = None
 
 
 def finite_support_sample(
@@ -149,7 +154,7 @@ def replication_payloads(
                 record,
                 "property_sample",
                 spec.property,
-                spec.cell,
+                spec.cell if spec.seed_key is None else spec.seed_key,
                 replicate,
             )
             payload = (
