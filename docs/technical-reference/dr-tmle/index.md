@@ -23,9 +23,11 @@ from a fit's own output, and **numerical score convergence does not verify them*
 [solved scores do not establish nuisance consistency](diagnostics.md#solved-scores-do-not-establish-nuisance-consistency),
 which is the single most important page in this section.
 
-What this is *not*: a better point estimate. The three empirical means are all driven to zero, so
-the extra terms cannot move `Ψ̂` and only move its variance. Read a `DRTMLE` fit as the same
-estimate with an interval entitled to be believed under weaker conditions.
+What this is *not*: a better point estimate. The extra fluctuations update the outcome
+regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
+[DR-TMLE tutorial](../../examples/dr-tmle.md) prints both estimates on one draw. The design does
+not aim at a smaller error for `Ψ̂`. It aims at asymptotic linearity when one primary nuisance is
+inconsistent, so its interval needs weaker conditions.
 
 And it is *not* the efficient estimator. Under misspecification the canonical gradient at `P_0` is
 still `D*`. What the three equations leave is `D = D* − D*_Q − D*_g`, the estimator's asymptotic
