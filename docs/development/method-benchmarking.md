@@ -70,7 +70,7 @@ likelihood and the comparator boundary.
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational arm-indexed row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
-| R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The path also accepts in-sample predictions, but the ordinary natural-course study predates the adapter and was not regenerated. That study makes no parity claim, and [RM10](../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks its binary and bounded-continuous comparisons. |
+| R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The path also accepts supplied predictions, but the ordinary natural-course study predates the stacked study's R adapter and was not regenerated. That study makes no parity claim, and [RM10](../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks its binary and bounded-continuous comparisons. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
 The fixed-weight survey is separate because observation weights change the target law and every
@@ -165,12 +165,20 @@ each one in the `StudyRecord` `modules` field, which supplies that list.
 | --- | --- |
 | which modules count | every `tests` module that the runner module or the properties module imports, directly or transitively within `tests/` |
 | which imports count | every import in a file, including an import inside a function and a relative import. The test reads imports with `ast` and imports no study module |
-| what is excluded | the shared framework under `tests/studies/evidence/` and `tests/parallel.py`. The walk does not follow imports inside them. A package `__init__.py` is never required |
+| what is excluded | the shared framework under `tests/studies/evidence/` and `tests/parallel.py`. The walk does not follow imports inside them. Some framework modules feed results, for example `pairing.py`, but the rule still excludes them. A package `__init__.py` is never required |
 | older gaps | `KNOWN_GAPS` in the test file lists them. The test fails when a listed gap is repaired but still listed, so the list can only shrink |
+| gaps from a result-neutral refactor | the table with the `study`, `source`, and `judgement` columns in `provenance-revisions.md` declares them. The test fails when a declared module is no longer a gap |
+
+The test names both routes when it finds a new gap. Choose the route by the kind of change.
+
+| change | action |
+| --- | --- |
+| result-determining | Add the module to the `StudyRecord` `modules` field and regenerate the study. The manifest list must equal the `modules` field, so name the module in both |
+| result-neutral, for example a helper moved into a new module | Declare the study slug and the module path in [`tests/canonical/provenance-revisions.md`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md). Do not add a hash, because the new bytes never ran |
 
 A gap leaves `KNOWN_GAPS` in one of two ways. Regenerate the study, or record the hash of a file
-that git shows unchanged since the run and declare it in
-[`tests/canonical/provenance-revisions.md`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md).
+that git shows unchanged since the run and declare it in the same ledger. A declared gap leaves
+the ledger when you regenerate the study.
 
 Set `publication_policy="reporting"` when a red scientific result is part of the declared
 evidence. This policy writes failed statistical verdicts. It does not permit missing replications,

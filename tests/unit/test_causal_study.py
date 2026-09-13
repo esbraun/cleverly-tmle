@@ -764,8 +764,8 @@ def test_cde_conditional_mechanism_positivity_names_both_arms_and_population(
 @pytest.mark.parametrize(
     ("estimand", "roadmap"),
     [
-        (PopulationAttributableRisk(), "RM8"),
-        (PopulationAttributableFraction(), "RM8"),
+        (PopulationAttributableRisk(), "F20"),
+        (PopulationAttributableFraction(), "F20"),
     ],
 )
 def test_missing_population_interventions_refuse_at_identification_boundary(
@@ -1223,8 +1223,7 @@ def test_a_declared_but_complete_response_indicator_identifies_the_observed_law(
     """The refusal keys on the outcome being missing, not on the declaration.
 
     ``TargetContext.observed_mean`` -- the engine guard this refusal fronts -- keys on the
-    observation mask, and docs/roadmap.md RM8 states the stop as "refused when outcomes
-    are missing".  A response indicator that is identically one leaves no missing outcome,
+    observation mask, and docs/roadmap.md F20 tracks the stop for missing outcomes.  A response indicator that is identically one leaves no missing outcome,
     so E[Y] is exactly the empirical mean and the estimator fits it.  Keying the refusal
     on ``missingness=`` refused a composition the engine performs.
     """
@@ -1249,8 +1248,8 @@ def test_the_natural_course_mean_matches_the_empirical_mean_exactly() -> None:
 @pytest.mark.parametrize(
     ("estimand", "roadmap"),
     [
-        (PopulationAttributableRisk(), "RM8"),
-        (PopulationAttributableFraction(), "RM8"),
+        (PopulationAttributableRisk(), "F20"),
+        (PopulationAttributableFraction(), "F20"),
     ],
     ids=["par", "paf"],
 )
@@ -1312,7 +1311,7 @@ def test_one_refusal_sentence_and_one_exception_type_serve_all_three_call_sites(
     for raised in (identified, fitted):
         assert isinstance(raised.value, CleverlyError)
         assert "outcome/missingness score equation" in str(raised.value)
-        assert "docs/roadmap.md RM" in str(raised.value)
+        assert "docs/roadmap.md F20" in str(raised.value)
     # The message is built once, so the shared clause is byte-identical at both sites.
     shared = "under missingness at random the natural-course mean E[Y] needs an additional"
     assert shared in str(identified.value)

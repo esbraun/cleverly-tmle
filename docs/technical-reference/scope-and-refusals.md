@@ -95,14 +95,16 @@ error.
 
 | check | error | when it runs |
 | --- | --- | --- |
-| a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same text | when `CrossFitting` or `TMLEMethod` is constructed |
+| a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same reason | when `CrossFitting` or `TMLEMethod` is constructed |
 | a composition this target does not support | `CapabilityError` | when the fit starts, before any learner is fitted |
 | response support | `DataError` | after fold generation, before either learner receives data |
 
 The declaration check is not specific to this target. One function runs its steps in a fixed order,
 and it returns the first reason it finds. The declaration and the engine therefore give one reason
-for one input. `tests/unit/test_split_plan.py::TestOneInputEarnsOneReasonAtBothLayers` checks
-that both layers give the same text.
+for one input. A reason that names the cross-fitting switch names `enabled` from the declaration
+and `cross_fit` from the engine.
+`tests/unit/test_split_plan.py::TestOneInputEarnsOneReasonAtBothLayers` checks that both layers
+give the same reason.
 
 | order | the declaration check refuses |
 | ---: | --- |
@@ -121,10 +123,9 @@ Under `enabled=False`, step 3 refuses any plan at construction.
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
 | one training complement holds no respondent or no nonrespondent | the message names the repeat and the fold. Increase `n_folds` so each training complement is larger, use a different `random_state`, or use the in-sample estimator |
 
-Both messages spell the in-sample estimator as `CrossFitting(enabled=False, stratify_by="treatment")`,
-or `cross_fit=False` with `stratify_folds="treatment"` on the engine. Disabling cross-fitting is not
-enough by itself. `stratify_by="none"` stays reserved for the stacked contract, as the next
-paragraph states.
+Both messages name the in-sample estimator as `CrossFitting(enabled=False, stratify_by='treatment')`,
+or `cross_fit=False` with `stratify_folds='treatment'` on the engine. Disabling cross-fitting is not
+enough by itself.
 
 `stratify_by="none"` is reserved for the stacked contract. A frame that declares `missingness=` but
 has no missing outcome takes the complete-outcome branch. Under `stratify_by="none"`, that fit

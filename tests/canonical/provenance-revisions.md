@@ -38,6 +38,21 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/tmle_cde/run_study.R` | `ace28808cdd303c84a19c896a5c270db2545b92a236a2d3f35a86808c1994258` | `d1e0aeb838fd85a4f422dd29acebaad6c30df003353b01675afb777f38cfb85a` | result-neutral: the runner now reads one sample block per replicate and applies both existing level recodes to that frame. The former file repeated the same frame under two scenario labels. Each `tmle` call receives the same `Y`, `A`, `W`, `Z`, `Delta`, `Q`, `Q.Z1`, `g1W`, `pZ1`, and `pDelta1` values as before. The edit also removes an `identical()` guard over columns built from the same vectors, so that guard could never fail. The fit calls and exported scenario keys are unchanged |
 | `tests/canonical/tmle_cde/probe_native_result2.R` | `e4ba2f586cb11dcca1a086d449ea6cfd12123a5cba070db7bad7e95ada81c087` | `3c20d4d5355742d25997e4a692a6db0001a6a015633a911e84236f12722cefb2` | result-neutral: the probe selects replication zero from the deduplicated sample file instead of selecting its former level-one duplicate. Both former scenario blocks contained identical observed and nuisance rows. The native second-result call, supplied truth, and output labels are unchanged |
 
+## Study modules a manifest omits
+
+`tests/unit/test_study_provenance.py` requires a manifest to record every study-specific Python
+module that the study's runner and properties modules import. A result-neutral refactor can open
+a gap. For example, a helper moves out of a study module into a new module. The manifest cannot
+record a hash for the new module, because those bytes did not run.
+
+Declare each such module in the table below. The `study` cell holds the registered study slug and
+the `source` cell holds the repository-relative module path. The judgement starts with
+`result-neutral:`. The gate fails on a row whose module the manifest records, or that the study
+no longer imports. Remove the row when you regenerate the study.
+
+| study | source | judgement |
+| --- | --- | --- |
+
 ## Descriptive manifest text
 
 A manifest's `configuration` block can also carry a descriptive string that no computation reads.

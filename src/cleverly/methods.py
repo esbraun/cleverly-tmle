@@ -552,14 +552,16 @@ class TMLEMethod:
     name: str = "tmle"
 
     def __post_init__(self) -> None:
-        """Refuse the one combination no single configuration group can see.
+        """Run the ordered cross-fitting refusal with the bootstrap setting included.
 
-        A supplied ``split_plan`` lives on :class:`CrossFitting` and ``n_bootstrap`` on
-        :class:`Inference`. A cross-group rule belongs to the object that holds both groups,
-        and it belongs at construction: :meth:`estimator_kwargs` is a translation, and a
-        refusal buried in a translation fires later than the declaration that earned it.
-        ``DRTMLEMethod.__post_init__`` is the precedent. The reason comes from the same
-        ordered refusal the engine reads, so both layers name one reason for one input.
+        The check repeats every rule :class:`CrossFitting` already applied, and adds the one
+        rule that group cannot apply alone: a supplied ``split_plan`` lives on
+        :class:`CrossFitting` and ``n_bootstrap`` on :class:`Inference`. A cross-group rule
+        belongs to the object that holds both groups, and it belongs at construction:
+        :meth:`estimator_kwargs` is a translation, and a refusal buried in a translation fires
+        later than the declaration that earned it. ``DRTMLEMethod.__post_init__`` is the
+        precedent. The reason comes from the same ordered refusal the engine reads, so both
+        layers name one reason for one input.
         """
         cross = self.cross_fitting
         reason = _cross_fit_policy_refusal(

@@ -150,8 +150,8 @@ $$
 
 The variance is $P_nD_i^2/n$, the raw second moment of the curve. The score equation and the
 plug-in point above give $P_nD_i=0$ to targeting tolerance. This variance therefore equals the
-centered `ddof=1` variance times $(n-1)/n$. The estimate declares the `"second_moment"` covariance
-rule, so `covariance()` and contrasts use the same moment. See
+centered-rule variance $\{n(n-1)\}^{-1}\sum_i(D_i-\bar D)^2$ times $(n-1)/n$. The estimate
+declares the `"second_moment"` covariance rule, so `covariance()` and contrasts use the same moment. See
 [covariance rules](inference.md#covariance-rules).
 
 The estimator needs at least one respondent and one nonrespondent in each training complement. It
@@ -163,9 +163,9 @@ raises `DataError`.
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
 | one training complement holds no respondent or no nonrespondent | increase `n_folds`, use a different `random_state`, or use the in-sample estimator |
 
-Both messages spell the in-sample estimator as
-`CrossFitting(enabled=False, stratify_by="treatment")`. The engine spelling is `cross_fit=False`
-with `stratify_folds="treatment"`. Change both settings. Only the stacked contract accepts
+Both messages name the in-sample estimator as
+`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False`
+with `stratify_folds='treatment'`. Change both settings. Only the stacked contract accepts
 `stratify_by="none"`, so a stacked declaration with only cross-fitting disabled is still refused.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
@@ -200,8 +200,9 @@ binary treatment, unweighted iid rows, and iterative unweighted logistic targeti
 | ordinary | binary, or continuous with fixed `q_bounds` | `CrossFitting(enabled=False)` |
 | stacked | binary | `CrossFitting(enabled=True, n_folds=10, repeats=1, stratify_by="none", targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. `n_folds` must be 2 or more. The registered study uses 10 |
 
-The stacked fit refuses one fold with `CapabilityError` before any learner is fitted, because one
-fold fits every nuisance on the rows it predicts.
+The stacked fit refuses one fold with `CapabilityError` before any learner is fitted. One fold is
+the in-sample estimator. The refusal stops that estimate from being reported under the stacked
+contract and its second-moment covariance rule.
 
 [Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
 lists every refusal for both fits. The source for the ordinary fit is

@@ -14,9 +14,9 @@ Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5) specify
 
 This study runs no external comparison. It therefore commits a schema-valid empty
 `equivalence.csv` and rests on exact-law and repeated-sampling evidence. The R `tmle` 2.1.1
-population-mean path accepts supplied predictions, and the stacked study in
-`tests/canonical/tmle_mar_natural_course_cvtmle/` compares with it. These artifacts predate that
-adapter and were not regenerated, so they make no parity claim for the binary or
+population-mean path accepts supplied predictions. The stacked study in
+`tests/canonical/tmle_mar_natural_course_cvtmle/` compares with it through the stacked study's R
+adapter. These artifacts predate that adapter and were not regenerated, so they make no parity claim for the binary or
 bounded-continuous law. Roadmap item RM10 in `docs/roadmap.md` tracks both comparisons.
 
 Regenerate from the repository root:

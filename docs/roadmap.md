@@ -16,9 +16,10 @@ post-fit coverage. Complete these rows in order before main-roadmap priority 1. 
 still needs its own contract and evidence, even when it appears in this top-priority queue.
 
 The "next action" column states the remediation work. It is not a readiness label. The first RM9
-implementation is complete. RM9 retains two separate extensions from the same source audit.
+implementation is complete. RM9 retains two separate extensions from the same source audit. The
+review of the stacked study, not the examples, exposed the RM10 gap.
 
-| priority | item | next action | problem exposed by the examples | details |
+| priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.1 | Remaining missing-outcome CV-TMLE extensions | audit the scale and fold-weighting laws, then write separate contracts for the bounded-continuous stacked and binary fold-evaluated estimators | the binary stacked estimator is implemented, but its two source-backed extensions need distinct contracts and evidence | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
 | 0.2 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
@@ -192,8 +193,8 @@ adapter, and the study was not regenerated after that adapter was added. The
 supplied outcome and response predictions.
 
 Add a comparison for each primary law. Start from the stacked study's adapter, which passes
-supplied predictions to that path. Before the bounded-continuous law makes a parity claim, audit how the R path
-scales a continuous outcome and its bounds. Match that transform to the fixed `q_bounds` contract.
+supplied predictions to that path. Audit how the R path scales a continuous outcome and its bounds
+before any bounded-continuous parity claim. Match that transform to the fixed `q_bounds` contract.
 If the transforms differ, record the continuous comparison as refused and state the reason.
 
 Regenerate the ordinary study after the comparison is added. Do not transfer the stacked study's

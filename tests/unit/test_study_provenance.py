@@ -9,9 +9,16 @@ The convention checked here: a registered study's manifest must list every ``tes
 its runner module and its properties module import, directly or transitively within ``tests/``.
 The shared evidence framework under ``tests/studies/evidence/`` and ``tests/parallel.py`` are
 excluded, and the walk does not descend into them, because ``CLAUDE.md`` treats edits there as
-free refactors.  Package ``__init__.py`` files are not modules a study computes with and are not
-required either.  Imports are read statically with :mod:`ast`; no study module is imported to
-discover them.
+free refactors.  The exclusion is a convention, not a claim that the framework never feeds a
+result: ``tests/studies/evidence/pairing.py``, for one, pairs the rows a study publishes.
+Package ``__init__.py`` files are not modules a study computes with and are not required either.
+Imports are read statically with :mod:`ast`; no study module is imported to discover them.
+
+A gap is accepted on one of two routes.  ``KNOWN_GAPS`` holds the gaps that predate this gate.
+The ``study | source | judgement`` table in ``tests/canonical/provenance-revisions.md`` holds
+gaps that a result-neutral refactor opened, such as a helper moved into a new module that
+never ran.  Both routes are ratchets: a listed or declared module that the manifest records,
+or that the study no longer imports, fails until its entry is removed.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.documents import pipe_table
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
 STUDIES = registered()
@@ -39,7 +47,8 @@ FRAMEWORK_FILES = frozenset({"tests/parallel.py"})
 #: name the module: at the study's next regeneration, or by recording the hash of a file that git
 #: shows unchanged since the run and declaring it in ``tests/canonical/provenance-revisions.md``.
 #: Never add a hash of bytes that differ from the run.  The test fails on a gap that is not
-#: listed here, and on a listed entry that is no longer a gap, so this mapping only shrinks.
+#: listed here or declared in the ledger, and on a listed entry that is no longer a gap, so this
+#: mapping only shrinks.  A gap that a later result-neutral refactor opens goes in the ledger.
 KNOWN_GAPS: Mapping[str, frozenset[str]] = {
     "canonical-tmle": frozenset(
         {
@@ -197,6 +206,28 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
 }
 
 
+#: Where a result-neutral refactor declares a module its study imports but its manifest omits.
+REVISIONS = ROOT / "tests" / "canonical" / "provenance-revisions.md"
+DECLARED_GAP_COLUMNS = ("study", "source", "judgement")
+
+
+def declared_gaps(document: Path = REVISIONS) -> dict[str, frozenset[str]]:
+    """``study slug -> modules`` from the ledger's ``study | source | judgement`` table."""
+    declared: dict[str, set[str]] = {}
+    for row in pipe_table(document, DECLARED_GAP_COLUMNS):
+        slug, source = row["study"].strip("`"), row["source"].strip("`")
+        assert source not in declared.get(slug, set()), f"{slug} declares {source} twice"
+        assert row["judgement"].startswith("result-neutral:"), (
+            f"{slug} declares {source} without a 'result-neutral: <reason>' judgement. A change "
+            f"that can move the results is a regeneration, not a declaration"
+        )
+        declared.setdefault(slug, set()).add(source)
+    return {slug: frozenset(sources) for slug, sources in declared.items()}
+
+
+DECLARED_GAPS = declared_gaps()
+
+
 def _is_framework(path: str) -> bool:
     return path in FRAMEWORK_FILES or path.startswith(FRAMEWORK_PREFIXES)
 
@@ -262,11 +293,18 @@ def study_specific_imports(
 
 
 def provenance_findings(
-    required: frozenset[str], recorded: frozenset[str], known: frozenset[str]
-) -> tuple[frozenset[str], frozenset[str]]:
-    """``(unlisted gaps, allowlisted entries that are no longer gaps)``; both empty passes."""
+    required: frozenset[str],
+    recorded: frozenset[str],
+    known: frozenset[str],
+    declared: frozenset[str] = frozenset(),
+) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """``(unaccepted gaps, stale KNOWN_GAPS entries, stale ledger declarations)``.
+
+    All three empty passes.  ``known`` is the study's ``KNOWN_GAPS`` entry and ``declared`` is
+    its ledger declarations; an entry or a declaration that is no longer a gap is stale.
+    """
     gaps = required - recorded
-    return gaps - known, known - gaps
+    return gaps - known - declared, known - gaps, declared - gaps
 
 
 def _required(study: StudyRecord) -> frozenset[str]:
@@ -292,22 +330,37 @@ def _recorded(study: StudyRecord) -> frozenset[str]:
 
 @pytest.mark.parametrize("study", STUDIES, ids=IDS)
 def test_the_manifest_names_every_study_specific_module(study: StudyRecord) -> None:
-    unlisted, fixed = provenance_findings(
-        _required(study), _recorded(study), KNOWN_GAPS.get(study.slug, frozenset())
+    unlisted, fixed, stale = provenance_findings(
+        _required(study),
+        _recorded(study),
+        KNOWN_GAPS.get(study.slug, frozenset()),
+        DECLARED_GAPS.get(study.slug, frozenset()),
     )
     assert not unlisted, (
         f"{study.slug} imports {sorted(unlisted)} but its manifest records no hash for them. "
-        f"Add the modules to the StudyRecord and regenerate the study"
+        f"If the change can move the study's results, add the modules to the StudyRecord "
+        f"modules field and regenerate the study. If the change is result-neutral, declare "
+        f"each module in the study | source | judgement table of {REVISIONS.name}"
     )
     assert not fixed, (
         f"{study.slug} no longer omits {sorted(fixed)}. Remove them from KNOWN_GAPS so the "
         f"ratchet keeps the gain"
+    )
+    assert not stale, (
+        f"{study.slug} no longer omits {sorted(stale)}. Remove their declarations from "
+        f"{REVISIONS.name} so the ledger explains only real gaps"
     )
 
 
 def test_every_allowlisted_gap_names_a_registered_study() -> None:
     assert set(KNOWN_GAPS) <= set(IDS), sorted(set(KNOWN_GAPS) - set(IDS))
     assert all(KNOWN_GAPS.values()), "an empty KNOWN_GAPS entry explains nothing; remove it"
+    assert set(DECLARED_GAPS) <= set(IDS), sorted(set(DECLARED_GAPS) - set(IDS))
+    for slug, declared in DECLARED_GAPS.items():
+        assert not declared & KNOWN_GAPS.get(slug, frozenset()), (
+            f"{slug} lists {sorted(declared & KNOWN_GAPS[slug])} in KNOWN_GAPS and in the "
+            f"ledger; one gap has one reason"
+        )
 
 
 def test_the_natural_course_study_reaches_its_shared_helpers() -> None:
@@ -331,21 +384,74 @@ def test_a_module_dropped_from_a_manifest_is_reported() -> None:
     required = _required(study)
     recorded = _recorded(study)
     known = KNOWN_GAPS.get(study.slug, frozenset())
-    assert provenance_findings(required, recorded, known) == (frozenset(), frozenset())
+    declared = DECLARED_GAPS.get(study.slug, frozenset())
+    clean = (frozenset(), frozenset(), frozenset())
+    assert provenance_findings(required, recorded, known, declared) == clean
     dropped = "tests/studies/point_study_helpers.py"
     assert dropped in recorded
-    unlisted, fixed = provenance_findings(required, recorded - {dropped}, known)
+    unlisted, fixed, stale = provenance_findings(required, recorded - {dropped}, known, declared)
     assert unlisted == {dropped}
     assert not fixed
+    assert not stale
 
 
 def test_a_repaired_allowlisted_gap_is_reported() -> None:
     required = frozenset({"tests/a.py", "tests/b.py"})
-    unlisted, fixed = provenance_findings(
+    unlisted, fixed, stale = provenance_findings(
         required, frozenset({"tests/a.py", "tests/b.py"}), frozenset({"tests/b.py"})
     )
     assert unlisted == frozenset()
     assert fixed == {"tests/b.py"}
+    assert stale == frozenset()
+
+
+def test_a_ledger_declaration_accepts_a_refactored_module_and_ratchets(tmp_path: Path) -> None:
+    """A helper moved into a new module passes once declared, and fails once the gap closes."""
+    ledger = tmp_path / "provenance-revisions.md"
+    ledger.write_text(
+        "# Provenance revisions\n\n"
+        "| source | recorded | current | judgement |\n"
+        "| --- | --- | --- | --- |\n\n"
+        "| study | source | judgement |\n"
+        "| --- | --- | --- |\n"
+        "| `some-study` | `tests/studies/x_helpers.py` | result-neutral: moved, not changed |\n",
+        encoding="utf-8",
+    )
+    declared = declared_gaps(ledger)
+    assert declared == {"some-study": {"tests/studies/x_helpers.py"}}
+
+    required = frozenset({"tests/studies/runner.py", "tests/studies/x_helpers.py"})
+    recorded = frozenset({"tests/studies/runner.py"})
+    assert provenance_findings(required, recorded, frozenset()) == (
+        {"tests/studies/x_helpers.py"},
+        frozenset(),
+        frozenset(),
+    )
+    assert provenance_findings(required, recorded, frozenset(), declared["some-study"]) == (
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
+    # Regenerated: the manifest now records the module, so the declaration is stale.
+    assert provenance_findings(required, required, frozenset(), declared["some-study"]) == (
+        frozenset(),
+        frozenset(),
+        {"tests/studies/x_helpers.py"},
+    )
+
+
+def test_a_ledger_declaration_without_a_result_neutral_judgement_is_refused(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "provenance-revisions.md"
+    ledger.write_text(
+        "| study | source | judgement |\n"
+        "| --- | --- | --- |\n"
+        "| `some-study` | `tests/studies/x_helpers.py` | moved |\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError, match="result-neutral"):
+        declared_gaps(ledger)
 
 
 def test_the_walk_is_transitive_and_stops_at_the_framework(tmp_path: Path) -> None:

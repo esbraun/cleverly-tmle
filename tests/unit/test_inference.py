@@ -1199,9 +1199,9 @@ class TestTheCovarianceRule:
             simultaneous_bands(estimates, n_replicates=50, random_state=0)
         assert str(caught.value) == (
             "simultaneous_bands cannot band ['first', 'second'], which declare "
-            "covariance_rule='second_moment'. The multiplier bootstrap centres each "
-            "influence curve, and no derivation here supplies a band under the raw "
-            "second-moment rule"
+            "covariance_rule='second_moment'. The multiplier draws center each influence "
+            "curve, which matches the raw second moment only on a mean-zero curve, and "
+            "simultaneous_bands does not check the mean"
         )
         mixed = {"first": self._estimates("centered")["first"], "second": estimates["second"]}
         with pytest.raises(ValueError, match=r"cannot band \['second'\]"):

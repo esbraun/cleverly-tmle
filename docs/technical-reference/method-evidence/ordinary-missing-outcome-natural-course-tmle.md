@@ -6,12 +6,12 @@ baseline covariates. Its score therefore uses the outcome and response nuisances
 mechanism. Binary and bounded-continuous primary laws share the same conditional means and
 observation process; the continuous outcome is beta distributed and uses fixed bounds `(0, 1)`.
 
-No canonical implementation is compared in this study, so it makes no parity claim for either law.
-The
-R `tmle` 2.1.1 population-mean path accepts supplied outcome and response predictions, as the
-[R `tmle` audit](../../references.md#targeted-learning-in-general) records. The
-[stacked study](stacked-missing-outcome-natural-course-cvtmle.md) compares with that path through an
-adapter. This study predates the adapter and was not regenerated after it was added.
+No canonical implementation is compared in this study, so the study makes no parity claim for
+either law. R `tmle` 2.1.1 has a population-mean path that accepts supplied outcome and response
+predictions, as the [R `tmle` audit](../../references.md#targeted-learning-in-general) records.
+The [stacked study](stacked-missing-outcome-natural-course-cvtmle.md) passes its predictions to
+that path through the stacked study's R adapter. This study predates that adapter. The project
+did not regenerate this study after it added the adapter.
 [RM10](../../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks the binary
 and bounded-continuous comparisons.
 

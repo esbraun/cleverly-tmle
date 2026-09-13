@@ -1157,7 +1157,7 @@ class TMLE:
             return estimands
         if self.estimands == "all":
             # The default remains the set of jointly targetable parameters.  This is a
-            # deliberately scalar construction, while PAR/PAF remain tracked by RM8.
+            # deliberately scalar construction, while PAR/PAF remain tracked by F20.
             return tuple(
                 name
                 for name in estimands

@@ -9,12 +9,24 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 
-from cleverly import CapabilityError, CrossFitting, DataError, SplitPlan, TMLEMethod
+from cleverly import (
+    CapabilityError,
+    CausalStudy,
+    CrossFitting,
+    DataError,
+    Inference,
+    ModelSpec,
+    NaturalCourseMean,
+    PointTreatment,
+    SplitPlan,
+    TMLEMethod,
+)
 from cleverly.inference.cluster import (
     cross_validated_variance,
     influence_covariance,
     influence_variance,
 )
+from cleverly.inference.influence import make_estimate
 from cleverly.learners import make_folds
 from cleverly.utils.bounds import logit
 from tests import discrete_law_mar as law
@@ -141,6 +153,23 @@ def test_one_fold_under_the_stacked_contract_is_refused_rather_than_fitted_in_sa
         "of at least 2, because one fold fits every nuisance on the rows it predicts. For "
         f"the in-sample estimator, {IN_SAMPLE_REMEDY}"
     )
+    assert NeverFit.calls == 0
+
+
+def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits() -> None:
+    """The public declaration reaches the same refusal as the engine keywords above."""
+    study = CausalStudy(
+        law.frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
+    )
+    method = TMLEMethod(
+        models=ModelSpec(**never_fit_learners()),
+        cross_fitting=CrossFitting(enabled=True, n_folds=1, stratify_by="none"),
+        inference=Inference(simultaneous=False),
+    )
+
+    with pytest.raises(CapabilityError, match="requires n_folds of at least 2"):
+        study.identify(NaturalCourseMean()).estimate(method=method)
     assert NeverFit.calls == 0
 
 
@@ -418,12 +447,17 @@ def test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_
     assert estimate.variance == pytest.approx(centered * (n - 1) / n, rel=1e-10, abs=0.0)
     # The factor is visible at this size, so the equality above is not the trivial one.
     assert estimate.variance != pytest.approx(centered, rel=1e-6)
-    # Nonzero witness: shifting the curve by a constant moves the raw second moment by
-    # the squared shift over n and leaves the centred variance alone.
-    shifted = curve + 0.05
-    assert float(np.mean(np.square(shifted)) / n) - estimate.variance == pytest.approx(
-        0.05**2 / n, rel=1e-8
+    # Nonzero witness through the library's rule-to-variance map: a constant shift moves the
+    # stored second-moment variance by the squared shift over n and leaves the centered one.
+    shift = 0.05
+    rebuilt = make_estimate("ey_obs", estimate.psi, curve, n=n, covariance_rule="second_moment")
+    assert rebuilt.variance == estimate.variance
+    shifted = make_estimate(
+        "ey_obs", estimate.psi, curve + shift, n=n, covariance_rule="second_moment"
     )
+    assert shifted.variance - estimate.variance == pytest.approx(shift**2 / n, rel=1e-8)
+    shifted_centered = make_estimate("ey_obs", estimate.psi, curve + shift, n=n)
+    assert shifted_centered.variance == pytest.approx(centered, rel=1e-12)
 
 
 def test_the_in_sample_estimator_keeps_the_centered_variance() -> None:

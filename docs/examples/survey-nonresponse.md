@@ -285,8 +285,9 @@ else:
 print("refused:", refusal)
 ```
 
-Both targets need a joint outcome and response score equation, and no published derivation gives
-one. [F20](../roadmap.md#f20-missing-outcome-attributable-effects) tracks that construction.
+Both targets need a joint outcome and response score equation. The 2026-09-12 source audit found
+no published derivation of that equation.
+[F20](../roadmap.md#f20-missing-outcome-attributable-effects) tracks that construction.
 
 `NaturalCourseMean()` is supported under `missingness=`, with two contracts. Neither `method` nor
 `box_method` on this page meets either contract. Both keep cross-fitting on with folds stratified by

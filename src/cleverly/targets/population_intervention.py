@@ -2,7 +2,7 @@
 
 ``par`` and ``paf`` contain both the natural-course mean and a reference-intervention
 mean.  Their joint missing-outcome construction remains outside the implemented surface
-and is tracked by ``docs/roadmap.md`` RM8.  The scalar natural-course mean itself has its
+and is tracked by ``docs/roadmap.md`` F20.  The scalar natural-course mean itself has its
 own missing-outcome score equation and therefore no longer belongs to this refusal.
 
 Three modules that do not import one another reach this refusal: the target context that
@@ -109,10 +109,10 @@ _ORDERED = ("par", "paf")
 POPULATION_INTERVENTION_TARGETS = frozenset(_ORDERED)
 
 #: The roadmap row that tracks each one.
-_ROADMAP_ROW = {"par": "RM8", "paf": "RM8"}
+_ROADMAP_ROW = {"par": "F20", "paf": "F20"}
 
 _ROADMAP_SENTENCE: dict[tuple[str, ...], str] = {
-    ("RM8",): "docs/roadmap.md RM8 tracks this identification boundary."
+    ("F20",): "docs/roadmap.md F20 tracks this identification boundary."
 }
 
 

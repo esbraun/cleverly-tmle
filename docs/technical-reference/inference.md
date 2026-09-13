@@ -40,9 +40,10 @@ targeting tolerance, for two reasons:
 | the pooled fluctuation solves $P_n[\Delta\{Y-m^\star(X)\}/\pi(X)]=0$ | the residual term of $D$ has sample mean zero |
 | the point estimate is $\hat\psi=P_n m^\star(X)$ | the plug-in term $m^\star(X)-\hat\psi$ has sample mean zero |
 
-Here $m^\star$ and $\pi$ are the targeted outcome and response predictions of the fold that holds
-each row. On a mean-zero curve, $P_nD^2/n$ equals the centered `ddof=1` variance times
-$(n-1)/n$. The two rules therefore have the same limit and differ only by that factor. The
+Here $m^\star$ is the targeted outcome prediction and $\pi$ is the response prediction, each from
+the fold that holds the row. The centered rule gives the variance
+$\{n(n-1)\}^{-1}\sum_i(D_i-\bar D)^2$. On a mean-zero curve, $P_nD^2/n$ equals that variance
+times $(n-1)/n$. The two rules therefore have the same limit and differ only by that factor. The
 registered [stacked study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
 validates the second-moment rule, and its R `tmle` comparator reports the centered rule.
 `tests/unit/test_natural_course_crossfit.py::test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_n`
@@ -52,8 +53,9 @@ The [point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-con
 defines the curve. The estimator is scalar, so its rule applies to a one-name `covariance()` and
 to a one-input smooth contrast.
 
-Five selections raise `ValueError`. A fit never builds any of them. The only `"second_moment"`
-estimate is scalar, its fit refuses clusters and `repeats` above one, and a fit builds bands only
+Five selections raise `ValueError`. No fit produces any of these five inputs. The only
+`"second_moment"` estimate is scalar, its fit refuses clusters and `repeats` above one, and a fit
+builds bands only
 over two or more estimates. A direct call to `simultaneous_bands` can still receive that estimate.
 
 | function | selection | reason |
@@ -62,7 +64,7 @@ over two or more estimates. A direct call to `simultaneous_bands` can still rece
 | the same helpers | a `"second_moment"` estimate on a clustered result | the raw second-moment rule is defined for independent rows only |
 | `make_estimate` in `cleverly.inference.influence` | `covariance_rule="second_moment"` with clusters | the same reason |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different rules | a median over draws needs one rule |
-| `simultaneous_bands` | any `"second_moment"` estimate | the multiplier bootstrap centers each influence curve, and no derivation here supplies a band under the raw second-moment rule |
+| `simultaneous_bands` | any `"second_moment"` estimate | the multiplier draws center each influence curve. Centering matches the raw second moment only on a mean-zero curve, and `simultaneous_bands` does not check the mean |
 
 A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
 uncentered fold second moments. Its estimates still declare `"centered"`. The covariance diagonal
@@ -121,9 +123,9 @@ Bootstrap configuration is refused for engines that cannot implement it. An engi
 accept and then discard this configuration.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
-multiplier draws center each influence curve, and no derivation here gives a band under the raw
-second moment. [Covariance rules](#covariance-rules) lists this refusal with the others. A repeated
-fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
+multiplier draws center each influence curve. Centering matches the raw second moment only on a
+mean-zero curve, and `simultaneous_bands` does not check the mean.
+[Covariance rules](#covariance-rules) lists this refusal with the others. A repeated fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
 
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)

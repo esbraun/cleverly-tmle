@@ -248,7 +248,9 @@ def stacked_second_moment_variance(influence_curve: FloatArray) -> float:
     and curve on all held-out rows at once, with one pooled fluctuation.  That fluctuation
     solves the stacked score, and the point is the row mean of the targeted predictions,
     so the curve has empirical mean zero to targeting tolerance.  This rule therefore
-    equals the centered ``ddof=1`` variance times ``(n - 1) / n``, and
+    equals the centered-rule variance
+    :math:`\{n(n-1)\}^{-1}\sum_i(\mathrm{IC}_i-\overline{\mathrm{IC}})^2` times
+    ``(n - 1) / n``, and
     ``tests/unit/test_natural_course_crossfit.py`` checks that identity.  The rows are
     weighted equally at ``1/n`` because the point estimate is the row-weighted mean of the
     stacked predictions.  :func:`cross_validated_variance` is the equal-fold-weight
