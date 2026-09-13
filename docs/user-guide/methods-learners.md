@@ -101,10 +101,12 @@ model. `cleverly` validates learner task compatibility and sample-weight support
   fit that predicts it. Default 10.
 - `learner_folds` defines internal model-selection folds for learners such as a Super Learner.
   Default 5.
-- `repeats` repeats the outer split and reports the median of the draws. Default 1. A repeated fit
-  that would build a simultaneous band refuses instead. The band needs a single draw's joint
-  influence curves. Pass `simultaneous=False` to a repeated fit.
-- `cross_fit=False` explicitly sets a one-fold, no-cross-fit analysis.
+- `repeats` repeats the outer split and reports the median of the draws. Default 1. A value above 1
+  requires `enabled=True`. `CrossFitting` refuses `repeats` below 1, or above 1 with
+  `enabled=False`, when you construct it. A repeated fit also refuses a simultaneous band, because
+  the band needs the joint influence curves of one draw. Pass `simultaneous=False` to a repeated
+  fit.
+- `enabled=False` sets a one-fold analysis with no cross-fitting.
 - `stratify_by="treatment"` balances treatment arms in the outer split. Add the outcome with
   `"treatment+outcome"` for a rare binary outcome.
 - `stratify_by="none"` draws unstratified folds. Only the binary missing-outcome

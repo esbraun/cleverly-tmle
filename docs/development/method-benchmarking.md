@@ -70,7 +70,7 @@ likelihood and the comparator boundary.
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational arm-indexed row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
-| R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The earlier ordinary natural-course study ran no comparator. |
+| R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The path also accepts in-sample predictions, but the ordinary natural-course study predates the adapter and was not regenerated. That study makes no parity claim, and [RM10](../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks its binary and bounded-continuous comparisons. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
 The fixed-weight survey is separate because observation weights change the target law and every
@@ -157,6 +157,21 @@ modules, expected cells, artifact directory, document anchor, and every result-d
 A study without an external comparator records a valid empty equivalence artifact rather than a
 surrogate reference.
 
+The manifest must record a hash under `study_module_sha256` for every study-specific module. List
+each one in the `StudyRecord` `modules` field, which supplies that list.
+`tests/unit/test_study_provenance.py` checks the manifest against the rule below.
+
+| rule | detail |
+| --- | --- |
+| which modules count | every `tests` module that the runner module or the properties module imports, directly or transitively within `tests/` |
+| which imports count | every import in a file, including an import inside a function and a relative import. The test reads imports with `ast` and imports no study module |
+| what is excluded | the shared framework under `tests/studies/evidence/` and `tests/parallel.py`. The walk does not follow imports inside them. A package `__init__.py` is never required |
+| older gaps | `KNOWN_GAPS` in the test file lists them. The test fails when a listed gap is repaired but still listed, so the list can only shrink |
+
+A gap leaves `KNOWN_GAPS` in one of two ways. Regenerate the study, or record the hash of a file
+that git shows unchanged since the run and declare it in
+[`tests/canonical/provenance-revisions.md`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/provenance-revisions.md).
+
 Set `publication_policy="reporting"` when a red scientific result is part of the declared
 evidence. This policy writes failed statistical verdicts. It does not permit missing replications,
 invalid schemas, non-finite estimates, or incomplete provenance. Existing studies use
@@ -185,7 +200,7 @@ hashes, and each group answers a different question.
 | --- | --- | --- | --- |
 | `sha256` | the six published artifacts | refuses every difference | somebody edited the committed evidence |
 | `reference_sha256` | Dockerfiles, R runners, shared R harnesses | refuses an undeclared difference | the comparator's source moved after the run |
-| `study_module_sha256` | the Python modules the record names | records the hash and gates nothing | a Python source moved after the run |
+| `study_module_sha256` | the Python modules the record names | checks that the list is complete, and gates no hash | a Python source moved after the run |
 
 Ask one question of any change to a hashed source. Does it change what the study computes?
 
@@ -201,7 +216,7 @@ No tool separates the two, so each hash group takes its own position.
 
 The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
 
-Python modules are not gated. Selective regeneration keeps the artifacts honest, and a hash gate
+Python module hashes are not gated. Selective regeneration keeps the artifacts honest, and a hash gate
 would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
 `tests/studies/evidence/` freely. Regenerate only the studies whose results the change moves. A
 wrong result-neutral judgment appears as a changed artifact at the next required regeneration.

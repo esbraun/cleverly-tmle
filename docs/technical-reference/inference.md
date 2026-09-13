@@ -32,27 +32,44 @@ inherits the rule of its inputs.
 | `"centered"` | every estimate except the one below. This is the default | the sample covariance of the curves above, at the observation or cluster unit | the same centered value, except on a fold-evaluated fit or a repeated fit |
 | `"second_moment"` | the stacked cross-fitted missing-outcome `NaturalCourseMean` | $n^{-2}\sum_i D_{ij}D_{ik}$, the raw second moment | the same raw second moment |
 
-The stacked natural-course estimator evaluates every row with nuisances fitted without that row.
-Its pooled curve therefore need not have mean zero, and centering would remove that component. The
-[point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines the
-curve. This estimator is scalar, so its rule reaches a one-name `covariance()` and a one-input
-smooth contrast.
+The stacked natural-course estimator reports $P_nD^2/n$ as its variance. Its curve has mean zero to
+targeting tolerance, for two reasons:
 
-The internal covariance helpers in `cleverly.inference.results` refuse two selections with
-`ValueError`. A public fit cannot reach either refusal. The only `"second_moment"` estimate is
-scalar, and its fit refuses clusters. The refusals guard a later estimate that declares the rule.
-
-| selection | reason |
+| step | what it gives |
 | --- | --- |
-| estimates that declare different rules | no derivation here supplies the cross-covariance between a centered curve and a raw second moment |
-| a `"second_moment"` estimate on a clustered result | the raw second-moment rule is defined for independent rows only |
+| the pooled fluctuation solves $P_n[\Delta\{Y-m^\star(X)\}/\pi(X)]=0$ | the residual term of $D$ has sample mean zero |
+| the point estimate is $\hat\psi=P_n m^\star(X)$ | the plug-in term $m^\star(X)-\hat\psi$ has sample mean zero |
+
+Here $m^\star$ and $\pi$ are the targeted outcome and response predictions of the fold that holds
+each row. On a mean-zero curve, $P_nD^2/n$ equals the centered `ddof=1` variance times
+$(n-1)/n$. The two rules therefore have the same limit and differ only by that factor. The
+registered [stacked study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
+validates the second-moment rule, and its R `tmle` comparator reports the centered rule.
+`tests/unit/test_natural_course_crossfit.py::test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_n`
+checks the zero mean and the factor at two and three folds.
+
+The [point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+defines the curve. The estimator is scalar, so its rule applies to a one-name `covariance()` and
+to a one-input smooth contrast.
+
+Five selections raise `ValueError`. A fit never builds any of them. The only `"second_moment"`
+estimate is scalar, its fit refuses clusters and `repeats` above one, and a fit builds bands only
+over two or more estimates. A direct call to `simultaneous_bands` can still receive that estimate.
+
+| function | selection | reason |
+| --- | --- | --- |
+| `covariance()`, `contrast()`, and the helpers in `cleverly.inference.results` | estimates that declare different rules | no derivation here supplies the cross-covariance between a centered curve and a raw second moment |
+| the same helpers | a `"second_moment"` estimate on a clustered result | the raw second-moment rule is defined for independent rows only |
+| `make_estimate` in `cleverly.inference.influence` | `covariance_rule="second_moment"` with clusters | the same reason |
+| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different rules | a median over draws needs one rule |
+| `simultaneous_bands` | any `"second_moment"` estimate | the multiplier bootstrap centers each influence curve, and no derivation here supplies a band under the raw second-moment rule |
 
 A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
 uncentered fold second moments. Its estimates still declare `"centered"`. The covariance diagonal
 therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
-both refusals. A repeated fit refuses `covariance()` and `contrast()` altogether, as the
+the five refusals. A repeated fit refuses `covariance()` and `contrast()` altogether, as the
 [CV-TMLE reference](cv-tmle.md) states.
 
 ## Clusters
@@ -102,6 +119,11 @@ cluster therefore remain separate for fold construction and variance estimation.
 
 Bootstrap configuration is refused for engines that cannot implement it. An engine does not
 accept and then discard this configuration.
+
+`simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
+multiplier draws center each influence curve, and no derivation here gives a band under the raw
+second moment. [Covariance rules](#covariance-rules) lists this refusal with the others. A repeated
+fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
 
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)

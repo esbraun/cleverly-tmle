@@ -78,7 +78,7 @@ and
 | `n_folds=` | the outer split count. Default 10 | no |
 | `split_plan=` | replaces generated outer assignments with a realized plan. See [reusable outer split plans](#reusable-outer-split-plans) for the counts it must match and the rows it is bound to | no |
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
-| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance | no. It is the same estimator over several draws |
+| `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance. The value must be at least 1. A value above 1 requires cross-fitting. `CrossFitting` refuses either violation when it is constructed | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
 | `stratify_folds="none"` | draws an unstratified, near-balanced outer partition | no. Supported only for the binary missing-outcome `NaturalCourseMean` contract below |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
@@ -113,9 +113,11 @@ diagnostics; the split-adjusted variance above supplies the pointwise interval.
 
 ### Missing-outcome natural-course mean
 
-The binary missing-outcome `NaturalCourseMean` supports one narrow stacked CV-TMLE configuration.
-It uses one generated V-fold partition, pooled targeting, and whole-sample evaluation. Set
-`stratify_folds="none"`, `repeats=1`, `targeting_scheme="pooled"`, and `cv_evaluation=False`.
+The binary missing-outcome `NaturalCourseMean` supports one stacked CV-TMLE configuration. It
+uses one generated V-fold partition, pooled targeting, and whole-sample evaluation. Set
+`stratify_folds="none"`, `repeats=1`, `targeting_scheme="pooled"`, `cv_evaluation=False`, and
+`n_folds` of 2 or more. One fold fits every nuisance on the rows it predicts, so the fit refuses it.
+
 [Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
 lists every refused composition. The paragraphs below give the reasons for the fold refusals.
 
@@ -245,9 +247,10 @@ exactly the direction the cluster role was declared to prevent.
 `tests/unit/test_parallel_invariance.py` pins that, because a fold-parallel implementation that
 reseeds per worker would give a different answer at a different `n_jobs`.
 
-**Six registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
-CV-TMLE, clustered CV-TMLE, pooled-targeted fold-evaluated CV-TMLE, fold-targeted CV-TMLE, and
-repeated stacked CV-TMLE can share a limit while differing in finite samples. Each has its own row.
+**Seven registered studies, and none of them inherits another's result.** Ordinary TMLE, stacked
+CV-TMLE, clustered CV-TMLE, pooled-targeted fold-evaluated CV-TMLE, fold-targeted CV-TMLE,
+repeated stacked CV-TMLE, and stacked missing-outcome natural-course CV-TMLE can share a limit
+while differing in finite samples. Each has its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
@@ -256,6 +259,7 @@ repeated stacked CV-TMLE can share a limit while differing in finite samples. Ea
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
 | [fold-targeted point-treatment CV-TMLE](method-evidence/fold-targeted-point-treatment-cv-tmle.md) | paired against Python `zEpid` on identical equal two-fold assignments, where `cleverly`'s equal $1/V$ aggregation equals zEpid's size weighting; all property cells pass, and the report discloses zEpid's `ddof=1` fold variance |
 | [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
+| [stacked missing-outcome natural-course CV-TMLE](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md) | paired against the R `tmle` 2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions, plus flexible-learner cross-fit versus in-sample controls |
 | [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked

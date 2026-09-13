@@ -270,7 +270,8 @@ overstate the change.
 
 The ratio intervals are built on the log scale, so they are asymmetric around the point estimate.
 
-The population attributable fraction is refused under `missingness=`.
+`PopulationAttributableRisk` and `PopulationAttributableFraction` are refused under `missingness=`.
+The next block shows the refusal for the fraction.
 
 ```python
 from cleverly import CapabilityError, PopulationAttributableFraction
@@ -284,9 +285,20 @@ else:
 print("refused:", refusal)
 ```
 
-It needs a joint outcome and response score equation that is not yet derived.
+Both targets need a joint outcome and response score equation, and no published derivation gives
+one. [F20](../roadmap.md#f20-missing-outcome-attributable-effects) tracks that construction.
+
+`NaturalCourseMean()` is supported under `missingness=`, with two contracts. Neither `method` nor
+`box_method` on this page meets either contract. Both keep cross-fitting on with folds stratified by
+treatment.
+
+| contract | outcome on this page it accepts | what the method needs |
+| --- | --- | --- |
+| ordinary TMLE | `transition_score` or `top_box` | `CrossFitting(enabled=False)`. The continuous `transition_score` also needs fixed `Targeting(q_bounds=...)` |
+| stacked CV-TMLE | `top_box` only, because the contract requires a binary outcome | `CrossFitting(enabled=True, stratify_by="none")` with `n_folds` of at least 2 |
+
 [Missing-outcome natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
-lists what the natural-course mean supports.
+lists every requirement and refusal for both contracts.
 
 ## How far to trust this
 
@@ -337,15 +349,6 @@ profile, it shifts the mean of the unobserved scores away from the respondents' 
 
 This curve does not detect why patients did not answer. It shows how far one stated departure must
 move before the conclusion changes.
-
-`NaturalCourseMean()` supports one scalar ordinary fit and one narrow stacked CV-TMLE fit. The
-[observed-data extensions](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
-state both contracts. This page uses treatment-stratified folds, so its method refuses that target.
-The stacked contract requires `CrossFitting(stratify_by="none")`.
-
-`PopulationAttributableRisk` and `PopulationAttributableFraction` remain refused with
-`missingness=`. [RM8](../roadmap.md#rm8-missing-outcome-attributable-effects) tracks their joint
-outcome and response construction.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |

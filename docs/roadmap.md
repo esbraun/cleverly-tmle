@@ -21,6 +21,7 @@ implementation is complete. RM9 retains two separate extensions from the same so
 | priority | item | next action | problem exposed by the examples | details |
 | ---: | --- | --- | --- | --- |
 | 0.1 | Remaining missing-outcome CV-TMLE extensions | audit the scale and fold-weighting laws, then write separate contracts for the bounded-continuous stacked and binary fold-evaluated estimators | the binary stacked estimator is implemented, but its two source-backed extensions need distinct contracts and evidence | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
+| 0.2 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -84,7 +85,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | ordinary EIF plug-in covariance that treats the selected candidate as fixed | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | ordinary adaptive-propensity EIF covariance with a proved binary scalar construction and open joint-target extensions | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Missing-outcome attributable effects | a direct observed-data derivation for the joint natural-course and reference-intervention means, their remainder, and attributable-effect inference | complete-data PAR and PAF, one iid MAR natural-course mean, and arm-specific missing-outcome means remain separate | [F20](#f20-missing-outcome-attributable-effects) |
-| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | ordinary and one-repeat binary stacked means; RM9 retains bounded-continuous stacked and binary fold-evaluated extensions | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
+| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary estimator and the stacked estimator with one repeat and a binary outcome. RM9 tracks the bounded-continuous stacked estimator and the binary fold-evaluated estimator | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -132,8 +133,9 @@ An item is complete only when all applicable conditions hold:
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. The ordinary and binary stacked missing-at-random natural-course means
-are implemented and registered there. RM9 holds their two supported follow-ups. Replicate-weight
-designs are the next source-audit item in the main grid. Implement them only after RM9 is complete
+are implemented and registered there. RM9 holds the two supported follow-ups to the stacked
+estimator, and RM10 holds the comparator for the ordinary estimator. Replicate-weight designs are
+the next source-audit item in the main grid. Implement them only after RM9 and RM10 are complete
 and that audit supports the planned variance construction.
 
 Longitudinal sensitivity-bound estimation remains in
@@ -180,6 +182,22 @@ evidence for the other.
 Keep fold-targeted updates and repeated-split reports in
 [F21](#f21-other-missing-outcome-cv-tmle-variants). The 2026-09-12 audit found no direct interval
 result for either composition.
+
+### RM10. Ordinary missing-outcome natural-course comparator
+
+The [ordinary missing-outcome natural-course TMLE study](technical-reference/method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
+compares no external implementation. Its artifacts predate the R `tmle` 2.1.1 population-mean
+adapter, and the study was not regenerated after that adapter was added. The
+[R `tmle` audit](references.md#targeted-learning-in-general) records that this path accepts
+supplied outcome and response predictions.
+
+Add a comparison for each primary law. Start from the stacked study's adapter, which passes
+supplied predictions to that path. Before the bounded-continuous law makes a parity claim, audit how the R path
+scales a continuous outcome and its bounds. Match that transform to the fixed `q_bounds` contract.
+If the transforms differ, record the continuous comparison as refused and state the reason.
+
+Regenerate the ordinary study after the comparison is added. Do not transfer the stacked study's
+agreement to the ordinary estimator.
 
 ### P1. EP learner
 
