@@ -245,12 +245,14 @@ def stacked_second_moment_variance(influence_curve: FloatArray) -> float:
         \widehat{\mathrm{Var}}(\hat\psi) = \frac{1}{n^2}\sum_{i=1}^{n} \mathrm{IC}_i^2.
 
     The stacked cross-fitted natural-course mean (the RM9 contract) evaluates its point
-    and curve on all held-out rows at once, with one pooled fluctuation.  Each row's curve
-    uses nuisances fitted without that row, so the pooled curve need not have empirical
-    mean zero, and centring it would erase that component.  The rows are weighted equally
-    at ``1/n`` because the point estimate is the row-weighted mean of the stacked
-    predictions.  :func:`cross_validated_variance` is the equal-fold-weight counterpart,
-    and differs from this whenever the folds are unequal.
+    and curve on all held-out rows at once, with one pooled fluctuation.  That fluctuation
+    solves the stacked score, and the point is the row mean of the targeted predictions,
+    so the curve has empirical mean zero to targeting tolerance.  This rule therefore
+    equals the centered ``ddof=1`` variance times ``(n - 1) / n``, and
+    ``tests/unit/test_natural_course_crossfit.py`` checks that identity.  The rows are
+    weighted equally at ``1/n`` because the point estimate is the row-weighted mean of the
+    stacked predictions.  :func:`cross_validated_variance` is the equal-fold-weight
+    counterpart, and differs from this whenever the folds are unequal.
 
     The arithmetic is ``mean(IC**2) / n`` in that association.  The committed RM9 study
     artifacts were generated from it, and a different association moves their last bits.

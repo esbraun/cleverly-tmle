@@ -39,6 +39,7 @@ from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel, TargetGroup
 from ..inference.influence import (
     ArmMean,
+    CovarianceRule,
     ParameterEstimate,
     Scale,
     counterfactual_means,
@@ -400,6 +401,10 @@ class TargetContext:
     #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
     #: against a reference regime is not a name a reader can resolve without the labels.
     always_label: bool = False
+    #: The covariance rule every estimate this context finishes declares.
+    #: :func:`~cleverly.inference.influence.make_estimate` maps it to the stored variance.
+    #: ``"second_moment"`` belongs to the stacked cross-fitted natural-course mean alone.
+    covariance_rule: CovarianceRule = "centered"
 
     @cached_property
     def observed_mean(self) -> ArmMean:
@@ -558,6 +563,7 @@ class TargetContext:
             scale=scale,
             alpha=self.alpha_sig,
             log_psi=log_psi,
+            covariance_rule=self.covariance_rule,
         )
 
     def finish_unscaled(
@@ -580,4 +586,5 @@ class TargetContext:
             cluster=self.cluster,
             scale=scale,
             alpha=self.alpha_sig,
+            covariance_rule=self.covariance_rule,
         )

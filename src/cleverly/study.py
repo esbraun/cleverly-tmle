@@ -836,11 +836,15 @@ class NaturalCourseMean:
     :doc:`observed-data extensions </technical-reference/point-treatment-tmle>` for the
     supported compositions. The in-sample estimator accepts a binary outcome or a bounded
     continuous outcome with declared ``q_bounds``. The cross-fitted estimator accepts a
-    binary outcome and one package-generated unstratified V-fold partition. It uses one
-    pooled fluctuation and evaluates the point and influence curve on all stacked held-out
-    rows. The in-sample estimator is ordinary TMLE. The cross-fitted estimator is stacked
-    CV-TMLE. Both are scalar estimators with binary treatment. Every other composition
-    raises ``CapabilityError`` before any learner is fitted. The
+    binary outcome and one package-generated unstratified V-fold partition with at least
+    two folds. It uses one pooled fluctuation and evaluates the point and influence curve
+    on all stacked held-out rows. The in-sample estimator is ordinary TMLE. The
+    cross-fitted estimator is stacked CV-TMLE. Both are scalar estimators with binary
+    treatment. Every other composition that reaches a fit raises ``CapabilityError``
+    before any learner is fitted. A method declaration that is invalid on its own raises
+    ``MethodConfigurationError`` when it is constructed. A sample without enough
+    respondents or nonrespondents for cross-fitting raises ``DataError`` before any
+    learner is fitted. The
     :doc:`scope and refusals </technical-reference/scope-and-refusals>` page lists each
     refusal, including joint targets, bootstrap inference, and linear or one-step
     targeting.

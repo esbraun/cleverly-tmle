@@ -425,6 +425,13 @@ def simultaneous_bands(
     -------
     SimultaneousBands
         One interval per estimand, holding jointly at ``1 - alpha``.
+
+    Raises
+    ------
+    ValueError
+        If any estimate declares ``covariance_rule="second_moment"``. The multiplier
+        draws centre each influence curve, and no derivation here supplies a band under
+        the raw second-moment rule.
     """
     items = (
         list(estimates.items())
@@ -433,6 +440,16 @@ def simultaneous_bands(
     )
     if not items:
         raise ValueError("no estimates supplied")
+    second_moment = [
+        name for name, estimate in items if estimate.covariance_rule == "second_moment"
+    ]
+    if second_moment:
+        raise ValueError(
+            f"simultaneous_bands cannot band {second_moment}, which declare "
+            "covariance_rule='second_moment'. The multiplier bootstrap centres each "
+            "influence curve, and no derivation here supplies a band under the raw "
+            "second-moment rule"
+        )
     lengths = {estimate.influence_curve.shape[0] for _, estimate in items}
     if len(lengths) != 1:
         raise ValueError(f"influence curves have inconsistent lengths: {lengths}")

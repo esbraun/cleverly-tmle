@@ -28,18 +28,29 @@ from tests.unit._natural_course_support import (
 )
 
 
-def _fit(frame: pd.DataFrame | None = None, **overrides: Any) -> Any:
-    return (
-        stacked_tmle(**overrides)
-        .fit(
-            law.frame() if frame is None else frame,
-            outcome="Y",
-            treatment="A",
-            covariates=("W",),
-            delta="Delta",
-        )
-        .single()
-    )
+def _fit(
+    frame: pd.DataFrame | None = None,
+    *,
+    fit_kwargs: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> Any:
+    """Fit the stacked estimator; ``fit_kwargs`` replaces any default ``fit`` role."""
+    roles: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": "A",
+        "covariates": ("W",),
+        "delta": "Delta",
+        **(fit_kwargs or {}),
+    }
+    return stacked_tmle(**overrides).fit(law.frame() if frame is None else frame, **roles).single()
+
+
+#: The in-sample remedy every stacked natural-course refusal names, in both spellings.
+IN_SAMPLE_REMEDY = (
+    "disable cross-fitting and restore fold stratification "
+    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
+    "stratify_folds='treatment' on the engine)"
+)
 
 
 def test_public_configuration_translates_the_unstratified_policy() -> None:
@@ -76,8 +87,14 @@ def test_the_audited_engine_cell_records_generated_unstratified_folds() -> None:
 
 
 @pytest.mark.parametrize(
+    "strata",
+    [None, "S"],
+    ids=("marginal", "baseline-strata"),
+)
+@pytest.mark.parametrize(
     ("overrides", "message"),
     [
+        ({"n_folds": 1}, "requires n_folds of at least 2"),
         ({"stratify_folds": "treatment"}, "stratify_folds='none'"),
         ({"stratify_folds": "treatment+outcome"}, "stratify_folds='none'"),
         ({"repeats": 2}, "repeats=1"),
@@ -90,10 +107,80 @@ def test_the_audited_engine_cell_records_generated_unstratified_folds() -> None:
     ],
 )
 def test_cross_fitted_variants_outside_the_audited_cell_refuse_before_fitting(
-    overrides: dict[str, Any], message: str
+    overrides: dict[str, Any], message: str, strata: str | None
 ) -> None:
+    """Each contract refusal fires before any learner, and before the generic strata gate.
+
+    With baseline strata the contract's own refusal must still win. The generic gate in
+    ``TMLE.fit`` also refuses ``targeting_scheme='fold'`` and ``cv_evaluation=True``, and it
+    would name the strata rather than the audited cell.
+    """
+    frame = law.frame()
+    fit_kwargs: dict[str, Any] = {}
+    if strata is not None:
+        frame = frame.assign(S=(np.arange(law.N) % 2).astype(float))
+        fit_kwargs = {"covariates": ("W", "S"), "strata": strata}
     with pytest.raises(CapabilityError, match=message):
-        _fit(**never_fit_learners(), **overrides)
+        _fit(frame, fit_kwargs=fit_kwargs, **never_fit_learners(), **overrides)
+    assert NeverFit.calls == 0
+
+
+def test_one_fold_under_the_stacked_contract_is_refused_rather_than_fitted_in_sample() -> None:
+    """``n_folds=1`` realizes the in-sample split while ``cross_fit=True`` stays declared.
+
+    Before this refusal the fit ran in sample and still reported the stacked estimator's
+    second-moment covariance rule. The witness uses learners that fail on fit, so a fit
+    that ran would raise AssertionError instead of CapabilityError.
+    """
+    with pytest.raises(CapabilityError) as caught:
+        _fit(n_folds=1, **never_fit_learners())
+
+    assert str(caught.value) == (
+        "NaturalCourseMean with missing outcomes currently supports one scalar TMLE under "
+        "its audited implementation contracts; the cross-fitted estimator requires n_folds "
+        "of at least 2, because one fold fits every nuisance on the rows it predicts. For "
+        f"the in-sample estimator, {IN_SAMPLE_REMEDY}"
+    )
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("stratify_folds", "error", "message"),
+    [
+        ("none", CapabilityError, "stratify_folds='none' is currently reserved"),
+        ("treatment", NotImplementedError, "baseline strata currently use one joint pooled"),
+    ],
+    ids=("fold-policy-reservation-wins", "generic-strata-gate-wins"),
+)
+@pytest.mark.parametrize(
+    "overrides",
+    [{"targeting_scheme": "fold"}, {"cv_evaluation": True}],
+    ids=("fold-targeting", "fold-evaluation"),
+)
+def test_a_complete_outcome_fit_with_strata_meets_the_fold_policy_before_the_strata_gate(
+    stratify_folds: str,
+    error: type[Exception],
+    message: str,
+    overrides: dict[str, Any],
+) -> None:
+    """Pin which refusal a non-natural-course stratified fold-targeted fit receives.
+
+    The natural-course contract does not apply without missing outcomes. The fold-policy
+    reservation runs in the resolver, so it wins under ``stratify_folds='none'``.
+    Otherwise the generic strata gate in ``TMLE.fit`` refuses, before any learner fits.
+    """
+    frame = law.frame().assign(
+        Y=lambda value: value["Y"].fillna(0.0), S=(np.arange(law.N) % 2).astype(float)
+    )
+    estimator = stacked_tmle(
+        estimands=("ate",),
+        stratify_folds=stratify_folds,
+        **never_fit_learners(),
+        **overrides,
+    )
+
+    with pytest.raises(error, match=message):
+        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
     assert NeverFit.calls == 0
 
 
@@ -116,31 +203,6 @@ def test_unstratified_folds_refuse_an_intermediate_fit_before_its_shared_nuisanc
     estimator = stacked_tmle(estimands=("ate",), **never_fit_learners())
     with pytest.raises(CapabilityError, match="reserved"):
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), intermediate="Z")
-    assert NeverFit.calls == 0
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'"),
-        ({"cv_evaluation": True}, "cv_evaluation=False"),
-    ],
-)
-def test_target_specific_fold_refusals_precede_the_generic_strata_gate(
-    overrides: dict[str, Any], message: str
-) -> None:
-    frame = law.frame().assign(S=(np.arange(law.N) % 2).astype(float))
-    estimator = stacked_tmle(**never_fit_learners(), **overrides)
-
-    with pytest.raises(CapabilityError, match=message):
-        estimator.fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=("W", "S"),
-            delta="Delta",
-            strata="S",
-        )
     assert NeverFit.calls == 0
 
 
@@ -188,7 +250,10 @@ def test_a_training_complement_without_a_response_kind_refuses_before_any_learne
         _fit(frame, n_folds=PREFLIGHT_FOLDS, **never_fit_learners())
     message = str(caught.value)
     assert f"contains no {absent}" in message
-    assert "Increase n_folds" in message and "use n_folds=1" in message
+    assert message.endswith(
+        f"Increase n_folds, use a different random_state, or {IN_SAMPLE_REMEDY}"
+    )
+    assert "n_folds=1" not in message
     assert "reduce n_folds" not in message
     assert NeverFit.calls == 0
 
@@ -220,8 +285,9 @@ def test_a_sample_with_one_of_a_response_kind_names_the_in_sample_remedy(rare: s
     frame = _response_frame(rare, np.array([0]))
     kind = "respondent" if rare == "response" else "nonrespondent"
 
-    with pytest.raises(DataError, match=rf"the sample has 1 {kind}\(s\).*use cross_fit=False"):
+    with pytest.raises(DataError, match=rf"the sample has 1 {kind}\(s\)") as caught:
         _fit(frame, n_folds=PREFLIGHT_FOLDS, **never_fit_learners())
+    assert str(caught.value).endswith(f"response and outcome nuisances; {IN_SAMPLE_REMEDY}")
     assert NeverFit.calls == 0
 
 
@@ -328,6 +394,36 @@ def test_pooled_score_eif_and_variance_match_the_stacked_rows_exactly() -> None:
         np.where(observed, residual / wrong_fold_response, 0.0) + targeted - estimate.psi
     )
     assert np.max(np.abs(estimate.influence_curve - wrong_fold_curve)) > 0.1
+
+
+@pytest.mark.parametrize("n_folds", [2, 3])
+def test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_n(
+    n_folds: int,
+) -> None:
+    """Pooled targeting centres the stacked curve, so no mean component exists to erase.
+
+    The pooled fluctuation solves ``P_n[Delta / pi (Y - m*)] = 0`` and the point is
+    ``P_n m*``, so ``P_n D = 0`` to targeting tolerance. The raw second moment therefore
+    equals the centred ``ddof=1`` variance times ``(n - 1) / n``. A curve that kept a
+    nonzero mean would break the second assertion by the squared mean over ``n``.
+    """
+    result = _fit(n_folds=n_folds)
+    estimate = result["ey_obs"]
+    curve = np.asarray(estimate.influence_curve, dtype=float)
+    n = curve.size
+
+    assert estimate.covariance_rule == "second_moment"
+    assert abs(float(np.mean(curve))) <= 1e-12
+    centered = float(np.var(curve, ddof=1)) / n
+    assert estimate.variance == pytest.approx(centered * (n - 1) / n, rel=1e-10, abs=0.0)
+    # The factor is visible at this size, so the equality above is not the trivial one.
+    assert estimate.variance != pytest.approx(centered, rel=1e-6)
+    # Nonzero witness: shifting the curve by a constant moves the raw second moment by
+    # the squared shift over n and leaves the centred variance alone.
+    shifted = curve + 0.05
+    assert float(np.mean(np.square(shifted)) / n) - estimate.variance == pytest.approx(
+        0.05**2 / n, rel=1e-8
+    )
 
 
 def test_the_in_sample_estimator_keeps_the_centered_variance() -> None:

@@ -9,7 +9,7 @@ from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, Targ
 from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
-from .learners.crossfit import SplitPlan, _repeat_policy_refusal
+from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 
 __all__ = [
@@ -137,7 +137,8 @@ class CrossFitting:
     learner_folds : int, default=5
         Inner folds used by ensemble learners.
     repeats : int, default=1
-        Independent outer-fold assignments to combine by their median.
+        Independent outer-fold assignments to combine by their median. A value above one
+        requires ``enabled=True``.
     stratify_by : {"none", "treatment", "treatment+outcome"}, default="treatment"
         Fold-stratification policy.
     targeting_scheme : {"pooled", "fold"}, default="pooled"
@@ -179,19 +180,16 @@ class CrossFitting:
     split_plan: SplitPlan | None = None
 
     def __post_init__(self) -> None:
-        reason = _repeat_policy_refusal(
-            cross_fit=self.enabled, repeats=self.repeats, option_name="enabled"
-        )
-        if reason is not None:
-            raise MethodConfigurationError(reason)
-        if self.split_plan is None:
-            return
-        if not isinstance(self.split_plan, SplitPlan):
-            raise MethodConfigurationError("split_plan must be a SplitPlan")
-        # One message source, two exception contracts: the engine raises ValueError for
-        # the same three refusals. See ``SplitPlan._policy_refusal``.
-        reason = self.split_plan._policy_refusal(
-            cross_fit=self.enabled, n_folds=self.n_folds, repeats=self.repeats
+        # One ordered message source, two exception contracts: the engine raises
+        # ValueError for the same inputs. ``n_bootstrap`` lives on ``Inference``, so
+        # ``TMLEMethod.__post_init__`` asks the bootstrap question.
+        # See ``_cross_fit_policy_refusal``.
+        reason = _cross_fit_policy_refusal(
+            cross_fit=self.enabled,
+            n_folds=self.n_folds,
+            repeats=self.repeats,
+            split_plan=self.split_plan,
+            option_name="enabled",
         )
         if reason is not None:
             raise MethodConfigurationError(reason)
@@ -556,16 +554,24 @@ class TMLEMethod:
     def __post_init__(self) -> None:
         """Refuse the one combination no single configuration group can see.
 
-        A cross-group rule belongs to the object that holds both groups, and it belongs at
-        construction: :meth:`estimator_kwargs` is a translation, and a refusal buried in a
-        translation fires later than the declaration that earned it.
-        ``DRTMLEMethod.__post_init__`` is the precedent.
+        A supplied ``split_plan`` lives on :class:`CrossFitting` and ``n_bootstrap`` on
+        :class:`Inference`. A cross-group rule belongs to the object that holds both groups,
+        and it belongs at construction: :meth:`estimator_kwargs` is a translation, and a
+        refusal buried in a translation fires later than the declaration that earned it.
+        ``DRTMLEMethod.__post_init__`` is the precedent. The reason comes from the same
+        ordered refusal the engine reads, so both layers name one reason for one input.
         """
-        if self.cross_fitting.split_plan is not None and self.inference.n_bootstrap:
-            raise MethodConfigurationError(
-                "split_plan cannot be combined with the targeted bootstrap because "
-                "bootstrap rows no longer have the original positional identities"
-            )
+        cross = self.cross_fitting
+        reason = _cross_fit_policy_refusal(
+            cross_fit=cross.enabled,
+            n_folds=cross.n_folds,
+            repeats=cross.repeats,
+            split_plan=cross.split_plan,
+            n_bootstrap=self.inference.n_bootstrap,
+            option_name="enabled",
+        )
+        if reason is not None:
+            raise MethodConfigurationError(reason)
 
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.

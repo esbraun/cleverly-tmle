@@ -368,6 +368,81 @@ class TestCrossFittingConfiguration:
         with pytest.raises(MethodConfigurationError, match="split_plan"):
             CrossFitting(n_folds=2, split_plan=[[0, 1]])  # type: ignore[arg-type]
 
+    def test_a_repeat_count_below_one_is_refused_at_declaration(self) -> None:
+        with pytest.raises(MethodConfigurationError, match="repeats must be at least 1; got 0"):
+            CrossFitting(repeats=0)
+
+
+class TestOneInputEarnsOneReasonAtBothLayers:
+    """The declaration and the engine read one ordered refusal, so neither can disagree.
+
+    Each case below trips more than one check where it can, so a layer that reordered its
+    checks would report a different reason from the other layer.  The engine spells the
+    cross-fitting switch ``cross_fit`` and the declaration spells it ``enabled``; the
+    reason names the spelling its caller wrote and is otherwise identical.
+    """
+
+    @pytest.mark.parametrize(
+        ("settings", "expected"),
+        [
+            (
+                {"enabled": False, "repeats": 2, "split_plan": SplitPlan([[0, 1, 0, 1]] * 2)},
+                "split_plan requires enabled cross-fitting with at least two folds",
+            ),
+            (
+                {"repeats": 0, "split_plan": [[0, 1, 0, 1]]},
+                "repeats must be at least 1; got 0",
+            ),
+            (
+                {"repeats": 1, "split_plan": [[0, 1, 0, 1]]},
+                "split_plan must be a SplitPlan",
+            ),
+            (
+                {"split_plan": SplitPlan([[0, 1, 0, 1]]), "n_bootstrap": 4},
+                "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
+                "replicates duplicate sampled rows, while the supplied assignments "
+                "identify only the original row positions",
+            ),
+            (
+                {"enabled": False, "repeats": 2},
+                "repeats takes the median over independent cross-fitting splits, and "
+                "{switch}=False makes no split to draw or repeat. Enable cross-fitting or "
+                "set repeats=1",
+            ),
+        ],
+        ids=("plan-before-repeats", "repeats-first", "not-a-plan", "bootstrap", "no-split"),
+    )
+    def test_the_declaration_and_the_engine_give_the_same_reason(
+        self, settings: dict[str, Any], expected: str
+    ) -> None:
+        enabled = settings.get("enabled", True)
+        repeats = settings.get("repeats", 1)
+        split_plan = settings.get("split_plan")
+        n_bootstrap = settings.get("n_bootstrap", 0)
+
+        with pytest.raises(MethodConfigurationError) as declared:
+            TMLEMethod(
+                cross_fitting=CrossFitting(
+                    enabled=enabled,
+                    n_folds=2,
+                    repeats=repeats,
+                    split_plan=split_plan,
+                ),
+                inference=Inference(n_bootstrap=n_bootstrap),
+            )
+        with pytest.raises(ValueError) as engine:
+            TMLEEngine(
+                cross_fit=enabled,
+                n_folds=2,
+                repeats=repeats,
+                split_plan=split_plan,
+                n_bootstrap=n_bootstrap,
+                simultaneous=False,
+            )
+
+        assert str(declared.value) == expected.format(switch="enabled")
+        assert str(engine.value) == expected.format(switch="cross_fit")
+
 
 class TestTheEngineRefusesAPlanItCannotServe:
     """The engine's own refusals, which the configuration layer normally reaches first.
@@ -558,6 +633,10 @@ def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: s
 
     _assert_same_fit(generated, supplied)
     assert generated.nuisance.propensity.values.shape[1] == 3
+    # The warning filter above fires only above the 5% warning threshold. The fixture
+    # claims more: no unit is truncated at all in either fit.
+    for fit in (generated, supplied):
+        assert fit.nuisance.propensity.truncate(fit.config.g_bounds).fraction == 0.0
     assert supplied.data.backend == backend
 
 
