@@ -1,56 +1,31 @@
 # DR-TMLE: an interval when the recorded assignment rule is hard to model
 
-This test of change is about inference rather than the estimate. An ordinary TMLE is doubly
-robust for *consistency* and singly robust for *inference*. This page shows what that distinction
-means for a program that cannot model its own rollout, and what the DR-TMLE variant does about it.
-
-Read [DR-TMLE](../technical-reference/dr-tmle/index.md) for the applied framing, and the
-[DR-TMLE production contract](../technical-reference/dr-tmle/index.md) for the theorem, the refusals, and the release claim.
-The contract is authoritative. Read
-[its release claim](../technical-reference/dr-tmle/index.md#the-release-claim-in-one-paragraph) before you rely on this variant.
+An ordinary TMLE stays consistent when one nuisance is consistent. Its interval needs both
+nuisances to converge fast enough. This page shows what DR-TMLE changes when the assignment model is
+the doubtful one. The [DR-TMLE reference](../technical-reference/dr-tmle/index.md) holds the
+theorem, the refusals, and the release claim.
 
 ## The applied question
 
-The navigation evaluation is being repeated. This time the analyst has a specific worry about
-which nuisance function can be estimated well.
-
-The outcome side is in good shape. Transition scores depend on discharge risk, prior utilization,
-medication burden, and age in ways a flexible model can learn from thousands of discharges.
-
-The assignment side is difficult. The program logged every common cause of assignment and outcome,
-but its operational rule contains thresholds, interactions, and rotating capacity constraints. A
-simple logistic model of assignment is therefore misspecified even though the causal adjustment set
-is measured.
-
-The analyst can live with a crude assignment model. Double robustness can keep the estimate
-consistent when the outcome regression converges under the stated rate conditions. The question is
-whether the *interval* stays valid too.
-
-This distinction is essential. If an unrecorded discharge-team judgement affects both assignment
-and recovery, exchangeability fails. DR-TMLE does not repair that design failure.
+The navigation evaluation is repeated with 2,000 discharges. The program logged every common cause
+of assignment and outcome, and a flexible model can learn the outcome. The assignment rule has
+thresholds and interactions, so a main-effects logistic model of it is misspecified. An unrecorded
+common cause would be a different failure, and DR-TMLE does not repair it.
 
 ## Why this method
 
-The discharge team's assignment model is the one this analysis doubts. DR-TMLE exists for that
-case. It solves two further score equations, built from reduced-dimension regressions, so the
-interval can stay valid when one primary nuisance is inconsistent.
+| estimator | when the assignment model converges to the wrong limit |
+| --- | --- |
+| ordinary TMLE | stays consistent. If the outcome fit converges slower than root-n, as a flexible learner does, the bias shrinks slower than the standard error. The interval then under-covers as $n$ grows |
+| DR-TMLE | solves two extra score equations built from reduced-dimension regressions. Under Theorem 1 of Benkeser et al. (2017), it stays asymptotically linear, given [rate conditions](../technical-reference/dr-tmle/theorem.md#the-remainder-terms-and-the-rate-conditions) on the outcome fit and the reduced regressions |
 
-Ordinary TMLE is doubly robust for the point estimate and singly robust for the interval. One
-consistent nuisance still gives a consistent estimate. The interval needs both nuisances to
-converge fast enough. The
-[DR-TMLE reference entry](../technical-reference/dr-tmle/index.md#what-this-solves) derives the
-remainder term and the rate conditions, and tabulates what the variant buys and what it costs.
-
-Read that table before you choose this method. Most of its rows are reasons not to. With both
-nuisances consistent the corrections converge to zero, so they add no first-order inferential gain.
-The corrected interval is not designed or guaranteed to be narrower than the ordinary one.
+When both nuisances are consistent, the corrections converge to zero. DR-TMLE then has no asymptotic
+advantage and adds finite-sample cost.
 
 ## The data
 
-The law is `make_nonlinear_ate` again. A gradient-boosted learner can approximate the nonlinear
-outcome regression on this law. A main-effects logistic regression cannot represent the assignment
-mechanism. That pairing represents the analyst's concern, but one fit cannot establish either
-learner's convergence rate.
+The law is `make_nonlinear_ate` again, with standardized covariates (mean 0, SD 1). Both of its
+nuisance functions are nonlinear.
 
 ```python
 from cleverly.datasets import make_nonlinear_ate
@@ -71,12 +46,9 @@ print("population ATE:", truth["ate"])
 
 ## Design and identification
 
-Nothing changes in the question. DR-TMLE targets the same parameter under the same assumptions.
-
-This page keeps the [shared study design](index.md#the-shared-study-design) and changes only the
-assignment model. It also keeps every common cause in the adjustment set. The deliberate failure on
-this page is statistical misspecification of the recorded assignment mechanism. It is not an omitted
-common cause.
+DR-TMLE targets the same parameter under the same assumptions. This page keeps the
+[shared study design](index.md#the-shared-study-design) and every common cause in the adjustment
+set.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -90,29 +62,32 @@ study = CausalStudy(
     ),
 )
 effect = study.identify(ATE(reference=0))
+print(effect.summary())
 
 for method in effect.available_methods():
     print(method.name, method.available)
 ```
 
-The availability check matters more here than elsewhere. It reports `drtmle` unavailable for ATT
-and ATC, for MSM projections, and for the intervention axes. A continuous treatment reaches
-DR-TMLE only through a shift axis, so the same check refuses it. Selecting a refused method raises
-before any nuisance is fitted.
-
-The remaining refusals wait for the data and raise at fit time. Each refusal names what a
-derivation would need. The list is in [the contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name).
+The catalog lists `drtmle` as available for this ATE. An `ATT`, `ATC`, MSM, or intervention-axis
+effect lists it as unavailable, and selecting it raises before any nuisance is fitted. Other
+refusals raise at fit time.
+[Refused by name](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name) lists them.
 
 ## Estimate
 
-The primary nuisances are the analyst's: a flexible outcome regression and a crude assignment model.
-The reduced regressions are the extra machinery the variant needs.
+The primary nuisances are the analyst's: a flexible outcome regression and a crude assignment
+model. The reduced regressions each have one input, so a spline can fit them fast. Each reduction
+below is a Super Learner over a linear and a spline candidate. The
+[`drtmle` vignette](https://github.com/benkeser/drtmle/blob/master/vignettes/using_drtmle.Rmd)
+uses the same pairing, `SL.glm` and `SL.gam`.
 
 ```python
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import SplineTransformer
 
-from cleverly import CrossFitting, DRTMLEMethod, ModelSpec, Runtime, TMLEMethod
+from cleverly import CrossFitting, DRTMLEMethod, ModelSpec, Runtime, SuperLearner, TMLEMethod
 
 models = ModelSpec(
     outcome_learner=HistGradientBoostingRegressor(random_state=55),
@@ -121,149 +96,120 @@ models = ModelSpec(
 folds = CrossFitting(n_folds=3)
 runtime = Runtime(random_state=55, n_jobs=1)
 
-doubly_robust = effect.estimate(
-    method=DRTMLEMethod(
-        models=models,
-        cross_fitting=folds,
-        runtime=runtime,
-        guard=("Q", "g"),
-        reduced_outcome_learner=LinearRegression(),
-        reduced_treatment_learner=LinearRegression(),
-    )
+
+def spline(final):
+    return make_pipeline(SplineTransformer(n_knots=5, knots="quantile"), final)
+
+
+reduced_outcome = SuperLearner(
+    library=[("linear", LinearRegression()), ("spline", spline(LinearRegression()))],
+    task="regression",
+    n_folds=3,
 )
-print(doubly_robust.summary())
-print("population ATE:", truth["ate"])
+reduced_treatment = SuperLearner(
+    library=[
+        ("logistic", LogisticRegression()),
+        ("spline", spline(LogisticRegression(max_iter=1000))),
+    ],
+    task="classification",
+    n_folds=3,
+)
+drtmle = DRTMLEMethod(
+    models=models,
+    cross_fitting=folds,
+    runtime=runtime,
+    reduced_outcome_learner=reduced_outcome,
+    reduced_treatment_learner=reduced_treatment,
+)
+guarded = effect.estimate(method=drtmle)
+print(guarded.summary())
 ```
 
-`guard=` says which extra equations to solve, and therefore which corrections the reported curve
-subtracts. Both are on by default. `guard=("g",)` solves one of them and reports
-$D = D^{*} - D^{*}_{Q}$.
+| keyword | what it controls |
+| --- | --- |
+| `reduced_outcome_learner` | the conditional means $Q_r$ and $g_{r,2}$ |
+| `reduced_treatment_learner` | the probability $g_{r,1}$ |
+| `guard=` | the extra equations. Both are on by default. `guard=("g",)` guards only against the assignment model and reports $D = D^{*} - D^{*}_{Q}$ |
 
-## The failure mode: consistency without valid inference
+## What one fit can show
 
-Start with the claim that is exactly checkable on one fit. An empty guard solves no extra equation,
-so it is a plain TMLE.
+An empty guard solves no extra equation, so it must reproduce the ordinary TMLE exactly.
 
 ```python
+from dataclasses import replace
+
 ordinary = effect.estimate(method=TMLEMethod(models=models, cross_fitting=folds, runtime=runtime))
-empty_guard = effect.estimate(
-    method=DRTMLEMethod(
-        models=models,
-        cross_fitting=folds,
-        runtime=runtime,
-        guard=(),
-        reduced_outcome_learner=LinearRegression(),
-        reduced_treatment_learner=LinearRegression(),
-    )
-)
-print("ordinary TMLE psi:", ordinary["ate"].psi)
-print("guard=()      psi:", empty_guard["ate"].psi)
+empty_guard = effect.estimate(method=replace(drtmle, guard=()))
 print("identical:", ordinary["ate"].psi == empty_guard["ate"].psi)
-```
 
-The two agree bit for bit. That is the contract's own statement, and it is worth confirming, because
-it fixes what the variant is: the same estimator plus extra equations, not a different target.
 
-Now compare the ordinary fit with the guarded one.
-
-```python
 def show(label, result):
     point = result["ate"]
     low, high = point.ci
-    print(
-        f"{label:22s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  CI=({low:.3f}, {high:.3f})"
-    )
+    print(f"{label:14s} psi={point.psi:.3f}  se={point.std_error:.4f}  CI=({low:.3f}, {high:.3f})")
 
 
 show("ordinary TMLE", ordinary)
-show("DR-TMLE", doubly_robust)
+show("DR-TMLE", guarded)
 print("population ATE:", truth["ate"])
 ```
 
-The point estimates are close, and the intervals are similar in width. This resemblance is not
-evidence that either interval has its claimed repeated-sampling coverage.
+The equality fixes what the variant is: the same estimator plus extra equations, not a different
+target. The guarded estimate moves because the extra fluctuations change the targeted fits. On
+this draw it moves by less than one standard error, and the standard errors are similar. That
+resemblance says nothing about either interval's coverage.
 
-The difference DR-TMLE is designed to make is not established by one sample. If the outcome and
-reduced regressions meet the required rates while the assignment model converges to the wrong
-limit, both point estimators can remain consistent. The ordinary remainder is then first order in
-the outcome-regression error, while the corrected interval can remain valid under the contract's
-weaker conditions.
-
-A single fit cannot show a coverage rate. That requires a repeated-sampling study.
-
-What a single fit *can* show is the size of the corrections that were solved away. This page runs
-the diagnostic report rather than the combined assessment, because the question is about the
-estimator, not the assumptions.
+Next, run the combined assessment and open the reports that bear on the nuisances.
 
 ```python
-diagnostic_report = doubly_robust.diagnostics.run_all()
-print(diagnostic_report.summary())
+assessment = guarded.assess()
+print(assessment.summary())
+print(assessment.report("corrections").summary())
+print(assessment.report("nuisance_models").summary())
 
-corrections = diagnostic_report.report("corrections")
-print(corrections.summary())
+reduced = guarded.extra["drtmle"].diagnostics
+for family, fits in reduced.items():
+    print(family, "best candidate per arm and fold:", [fit.best for fit in fits])
 ```
 
-The diagnostic report triages the whole fit. It marks score equations and corrections as passed. It
-marks the nuisance report and the support report as completed, because neither defines a pass rule.
-The support row states 0.0% truncation and a 90.6% minimum effective sample size for you to read.
-Unrequested truncation work and refutation remain visible as omissions.
+| report | what it shows on this draw |
+| --- | --- |
+| the assessment summary | score equations and corrections pass. The omitted-confounding rows address exchangeability, which DR-TMLE does not relax |
+| the corrections report | each extra equation per arm, its solved score, and the statement that no truncation was active |
+| the nuisance report | held-out fit that looks reasonable for both primary models, including the misspecified assignment model |
+| the reduced-regression diagnostics | the spline candidate has the lowest cross-validated risk in every $g_{r,1}$ fit, so the data favor a nonlinear reduction there |
 
-Both omissions ask for `include_refits` on this page. A guarded truncation curve must refit the
-reduced regressions at every bound, so the assessment leaves that costly operation off by default.
+## The failure mode: solved scores do not certify the nuisances
 
-The retained correction report keeps the detail that the triage row compresses. Each row is one
-correction equation, per arm, with its solved score and residual. The report also states whether
-the truncations were active, because the theorem's scope requires that they are not.
+Every score above is approximately zero. The held-out nuisance report also looks reasonable for an
+assignment model the analyst knows has the wrong form. Neither result shows that any nuisance
+converges at the rate the theorem needs.
+
+Score convergence is a property of the targeting step. Held-out risk compares candidates, but it
+cannot measure distance from the true function. The reduced-regression table is the one place the
+fit shows a choice that the theorem's conditions depend on.
+[Solved scores do not establish nuisance consistency](../technical-reference/dr-tmle/diagnostics.md#solved-scores-do-not-establish-nuisance-consistency)
+gives the exact-law test behind this rule.
 
 ## How far to trust this
 
-```python
-scores = diagnostic_report.report("score_equations")
-print(scores.summary())
-```
-
-The score report ends with the sentence that governs how the interval should be read. Validity is
-not efficiency. The curve reported is $D = D^{*} - D^{*}_{Q} - D^{*}_{g}$. It is entitled to be
-believed under weaker conditions than $D^{*}$, rather than efficient under them. The union model it
-stays valid over is larger than the model it is efficient in.
-
-The most important limitation on this page is not a diagnostic result. It is what the diagnostics
-cannot do.
-
-**Solved scores do not establish nuisance consistency.** Every score above converged to
-approximately zero, on this fit, with an assignment model the analyst already believes is wrong.
-Convergence is a property of the targeting step. It is not evidence that the reduced regressions or
-the primary nuisances converge at the rates the theorem needs. Those are rate conditions on
-estimated functions, and a fit's own output cannot verify them. The contract devotes
-[a whole section](../technical-reference/dr-tmle/diagnostics.md#solved-scores-do-not-establish-nuisance-consistency) to this, and
-calls it the single most important thing on that page.
-
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| `guard=()` equality | the variant reduces exactly to the ordinary estimator when no equation is solved | anything about the guarded fit |
-| the diagnostic report | which fit-level checks passed, completed, or were omitted | any assumption that the fit cannot inspect |
-| the corrections report | the extra equations were solved, and whether any truncation was active | that the reduced regressions are consistent |
-| the score report | the targeting converged on the corrected curve | the rate conditions behind the interval |
-| the theorem and its checks | the implementation computes what Theorem 1 derives, against exact laws, the Gateaux derivative, and the remainder identities | that your fitted nuisances satisfy the theorem's hypotheses |
+| `guard=()` equality | the variant reduces exactly to the ordinary estimator | anything about the guarded fit |
+| the score and corrections reports | the targeting solved all three equations, with no active truncation | the rate conditions behind the interval |
+| the nuisance and reduced-regression reports | which candidate fit best under cross-validated risk | that any fitted function is consistent |
+| the omitted-confounding rows | how much hidden confounding would move the estimate | that no hidden confounder exists |
 
-DR-TMLE ships under **conditional validity**. The interval is valid conditional on the practitioner
-obtaining adequate primary and reduced-regression fits. The registered
-[canonical complete-outcome study](../technical-reference/method-evidence/canonical-dr-tmle.md)
-publishes both passing and failing cells. The
-[validation grid](../technical-reference/method-evidence/validation-grid.md) limits that evidence to
-a binary complete-outcome law with declared GLMs. It does not establish the flexible-learner
-conditions for this fit.
+DR-TMLE ships under **conditional validity**. No registered study covers this continuous law with
+flexible learners, and the [DR-TMLE evidence](../technical-reference/dr-tmle/validation-programme.md)
+shows where the interval fell short of nominal coverage.
 
 ## Where to go next
 
 If your question is which baseline variables belong in the assignment model, read
-[collaborative TMLE](collaborative-tmle.md). That differs from asking how well a fixed adjustment
-set can be fitted. The two methods do not compose, and DR-TMLE raises that refusal at fit time
-rather than in `available_methods()`.
+[collaborative TMLE](collaborative-tmle.md). The two methods do not compose. A reduced regression
+conditions on the fitted assignment mechanism as a covariate, and C-TMLE's mechanism is deliberately
+not an estimate of the true one. DR-TMLE raises that refusal at fit time.
 
-The reason is a derivation rather than plumbing. A reduced-dimension regression conditions on the
-fitted assignment mechanism *as a covariate*, and C-TMLE's mechanism is deliberately not an estimate
-of the true one. C-TMLE also scores its path by the cross-validated loss of the targeted outcome
-regression. That criterion therefore presupposes an informative outcome regression, which is the
-case DR-TMLE insures against. [The contract](../technical-reference/dr-tmle/supported-estimands.md#refused-by-name)
-records the refusal.
+When outcomes are also missing, double robustness takes a different shape. Read
+[survey non-response](survey-nonresponse.md).

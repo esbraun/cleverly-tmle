@@ -606,6 +606,15 @@ previous reader had is not a citation; a page number is.
   DOI 10.2202/1557-4679.1238.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for
   estimation of optimal dynamic treatment regimes*.
+- Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &
+  Hall/CRC. Chapter 20 treats treatment-confounder feedback. Section 20.3, pages 271-273 of the
+  edition dated 19 August 2026, shows why adjustment for that confounder opens a collider path. Cited by the
+  [longitudinal TMLE tutorial](examples/longitudinal-tmle.md).
+- Young, Stensrud, Tchetgen Tchetgen & Hernán (2020), [*A causal framework for classical
+  statistical estimands in failure-time settings with competing events*](https://doi.org/10.1002/sim.8471),
+  *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
+  and controlled direct effects on a cause-specific cumulative incidence, and their identifying
+  conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.md).
 
 ## Incremental interventions
 
@@ -855,6 +864,19 @@ registered study asks those questions separately. The inspected source is pinned
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.
+
+## The TWINS example
+
+The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these two sources for the data
+and for the reading of its association.
+
+- Almond, Chay & Lee (2005), [*The costs of low birth weight*](https://doi.org/10.1162/003355305774268228),
+  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228. The
+  notebook links the NBER working paper w10552.
+- Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
+  latent-variable models*](https://arxiv.org/abs/1705.08821), NIPS 2017, arXiv:1705.08821. In
+  arXiv v2, Section 4.3 describes the TWINS benchmark. It keeps pairs in which both twins weigh
+  less than 2 kg, and it defines treatment as being the heavier twin.
 
 ## Proposed methods on the roadmap
 

@@ -6,10 +6,10 @@ The design owns the observed columns. The estimand owns the causal question.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
-from cleverly.datasets import make_nonlinear_ate
+from cleverly.datasets import make_linear_ate
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-frame, truth = make_nonlinear_ate(n=2_000, seed=7)
+frame, truth = make_linear_ate(n=2_000, seed=7)
 study = CausalStudy(
     frame,
     design=PointTreatment(
@@ -18,10 +18,10 @@ study = CausalStudy(
         adjustment=("W1", "W2", "W3", "W4"),
     ),
 )
-effect = study.identify(ATE())
+effect = study.identify(ATE(reference=0))
 ```
 
-Identification happens before fitting. Inspect it when the analysis is consequential:
+Identification happens before fitting. Inspect it before you estimate anything.
 
 ```python
 print(effect.summary())
@@ -30,10 +30,13 @@ print(effect.identification.assumptions)
 print(effect.available_methods())
 ```
 
-These fields state what is being estimated, the assumptions under which it has a causal
-interpretation, the nuisance functions required, and the supported estimation methods.
+These fields state the estimand, the assumptions for its causal reading, the required nuisance
+functions, and the supported methods.
 
 ## Estimate and inspect
+
+Both nuisance functions of `make_linear_ate` are linear, so the linear learners below are
+correctly specified. On data you did not simulate, use flexible learners.
 
 ```python
 result = effect.estimate(
@@ -45,37 +48,30 @@ result = effect.estimate(
 print(result.summary())
 estimate = result["ate"]
 print(estimate.psi, estimate.std_error, estimate.ci)
+print("population ATE:", truth["ate"])
 ```
 
-An ordinary fit returns a `CausalResult` directly. Each entry is a `ParameterEstimate` containing
-the point estimate, standard error, interval, p-value, influence curve, and inference scale. For a
-multi-parameter result, `result.parameter_keys` preserves arm, regimen, horizon, cause, and MSM term
-as structured fields rather than parsing display aliases.
+The fit cross-fits both nuisances over 10 folds by default. Each result entry is a
+`ParameterEstimate` with the point estimate, standard error, interval, p-value, and influence
+curve.
 
 ## Assess the fitted result
 
 ```python
-validation = result.validate()
-support = result.diagnostics.support()
-scores = result.diagnostics.score_equations()
-sensitivity = result.sensitivity.run_all()
-
-print(validation.summary())
-print(support.summary())
-print(scores.summary())
-print(sensitivity.summary())
+assessment = result.assess()
+print(assessment.summary())
+print("needs attention:", tuple(item.name for item in assessment.attention))
+print(assessment.report("support").summary())
 ```
 
-Cache-only assessment never refits the estimator. Each capability reports one of seven statuses.
-A check that ran reports `passed`, `failed`, or `warning`. A descriptive analysis that defines no
-pass rule reports `completed`. An operation that did not run reports `deferred`, `not_applicable`,
-or `unavailable`. The
-[status contract](../technical-reference/validation-methods.md#the-status-contract) defines each
-one.
+`assess()` collects validation, diagnostics, and sensitivity in one report. It refits no nuisance
+model unless you opt in. Each row carries one of seven statuses, and `completed` is not a pass. The
+[status contract](../technical-reference/validation-methods.md#the-status-contract) defines them.
 
 ## Choose the next path
 
 - Read the [workflow](../workflow.md) before adapting the quickstart to real observational data.
+- Read [point-treatment TMLE](../examples/point-treatment-tmle.md) for a complete applied analysis.
 - Use the [estimands and interventions guide](../user-guide/estimands.md) to choose a question.
 - Use the [methods and learners guide](../user-guide/methods-learners.md) before replacing defaults.
 - Consult the [technical reference](../technical-reference/index.md) for equations, assumptions,
