@@ -159,10 +159,12 @@ def test_a_training_complement_without_a_response_kind_refuses_before_any_learne
     frame = _response_frame(rare, folds.test_index(last)[:2])
     absent = "respondent" if rare == "response" else "nonrespondent"
 
-    with pytest.raises(
-        DataError, match=f"repeat 0, fold {last}'s training complement contains no {absent};"
-    ):
+    with pytest.raises(DataError, match=f"repeat 0, fold {last}'s training complement") as caught:
         _fit(frame, n_folds=PREFLIGHT_FOLDS, **never_fit_learners())
+    message = str(caught.value)
+    assert f"contains no {absent}" in message
+    assert "Increase n_folds" in message and "use n_folds=1" in message
+    assert "reduce n_folds" not in message
     assert NeverFit.calls == 0
 
 

@@ -21,17 +21,18 @@ examples: both live on a page whose fences assume a ``study`` from the surroundi
 check limited to documents that build their own data would have run neither.
 
 **What this checks and what it deliberately does not.**  The general gate is a smoke check on
-*executability*: the assertion is that the block raises nothing.  A second, bounded gate runs nine
-reviewed tutorials at their documented sizes.  Its explicit callbacks check identification
-metadata, display identities, and the seeded relations that those pages narrate.  This does not
-turn one seeded example into statistical evidence. ``docs/architecture-invariants.md`` keeps that
-rule, and method claims still need an ordinary fast test or a registered study.
+*executability*: the assertion is that the block raises nothing.  A bounded gate runs the nine
+tutorials at their documented sizes and replaces their smaller smoke pass.  Its explicit callbacks
+check identification metadata, display identities, and the seeded relations that those pages
+narrate.  This does not turn one seeded example into statistical evidence.
+``docs/architecture-invariants.md`` keeps that rule, and method claims still need an ordinary fast
+test or a registered study.
 
-**The blocks are shrunk, and only in two declared ways.**  :class:`Shrink` rewrites the ``n=``
-argument of a ``make_*`` generator call and the ``density_bins=`` argument, and rewrites nothing
-else.  Learners, fold counts, seeds, estimands and interventions run exactly as the reader reads
-them, because those are what the example is *about* -- a rewrite that reached them would leave
-this module checking a configuration nobody is shown.
+**The smoke blocks are shrunk, and only in two declared ways.**  :class:`Shrink` rewrites the
+``n=`` argument of a ``make_*`` generator call and the ``density_bins=`` argument, and rewrites
+nothing else.  Learners, fold counts, seeds, estimands and interventions run exactly as the reader
+reads them, because those are what the example is *about* -- a rewrite that reached them would
+leave this module checking a configuration nobody is shown.
 
 **Documents are discovered, then executable Markdown is registered because it needs a prelude.**
 A guide page picks up ``study`` or ``result`` from the surrounding prose rather than building it,
@@ -403,6 +404,10 @@ def _survival_output_semantics(namespace: dict[str, Any]) -> None:
     frame = namespace["exit_frame"]
     assert frame.loc[frame["tracked_p1"] == 0, "plan_exit_p1"].isna().all()
     assert frame.loc[frame["tracked_p1"] == 1, "plan_exit_p1"].notna().all()
+    at_risk_p2 = (frame["tracked_p1"] == 1) & (frame["plan_exit_p1"] == 0)
+    period_two = frame.loc[at_risk_p2]
+    assert period_two.loc[period_two["tracked_p2"] == 0, "plan_exit_p2"].isna().all()
+    assert period_two.loc[period_two["tracked_p2"] == 1, "plan_exit_p2"].notna().all()
 
     event_truth = namespace["event_truth"]
     # "60-day death risk is 21% under no navigation and 7% under navigation at both periods."
@@ -515,12 +520,6 @@ def _cross_fitting_semantics(namespace: dict[str, Any]) -> None:
     assert 1.5 < clustered.std_error / ignoring.std_error < 1.9
     assert namespace["clustered"].data.n_clusters == 200
 
-    # "The new seed alone draws new folds."
-    redrawn = namespace["redrawn"]
-    assert (
-        redrawn.provenance.fold_fingerprint != namespace["cross_fitted"].provenance.fold_fingerprint
-    )
-
     # "warns that the out-of-fold propensity model is poorly calibrated" (slope about 0.49,
     # warning below 0.7); "about 1%" truncated; "about 25%"; in-sample "above 85%".
     diagnostics = namespace["diagnostics"]
@@ -584,6 +583,13 @@ def _longitudinal_semantics(namespace: dict[str, Any]) -> None:
     assert by_first[1.0] - by_first[0.0] > 0.5
     by_second = tracked.groupby("navigation_day7")["engagement_day7"].mean()
     assert by_second[1.0] > by_second[0.0]
+    complete = tracked.dropna(subset=["navigation_day7", "transition_top_box"])
+    for _, group in complete.groupby(["navigation_discharge", "navigation_day7"]):
+        high = group["engagement_day7"] > group["engagement_day7"].median()
+        assert (
+            group.loc[high, "transition_top_box"].mean()
+            > group.loc[~high, "transition_top_box"].mean()
+        )
 
     summary = namespace["effect"].summary()
     assert "sequential exchangeability" in summary and "sequential positivity" in summary
@@ -680,6 +686,13 @@ def _intervention_axes_semantics(namespace: dict[str, Any]) -> None:
     # "a few percent", far below the exp(-1) a true normal density ratio would keep.
     assert 0.01 < support["+1.0 uncapped"].ess_ratio < 0.1
     assert support["+1.0 uncapped"].ess_ratio < 0.5 * np.exp(-1.0)
+    truth = namespace["dose_truth"]
+    capped_name = "ate_shift[+0.5 capped at 5 vs current practice]"
+    uncapped_name = "ate_shift[+0.5 uncapped vs current practice]"
+    assert 0.02 < truth[uncapped_name] - truth[capped_name] < 0.06
+    capped = namespace["shift_result"][capped_name]
+    uncapped = namespace["shift_result"][uncapped_name]
+    assert abs(uncapped.psi - capped.psi) < 2.0 * max(capped.std_error, uncapped.std_error)
     dose = np.asarray(namespace["dose_frame"]["assigned_navigation_intensity"], dtype=float)
     # "a handful of rows" above the observed maximum: 2 and 3 rows on this draw.
     beyond = {delta: int(np.sum(dose + delta > dose.max())) for delta in (0.5, 1.0)}
@@ -707,15 +720,15 @@ TUTORIAL_SEMANTIC_ASSERTIONS: dict[str, Callable[[dict[str, Any]], None]] = {
 }
 
 
-def test_every_tutorial_semantic_assertion_names_one_reviewed_runtime_example() -> None:
-    """The bounded semantic gate names only documents the smoke gate already registers.
-
-    A copied list of the registry's own keys asserts nothing, so this checks the one
-    relation the registry does not state about itself: every semantic callback names a
-    document :data:`PRELUDES` knows how to run.  Which tutorials belong here is a review
-    decision, and ``docs/architecture-invariants.md`` records it.
-    """
-    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) <= set(PRELUDES)
+def test_every_tutorial_has_one_semantic_assertion() -> None:
+    """Every Markdown tutorial, and no index page, enters the documented-size gate."""
+    tutorials = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "docs/examples").rglob("*.md")
+        if path.name != "index.md"
+    }
+    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) == tutorials
+    assert tutorials <= set(PRELUDES)
 
 
 def documented() -> set[str]:
@@ -896,9 +909,10 @@ def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
 
 
 def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
-    """The TWINS artifact retains the figures and ordinary TMLE interval its prose interprets."""
+    """The TWINS artifact retains its figures, outcome, protocol, and typed contrasts."""
     notebook = nbformat.read(TWINS_NOTEBOOK, as_version=4)
     code = code_cells(notebook)
+    source = "\n".join(str(cell["source"]) for cell in notebook.cells)
     figures = [
         output
         for cell in code
@@ -914,11 +928,30 @@ def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
     ordinary_tmle_row = next(
         line for line in comparison_text.splitlines() if "ordinary package TMLE" in line
     )
+    load_cell = next(cell for cell in code if cell["id"] == "load-data")
+    load_text = "".join(
+        str(output.get("data", {}).get("text/plain", "")) for output in load_cell.get("outputs", ())
+    )
+    identify_cell = next(cell for cell in code if cell["id"] == "identify")
+    identify_text = "".join(
+        str(output.get("text", "")) for output in identify_cell.get("outputs", ())
+    )
+    scales_cell = next(cell for cell in code if cell["id"] == "effect-scales")
+    scales_html = "".join(
+        str(output.get("data", {}).get("text/html", ""))
+        for output in scales_cell.get("outputs", ())
+    )
 
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
     assert "NaN" not in ordinary_tmle_row, (
         "the ordinary package TMLE lost its confidence interval in the comparison figure"
     )
+    assert "mortality_3y" not in source and "three-year mortality" not in load_text
+    assert "first-year mortality" in load_text
+    assert "causal study protocol: schema" in identify_text
+    assert "causal study protocol: absent" not in identify_text
+    assert "<td>risk ratio</td>" in scales_html
+    assert "not shown" not in scales_html
 
 
 @pytest.mark.parametrize(
@@ -972,8 +1005,8 @@ def _run_document(
     The scratch directory matters: several examples end by calling ``result.save(...)``, and a
     check that littered the working tree would be its own kind of failure.
 
-    The two gates below differ in ``transform`` alone, which is the whole difference between
-    them: the smoke gate shrinks each block and the semantic gate compiles it as written.
+    Both gates use this harness. Their callers select disjoint documents and transforms: the
+    smoke gate shrinks non-tutorial blocks, while the semantic gate compiles tutorials as written.
     ``module_name`` names the namespace each gate builds, so a traceback says which one ran.
     """
     monkeypatch.chdir(tmp_path)
@@ -990,9 +1023,13 @@ def _run_document(
     return namespace
 
 
-@pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
-def test_every_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> None:
-    """Every registered document's fences run at the shrunken size and raise nothing."""
+@pytest.mark.parametrize(
+    "relative",
+    sorted(set(PRELUDES) - set(TUTORIAL_SEMANTIC_ASSERTIONS)),
+    ids=lambda name: name,
+)
+def test_every_nonsemantic_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> None:
+    """Each registered non-tutorial document runs once at the shrunken size."""
     _run_document(
         relative,
         tmp_path,

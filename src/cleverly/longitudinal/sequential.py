@@ -118,7 +118,7 @@ from ..fluctuation.iterative import (
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
-from ..learners.crossfit import Folds
+from ..learners.crossfit import _LARGER_COMPLEMENT_NOTE, Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
@@ -534,16 +534,17 @@ def _check_categorical_fold_support(
         missing = [levels[index] for index, code in enumerate(classes) if code not in present]
         if missing:
             where = "the eligible sample" if folds.is_single else f"training fold {fold}"
+            remedy = (
+                "Collect more observations at the rare level"
+                if folds.is_single
+                else f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, supply "
+                "folds that preserve treatment support, or collect more observations at the "
+                "rare level"
+            )
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
                 "every treatment-mechanism training set must contain every observed level. "
-                + (
-                    ""
-                    if folds.is_single
-                    else "Use more folds so each training set is larger, n_folds=1, supply "
-                    "folds that preserve treatment support, or "
-                )
-                + "collect more observations at the rare level"
+                + remedy
             )
 
 
@@ -768,8 +769,8 @@ def prepare_node(
             + (
                 ""
                 if outer_fold is None
-                else " Use more folds so each training complement is larger, n_folds=1, "
-                "or a supported regimen."
+                else f" {_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, or choose "
+                "a supported regimen."
             )
             + _risk_set_hint(data, plan, time)
             + _rule_hint(plan, data, at_risk, time)
@@ -865,8 +866,8 @@ def _check_outcome_varies(
             " The check applies to each outer fold's training rows, not to the sample as a "
             "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
             "training complement. That is stricter than a single-fold fit, which fits on "
-            "every row, and the same frame can be estimable at n_folds=1. More folds give "
-            "each training complement more rows. Use more folds, n_folds=1, or an estimand "
+            "every row, and the same frame can be estimable at n_folds=1. "
+            f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, or choose an estimand "
             "this fold count supports."
         )
     )

@@ -14,13 +14,16 @@ from sklearn.dummy import DummyClassifier
 
 from cleverly import SuperLearner
 from cleverly.exceptions import DataError, DataWarning, WeightingWarning
+from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import (
     DynamicRegimen,
     LongitudinalData,
+    LongitudinalError,
     Regimen,
     resolve_plans,
     resolve_regimens,
 )
+from cleverly.longitudinal.sequential import _check_categorical_fold_support
 
 
 def panel(n: int = 40, *, seed: int = 0) -> pd.DataFrame:
@@ -336,7 +339,7 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
     with pytest.raises(
         LongitudinalError,
         match=r"treatment node 'A2'.*level.*2.0.*training fold",
-    ):
+    ) as caught:
         LTMLE(
             {"observed third arm": (0, 2)},
             outcome_learner=sklearn.linear_model.LinearRegression(),
@@ -346,6 +349,29 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
             learner_folds=2,
             random_state=0,
         ).fit(frame, **COLUMNS)
+    message = str(caught.value)
+    assert "A larger fold count gives each training complement more rows" in message
+    assert "Increase n_folds" in message and "use n_folds=1" in message
+
+
+def test_single_fold_categorical_support_advice_starts_a_sentence() -> None:
+    """The no-cross-fit branch gives a grammatical remedy without fold advice."""
+    target = np.array([0.0, 1.0, 2.0])
+    eligible = np.array([True, True, False])
+
+    with pytest.raises(LongitudinalError) as caught:
+        _check_categorical_fold_support(
+            target,
+            eligible,
+            Folds.single(len(target)),
+            classes=(0.0, 1.0, 2.0),
+            levels=("low", "medium", "high"),
+            node_name="A1",
+        )
+
+    message = str(caught.value)
+    assert ". Collect more observations at the rare level" in message
+    assert "fold count" not in message and "n_folds" not in message
 
 
 def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
@@ -361,7 +387,7 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
 
     frame = panel(n=80)
     frame.loc[frame["A2"] == 1.0, "A2"] = 0.0
-    with pytest.raises(LongitudinalError, match="no unit followed regimen"):
+    with pytest.raises(LongitudinalError, match="no unit followed regimen") as caught:
         LTMLE(
             {"treat throughout": (1, 1)},
             outcome_learner=sklearn.linear_model.LinearRegression(),
@@ -379,6 +405,9 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
             learner_folds=2,
             random_state=0,
         ).fit(frame, **COLUMNS)
+    message = str(caught.value)
+    assert "A larger fold count gives each training complement more rows" in message
+    assert "Increase n_folds, use n_folds=1, or choose a supported regimen" in message
 
 
 def test_the_refusal_names_the_arms_a_rule_wanted() -> None:

@@ -132,6 +132,7 @@ from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
 from ..learners.crossfit import (
+    _LARGER_COMPLEMENT_NOTE,
     CrossFitPlan,
     Folds,
     SplitPlan,
@@ -1267,8 +1268,8 @@ class TMLE:
                 raise DataError(
                     "cross-fitted NaturalCourseMean cannot fit its response and outcome "
                     f"nuisances because repeat {repeat}, fold {fold}'s training complement "
-                    f"contains no {labels[bool(missing[0])]}; reduce n_folds or use a "
-                    "different random_state"
+                    f"contains no {labels[bool(missing[0])]}. {_LARGER_COMPLEMENT_NOTE} "
+                    "Increase n_folds, use n_folds=1, or use a different random_state"
                 )
 
     @property

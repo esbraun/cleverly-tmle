@@ -1024,6 +1024,71 @@ class TestMissingnessTilt:
         # This process has a substantial effect, so no plausible tilt nulls it.
         assert tipping is None or abs(tipping) > 1.0
 
+    def test_the_confidence_interval_tips_at_the_nearest_limit(self, missing_fit) -> None:
+        """The signed CI objective reaches the null inside an asymmetric search."""
+        direction = {0: 0.0, 1: -1.0}
+        tipping = missing_fit.sensitivity.tipping_gamma(
+            "ate", search=(-0.5, 4.0), use_ci=True, arm_gamma=direction
+        )
+
+        assert tipping is not None
+        assert 2.0 < tipping < 4.0
+        curve = missing_fit.sensitivity.missingness(
+            [tipping], estimands=["ate"], arm_gamma=direction
+        )
+        assert float(curve["ci_lower"].iloc[0]) == pytest.approx(0.0, abs=1e-4)
+
+    def test_the_upper_confidence_limit_can_tip_from_below(self, missing_fit) -> None:
+        """A null above the baseline interval keeps the opposite signed boundary."""
+        direction = {0: -1.0, 1: 1.0}
+        tipping = missing_fit.sensitivity.tipping_gamma(
+            "ate", null_hypothesis=2.0, use_ci=True, arm_gamma=direction
+        )
+
+        assert tipping is not None
+        curve = missing_fit.sensitivity.missingness(
+            [tipping], estimands=["ate"], arm_gamma=direction
+        )
+        assert float(curve["ci_upper"].iloc[0]) == pytest.approx(2.0, abs=1e-4)
+
+    def test_the_ci_tipping_search_handles_baseline_and_no_crossing(self, missing_fit) -> None:
+        assert (
+            missing_fit.sensitivity.tipping_gamma(
+                "ate", null_hypothesis=missing_fit.psi("ate"), use_ci=True
+            )
+            == 0.0
+        )
+        assert (
+            missing_fit.sensitivity.tipping_gamma("ate", null_hypothesis=100.0, use_ci=True) is None
+        )
+
+    def test_a_nonmonotone_direction_finds_the_nearest_interior_crossing(self, missing_fit) -> None:
+        """Equal endpoint signs do not hide two crossings inside the bracket."""
+        direction = {0: -190.71029260054688, 1: -161.20708526870136}
+        null = 1.5587107797809199
+
+        tipping = missing_fit.sensitivity.tipping_gamma(
+            "ate", null_hypothesis=null, arm_gamma=direction
+        )
+
+        witness = missing_fit.sensitivity.missingness(
+            [0.0, 0.015, 0.0625], estimands=["ate"], arm_gamma=direction
+        )
+        assert float(witness["psi"].iloc[0]) < null
+        assert float(witness["psi"].iloc[1]) > null
+        assert float(witness["psi"].iloc[2]) < null
+        assert tipping is not None and 0.006 < tipping < 0.008
+        curve = missing_fit.sensitivity.missingness(
+            [tipping], estimands=["ate"], arm_gamma=direction
+        )
+        assert float(curve["psi"].iloc[0]) == pytest.approx(null, abs=1e-4)
+
+    def test_the_tipping_search_must_bracket_mar(self, missing_fit) -> None:
+        with pytest.raises(ValueError, match=r"must be a finite, increasing.*contains gamma=0"):
+            missing_fit.sensitivity.tipping_gamma("ate", search=(1.0, 2.0))
+        with pytest.raises(ValueError, match="arm_gamma multipliers must be finite"):
+            missing_fit.sensitivity.tipping_gamma("ate", arm_gamma={0: 0.0, 1: np.inf})
+
     def test_the_mnar_analyses_wait_to_be_asked_for(self, missing_fit) -> None:
         """A fit that *can* run the tilt still does not run it by default.
 

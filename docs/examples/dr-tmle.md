@@ -16,7 +16,7 @@ common cause would be a different failure, and DR-TMLE does not repair it.
 
 | estimator | when the assignment model converges to the wrong limit |
 | --- | --- |
-| ordinary TMLE | stays consistent. If the outcome fit converges slower than root-n, as a flexible learner does, the bias shrinks slower than the standard error. The interval then under-covers as $n$ grows |
+| ordinary TMLE | stays consistent. If the outcome fit converges too slowly, the remainder can dominate the root-n scale. The usual influence-curve interval then need not attain nominal coverage |
 | DR-TMLE | solves two extra score equations built from reduced-dimension regressions. Under Theorem 1 of Benkeser et al. (2017), it stays asymptotically linear, given [rate conditions](../technical-reference/dr-tmle/theorem.md#the-remainder-terms-and-the-rate-conditions) on the outcome fit and the reduced regressions |
 
 When both nuisances are consistent, the corrections converge to zero. DR-TMLE then has no asymptotic
@@ -78,7 +78,7 @@ refusals raise at fit time.
 The primary nuisances are the analyst's: a flexible outcome regression and a crude assignment
 model. The reduced regressions each have one input, so a spline can fit them fast. Each reduction
 below is a Super Learner over a linear and a spline candidate. The
-[`drtmle` vignette](https://github.com/benkeser/drtmle/blob/master/vignettes/using_drtmle.Rmd)
+[`drtmle` vignette](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/vignettes/using_drtmle.Rmd)
 uses the same pairing, `SL.glm` and `SL.gam`.
 
 ```python
