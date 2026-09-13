@@ -1773,7 +1773,10 @@ class TestCompetingRisks:
             )
         # Matched on the clause that survives a reworded sentence: the fold is named, and
         # the reader is told the fold count is the thing to change.
-        assert "the same frame can be estimable at n_folds=1" in str(caught.value)
+        message = str(caught.value)
+        assert "the same frame can be estimable at n_folds=1" in message
+        assert "A larger fold count gives each training complement more rows" in message
+        assert "Increase n_folds, use n_folds=1, or choose an estimand" in message
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.

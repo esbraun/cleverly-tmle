@@ -46,15 +46,14 @@ development environment and reproducible version-pinned installs.
 
 ## Quickstart
 
-Declare the observed-data design and the causal estimand separately, inspect identification, then
-estimate:
+Declare the design and the estimand separately, inspect identification, estimate, then assess:
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
-from cleverly.datasets import make_nonlinear_ate
+from cleverly.datasets import make_linear_ate
 
-frame, truth = make_nonlinear_ate(n=2_000, seed=7)
+frame, truth = make_linear_ate(n=2_000, seed=7)
 study = CausalStudy(
     frame,
     design=PointTreatment(
@@ -63,19 +62,20 @@ study = CausalStudy(
         adjustment=("W1", "W2", "W3", "W4"),
     ),
 )
-
-effect = study.identify(ATE())
+effect = study.identify(ATE(reference=0))
 print(effect.summary())
-
-result = effect.estimate(random_state=7)
+result = effect.estimate(
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=7,
+)
 print(result.summary())
-print(result["ate"].ci)
+print(result["ate"].ci, "population ATE:", truth["ate"])
+print(result.assess().summary())
 ```
 
-The identified effect states the observed-data functional, assumptions, nuisance requirements,
-and available methods before any learner is fit. The result retains estimates, influence curves,
-joint covariance, structured parameter keys, normalized method configuration, provenance, and
-post-fit assessment.
+Both nuisance functions of `make_linear_ate` are linear, so these learners are correctly specified.
+The identified effect states its functional and assumptions before any learner is fit.
 
 Continue with the
 [full quickstart](https://esbraun.github.io/cleverly-tmle/getting-started/quickstart.html) or the
@@ -101,7 +101,7 @@ strategy. The test-enforced evidence manifest lives in the Technical reference.
 
 ## Implemented analysis families
 
-This table summarises the package. The
+This table summarizes the package. The
 [technical implementation matrix](https://esbraun.github.io/cleverly-tmle/technical-reference/)
 is the authoritative inventory, and it names the evidence for each row.
 
@@ -173,7 +173,7 @@ output and carries no row at all. `tests/prose.py` says which rules were rejecte
 The fast tier compiles every Python fence and executes the registered reader-facing guides. It
 also resolves relative links and checks that generated API source represents the root API.
 Scientific behavior belongs in ordinary fast tests or registered validation studies. Regenerate
-only the affected studies. Run the relevant checks locally before handoff; a green GitHub Actions
+only the affected studies. Run the relevant checks locally before handoff. A green GitHub Actions
 CI run is the final merge signal.
 
 [CONTRIBUTING.md](https://github.com/esbraun/cleverly-tmle/blob/main/CONTRIBUTING.md) gives the

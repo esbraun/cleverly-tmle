@@ -355,8 +355,8 @@ covers.
 
 | gate | documents | sample size | what it asserts |
 | --- | --- | --- | --- |
-| `test_every_example_runs` | every entry in `PRELUDES` | shrunk to `SMALL_N` | nothing raises |
-| `test_tutorial_semantics_at_documented_size` | the four entries in `TUTORIAL_SEMANTIC_ASSERTIONS` | the size the page prints | one reviewed callback for that page |
+| `test_every_nonsemantic_example_runs` | entries in `PRELUDES` that are not tutorials | shrunk to `SMALL_N` | nothing raises |
+| `test_tutorial_semantics_at_documented_size` | every Markdown tutorial under `docs/examples/` | the size the page prints | nothing raises, then one reviewed callback checks that page |
 
 The smoke gate asserts no number. It exists because compiling a fence cannot see a name the
 package does not have. Six shipped examples were broken that way at once: two on a renamed
@@ -375,9 +375,9 @@ method claim still needs an ordinary fast test or a registered study.
 
 The gate is bounded by review rather than by a heuristic. Each callback lives in the test module
 and not in the document, so a rewritten page cannot grant itself a numeric gate.
-`test_every_tutorial_semantic_assertion_names_one_reviewed_runtime_example` pins the registry to
-the four reviewed tutorials, and this second pass runs them unshrunk, which is the cost that keeps
-the registry small. *Reconsider when* a callback needs a looser tolerance to keep passing. A
+`test_every_tutorial_has_one_semantic_assertion` discovers the Markdown tutorials and pins the
+registry to them. The documented-size gate is their only runtime pass, which avoids repeating each
+fit at the smoke size. *Reconsider when* a callback needs a looser tolerance to keep passing. A
 relation that moves under a supported change is a sampling claim, and it belongs in a registered
 study.
 

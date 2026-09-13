@@ -1054,7 +1054,7 @@ def make_clustered(
 
     The third latent variable is shared within a cluster and is deliberately not included
     among the covariates, so the influence curves are correlated within clusters.  Ignoring
-    ``id=`` here understates the standard error -- which is exactly what the cluster-variance
+    ``cluster=`` here understates the standard error -- which is exactly what the cluster-variance
     test checks.
 
     It moves ``Y`` and, being independent of ``A``, leaves the ATE identified from the
@@ -1075,7 +1075,7 @@ def make_clustered(
     Returns
     -------
     dataframe
-        Simulated observations with an ``id`` column naming each row's cluster.
+        Simulated observations with a ``cluster`` column naming each row's cluster.
     truth : dict of str to float
         Exact causal parameters for the data-generating process.
     """

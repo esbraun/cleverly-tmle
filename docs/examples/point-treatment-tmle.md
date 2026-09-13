@@ -1,62 +1,29 @@
 # Point-treatment TMLE: did transition navigation improve the experience score?
 
-This is the first test of change in the network's patient-experience program. It estimates one
-average treatment effect from observational data. It also illustrates double-robust point
-consistency. Under the required regularity conditions, either nuisance can supply consistency when
-the other is misspecified. Valid influence-curve inference needs its own rate conditions.
-
-Read [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) for the parameter, the
+This page estimates one average treatment effect from observational data with TMLE.
+[Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) gives the parameter, the
 influence curve, and the algorithm.
 
 ## The applied question
 
-A regional health plan offers adults a **standard transition-navigation protocol** before they
-leave a hospital for home. Assignment means an offer of a bedside plan and two scheduled contacts
-within 30 days. It does not mean that the patient completed every contact.
-
-Nobody randomized the rollout. Discharge teams used a recorded risk process, and patients who got
-an offer were not a random sample. The plan measured discharge risk, prior utilization, medication
-burden, and age before assignment.
-
-The program wants one number. How much would the average 30-day transition score change if every
-eligible discharge received the navigation offer, compared with usual discharge support?
-
-That question names an estimand before any model exists. It is the average treatment effect. It
-contrasts two counterfactual means over the same population. It is not the coefficient on a
-navigation indicator. It is not a comparison of offered patients with patients who got usual care.
-
-The outcome is a standardized 30-day patient-reported transition score. This first synthetic law
-treats discharges as independent. The [cross-fitting tutorial](cross-fitting.md) adds shared
-navigator teams.
+A regional health plan offers adults a **standard transition-navigation protocol** when a discharge
+home is ordered. The offer is a bedside plan and two scheduled contacts within 30 days. Nobody
+randomized it, and discharge teams used a recorded risk process. How much would the mean 30-day
+transition score change if every eligible discharge received the offer, rather than usual support?
+That question is the average treatment effect, not a regression coefficient.
 
 ## Why this method
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| observational data, confounders measured | doubly-robust point consistency under the identification and regularity conditions | you must name the estimand first |
+| observational data, confounders measured | double robust point consistency: either consistent nuisance model can supply it, under positivity and regularity conditions | you must name the estimand first |
 | the nuisance functions are not linear | flexible learners fit both nuisances, and the estimate stays a plug-in | a valid interval needs a product rate on the two nuisances |
 | you want an interval you can report | the interval comes from the targeted influence curve | positivity must hold, and a support report cannot verify it |
 
-Two familiar alternatives have different limitations here.
-
-A regression of the transition score on navigation and the four covariates reports a coefficient.
-That coefficient does not generally equal the average treatment effect. A correct additive outcome
-model with a constant effect is one condition that makes them equal, but neither feature holds here.
-The number changes when you add an interaction term, and the output does not define the target
-population average.
-
-Inverse-probability weighting avoids the outcome model. A small fitted propensity can give one row
-a large weight. That row can then have a large effect on the estimate.
-
-TMLE uses both models. It starts from the outcome regression. It then moves that regression along a
-submodel chosen to solve the efficient score equation. The double-robust consistency result uses
-the resulting estimating equation.
+A regression coefficient and an inverse-probability-weighted mean each rest on one model. TMLE
+targets the outcome regression with the treatment mechanism, so it uses both.
 
 ## The data
-
-The generator is `make_nonlinear_ate`. Its own documentation calls it the process that exercises
-double robustness. A linear model is wrong for the treatment mechanism and wrong for the outcome
-regression, and the effect varies with the covariates.
 
 ```python
 from cleverly.datasets import make_nonlinear_ate
@@ -76,16 +43,18 @@ print(frame.head())
 print("population ATE:", truth["ate"])
 ```
 
-The renaming is cosmetic. It keeps the prose about patients rather than about `W1`.
+The baseline covariates are standardized (mean 0, SD 1), so a negative `age` is below the
+average age. The transition score is in synthetic units. Its effect is larger than a real navigation
+program would expect, so each fit shows its behavior clearly. Every discharge is independent here,
+and the [cross-fitting tutorial](cross-fitting.md) adds shared navigator teams.
 
 | feature of the law | what it means in this program |
 | --- | --- |
-| the four baseline covariates drive assignment and the outcome | higher-risk patients receive different offers and report different outcomes. All four are confounders in the synthetic law |
+| the four baseline covariates drive assignment and the outcome | higher-risk patients are more likely to receive an offer and report different outcomes. All four are confounders in the synthetic law |
 | both nuisance functions are nonlinear | a GLM is misspecified for each one, which is the condition this page exploits |
 | the effect varies with the covariates | `ate`, `att`, and `atc` differ, so the estimand must be named rather than inferred |
 
-The `truth` dictionary exists because this is a generator. A real program has no such column. Every
-comparison against `truth` below is a teaching device.
+A real program has no `truth`. Every comparison against it below is a teaching device.
 
 ## Design and identification
 
@@ -97,14 +66,13 @@ from cleverly import ATE, CausalStudy, PointTreatment, StudyProtocol
 
 protocol = StudyProtocol(
     target_population=(
-        "Adults discharged home from a participating hospital during the enrollment period"
+        "Adults with a discharge-home order at a participating hospital during the enrollment period"
     ),
     eligibility=(
         "Age 18 years or older",
-        "Discharged alive",
-        "Discharged home from a participating hospital",
+        "Discharge home ordered at a participating hospital",
     ),
-    time_zero="Hospital discharge, after baseline measurement and before navigation assignment",
+    time_zero="Discharge-home order, after baseline measurement and before the navigation offer",
     treatment_strategies=(
         "Offer standard transition navigation",
         "Provide usual discharge support",
@@ -113,11 +81,12 @@ protocol = StudyProtocol(
         "Bedside transition plan and two scheduled navigator contacts within 30 days",
         "No access to the transition-navigation offer",
     ),
-    outcome="Standardized patient-reported transition score",
+    outcome="Patient-reported transition score",
     horizon="30 days after discharge",
     intercurrent_event_handling=(
         "Use the transition score regardless of readmission",
         "Analyze the offer regardless of completed contacts",
+        "The protocol scores death before day 30 as the worst transition score (composite strategy)",
     ),
     interference_unit="Individual patient",
     assumption_rationale=(
@@ -143,8 +112,9 @@ for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
 
-The identification summary renders the protocol that `CausalStudy` stored on the effect. The
-typed `ATE` still owns the contrast and its reference arm.
+Time zero, eligibility, and the offer coincide at the discharge-home order. Eligibility therefore
+cannot depend on the offer. The identification summary renders the stored protocol, and the typed
+`ATE` owns the contrast and its reference arm.
 
 `identify` returns the assumptions that carry the causal reading. Four apply here.
 
@@ -155,22 +125,20 @@ typed `ATE` still owns the contrast and its reference arm.
 | no unmeasured confounding | the recorded baseline variables block every common cause of assignment and the score | no |
 | positivity | each baseline profile has some chance of an offer and of usual support | partly, through the support report |
 
-Only positivity leaves a direct trace in the observed treatment support. This page keeps the
-[shared study design](index.md#the-shared-study-design) and changes nothing in it. That design
-states how the program supports consistency and no interference.
+The [shared study design](index.md#the-shared-study-design) states how the program supports
+consistency and no interference. This page changes nothing in it.
 
 No unmeasured confounding needs a causal argument. For example, an unrecorded discharge-team
-judgement that affects both assignment and recovery would violate it. No estimator on this page repairs that
-failure. Restrict eligibility or redesign assignment when the argument is not credible.
+judgment that affects both assignment and recovery would violate it. No estimator repairs that
+failure. The sensitivity analysis below asks how strong such a judgment would need to be.
 
 The synthetic law needs only four covariates. A real protocol should also evaluate pre-assignment
-site, navigator-team, calendar, language-access, and discharge-destination causes. Add them when the
-causal review places them on a common-cause path.
+site, navigator-team, calendar, and language-access causes. Add them when the causal review places
+them on a common-cause path.
 
 ## Estimate
 
-The configuration is written out in full rather than left to defaults. Each group answers one
-question, so a reader sees every choice that was made.
+The configuration is written out in full, so a reader sees every choice.
 
 ```python
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -196,10 +164,8 @@ print("95% CI:", estimate.ci)
 print("population ATE:", truth["ate"])
 ```
 
-The result summary renders the same complete protocol and its fingerprint. It also reports the
-method configuration separately, because protocol text cannot configure a fit.
-
-Both nuisances use a gradient-boosted learner because the law is nonlinear. Cross-fitting separates
+The result summary repeats the protocol and its fingerprint, and it reports the method
+configuration separately. It names the construction as stacked CV-TMLE. Cross-fitting separates
 each nuisance prediction from the row used to evaluate it. The
 [cross-fitting tutorial](cross-fitting.md) shows why that separation matters for flexible learners.
 
@@ -210,11 +176,11 @@ condition, and the declared dependence structure.
 ## Which population is the number about?
 
 The average treatment effect answers a question about every patient. A spread decision asks
-something narrower, and the difference is not cosmetic.
+something narrower.
 
 | estimand | the question it answers | who asks it |
 | --- | --- | --- |
-| ATT | what did patients who received an offer gain from assignment? | the teams reviewing the pilot |
+| ATT | what did patients who received an offer gain from assignment? | the teams reviewing the rollout |
 | ATE | what would the eligible population gain if everyone received an offer? | the program sponsor |
 | ATC | what would patients who received usual support gain from an offer? | whoever is deciding on spread |
 
@@ -253,51 +219,28 @@ simple = TMLEMethod(
     cross_fitting=CrossFitting(n_folds=5),
     runtime=Runtime(random_state=23, n_jobs=1),
 )
-spread_results = {}
 for estimand, key in (
     (ATT(reference=0), "att"),
     (ATE(reference=0), "ate"),
     (ATC(reference=0), "atc"),
 ):
-    fitted = spread_study.identify(estimand).estimate(method=simple)
-    spread_results[key] = fitted
-    point = fitted[key]
+    point = spread_study.identify(estimand).estimate(method=simple)[key]
     low, high = point.ci
     print(
         f"{key}: {point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  population {spread_truth[key]:.3f}"
     )
 ```
 
-The population law has `att > ate > atc` by construction. The printed estimates come from one
-sample. Do not use interval overlap as a test of the differences between these parameters.
+The population law has `att > ate > atc` by construction. Its propensity is exactly logistic, so
+the treatment learner is correct. The linear outcome learner omits the law's navigation-by-risk
+interaction, so these fits rest on the treatment model. Do not use interval overlap as a test of
+the differences between these parameters.
 
-Read that as a warning about spread. The pilot's own result is the ATT, and it is the number a
-successful pilot reports. Patients who received usual support would get the ATC, which here is a small
-fraction of it. A program that budgets the network rollout against the pilot's number will
-overpromise.
+Read that as a warning about spread. The offered patients' gain is the ATT. Patients who received
+usual support would get the ATC, which here is a small fraction of it. A program that budgets the
+network rollout against the ATT will overpromise.
 
-Read the support diagnostic on each fitted result. Each estimand has a different clever covariate,
-so inverse-probability weights alone do not describe its covariate load.
-
-```python
-for estimand, group in (("ate", "mean"), ("att", "att"), ("atc", "atc")):
-    load = spread_results[estimand].diagnostics.support().group_leverage[group]
-    print(
-        f"{estimand}: equation={load['equation']}  "
-        f"Kish load ratio among targeted rows={load['targeted_ratio']:.2f}  "
-        f"top 5% load share={load['top_5pct']:.2f}"
-    )
-```
-
-The ATE uses the `mean` group. The ATT and ATC use their named groups. Each row reports the score
-equation with the most concentrated absolute residual-multiplier load in that group. The ratio is
-a Kish concentration summary of that load. It is not an effective sample size for the estimate.
-
-The fitted result retains the exact score weights each group used. The ATT and ATC record
-`g_bounds_conditional`, while the mean group records `g_bounds`. Use the arm table to inspect
-inverse-probability weights. Use the group table to inspect the fitted residual multipliers.
-
-## Illustrate double-robust point consistency
+## The failure mode: both nuisance models misspecified
 
 Double robustness is a claim about *or*, not about *and*. Use the known synthetic law to compare
 learner combinations. Treat the result as an illustration, not as validation evidence.
@@ -306,6 +249,9 @@ A gradient-boosted learner can represent the law's nonlinear features. The linea
 those features by construction. Three more fits show the resulting finite-sample pattern.
 
 ```python
+dr_points = {}
+
+
 def fit(outcome_learner, treatment_learner, label):
     method = TMLEMethod(
         models=ModelSpec(outcome_learner=outcome_learner, treatment_learner=treatment_learner),
@@ -313,9 +259,9 @@ def fit(outcome_learner, treatment_learner, label):
         runtime=Runtime(random_state=21, n_jobs=1),
     )
     point = effect.estimate(method=method)["ate"]
+    dr_points[label] = point
     low, high = point.ci
-    covers = low <= truth["ate"] <= high
-    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})  covers={covers}")
+    print(f"{label:22s} psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f})")
 
 
 fit(
@@ -332,28 +278,21 @@ fit(LinearRegression(), LogisticRegression(max_iter=1000), "both linear")
 print("population ATE:", truth["ate"])
 ```
 
-Compare each estimate with the known population value. The different learner choices move the
-finite-sample result. This output does not establish nuisance consistency or repeated-sampling
-coverage.
-
-Three cautions belong with the demonstration.
+On this draw, the fit with both linear learners misses the population value by several times more
+than either fit with one flexible learner. This output does not establish nuisance consistency or
+repeated-sampling coverage.
 
 | caution | why |
 | --- | --- |
 | the linear models omit known terms | a real analysis does not reveal which nuisance model is consistent |
-| one interval contains truth in this draw | coverage is a repeated-sampling property |
+| one draw is not a coverage result | coverage is a repeated-sampling property |
+| one nuisance is inconsistent | the point estimate can stay consistent, but the influence-curve interval need not be valid. [DR-TMLE](dr-tmle.md) addresses that case |
 | point consistency and interval validity differ | Wald inference needs the stated product-rate and regularity conditions |
-
-The [canonical point-treatment study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md)
-measures bias and interval behavior across repetitions. Use that study, not this draw, as package
-evidence.
 
 ## How far to trust this
 
 Start with the combined assessment. It presents validation, diagnostics, and sensitivity together.
-It leads with each returned result. It then inventories the checks and the operations that did not
-run by name, without their detail. Read `assessment.attention` for the failure and warning rows
-themselves.
+Read `assessment.attention` for the failure and warning rows.
 
 ```python
 assessment = result.assess()
@@ -368,33 +307,17 @@ print(nuisance.summary())
 print(scores.summary())
 ```
 
-The overview puts returned results first. It summarizes checks and operations that did not run
-without repeating their details. Call `assessment.to_frame()` when you need the complete row
-ledger. The retained reports provide the tables needed to interpret each result. A `completed`
-sensitivity row means the calculation ran. It is not a pass.
+Call `assessment.to_frame()` for the complete row ledger. A `completed` row means the calculation
+ran. It is not a pass.
 
-The support report describes fitted overlap. It gives propensity quantiles, arm-weight
-concentration, and the share of rows affected by truncation. It cannot verify population positivity.
+On this draw, `needs attention` names `nuisance_models`, because the boosted propensity is poorly
+calibrated. The support report clips a small share of rows at the truncation bound. It describes
+fitted overlap and cannot verify population positivity.
 
-**Read its verdict on this fit.** The boosted treatment model produces some extreme fitted
-probabilities. The arm table shows how the inverse-probability weights concentrate. Treat its Kish
-summary as a weight-concentration index, not as the estimate's effective sample size.
-
-Two lessons follow, and both are general.
-
-The first is that a better-predicting assignment model is not automatically a better assignment model
-for this purpose. Prediction accuracy and estimand-relevant behaviour are different criteria, and
-[collaborative TMLE](collaborative-tmle.md) is the entry that chooses between models on the second
-one.
-
-The second lesson is what the report does not say. A truncated row uses the bounded fitted
-mechanism value in targeting. The row still contributes data. The report does not convert its Kish
-summaries into a positivity verdict, because no universal cutoff applies.
-
-A `completed` status means the descriptive calculation ran. It does not clear the positivity
-assumption. Inspect the retained tables and the truncation curve before reporting the estimate.
-
-The overview names the follow-up itself.
+Two lessons follow. First, a better-predicting assignment model is not automatically a better one
+for this purpose. [Collaborative TMLE](collaborative-tmle.md) chooses the assignment model by its
+effect on the targeted estimate. Second, the report gives no positivity verdict, because no
+universal cutoff applies. Inspect the retained tables and the truncation curve before reporting.
 
 ```python
 retargeted = result.assess(include_retargets=True)
@@ -402,76 +325,48 @@ curve = retargeted.report("truncation_curve")
 print(curve)
 ```
 
-The curve retargets the estimate at a range of truncation bounds. It does not refit the nuisance
-models. Movement shows sensitivity to this finite-sample regularisation choice. Limited movement
-does not verify positivity or show that all support effects occur through variance.
+The curve retargets the estimate at a range of truncation bounds without refitting the nuisance
+models. Movement shows sensitivity to this regularization choice. Limited movement does not verify
+positivity.
 
-The nuisance report adds calibration and prediction summaries for this draw. Use them to find
-model problems, but do not treat them as proofs of nuisance consistency. A close point estimate is
-compatible with double robustness; one synthetic draw does not verify that property.
-
-The sensitivity section comes next. It addresses assumptions that the observed data cannot test.
-
-Unmeasured confounding is invisible to every diagnostic, because the data holds no record of it.
-Sensitivity analysis asks a different question. How strong would an unmeasured confounder have to be
-to explain the result away? An unrecorded discharge-team judgement is the concrete threat to hold
-against the answer.
-
-Then refutation, which perturbs the analysis and checks that it responds as it should.
+Diagnostics cannot see unmeasured confounding. Sensitivity analysis asks how strong a confounder
+would need to be to explain the result away. The assessment above already holds the robustness
+value. The benchmark calibrates that strength against `discharge_risk`, the covariate behind the
+recorded risk process.
 
 ```python
-refitted = result.assess(include_refits=True)
-print(refitted.report("refute").summary())
+robustness = assessment.report("robustness_value")
+benchmark = result.sensitivity.benchmark(covariates=("discharge_risk",))
+bounds = result.sensitivity.omitted_confounding(cf_y=benchmark.cf_y, cf_d=benchmark.cf_d)
+print("robustness value:", robustness)
+print(benchmark)
+print("bias-adjusted 95% CI at the benchmark strength:", (bounds.ci_lower, bounds.ci_upper))
 ```
 
-A placebo exposure should give roughly zero. A random common cause should cause limited movement.
-A subset refit should scatter around the original estimate. Unexpected movement calls for review,
-but a stable result is not evidence of correctness.
+The benchmark refits the nuisances once without `discharge_risk`. The call goes to the facade
+because `assess(include_refits=True)` would also run the costlier refutations.
 
-This fit sets `random_state=21`, so the refuter inherits that seed and repeats the same report.
+The robustness value assumes worst-case alignment (`rho=1`). It is the equal outcome-side and
+treatment-side strength that moves the point estimate to zero. On this draw it is about 0.26. At the
+benchmark strength and `rho=1`, the bias-adjusted interval still excludes zero. The review must
+decide whether an unrecorded team judgment could be stronger than the recorded risk score. The
+[omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+section defines each quantity.
 
-Last comes a repeated-sampling check. This is the only instrument on the page that measures the
-estimator rather than one fit.
+`result.assess(include_refits=True)` adds placebo, noise, and subsampling refutations. A stable
+refutation is not evidence of correctness.
 
-```python
-from cleverly.datasets import linear_dgp
-from cleverly.estimators import TMLE
-from cleverly.validation import CoverageStudy
-
-check = CoverageStudy(
-    dgp=linear_dgp(),
-    estimator=lambda: TMLE(
-        outcome_learner=LinearRegression(),
-        treatment_learner=LogisticRegression(max_iter=1000),
-        cross_fit=False,
-        estimands=("ate",),
-        simultaneous=False,
-    ),
-    n=400,
-    n_replicates=40,
-    seed=7,
-)
-print(check.run().summary())
-```
-
-This runs on `linear_dgp`, where a GLM is correctly specified for both nuisances. The expected
-large-sample pattern is small bias and coverage near 0.95. This short run shows the workflow, not a
-coverage guarantee.
-
-Forty replications is a demonstration rather than evidence. The registered study behind this method
-runs 1,600 replications on two laws. It is published test by test in the
-[implementation validation grid](../technical-reference/method-evidence/validation-grid.md) and
-in
-[canonical point-treatment TMLE](../technical-reference/method-evidence/canonical-point-treatment-tmle.md).
+The [stacked point-treatment CV-TMLE study](../technical-reference/method-evidence/stacked-point-treatment-cv-tmle.md)
+validates this construction with GLM learners. No registered study covers the boosted learners
+used here.
 
 ### What each layer can and cannot establish
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| assessment overview | each returned descriptive result in full text, which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
-| retained diagnostics | that targeting converged, and how far positivity was strained | that the nuisance models are right |
-| sensitivity analysis | how large an unmeasured confounder would need to be | that no such confounder exists |
-| refutation | the estimate responds correctly to perturbations with a known answer | that the estimate is correct |
+| assessment overview | which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
+| retained diagnostics | that targeting converged, and how concentrated the fitted weights are | that the nuisance models are right |
+| sensitivity analysis | how strong an unmeasured confounder would need to be | that no such confounder exists |
 | the registered study | the implementation recovers known truths and behaves as its theory predicts | that your identification assumptions hold on your data |
 
 Nothing in this list validates the causal reading. That rests on consistency, no interference, and
@@ -489,9 +384,6 @@ from tempfile import TemporaryDirectory
 
 from cleverly import load
 
-for capability in result.diagnostics.capabilities:
-    print(capability.operation, capability.cost, capability.execution)
-
 with TemporaryDirectory() as directory:
     saved = Path(directory) / "transition-navigation-ate.joblib"
     result.save(saved)
@@ -504,10 +396,9 @@ with TemporaryDirectory() as directory:
     print(restored.assess().summary())
 ```
 
-`replayability` says which operations the restored artifact can still perform. The saved assessment
-cache retains reports that ran before the save. A new nuisance refit still needs the analysis data.
-Use a maintained path instead of a temporary directory for a real audit artifact. Load only joblib
-files you trust, and keep the dependency versions compatible.
+`replayability` says which operations the restored artifact can still perform. A new nuisance
+refit still needs the analysis data. Use a maintained path for a real audit artifact. Load only
+joblib files you trust, and keep the dependency versions compatible.
 
 ## Where to go next
 

@@ -122,7 +122,7 @@ def missingness_tilt(
         counterfactual means, and re-deriving a ratio's log-scale influence curve under
         the tilt would misrepresent the uncertainty.
     arm_gamma : mapping of level to float, or None
-        One multiplier per arm, keyed by the treatment level as the caller wrote it, so
+        One finite multiplier per arm, keyed by the treatment level as the caller wrote it, so
         that the tilt at arm ``a`` is ``arm_gamma[a] * gamma``.  ``None`` -- the default,
         and what a two-armed fit has always done -- tilts every arm by the same
         ``gamma``.  Every arm must appear; see this module's docstring for why the choice
@@ -262,7 +262,12 @@ def _tilt_direction(data: CausalData, arm_gamma: Mapping[Any, float] | None) -> 
                 f"arm_gamma names {label!r}, which is not a level of "
                 f"{data.treatment_name}; its levels are {levels}"
             )
-        direction[float(matches[0])] = float(multiplier)
+        value = float(multiplier)
+        if not np.isfinite(value):
+            raise ValueError(
+                f"arm_gamma multipliers must be finite; got {multiplier!r} for {label!r}"
+            )
+        direction[float(matches[0])] = value
     missing = [levels[int(code)] for code in codes if code not in direction]
     if missing:
         raise ValueError(
@@ -342,11 +347,11 @@ def tipping_gamma(
 ) -> float | None:
     """The tilt at which the conclusion tips.
 
-    Returns the smallest ``|gamma|`` at which the estimate (or, with ``use_ci=True``,
-    the confidence interval) reaches ``null_hypothesis``, or ``None`` if no tilt within
-    ``search`` does so.  Reporting this single number is usually more informative than
-    the whole curve: it converts "is MAR plausible?" into "would the unobserved
-    outcomes have to differ by *this much*?".
+    Returns the detected crossing with the smallest ``|gamma|`` at which the estimate
+    (or, with ``use_ci=True``, the confidence interval) crosses ``null_hypothesis``.
+    Returns ``None`` if the search detects no crossing. Reporting this single number is
+    usually more informative than the whole curve: it converts "is MAR plausible?"
+    into "would the unobserved outcomes have to differ by *this much*?".
 
     With ``arm_gamma=`` the number is the magnitude at which that *direction* tips the
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
@@ -364,7 +369,9 @@ def tipping_gamma(
     null_hypothesis : float
         The value the conclusion is said to tip at.
     search : tuple of float
-        Lower and upper tilt the search brackets.
+        Lower and upper tilt the search brackets. The pair must be increasing and
+        contain zero. The search inspects an interior grid with extra resolution for
+        the declared arm-specific tilt magnitudes before refining each crossing.
     use_ci : bool
         Whether to tip when the confidence limit reaches the null rather than the
         point estimate.
@@ -374,37 +381,83 @@ def tipping_gamma(
     Returns
     -------
     float or None
-        The tilt at which the conclusion reaches its null, or ``None`` when no tilt
-        inside ``search`` does.
+        The nearest detected tilt at which the conclusion crosses its null, or ``None``
+        when the search detects no crossing.
     """
     _refuse_natural_course(result)
+    import narwhals as nw
     from scipy import optimize
 
-    def deviation(value: float) -> float:
+    lower_search, upper_search = (float(bound) for bound in search)
+    if (
+        not np.isfinite(lower_search)
+        or not np.isfinite(upper_search)
+        or not lower_search <= 0.0 <= upper_search
+        or lower_search == upper_search
+    ):
+        raise ValueError(
+            "search must be a finite, increasing (lower, upper) pair that contains gamma=0; "
+            f"got {search!r}"
+        )
+
+    def row_at(value: float) -> Any:
         frame = missingness_tilt(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
-        import narwhals as nw
+        return nw.from_native(frame, eager_only=True)
 
-        row = nw.from_native(frame, eager_only=True)
-        if use_ci:
-            low = float(row["ci_lower"][0])
-            high = float(row["ci_upper"][0])
-            if low <= null_hypothesis <= high:
-                return 0.0
-            return min(abs(low - null_hypothesis), abs(high - null_hypothesis))
-        return float(row["psi"][0]) - null_hypothesis
+    baseline_row = row_at(0.0)
+    field = "psi"
+    if use_ci:
+        low = float(baseline_row["ci_lower"][0])
+        high = float(baseline_row["ci_upper"][0])
+        if low <= null_hypothesis <= high:
+            return 0.0
+        # Follow the limit between the baseline interval and the null. Its signed
+        # distance crosses zero exactly when that limit reaches the null. The old
+        # absolute distance never changed sign, so brentq could not find the boundary.
+        field = "ci_lower" if null_hypothesis < low else "ci_upper"
 
-    baseline = deviation(0.0)
+    def deviation(value: float) -> float:
+        return float(row_at(value)[field][0]) - null_hypothesis
+
+    baseline = float(baseline_row[field][0]) - null_hypothesis
     if baseline == 0.0:
         return 0.0
-    sign = np.sign(baseline)
 
-    for direction in (1.0, -1.0):
-        edge = direction * max(abs(search[0]), abs(search[1]))
-        if np.sign(deviation(edge)) == sign and deviation(edge) != 0.0:
+    # An arm-specific direction can make a contrast nonmonotone even though each arm
+    # mean is monotone. Endpoint-only bracketing can therefore miss two interior
+    # crossings whose endpoint signs agree. A multiplier also reparameterizes gamma,
+    # so add a dense grid over the finite logit transition range for every magnitude.
+    # Outside +/-40 on that effective scale expit is at floating-point saturation.
+    direction = _tilt_direction(result.data, arm_gamma)
+    probe_parts = [np.linspace(lower_search, upper_search, 257), np.asarray([0.0])]
+    for magnitude in {abs(value) for value in direction.values() if value != 0.0}:
+        transition_lower = max(lower_search, -40.0 / magnitude)
+        transition_upper = min(upper_search, 40.0 / magnitude)
+        if transition_lower < transition_upper:
+            probe_parts.append(np.linspace(transition_lower, transition_upper, 1025))
+    probes = np.unique(np.concatenate(probe_parts))
+    probe_frame = missingness_tilt(
+        result,
+        tuple(float(value) for value in probes),
+        estimands=[estimand],
+        arm_gamma=arm_gamma,
+    )
+    probe_rows = nw.from_native(probe_frame, eager_only=True)
+    probe_deviations = np.asarray(probe_rows[field], dtype=float) - null_hypothesis
+
+    roots = [
+        float(value) for value, delta in zip(probes, probe_deviations, strict=False) if delta == 0.0
+    ]
+    for left, right, left_delta, right_delta in zip(
+        probes[:-1], probes[1:], probe_deviations[:-1], probe_deviations[1:], strict=False
+    ):
+        if not np.isfinite(left_delta) or not np.isfinite(right_delta):
+            continue
+        if np.sign(left_delta) == np.sign(right_delta):
             continue
         try:
-            root = optimize.brentq(deviation, 0.0, edge, xtol=1e-4, maxiter=100)
+            root = optimize.brentq(deviation, left, right, xtol=1e-4, maxiter=100)
         except (ValueError, RuntimeError):  # pragma: no cover - no sign change
             continue
-        return float(root)
-    return None
+        roots.append(float(root))
+    return min(roots, key=abs) if roots else None

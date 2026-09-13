@@ -1,63 +1,36 @@
 # Survey non-response: the patients who never answered
 
-Every result so far treated the transition score as if the program had it for every patient. It does
-not. The 30-day survey has substantial non-response.
-
-This test of change asks the navigation question again with that fact declared. It shows why a
-complete-case contrast generally has no causal interpretation in one common population.
-
-Read
-[Missing outcomes and controlled direct effects](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
-for the clever covariate and the identification argument.
+About a quarter of patients never return the 30-day transition survey. This page asks the navigation
+question again with that fact declared. It shows what a complete-case analysis estimates, and what
+declaring the response indicator recovers.
+[Missing outcomes](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+gives the clever covariate and the identification argument.
 
 ## The applied question
 
-The plan sends a transition survey 30 days after discharge. It closes the response window on day 45.
-The fixed window defines the missingness indicator; this page does not model time to response.
+The survey goes out 30 days after discharge and closes on day 45. The program still wants the ATE
+for **every eligible patient**, not only respondents. Discharge risk and prior utilization affect
+response, and navigation can change willingness to reply.
 
-Who answers is not random. Age, baseline discharge risk, language, contact mode, and prior survey
-behavior can affect response. Navigation can also change willingness to reply, so response can
-depend on treatment.
-
-The program still wants the same estimand as the [first test of change](point-treatment-tmle.md).
-What would the average transition score be if every eligible patient received the navigation offer,
-compared with usual discharge support? That question is about **every eligible patient**, not only
-respondents.
-
-A complete-case analysis compares observed respondents under each realized arm. Because treatment
-can change response, those arms can contain different selected populations. The contrast is not, in
-general, an effect among people who would respond under both assignments.
-
-The program records contact mode, language, address quality, prior response, and every follow-up
-attempt. It also uses a predeclared intensive follow-up protocol. Those design elements make the MAR
-argument more credible, but they cannot verify it.
+The response model conditions on the arm and the baseline adjustment set. A baseline predictor of
+response, such as language, must enter that set. Contact attempts after assignment cannot, because
+navigation can change them. The protocol scores death before day 30 as the worst transition score
+(composite strategy). That score counts as observed, so only living patients who do not respond
+are missing.
 
 ## Why this method
 
-Missingness is not a nuisance to be dropped. It is a second mechanism, and it enters the same clever
-covariate as the exposure.
-
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| outcomes missing for reasons you recorded | the full-population estimand, identified under missingness at random given the recorded variables and the arm | a response model on top of the assignment model |
-| response depends on the exposure | the two mechanisms compose into one factor, so the arm-dependence is handled rather than assumed away | positivity is now needed for the **product** of the two mechanisms, not for either alone |
+| outcomes missing for reasons recorded at baseline | the full-population estimand, identified under missingness at random given the baseline variables and the arm | a response model on top of the assignment model |
+| response depends on the exposure | the two mechanisms compose into one factor in the clever covariate | identification needs the **product** of the two mechanisms to be positive |
 | you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the product of the assignment and response mechanisms is right" |
-
-That last row is the one to read twice. Double robustness in the complete-data case gives you two
-independent chances. Here the second chance requires the joint mechanism product. Consistency of
-both models is a sufficient route, although their errors can cancel in special cases.
-
-Dropping non-respondents changes the population over which the outcome regression is averaged. A
-correct conditional regression on respondent rows does not recover the eligible-population ATE
-when response shifts the effect-modifier distribution. Special effect structures can make the two
-population averages coincide. This generator also adds outcome curvature that the main-effects
-complete-case regression cannot represent.
 
 ## The data
 
-The generator is `make_missing_outcome`. Its `strength` argument controls exactly the combination
-described above: curvature in the outcome surface, plus a response mechanism that sharpens on the
-same covariate.
+The generator is `make_missing_outcome`. Covariates are standardized (mean 0, SD 1), and scores are
+in synthetic units. `strength=2.0` adds outcome curvature and an effect that varies with discharge
+risk. It also makes response depend more strongly on discharge risk.
 
 ```python
 from cleverly.datasets import make_missing_outcome
@@ -78,26 +51,23 @@ print("response rate:", frame["responded"].mean())
 print("population ATE:", truth["ate"])
 ```
 
-The score is missing wherever `responded` is zero. That is the shape the container expects, and it
-refuses a missing outcome that carries no indicator.
+The score is missing wherever `responded` is zero. The container refuses a missing outcome that
+carries no indicator.
 
 | feature of the law | what it means for the survey |
 | --- | --- |
-| response depends on discharge risk and prior utilization | respondents are not a random slice of the eligible population |
-| response also depends on the arm | navigation changes who answers, so the respondent pool differs between realized arms |
-| the outcome surface has curvature a main-effects model cannot reach | a linear regression fitted to respondents extrapolates the wrong shape to everyone else |
+| response falls as discharge risk rises, and rises with prior utilization | respondents are not a random slice of the eligible population |
+| response also depends on the arm | navigation changes who answers |
+| the effect shrinks as discharge risk rises | respondents, who have lower risk, have a larger average effect than the eligible population |
+| the outcome surface has curvature a main-effects model cannot reach | a linear regression fitted to respondents extrapolates the wrong shape |
 
-The response rate in this law is higher than many real transition surveys. Response rate alone does
-not determine selection bias. Changing the response mechanism can alter its direction and size, not
-only its noise.
+About three quarters of patients respond in this law. That rate is higher than many real transition
+surveys. Response rate alone does not determine selection bias.
 
 ## Design and identification
 
-The response indicator is a **design role**, like the outcome and the exposure. Declaring it is what
-tells the estimator that the missing rows are part of the population.
-
-The identification record includes the observed-data functional, MAR, and response positivity.
-It also names the response mechanism as a required nuisance.
+The response indicator is a **design role**, like the outcome and the exposure. Declaring it tells
+the estimator that the missing rows are part of the population.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -113,18 +83,19 @@ study = CausalStudy(
 )
 effect = study.identify(ATE(reference=0))
 print(effect.summary())
-print("required nuisances:", effect.identification.required_nuisances)
 ```
+
+The summary adds missingness at random, response positivity, and the missingness mechanism as a
+required nuisance.
 
 | assumption | what it means here |
 | --- | --- |
-| missingness at random | given the recorded response predictors and the arm, response carries no further information about the unobserved score |
-| positivity, in its new form | every kind of patient had some chance of both arms **and** some chance of responding. The product is what must stay away from zero |
+| missingness at random | given the baseline adjustment set and the arm, response carries no further information about the unobserved score |
+| positivity, in its new form | every kind of patient had some chance of both arms **and** of responding. Identification needs the product to be positive. Stable inference also needs it away from zero |
 
-Missingness at random is not testable, and it is a strong claim. The recorded variables must explain
-every reason the unobserved transition score predicts response. A patient who ignores the survey
-because navigation failed violates it directly. No diagnostic can detect that violation from the
-observed data alone. The sensitivity report below instead stresses one declared departure from MAR.
+Missingness at random is not testable. A patient who ignores the survey because navigation failed
+violates it directly. No diagnostic can detect that violation from the observed data. The
+sensitivity analysis below stresses one declared departure instead.
 
 ## Estimate
 
@@ -149,7 +120,11 @@ print(full.summary())
 print("population ATE:", truth["ate"])
 ```
 
-## The failure mode: complete cases select different populations
+These learners deliberately use the second route to double robustness. The linear outcome model is
+wrong for this law. The two main-effects logistic models match the law's assignment and response
+mechanisms exactly. One covered interval on one draw is not evidence of coverage.
+
+## The failure mode: complete cases estimate a different population
 
 Now do what the program office would do without thinking about it. Drop the patients who never
 answered, forget the indicator, and run the ordinary analysis.
@@ -186,17 +161,22 @@ print("population ATE:", truth["ate"])
 print("rows used:", len(respondents), "of", len(frame))
 ```
 
-At the documented sample size the complete-case fit sits well above the population value, and its
-interval excludes it. The fit that declares the response mechanism covers it.
+On this draw the complete-case fit sits above the population value, and its interval excludes it.
+The fit that declares the response mechanism covers it.
 
-Note what the complete-case interval looks like. It is narrow and it is confident. Nothing in that
-fit is broken. It solved its score equation, its diagnostics pass, and it is a perfectly good
-adjusted contrast among observed respondents in each realized arm. It is not generally a causal
-effect for a shared target population.
+The complete-case fit averages over respondents only. Under missingness at random, it estimates the
+effect standardized to the respondents' covariate distribution. That equals the eligible-population
+ATE when the effect does not vary with the predictors of response. Here respondents have lower
+discharge risk and a larger average effect.
 
-### The honest boundary
+Among respondents neither of its nuisance models is correct, so double robustness gives it no
+protection. Its linear outcome model is wrong. Its assignment model is wrong too, because response
+depends on the arm. `P(A = 1 | W, responded = 1)` is then not a main-effects logistic function. The
+fit solved its score equation, but it answers a question about a different population.
 
-This demonstration is not a licence to say complete-case analysis is always wrong. It is not.
+### A law where complete cases agree
+
+This demonstration does not show that complete-case analysis is always wrong.
 
 ```python
 mild_frame, mild_truth = make_missing_outcome(n=4_000, seed=71, strength=1.0)
@@ -229,20 +209,16 @@ print(f"mild law, complete cases: psi={point.psi:6.3f}  CI=({low:.3f}, {high:.3f
 print("population ATE:", mild_truth["ate"])
 ```
 
-At `strength=1.0` the complete-case interval contains the truth in this fixed draw. This law has
-special linear and effect structures at that setting. Do not generalize the result. Even under MAR,
-averaging a correct conditional outcome model over respondents can target their covariate
-distribution instead of the eligible population when effects vary.
-
-A full-population plug-in fit can learn from respondents and predict for every eligible patient's
-baseline record. The complete-case code above discards those records. Declaring the response
-indicator preserves the target population and lets the estimator use the response mechanism.
+At `strength=1.0` the outcome is linear and the effect is constant. The respondents' average effect
+then equals the population's, and the linear model is correct. On this draw the complete-case
+interval contains the truth. Do not expect that agreement when effects vary with response
+predictors.
 
 ## Reading it as a top-box rate
 
 Program scorecards often report the share of patients above a declared transition threshold. They
 also compare that share as a ratio. One shipped law carries both a binary outcome and a response
-indicator, so it is the only place to check that reading against a known truth.
+indicator, so it checks that reading against a known truth.
 
 ```python
 from cleverly import OddsRatio, RiskRatio
@@ -288,12 +264,29 @@ for estimand, key in (
 ```
 
 Three readings of one comparison. The difference is in percentage points of top-box. The risk ratio
-is the multiplicative version a program scorecard uses. The odds ratio is larger than the risk ratio
-here. The effect increases a common outcome, so the odds ratio lies farther above one. Reporting it
-as though it were a rate ratio would overstate the change.
+is the multiplicative version a program scorecard uses. The odds ratio lies farther above one than
+the risk ratio, and the gap is large for a common outcome. Reporting it as a risk ratio would
+overstate the change.
 
-The ratio parameters are built on the log scale, so their intervals are asymmetric around the point
-estimate. That is correct rather than a display artefact.
+The ratio intervals are built on the log scale, so they are asymmetric around the point estimate.
+
+The population attributable fraction is refused under `missingness=`.
+
+```python
+from cleverly import CapabilityError, PopulationAttributableFraction
+
+try:
+    box_study.identify(PopulationAttributableFraction(reference=0)).estimate(method=box_method)
+except CapabilityError as error:
+    refusal = str(error)
+else:
+    raise AssertionError("the attributable fraction should be refused under missingness=")
+print("refused:", refusal)
+```
+
+It needs a joint outcome and response score equation that is not yet derived.
+[Missing-outcome natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists what the natural-course mean supports.
 
 ## How far to trust this
 
@@ -314,73 +307,50 @@ print(assessment.summary())
 
 support = assessment.report("support")
 nuisance = assessment.report("nuisance_models")
-scores = assessment.report("score_equations")
 missingness_curve = assessment.report("missingness")
 tipping_gamma = assessment.report("tipping_gamma")
 
 print(support.summary())
 print(nuisance.summary())
-print(scores.summary())
 print(missingness_curve)
 print("tipping gamma:", tipping_gamma)
 ```
 
 The combined assessment collects validation, diagnostics, and sensitivity in one object. It also
-retains the detailed reports, so the support table remains available without another computation.
+retains the detailed reports.
 
 Positivity is now a statement about the product of two mechanisms. A patient with a middling
 chance of navigation and response can still have a small product. The clever covariate divides by
-that product. The support report shows each fitted factor and the complete product. The product row
-reports its effective sample size and top-weight concentration.
+that product. The support report shows each fitted factor and the product, with its effective
+sample size and top-weight concentration.
 
-The missingness curve declares one direction. It leaves the control arm at MAR. Positive magnitudes
-make unobserved outcomes in the navigation arm worse than its observed outcomes. `gamma=0`
-reproduces the MAR estimate by construction. On this fixed example, the point estimate reaches zero
-near `gamma=1.30`.
+The missingness curve is a pattern-mixture sensitivity analysis. Within each arm and covariate
+profile, it shifts the mean of the unobserved scores away from the respondents' mean.
+
+| element | meaning |
+| --- | --- |
+| `gamma` | the shift on the logit of the score rescaled to [0, 1]. The fit summary prints the range |
+| `arm_gamma={0: 0.0, 1: -1.0}` | the control arm stays at MAR. Positive `gamma` lowers the unobserved navigation-arm mean |
+| `gamma=0` | reproduces the MAR estimate by construction |
+| tipping gamma | the point estimate reaches zero near `gamma=1.3` on this draw. That shift moves an unobserved navigation-arm mean by at most about 0.29 of the score range, at mid-range. The ATE moves less, because respondents keep their observed scores |
+| `ci_lower`, `ci_upper` | reuse the MAR standard error, so they ignore uncertainty about `gamma` |
 
 This curve does not detect why patients did not answer. It shows how far one stated departure must
 move before the conclusion changes.
-
-One family of estimands is refused under `missingness=`, and the refusal is worth knowing before you
-plan a report. The attributable fraction needs a binary outcome, so ask it of the top-box study.
-
-```python
-from cleverly import CapabilityError, PopulationAttributableFraction
-
-try:
-    box_study.identify(PopulationAttributableFraction(reference=0)).estimate(method=box_method)
-except CapabilityError as error:
-    print("refused:", error)
-```
-
-The natural-course mean, the population attributable risk, and the attributable fraction all involve
-the observed law. Under missingness at random each needs its own outcome and response score
-equation, because the complete-case mean is a different parameter. The natural-course mean now has
-that score equation. `NaturalCourseMean()` is supported for one scalar ordinary fit, which
-[observed-data extensions](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
-states. The method above cross-fits, so this study still refuses it.
-
-The risk and the fraction keep their refusal. Their joint construction stays open under
-[RM8](../roadmap.md#rm8-missing-outcome-attributable-effects). So "what fraction of poor experience
-is attributable to usual discharge support" and "many patients did not answer" cannot be asked in
-one fit.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the support report | overlap for each fitted mechanism, plus joint ESS, concentration, and maximum leverage | that the response model is correct or missingness at random holds |
 | the nuisance report | held-out fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
-| the score-equation report | the targeting solved the composed score | that missingness at random holds |
+| the score-equation check in the summary | the targeting solved the composed score | that missingness at random holds |
 | the MNAR tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |
-| the mild-law comparison | the complete-case contrast is close to the eligible-population effect at one setting of this synthetic law | whether the same coincidence holds in another population |
-| the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control | that missingness at random holds in this survey |
-| the [randomized missing-outcome DR-TMLE study](../technical-reference/method-evidence/randomized-missing-outcome-dr-tmle.md) | corrected inference under two drift directions and a direct five-reduction score-reduction mutation | observational-treatment DR-TMLE or internal parity with R's joint mechanism |
-| the evidence manifest | exact-law, Gateaux, remainder, and mutation checks for the randomized missing-outcome construction | empirical support for missingness at random |
+| the mild-law comparison | complete cases agree when the effect is constant and the outcome model is correct | whether the same agreement holds in another population |
+| the [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md) | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control on a binary law | coverage for this continuous law, or that missingness at random holds in this survey |
 
-The strongest assumption on this page remains untestable. Missingness at random says the recorded
-variables explain every reason a patient's own score would predict whether they answered. A survey
-whose non-response is driven by the experience itself breaks it. The tilt shows consequences under
-one departure, but it cannot establish which departure is plausible. Treat the estimate as
-conditional on an argument about the mailing process, not on the fit alone.
+The strongest assumption on this page remains untestable. A survey whose non-response is driven by
+the experience itself breaks missingness at random. The tilt shows consequences under one departure,
+but it cannot establish which departure is plausible. Treat the estimate as conditional on an
+argument about the mailing process.
 
 ## Where to go next
 
