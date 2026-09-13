@@ -1,7 +1,8 @@
 """The reviewed semantic callback for ``docs/examples/longitudinal-survival``.
 
 ``tests/unit/test_documentation_runtime.py`` runs the tutorial at its documented size and
-passes the resulting namespace to :func:`check`.
+passes the resulting namespace to :func:`check`.  The tutorial is a notebook, so its narrated
+decimals are also compared against its stored outputs, and every decimal it writes is printed.
 """
 
 from __future__ import annotations
@@ -11,10 +12,42 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+
+NOTEBOOK = EXAMPLES / "longitudinal-survival.ipynb"
+
 
 def check(namespace: dict[str, Any]) -> None:
     """The survival view, delta-method differences, and competing-risk narrative hold."""
     result = namespace["exit_result"]
+
+    # Each protocol step prints its record, and each fit carries the digest of its own protocol.
+    exit_fingerprint = namespace["exit_protocol"].fingerprint
+    event_fingerprint = namespace["event_protocol"].fingerprint
+    eliminated_fingerprint = namespace["eliminated_protocol"].fingerprint
+    assert len({exit_fingerprint, event_fingerprint, eliminated_fingerprint}) == 3
+    assert exit_fingerprint in stored_output(NOTEBOOK, "protocol")
+    assert event_fingerprint in stored_output(NOTEBOOK, "competing-events")
+    failure_output = stored_output(NOTEBOOK, "failure-mode")
+    assert event_fingerprint in failure_output and eliminated_fingerprint in failure_output
+    assert result.provenance.protocol_fingerprint == exit_fingerprint
+    assert namespace["event_levels"].provenance.protocol_fingerprint == event_fingerprint
+    assert namespace["eliminated"].provenance.protocol_fingerprint == eliminated_fingerprint
+    # "The fit refuses a horizon outside 1..T rather than interpolating it."
+    assert "outside 1..2" in stored_output(NOTEBOOK, "estimate-retention")
+
+    # "offered patients are older ... less ready", and the day-31 offer goes to more needs.
+    frame = namespace["exit_frame"]
+    by_offer = frame.groupby("navigation_p1")[["age", "baseline_readiness"]].mean()
+    assert by_offer.loc[1.0, "age"] > by_offer.loc[0.0, "age"]
+    assert by_offer.loc[1.0, "baseline_readiness"] < by_offer.loc[0.0, "baseline_readiness"]
+    at_risk = frame.loc[frame["plan_exit_p1"] == 0]
+    needs = at_risk.groupby("navigation_p2")["identified_needs"].mean()
+    assert needs.loc[1.0] > needs.loc[0.0] + 0.5
+    # "the naive comparison understates the benefit on this draw", at both horizons.
+    for horizon, naive in namespace["naive_differences"].items():
+        population = namespace["exit_truth"][f"ate_regimen[always vs never @ t={horizon}]"]
+        assert population < naive < 0.0
     risk = result.curve(scale="risk")
     survival = namespace["survival_curve"]
     keys = set(result.estimates)
@@ -37,6 +70,10 @@ def check(namespace: dict[str, Any]) -> None:
     exit_t1, exit_t2 = exit_differences[1], exit_differences[2]
     assert exit_t1.psi < -0.05
     assert exit_t2.psi < 1.15 * exit_t1.psi
+    # "each interval contains its population value" on this draw.
+    for horizon, estimate in exit_differences.items():
+        low, high = estimate.ci
+        assert low <= namespace["exit_truth"][f"ate_regimen[always vs never @ t={horizon}]"] <= high
     retention = survival.set_index(["regimen", "time"])
     assert retention.loc[("always", 2), "psi"] > retention.loc[("never", 2), "psi"] + 0.05
     exit_truth = namespace["exit_truth"]
@@ -88,6 +125,9 @@ def check(namespace: dict[str, Any]) -> None:
     death_t1, death_t2 = events["death", 1], events["death", 2]
     assert death_t1.psi < -0.03
     assert death_t2.psi < 1.25 * death_t1.psi
+    # "The 60-day death interval ... excludes its population value" on this draw.
+    death_low, death_high = death_t2.ci
+    assert not death_low <= event_truth["ate_regimen[always vs never, death @ t=2]"] <= death_high
 
     # Death coded as censoring gives a larger reduction than the total effect, and it raises
     # never-plan readmission risk more than always-plan risk.
@@ -109,8 +149,15 @@ def check(namespace: dict[str, Any]) -> None:
         sensitivity = assessment.sensitivity.items
         assert sensitivity and all(item.status.value == "unavailable" for item in sensitivity)
         assert assessment.diagnostics["refute"].status.value == "unavailable"
+        # "Neither fit has a row that needs attention", and no support row reached the bound.
+        assert not assessment.attention
+        support = assessment.report("support").to_frame()
+        assert support["converged"].all() and (support["share_truncated"] == 0.0).all()
+    # "The competing-event table adds a cause column"; both tables carry horizon and time.
+    exit_support = namespace["exit_assessment"].report("support").to_frame()
     event_support = namespace["event_assessment"].report("support").to_frame()
-    assert {"cause", "horizon"} <= set(event_support.columns)
+    assert {"horizon", "time"} <= set(exit_support.columns) and "cause" not in exit_support
+    assert set(event_support.columns) == set(exit_support.columns) | {"cause"}
 
     assert len(levels.config.causes) == 2
     with pytest.raises(ValueError, match="not all-cause survival"):

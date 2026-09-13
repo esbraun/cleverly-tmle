@@ -1,7 +1,8 @@
 """The reviewed semantic callback for ``docs/examples/msm-projections``.
 
 ``tests/unit/test_documentation_runtime.py`` runs the tutorial at its documented size and
-passes the resulting namespace to :func:`check`.
+passes the resulting namespace to :func:`check`.  The tutorial is a notebook, so its narrated
+decimals are also compared against its stored outputs, and every decimal it writes is printed.
 """
 
 from __future__ import annotations
@@ -11,9 +12,13 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+
+NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
+
 
 def check(namespace: dict[str, Any]) -> None:
-    """The arm-mean question names its actual support instead of a binary surrogate."""
+    """The projection tutorial's protocol, failure mode, control, and refusal claims hold."""
     effect = namespace["arms"]
     fitted = namespace["arm_result"]
     levels = tuple(namespace["study"].data.treatment_levels)
@@ -32,9 +37,23 @@ def check(namespace: dict[str, Any]) -> None:
     assert "P(A = 1 | W)" not in summary
     assert "both counterfactual means" not in summary
 
+    # The protocol step prints the record, and both fits carry its digest.
+    fingerprint = namespace["protocol"].fingerprint
+    assert fingerprint in stored_output(NOTEBOOK, "protocol")
+    assert fitted.provenance.protocol_fingerprint == fingerprint
+    assert namespace["trend_result"].provenance.protocol_fingerprint == fingerprint
+
     population = namespace["population"]
     assert population[0] < population[1] < population[2]
     assert population[2] - population[1] > population[1] - population[0]
+    # "The observed means put medium above high", while the true means reverse that order.
+    observed = namespace["observed"]
+    assert observed.loc["medium", "transition_score"] > observed.loc["high", "transition_score"]
+    assert observed.loc["medium", "discharge_risk"] > observed.loc["high", "discharge_risk"]
+    # "Each interval contains its true mean on this draw."
+    for arm, target in zip(namespace["ARMS"], population, strict=True):
+        low, high = fitted[f"ey[{arm}]"].ci
+        assert low <= target <= high
     # The page refuses text cadence labels. Only the MSM.linear refusal may satisfy it.
     assert "reads the treatment level" in namespace["refusal"]
 
@@ -44,6 +63,10 @@ def check(namespace: dict[str, Any]) -> None:
         ("msm[(intercept)]", "msm[assigned contacts]"), projection, strict=True
     ):
         assert trend[name].ci[0] <= target <= trend[name].ci[1]
+    # Under the uniform weight the slope is the fixed contrast of the three means, exactly.
+    assert namespace["contrast_slope"] == pytest.approx(projection[1], rel=1e-12, abs=1e-12)
+    # The share weight moves the population slope: the weight is part of the estimand.
+    assert abs(namespace["share_projection"][1] - projection[1]) > 0.005
 
     saturated = namespace["saturated_result"]
     mappings = {
@@ -72,3 +95,16 @@ def check(namespace: dict[str, Any]) -> None:
     assert gap > 2.0 * medium.std_error, (
         "on this draw the estimated line no longer falls well below the medium interval"
     )
+
+    # The assessment names the support warning, and the slope barely moves along the curve
+    # even where the largest bound clips most of the rows.
+    assessment = namespace["assessment"]
+    assert "support" in {item.name for item in assessment.attention}
+    slope_curve = namespace["slope_curve"]
+    assert slope_curve["truncated_fraction"].iloc[-1] > 0.5
+    assert slope_curve["delta_from_fitted"].abs().max() < 0.005
+
+    # No omitted-variable bound covers an MSM coefficient; the arm contrasts do have one.
+    assert "Riesz representer" in namespace["sensitivity_refusal"]
+    robustness = namespace["robustness"]
+    assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
