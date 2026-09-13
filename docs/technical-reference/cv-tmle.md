@@ -143,7 +143,8 @@ found no direct interval result for either composition. See
 
 The registered
 [stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
-records the estimator's repeated-sampling evidence and its zero-row comparator search.
+records the repeated-sampling evidence. It also compares the pooled target against the R `tmle`
+2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions.
 
 ## Reusable outer split plans
 

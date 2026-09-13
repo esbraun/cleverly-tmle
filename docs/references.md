@@ -41,15 +41,23 @@ previous reader had is not a citation; a page number is.
   plug-in evaluation, and influence-curve calculations. This source supports the weighted
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
 
-  The same file has a population-mean path for missing outcomes. Lines 1737–1739 set a missing or
-  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. For the original
-  sample, lines 2008–2022 fit one fluctuation on the respondent rows. Line 1564 gives the
-  influence curve `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
+  The same file has a population-mean path for missing outcomes. Lines 1681–1683 set a missing or
+  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. Lines 1947–1967 fit
+  one fluctuation on the respondent rows. Line 1512 gives the influence curve
+  `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
 
-  The path accepts supplied `Q` and `pDelta1` predictions. The repository's MAR adapter,
-  `tests/canonical/tmle_mar/run_study.R`, passes a binary `A` and reads the arm means. No study
-  has run the population-mean path on fold predictions. This entry therefore does not establish or
-  exclude that path as a stacked MAR natural-course comparator.
+  Lines 1045–1080 and 1279–1288 accept and transform supplied `Q` predictions. Lines 1340–1464
+  pass supplied mechanism predictions through without a model fit. The registered stacked MAR
+  natural-course study supplies the stitched out-of-fold `Q(A,W)` and `pDelta1(A,W)` values.
+  Its adapter duplicates each realized-arm prediction and passes a constant synthetic `A`.
+  It carries the original treatment beside `W`, preserving the conditioning set represented by
+  each supplied prediction. This selects the population-mean path without fitting a treatment
+  mechanism.
+
+  The R path uses the centered, `n - 1` divisor sample variance `var(IC) / n` and bounds its
+  binary-outcome interval to `[0, 1]`. `cleverly` uses the uncentered second moment
+  `mean(IC^2) / n` and an unbounded Wald interval. The registered comparison keeps both native
+  rules. Its interior law does not activate the R interval bound.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
   10.1007/978-1-4419-9782-1_27. Read first-hand in the

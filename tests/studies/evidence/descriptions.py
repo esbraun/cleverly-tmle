@@ -143,6 +143,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
+    "tmle-r-population-mean": "R `tmle` population-mean path",
     "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",

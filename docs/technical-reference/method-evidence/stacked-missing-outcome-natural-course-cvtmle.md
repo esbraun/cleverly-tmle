@@ -20,13 +20,21 @@ flexible-learning rows thus do not test calibration under a misspecified data-ad
 The paired overfitting arm supplies the data-adaptive evidence. It fits a fully grown outcome tree
 with eight noise covariates beside the exact response mechanism.
 
-No canonical implementation is compared, so the committed `equivalence.csv` has zero rows. The
-table gives the status of each candidate. [`docs/references.md`](../../references.md) records the
-source locator for each reason.
+The study compares R `tmle` 2.1.1 through its population-mean path. The adapter supplies the same
+stitched out-of-fold outcome and response predictions that `cleverly` targets. It passes a
+constant synthetic treatment and duplicates each realized-arm prediction across the two required
+input columns. The original treatment remains beside `W`, preserving the conditioning set of the
+supplied predictions. R then fits one pooled respondent-only fluctuation with clever covariate
+`1 / pi` and reports `EY1` as the population mean.
 
-| candidate | reason it is not a comparator |
+This comparison is conditional on the supplied nuisance predictions. It validates the pooled
+targeting, plug-in, and influence-curve path. It does not validate R-native cross-fit training.
+The table gives the status of the other candidates. [`docs/references.md`](../../references.md)
+records each source locator.
+
+| candidate | disposition |
 | --- | --- |
-| R `tmle` 2.1.1 | not yet tested. The repository adapter reads intervention-arm means. The population-mean path accepts supplied predictions, but no study has run it on fold predictions |
+| R `tmle` 2.1.1 | compared through its population-mean path with the same stitched out-of-fold outcome and response predictions |
 | `tmle3` at commit `ed72f8a` | its generic treatment-specific outcome fit can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`. `cleverly` fits that regression on respondents only |
 | zEpid 0.9.1 | its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation |
 | Newey and Robins (2018) | the construction fits the outcome and inverse response regressions on distinct subsamples. That is a different estimator |
@@ -45,12 +53,21 @@ source locator for each reason.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | binary-outcome observational natural-course law with learned MAR nuisances | `ey_obs` | observed outcome mean under the natural course | `cleverly` stacked missing-outcome natural-course CV-TMLE | -0.0018 to 0.0014 | 0.9537 | 0.9943 | pass |
+| binary-outcome observational natural-course law with learned MAR nuisances | `ey_obs` | observed outcome mean under the natural course | R `tmle` population-mean path | -0.0018 to 0.0014 | 0.9537 | 0.9946 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-There is no canonical comparison for this exact construction. The committed `equivalence.csv` is
-empty and schema-valid.
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome observational natural-course law with learned MAR nuisances | `ey_obs` | observed outcome mean under the natural course | -1.770e-11 | 6.736e-09 | 1.0000 | 0 | 0.000001 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+R `tmle` uses the centered, `n - 1` divisor sample variance `var(IC) / n`. `cleverly` uses the
+uncentered second moment `mean(IC^2) / n`. The two rules differ by the finite-sample factor
+`n / (n - 1)` when the targeted score is zero. R also bounds its binary interval to `[0, 1]`,
+while `cleverly` reports an unbounded Wald interval. This law stays away from the bounds.
 
 ## Theory properties
 
@@ -87,10 +104,10 @@ shows detectable bias rather than an interval failure.
 | --- | --- | --- |
 | `replicates` | 800 | primary replications |
 | `n` | 2000 | observations per primary replication |
-| `independent_tests_passed` | 1 | truth tests passing |
-| `independent_tests_total` | 1 | truth tests reported |
-| `paired_tests_passed` | 0 | paired comparisons passing |
-| `paired_tests_total` | 0 | paired comparisons reported |
+| `independent_tests_passed` | 2 | truth tests passing |
+| `independent_tests_total` | 2 | truth tests reported |
+| `paired_tests_passed` | 1 | paired comparisons passing |
+| `paired_tests_total` | 1 | paired comparisons reported |
 | `property_cells_passed` | 7 | property cells passing |
 | `property_cells_total` | 7 | property cells reported |
 | `max_standardized_bias` | 0.0105 | largest primary standardized bias |
@@ -138,8 +155,10 @@ shows detectable bias rather than an interval failure.
   study does not establish performance for every learner library or tuning procedure.
 - The exact EIF bound describes the finite law. The flexible-learning cell does not claim
   efficiency-bound attainment.
-- The study makes no external parity claim. The comparator table above gives the reason for each
-  audited candidate.
+- The external comparison conditions on the stitched nuisance predictions from `cleverly`. It
+  does not compare nuisance training implementations.
+- The R variance and interval conventions differ as the agreement section states. The study does
+  not claim bitwise interval equality.
 - The study excludes repeated splits, stratified or supplied folds, and fold targeting or
   evaluation. It excludes continuous or multinomial treatment, continuous outcomes, weights,
   clusters, and baseline strata. It also excludes intermediates, missing treatment, MNAR outcomes,

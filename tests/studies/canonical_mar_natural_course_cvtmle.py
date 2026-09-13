@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.tree import DecisionTreeClassifier
 
@@ -40,6 +41,11 @@ ESTIMANDS = ("ey_obs",)
 NUISANCE_BOUND = 0.01
 TRUTH = float(mar.functional(mar.PROBS, "ey_obs"))
 EFFICIENCY_SD = efficiency_sd(mar.PROBS, "ey_obs")
+TMLE_VERSION = "2.1.1"
+TMLE_SOURCE_SHA256 = "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133"
+R_BASE_IMAGE = (
+    "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+)
 
 
 STUDY = StudyRecord(
@@ -57,12 +63,12 @@ STUDY = StudyRecord(
     resampling_seed=20261110,
     margins=Margins(),
     implementation="cleverly-stacked-mar-natural-course-cvtmle",
-    reference=None,
     modules=(
         "tests/studies/canonical_mar_natural_course_cvtmle.py",
         "tests/studies/mar_natural_course_cvtmle_properties.py",
         "tests/studies/missing_outcome_study_helpers.py",
         "tests/discrete_law_mar.py",
+        "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -86,7 +92,17 @@ STUDY = StudyRecord(
     # The flexible learned-nuisance row does not claim efficiency-bound attainment.
     efficiency_bounds={"ey_obs": EFFICIENCY_SD},
     calibration_efficiency_ratio=False,
+    reference="tmle-r-population-mean",
 )
+
+REFERENCE_METADATA = {
+    "tmle_version": TMLE_VERSION,
+    "tmle_source_sha256": TMLE_SOURCE_SHA256,
+    "r_base_image": R_BASE_IMAGE,
+    "reference_inference": (
+        "native R tmle centered sample variance and bounded binary-outcome interval"
+    ),
+}
 
 CONFIGURATION = {
     "construction": "one-repeat stacked MAR natural-course CV-TMLE",
@@ -111,9 +127,11 @@ CONFIGURATION = {
         "outcome regression and response mechanism"
     ),
     "comparator_search": (
-        "Did not compare R tmle 2.1.1: the repository adapter reads intervention-arm means, "
-        "and no study has run its population-mean path, which accepts supplied outcome and "
-        "response predictions, on fold predictions; rejected tmle3 at ed72f8a because its "
+        "Used R tmle 2.1.1 through its population-mean path with the same stitched "
+        "out-of-fold outcome and response predictions and one pooled fluctuation. Its native "
+        "var(IC)/n uses a centered n-1 sample variance, while this estimator uses the "
+        "uncentered mean(IC^2)/n; rejected "
+        "tmle3 at ed72f8a because its "
         "generic treatment-specific outcome fit can use the Delta = 0 pseudo-outcomes when "
         "it predicts under Delta = 1, while this estimator fits that regression on "
         "respondents only; rejected zEpid 0.9.1 because its cross-fit TMLE targets inside "
@@ -210,8 +228,9 @@ def cleverly_rows(
     truth: Mapping[str, float],
     scenario: str,
     replicate: int,
+    result: Any | None = None,
 ) -> list[dict[str, Any]]:
-    result = fit_cleverly(frame)
+    result = fit_cleverly(frame) if result is None else result
     return primary_rows(
         result=result,
         truth=truth,
@@ -223,17 +242,50 @@ def cleverly_rows(
     )
 
 
-def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
+def reference_sample(
+    frame: pd.DataFrame,
+    result: Any,
+    *,
+    scenario: str,
+    replicate: int,
+) -> pd.DataFrame:
+    """Serialize the exact stitched predictions that the R population-mean path targets."""
+    missingness = result.nuisance.missingness_at_realised_arm(result.data.treatment)
+    if missingness is None:  # pragma: no cover - the registered fit declares Delta
+        raise AssertionError("the reference payload needs fitted response predictions")
+    outcome = result.nuisance.scaler.unscale_levels(result.nuisance.outcome.observed)
+    sample = frame.copy()
+    sample["qn"] = np.asarray(outcome, dtype=float)
+    sample["pin"] = np.asarray(missingness, dtype=float)
+    sample["fold"] = np.asarray(result.nuisance.folds.assignment, dtype=int)
+    sample.insert(0, "replicate", replicate)
+    sample.insert(0, "scenario", scenario)
+    return sample
+
+
+def _replicate(
+    payload: tuple[str, int, int],
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
     scenario, replicate, n = payload
     frame, truth = draw_scenario(scenario, n, replicate)
-    return cleverly_rows(frame, truth, scenario, replicate)
+    result = fit_cleverly(frame)
+    sample = reference_sample(frame, result, scenario=scenario, replicate=replicate)
+    truth_rows = [
+        {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
+        for name, value in truth.items()
+    ]
+    return sample, truth_rows, cleverly_rows(frame, truth, scenario, replicate, result=result)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(
+    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     outcomes = map_parallel(
         _replicate,
         [((SCENARIO, replicate, n),) for replicate in range(replicates)],
         n_jobs=n_jobs,
     )
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
+    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]

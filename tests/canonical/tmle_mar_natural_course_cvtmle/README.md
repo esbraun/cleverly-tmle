@@ -21,19 +21,25 @@ The property study has four parts:
 
 The overfitting pair is the data-adaptive evidence.
 
-No canonical implementation is compared. `docs/references.md` records the source locator for each
-reason below:
+The study compares the R `tmle` 2.1.1 population-mean path. The adapter supplies the same stitched
+out-of-fold outcome and response predictions. It uses a constant synthetic treatment so R targets
+the natural-course population mean without fitting a treatment mechanism, while retaining the
+original treatment beside `W` to preserve the conditioning set represented by the predictions.
 
-| candidate | reason it is not a comparator |
+R keeps its native centered sample variance and bounded binary-outcome interval. `cleverly` uses
+the raw influence-curve second moment and an unbounded Wald interval. The comparison therefore
+tests point-estimator equivalence and native-inference non-inferiority, not bitwise interval parity.
+
+`docs/references.md` records the source locator for each candidate:
+
+| candidate | disposition |
 | --- | --- |
-| R `tmle` 2.1.1 | not yet tested. The repository adapter reads intervention-arm means. The population-mean path accepts supplied predictions, but no study has run it on fold predictions |
+| R `tmle` 2.1.1 | compared through its population-mean path with supplied stitched predictions |
 | `tmle3` at commit `ed72f8a` | its generic treatment-specific outcome fit can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`, while `cleverly` fits that regression on respondents only |
 | zEpid 0.9.1 | its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation |
 | Newey and Robins (2018) | the construction fits the outcome and inverse response regressions on distinct subsamples, which is a different estimator |
 
-The study therefore commits a schema-valid, zero-row `equivalence.csv`. The `comparator_search`
-string in `manifest.json` records the reasons written at generation time.
-`tests/canonical/provenance-revisions.md` records the correction.
+The `comparator_search` string in `manifest.json` records the compared and rejected candidates.
 
 Run a disposable primary smoke study from the repository root:
 
@@ -41,7 +47,7 @@ Run a disposable primary smoke study from the repository root:
 uv run --extra dev python -m tests.canonical.tmle_mar_natural_course_cvtmle.regenerate --replicates 4 --n 200 --skip-properties --allow-failures --output build/tmle-mar-natural-course-cvtmle-smoke --jobs 1
 ```
 
-That smoke probes primary fitting only. Exercise one fit from every declared property arm,
+That smoke probes the Python and R primary fitting paths. Exercise one fit from every property arm,
 including the response-oracle adapter used with noise covariates, before the full run:
 
 ```powershell
