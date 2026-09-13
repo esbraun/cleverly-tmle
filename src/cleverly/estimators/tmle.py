@@ -118,7 +118,7 @@ from ..fluctuation.iterative import (
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cross_validated_variance, stacked_second_moment_variance
+from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
     ParameterEstimate,
@@ -136,6 +136,7 @@ from ..learners.crossfit import (
     CrossFitPlan,
     Folds,
     SplitPlan,
+    _cross_fit_policy_refusal,
     make_folds,
     missing_training_support,
 )
@@ -187,6 +188,15 @@ DEFAULT_NUISANCE_BOUND = 0.01
 #: Warn when this fraction of the sample has a propensity outside the truncation
 #: bounds -- at that point the estimate rests on extrapolation, not on data.
 _TRUNCATION_WARN_FRACTION = 0.05
+
+#: The remedy a stacked natural-course refusal names when the in-sample estimator can run.
+#: Disabling cross-fitting alone is not enough: ``stratify_folds='none'`` is reserved for
+#: the stacked estimator, so the fold stratification must return to a stratified policy.
+_IN_SAMPLE_NATURAL_COURSE_REMEDY = (
+    "disable cross-fitting and restore fold stratification "
+    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
+    "stratify_folds='treatment' on the engine)"
+)
 
 
 def _is_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
@@ -613,33 +623,19 @@ class TMLE:
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
                 "the density a single hazard, which cannot describe a dose-response."
             )
-        if self.repeats < 1:
-            raise ValueError(f"repeats must be at least 1; got {self.repeats}")
-        split_plan = self.split_plan
-        if split_plan is not None:
-            if not isinstance(split_plan, SplitPlan):
-                raise ValueError("split_plan must be a SplitPlan")
-            # One message source for the two declarations that accept a plan, under two
-            # exception contracts: ``CrossFitting`` raises MethodConfigurationError and
-            # the engine raises ValueError.  See ``SplitPlan._policy_refusal``.
-            reason = split_plan._policy_refusal(
-                cross_fit=self.cross_fit, n_folds=self.n_folds, repeats=self.repeats
-            )
-            if reason is not None:
-                raise ValueError(reason)
-            if self.n_bootstrap:
-                raise ValueError(
-                    "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
-                    "replicates duplicate sampled rows, while the supplied assignments "
-                    "identify only the original row positions"
-                )
-        if self.repeats > 1 and not self.cross_fit:
-            raise ValueError(
-                "repeats= takes the median estimate over independent draws of the "
-                "cross-fitting split, and cross_fit=False makes no split to draw. There "
-                "is no fold noise to reduce when every nuisance is fitted in "
-                "sample. Set cross_fit=True, or leave repeats at 1."
-            )
+        # One ordered message source for the declaration and the engine, under two
+        # exception contracts: the declaration raises MethodConfigurationError and the
+        # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
+        reason = _cross_fit_policy_refusal(
+            cross_fit=self.cross_fit,
+            n_folds=self.n_folds,
+            repeats=self.repeats,
+            split_plan=self.split_plan,
+            n_bootstrap=self.n_bootstrap,
+            option_name="cross_fit",
+        )
+        if reason is not None:
+            raise ValueError(reason)
 
     # ------------------------------------------------------------------- fit
 
@@ -918,6 +914,7 @@ class TMLE:
         """
         self._check_shifts(data)
         self._check_incremental(data)
+        estimands = self._resolve_estimands_for_data(data)
         if data.has_strata and data.is_continuous_treatment and self.msm is not None:
             raise NotImplementedError(
                 "continuous MSMs do not yet support baseline strata; conditional dose "
@@ -931,7 +928,6 @@ class TMLE:
                 "stratum probabilities and conditional treatment shares to be rebuilt "
                 "inside every validation fold; use the default pooled targeting scheme"
             )
-        estimands = self._resolve_estimands_for_data(data)
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -1161,7 +1157,7 @@ class TMLE:
             return estimands
         if self.estimands == "all":
             # The default remains the set of jointly targetable parameters.  This is a
-            # deliberately scalar construction, while PAR/PAF remain tracked by RM8.
+            # deliberately scalar construction, while PAR/PAF remain tracked by F20.
             return tuple(
                 name
                 for name in estimands
@@ -1185,6 +1181,15 @@ class TMLE:
             )
         if not data.is_binary_treatment:
             refuse("the treatment must have exactly two arms")
+        if self.cross_fit and self.n_folds < 2:
+            # One fold realizes the in-sample split, but ``cross_fit`` alone selects the
+            # stacked estimator's second-moment covariance rule. Refuse rather than report
+            # an in-sample estimate under the cross-fitted variance.
+            refuse(
+                "the cross-fitted estimator requires n_folds of at least 2, because one fold "
+                "fits every nuisance on the rows it predicts. For the in-sample estimator, "
+                f"{_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
+            )
         if self.cross_fit and self.stratify_folds != "none":
             refuse("the cross-fitted estimator requires stratify_folds='none'")
         if self.repeats != 1:
@@ -1257,7 +1262,7 @@ class TMLE:
                 "cross-fitted NaturalCourseMean needs at least two of each response kind, "
                 f"and the sample has {count} {kind}(s). Every partition leaves some training "
                 "complement without one, so no fold count or random_state can fit the "
-                "response and outcome nuisances; use cross_fit=False"
+                f"response and outcome nuisances; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
             )
         labels = {False: "nonrespondent", True: "respondent"}
         support = (("response", observed, np.unique(observed)),)
@@ -1269,7 +1274,8 @@ class TMLE:
                     "cross-fitted NaturalCourseMean cannot fit its response and outcome "
                     f"nuisances because repeat {repeat}, fold {fold}'s training complement "
                     f"contains no {labels[bool(missing[0])]}. {_LARGER_COMPLEMENT_NOTE} "
-                    "Increase n_folds, use n_folds=1, or use a different random_state"
+                    "Increase n_folds, use a different random_state, or "
+                    f"{_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
                 )
 
     @property
@@ -2772,6 +2778,12 @@ class TMLE:
                 or incremental is not None
                 or msm is not None
             ),
+            # The stacked RM9 estimator declares the raw second moment, so its variance,
+            # covariance and contrasts all read one rule. ``make_estimate`` owns the map
+            # from that rule to the stored variance.
+            covariance_rule=(
+                "second_moment" if group == "natural_course" and self.cross_fit else "centered"
+            ),
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted
@@ -2784,14 +2796,6 @@ class TMLE:
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
                 for estimate in target.build(context):
-                    if group == "natural_course" and self.cross_fit:
-                        # The stacked RM9 estimator declares the raw second moment, so
-                        # its covariance and contrasts read the same rule as its variance.
-                        estimate = replace(
-                            estimate,
-                            variance=stacked_second_moment_variance(estimate.influence_curve),
-                            covariance_rule="second_moment",
-                        )
                     out[estimate.name] = estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
@@ -2863,6 +2867,7 @@ class TMLE:
                     scale=estimate.scale,
                     alpha=estimate.alpha,
                     log_psi=estimate.log_psi,
+                    covariance_rule=estimate.covariance_rule,
                 )
         return out
 
@@ -3081,6 +3086,10 @@ def _average_over_folds(
             scale=scale,
             alpha=alpha,
             log_psi=log_psi,
+            # Declared, not inherited from the fold pieces. The stored variance is the
+            # cross-validated one above, and covariance reads the curve under the centered
+            # rule. docs/technical-reference/inference.md states this contract.
+            covariance_rule="centered",
         )
 
     if dropped:

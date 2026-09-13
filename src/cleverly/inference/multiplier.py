@@ -276,7 +276,7 @@ def multiplier_critical_value(
         Joint significance level.
     n_replicates : int
         Multiplier draws.
-    kind : {"rademacher", "gaussian"}
+    kind : {"rademacher", "mammen", "normal"}, default="rademacher"
         Distribution of the multiplier weights.
     random_state : int or None
         Seed for those draws.
@@ -414,7 +414,7 @@ def simultaneous_bands(
         Joint significance level.
     n_replicates : int
         Multiplier draws.
-    kind : {"rademacher", "gaussian"}
+    kind : {"rademacher", "mammen", "normal"}, default="rademacher"
         Distribution of the multiplier weights.
     random_state : int or None
         Seed for those draws.
@@ -425,6 +425,18 @@ def simultaneous_bands(
     -------
     SimultaneousBands
         One interval per estimand, holding jointly at ``1 - alpha``.
+
+    Raises
+    ------
+    ValueError
+        If ``estimates`` is empty, or if the influence curves have different lengths.
+    ValueError
+        If any estimate declares ``covariance_rule="second_moment"``. The multiplier
+        draws center each influence curve, which matches the raw second moment only on a
+        mean-zero curve, and this function does not check the mean.
+    ValueError
+        If ``cluster`` has a different length from the influence curves, or if ``kind``
+        is not a supported multiplier, when two or more estimates are banded.
     """
     items = (
         list(estimates.items())
@@ -433,6 +445,16 @@ def simultaneous_bands(
     )
     if not items:
         raise ValueError("no estimates supplied")
+    second_moment = [
+        name for name, estimate in items if estimate.covariance_rule == "second_moment"
+    ]
+    if second_moment:
+        raise ValueError(
+            f"simultaneous_bands cannot band {second_moment}, which declare "
+            "covariance_rule='second_moment'. The multiplier draws center each influence "
+            "curve, which matches the raw second moment only on a mean-zero curve, and "
+            "simultaneous_bands does not check the mean"
+        )
     lengths = {estimate.influence_curve.shape[0] for _, estimate in items}
     if len(lengths) != 1:
         raise ValueError(f"influence curves have inconsistent lengths: {lengths}")

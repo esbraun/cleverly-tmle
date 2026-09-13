@@ -103,9 +103,9 @@ CONFIGURATION = {
     ),
     "continuous_outcome": f"beta with concentration {BETA_CONCENTRATION:g}",
     "comparator_search": (
-        "The repository's pinned R tmle 2.1.1 adapter reports MAR intervention-arm means, "
-        "not this natural-course target; the cited paper specifies the estimator but no "
-        "maintained public implementation with a matching callable target was identified."
+        "This historical study ran no comparator. A later stacked binary study reaches the R "
+        "tmle 2.1.1 population-mean path conditional on supplied stitched predictions. This "
+        "ordinary binary and bounded-continuous study inherits no parity claim."
     ),
 }
 

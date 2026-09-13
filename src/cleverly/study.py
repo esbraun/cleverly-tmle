@@ -836,11 +836,17 @@ class NaturalCourseMean:
     :doc:`observed-data extensions </technical-reference/point-treatment-tmle>` for the
     supported compositions. The in-sample estimator accepts a binary outcome or a bounded
     continuous outcome with declared ``q_bounds``. The cross-fitted estimator accepts a
-    binary outcome and one package-generated unstratified V-fold partition. It uses one
-    pooled fluctuation and evaluates the point and influence curve on all stacked held-out
-    rows. The in-sample estimator is ordinary TMLE. The cross-fitted estimator is stacked
-    CV-TMLE. Both are scalar estimators with binary treatment. Every other composition
-    raises ``CapabilityError`` before any learner is fitted. The
+    binary outcome and one package-generated unstratified V-fold partition with at least
+    two folds. It uses one pooled fluctuation and evaluates the point and influence curve
+    on all stacked held-out rows. One fold would be the in-sample estimator, so the
+    cross-fitted estimator refuses it rather than report that estimate under the stacked
+    contract and its second-moment covariance rule. The in-sample estimator is ordinary
+    TMLE. The cross-fitted estimator is stacked CV-TMLE. Both are scalar estimators with
+    binary treatment. A fit outside these two estimators raises ``CapabilityError``
+    before any learner is fitted. A method declaration that is invalid on its own raises
+    ``MethodConfigurationError`` when it is constructed. A sample without enough
+    respondents or nonrespondents for cross-fitting raises ``DataError`` before any
+    learner is fitted. The
     :doc:`scope and refusals </technical-reference/scope-and-refusals>` page lists each
     refusal, including joint targets, bootstrap inference, and linear or one-step
     targeting.
@@ -2176,8 +2182,8 @@ class ExplicitAdjustmentProvider:
         # this fronts -- ``TargetContext.observed_mean`` -- keys on the observation mask,
         # so a design that declares a response indicator which is identically one has no
         # missing outcome, E[Y] is exactly the empirical mean, and refusing it here would
-        # refuse a fit the estimator performs.  docs/roadmap.md RM8 states the stop as
-        # "refused when outcomes are missing", which is this condition.
+        # refuse a fit the estimator performs.  docs/roadmap.md F20 tracks the stop for
+        # missing outcomes, which is this condition.
         if data.has_missing_outcome and target in POPULATION_INTERVENTION_TARGETS:
             raise population_intervention_refusal(
                 (target,),

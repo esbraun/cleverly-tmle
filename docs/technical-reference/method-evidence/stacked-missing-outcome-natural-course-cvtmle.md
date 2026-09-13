@@ -14,7 +14,7 @@ studied construction. The primary rows declare it through the public `TMLEMethod
 | primary learners | separate classification trees with depth five and minimum leaf size 25 |
 
 The law has six `(A, W)` covariate cells. The smallest respondent cell has an expected 72 rows in
-an 1,800-row training complement, which exceeds the minimum leaf size. Each depth-five tree can
+a 1,800-row training complement, which exceeds the minimum leaf size. Each depth-five tree can
 therefore fit the saturated model, and that model is correct for this law. The primary and
 flexible-learning rows thus do not test calibration under a misspecified data-adaptive learner.
 The paired overfitting arm supplies the data-adaptive evidence. It fits a fully grown outcome tree

@@ -81,6 +81,77 @@ __all__ = [
 _LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
 
 
+def _cross_fit_policy_refusal(
+    *,
+    cross_fit: bool,
+    n_folds: int,
+    repeats: int,
+    split_plan: object,
+    n_bootstrap: int = 0,
+    option_name: str,
+) -> str | None:
+    """Return why a declared cross-fitting policy cannot run, or ``None``.
+
+    One ordered message source for two callers with two exception contracts:
+    :class:`~cleverly.CrossFitting` and :class:`~cleverly.TMLEMethod` raise
+    :class:`~cleverly.exceptions.MethodConfigurationError`, and the engine raises
+    :class:`ValueError`. The checks run in one order, so one input earns one reason at
+    both layers:
+
+    1. ``repeats`` below one;
+    2. a ``split_plan`` that is not a :class:`SplitPlan`;
+    3. a plan that cannot serve the declared policy (:meth:`SplitPlan._policy_refusal`);
+    4. a plan combined with the targeted bootstrap;
+    5. ``repeats`` above one without cross-fitting.
+
+    ``n_bootstrap`` belongs to a different configuration group than the other arguments.
+    :class:`~cleverly.CrossFitting` does not hold it and leaves it at zero, and
+    :class:`~cleverly.TMLEMethod` passes it once it holds both groups.
+
+    Parameters
+    ----------
+    cross_fit : bool
+        Whether the declaration enables cross-fitting.
+    n_folds : int
+        Outer folds the declaration asks for.
+    repeats : int
+        Independent draws the declaration asks for.
+    split_plan : object
+        The supplied plan, or ``None``. Any other type is refused.
+    n_bootstrap : int, default=0
+        Targeted-bootstrap replicates the declaration asks for.
+    option_name : str
+        The caller's spelling of the cross-fitting switch, ``"enabled"`` on
+        :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.
+
+    Returns
+    -------
+    str or None
+        The reason to refuse, or ``None`` when the policy can run.
+    """
+    if repeats < 1:
+        return f"repeats must be at least 1; got {repeats}"
+    if split_plan is not None:
+        if not isinstance(split_plan, SplitPlan):
+            return "split_plan must be a SplitPlan"
+        reason = split_plan._policy_refusal(cross_fit=cross_fit, n_folds=n_folds, repeats=repeats)
+        if reason is not None:
+            return reason
+        if n_bootstrap:
+            return (
+                "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
+                "replicates duplicate sampled rows, while the supplied assignments "
+                "identify only the original row positions"
+            )
+    if repeats > 1 and not cross_fit:
+        return (
+            "repeats takes the median over independent cross-fitting splits, and "
+            f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting or "
+            "set repeats=1"
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class Folds:
     """A cross-fitting partition.

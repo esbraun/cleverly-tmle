@@ -37,7 +37,8 @@ Current behavior is determined by code and tests, not by historical plans or inv
   whose results a result-determining change can move.
 - A refactor is not a reason to regenerate a study. The Python module hashes in a study's
   `manifest.json` record the run; no test gates them, so cleaning shared code under
-  `tests/studies/evidence/` is free. The container and R-runner hashes *are* gated. Declare a
+  `tests/studies/evidence/` is free. `tests/unit/test_study_provenance.py` does check that the
+  module list is complete. The container and R-runner hashes *are* gated. Declare a
   result-neutral edit in `tests/canonical/provenance-revisions.md` rather than rewriting a
   recorded hash, which would leave the manifest describing bytes that never ran.
   `docs/development/method-benchmarking.md` says how to tell the two kinds of change apart.

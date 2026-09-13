@@ -148,13 +148,25 @@ D_i=\frac{\Delta_i}{\pi_v(X_i)}\{Y_i-m_{v,\widehat\epsilon}(X_i)\}
     +m_{v,\widehat\epsilon}(X_i)-\widehat\psi.
 $$
 
-The variance is $P_nD_i^2/n$, the raw second moment of the curve. The estimate declares the
-`"second_moment"` covariance rule, so `covariance()` and contrasts use the same moment. See
+The variance is $P_nD_i^2/n$, the raw second moment of the curve. The score equation and the
+plug-in point above give $P_nD_i=0$ to targeting tolerance. This variance therefore equals the
+centered-rule variance $\{n(n-1)\}^{-1}\sum_i(D_i-\bar D)^2$ times $(n-1)/n$. The estimate
+declares the `"second_moment"` covariance rule, so `covariance()` and contrasts use the same moment. See
 [covariance rules](inference.md#covariance-rules).
 
-The estimator requires at least one respondent and one nonrespondent in each training complement.
-It checks every complement before either learner receives data. A sample with fewer than two of
-either response kind is refused before the fold check, and the message names `cross_fit=False`.
+The estimator needs at least one respondent and one nonrespondent in each training complement. It
+checks the sample and then every complement, before either learner receives data. Each failure
+raises `DataError`.
+
+| failure | what the message tells you to do |
+| --- | --- |
+| the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
+| one training complement holds no respondent or no nonrespondent | increase `n_folds`, use a different `random_state`, or use the in-sample estimator |
+
+Both messages name the in-sample estimator as
+`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False`
+with `stratify_folds='treatment'`. Change both settings. Only the stacked contract accepts
+`stratify_by="none"`, so a stacked declaration with only cross-fitting disabled is still refused.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
 response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
@@ -181,11 +193,16 @@ Their Theorem 2 gives the partial-targeting expansion and its conditions. The
 [CV-TMLE reference](cv-tmle.md) gives the fold-weighting boundary.
 
 No treatment mechanism enters either implementation. Both fits require one scalar `ey_obs`,
-binary treatment, unweighted iid rows, and iterative unweighted logistic targeting. The ordinary
-fit accepts a binary outcome or a continuous outcome with fixed `q_bounds`. The stacked fit accepts
-a binary outcome. Configure it with `CrossFitting(enabled=True, repeats=1, stratify_by="none",
-targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. The registered study uses
-`n_folds=10`.
+binary treatment, unweighted iid rows, and iterative unweighted logistic targeting.
+
+| fit | outcome | cross-fitting declaration |
+| --- | --- | --- |
+| ordinary | binary, or continuous with fixed `q_bounds` | `CrossFitting(enabled=False)` |
+| stacked | binary | `CrossFitting(enabled=True, n_folds=10, repeats=1, stratify_by="none", targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. `n_folds` must be 2 or more. The registered study uses 10 |
+
+The stacked fit refuses one fold with `CapabilityError` before any learner is fitted. One fold is
+the in-sample estimator. The refusal stops that estimate from being reported under the stacked
+contract and its second-moment covariance rule.
 
 [Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
 lists every refusal for both fits. The source for the ordinary fit is

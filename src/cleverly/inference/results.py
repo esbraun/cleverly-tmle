@@ -9,19 +9,20 @@ method-specific reporting and diagnostics separate.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from .._typing import FloatArray
-from .cluster import (
-    influence_covariance,
-    stacked_second_moment_covariance,
-    stacked_second_moment_variance,
-)
+from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import delta_method
-from .influence import CovarianceRule, ParameterEstimate, Scale, make_estimate
+from .influence import (
+    _SECOND_MOMENT_CLUSTER_REFUSAL,
+    CovarianceRule,
+    ParameterEstimate,
+    Scale,
+    make_estimate,
+)
 
 __all__ = [
     "covariance_rule",
@@ -80,10 +81,7 @@ def covariance_rule(
         )
     rule = rules.pop()
     if rule == "second_moment" and cluster is not None:
-        raise ValueError(
-            "the raw second-moment covariance rule is defined for independent rows only, "
-            "and this result declares clusters"
-        )
+        raise ValueError(_SECOND_MOMENT_CLUSTER_REFUSAL)
     return rule
 
 
@@ -133,7 +131,7 @@ def smooth_contrast(
         [estimates[key].influence_curve for key in chosen],
         gradient=gradient,
     )
-    estimate = make_estimate(
+    return make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
         curve,
@@ -141,11 +139,5 @@ def smooth_contrast(
         cluster=cluster,
         scale=scale,
         alpha=alpha,
+        covariance_rule=rule,
     )
-    if rule == "second_moment":
-        estimate = replace(
-            estimate,
-            variance=stacked_second_moment_variance(curve),
-            covariance_rule=rule,
-        )
-    return estimate

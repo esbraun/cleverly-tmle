@@ -6,12 +6,18 @@ baseline covariates. Its score therefore uses the outcome and response nuisances
 mechanism. Binary and bounded-continuous primary laws share the same conditional means and
 observation process; the continuous outcome is beta distributed and uses fixed bounds `(0, 1)`.
 
-No canonical implementation is compared. The repository's pinned R `tmle` 2.1.1 adapter covers
-MAR intervention-arm means rather than this natural-course parameter. Díaz, Carone and van der
-Laan (2016), Section 2 and Equations (1)–(5) give the estimator construction, but the source and
-repository search found no maintained public implementation exposing a matching callable target.
-The validation evidence is therefore internal. `tests/unit/test_influence_gateaux_natural_course_mar.py`
-pins the target, the efficient influence curve, and the targeting score against the exact law.
+No canonical implementation is compared in this study, so the study makes no parity claim for
+either law. R `tmle` 2.1.1 has a population-mean path that accepts supplied outcome and response
+predictions, as the [R `tmle` audit](../../references.md#targeted-learning-in-general) records.
+The [stacked study](stacked-missing-outcome-natural-course-cvtmle.md) passes its predictions to
+that path through the stacked study's R adapter. This study predates that adapter. The project
+did not regenerate this study after it added the adapter.
+[RM10](../../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks the binary
+and bounded-continuous comparisons.
+
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5) give the estimator
+construction. `tests/unit/test_influence_gateaux_natural_course_mar.py` pins the target, the
+efficient influence curve, and the targeting score against the exact law.
 `tests/unit/test_remainder_natural_course_mar.py` pins the signed second-order remainder and both
 double-robustness halves. This repeated-sampling study supplies the rest.
 
@@ -26,8 +32,7 @@ double-robustness halves. This repeated-sampling study supplies the rest.
 
 ## Agreement with the canonical implementation
 
-There is no canonical comparison for this construction. The committed `equivalence.csv` is empty
-and schema-valid.
+This study ran no canonical comparison. The committed `equivalence.csv` is empty and schema-valid.
 
 ## Theory properties
 
@@ -114,8 +119,8 @@ cases.
 - The exact efficiency comparison is for the binary property law; the continuous primary law is
   checked for truth recovery, coverage, and reported-SE calibration without claiming the same
   bound.
-- There is no external parity comparison because the audited maintained comparator does not expose
-  the same target.
+- This study ran no external comparison. The stacked study's comparison covers the stacked binary
+  estimator only. It gives no parity result for ordinary fitting or for the bounded-continuous law.
 - The study uses ordinary pointwise Wald intervals and excludes weights, clusters, missing
   treatment, multinomial treatment, MNAR outcomes, sensitivity analysis, and longitudinal data.
 

@@ -53,6 +53,7 @@ from cleverly.inference import (
     two_sided_pvalue,
 )
 from cleverly.inference.cluster import stacked_second_moment_variance
+from cleverly.inference.influence import CovarianceRule, median_estimates
 from cleverly.inference.multiplier import (
     _block_size,
     _fill_multipliers,
@@ -1128,16 +1129,86 @@ class TestTheCovarianceRule:
     """
 
     @staticmethod
-    def _estimates(rule: str) -> dict[str, ParameterEstimate]:
+    def _estimates(rule: CovarianceRule) -> dict[str, ParameterEstimate]:
         rng = np.random.default_rng(41)
         curves = rng.normal(loc=0.4, size=(30, 2))
         return {
-            name: replace(
-                make_estimate(name, 0.3 + index, curves[:, index], n=30),
-                covariance_rule=rule,
-            )
+            name: make_estimate(name, 0.3 + index, curves[:, index], n=30, covariance_rule=rule)
             for index, name in enumerate(("first", "second"))
         }
+
+    @pytest.mark.parametrize("rule", ["centered", "second_moment"])
+    def test_the_stored_variance_is_the_declared_rule_applied_to_the_curve(
+        self, rule: CovarianceRule
+    ) -> None:
+        estimates = self._estimates(rule)
+        for name, estimate in estimates.items():
+            assert estimate.covariance_rule == rule
+            # ``np.cov`` and ``influence_variance`` can differ in the last bit.
+            assert estimate.variance == pytest.approx(
+                estimate_covariance(estimates, [name])[0, 0], rel=1e-12
+            )
+        curve = estimates["first"].influence_curve
+        # A nonzero-mean curve separates the two rules, so a constructor that ignored the
+        # declaration would store the other value.
+        other = (
+            stacked_second_moment_variance(curve)
+            if rule == "centered"
+            else influence_variance(curve)
+        )
+        assert estimates["first"].variance != pytest.approx(other, rel=1e-3)
+
+    def test_the_constructor_refuses_a_second_moment_rule_with_clusters(self) -> None:
+        with pytest.raises(ValueError, match="independent rows only"):
+            make_estimate(
+                "first",
+                0.3,
+                np.linspace(-1.0, 2.0, 30),
+                n=30,
+                cluster=np.arange(30) // 2,
+                covariance_rule="second_moment",
+            )
+
+    def test_the_constructor_refuses_an_unknown_rule(self) -> None:
+        with pytest.raises(ValueError, match="covariance_rule must be"):
+            make_estimate(
+                "first",
+                0.3,
+                np.linspace(-1.0, 2.0, 30),
+                n=30,
+                covariance_rule="raw",  # type: ignore[arg-type]
+            )
+
+    def test_the_median_over_repeats_keeps_the_declared_rule(self) -> None:
+        estimates = self._estimates("second_moment")
+        shifted = {name: replace(value, psi=value.psi + 0.1) for name, value in estimates.items()}
+
+        combined = median_estimates([estimates, shifted, estimates])
+
+        assert {value.covariance_rule for value in combined.values()} == {"second_moment"}
+
+    def test_the_median_over_repeats_refuses_mixed_rules(self) -> None:
+        centered = self._estimates("centered")
+        second = self._estimates("second_moment")
+        with pytest.raises(ValueError, match="different covariance rules"):
+            median_estimates([centered, second])
+
+    def test_simultaneous_bands_refuse_a_second_moment_estimate(self) -> None:
+        estimates = self._estimates("second_moment")
+        with pytest.raises(ValueError, match="covariance_rule='second_moment'") as caught:
+            simultaneous_bands(estimates, n_replicates=50, random_state=0)
+        assert str(caught.value) == (
+            "simultaneous_bands cannot band ['first', 'second'], which declare "
+            "covariance_rule='second_moment'. The multiplier draws center each influence "
+            "curve, which matches the raw second moment only on a mean-zero curve, and "
+            "simultaneous_bands does not check the mean"
+        )
+        mixed = {"first": self._estimates("centered")["first"], "second": estimates["second"]}
+        with pytest.raises(ValueError, match=r"cannot band \['second'\]"):
+            simultaneous_bands(mixed, n_replicates=50, random_state=0)
+        # The same curves under the centered rule band without complaint.
+        bands = simultaneous_bands(self._estimates("centered"), n_replicates=50, random_state=0)
+        assert set(bands.bands) == {"first", "second"}
 
     def test_the_centered_rule_is_the_sample_covariance_at_every_size(self) -> None:
         estimates = self._estimates("centered")

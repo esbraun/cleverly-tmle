@@ -38,6 +38,21 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/tmle_cde/run_study.R` | `ace28808cdd303c84a19c896a5c270db2545b92a236a2d3f35a86808c1994258` | `d1e0aeb838fd85a4f422dd29acebaad6c30df003353b01675afb777f38cfb85a` | result-neutral: the runner now reads one sample block per replicate and applies both existing level recodes to that frame. The former file repeated the same frame under two scenario labels. Each `tmle` call receives the same `Y`, `A`, `W`, `Z`, `Delta`, `Q`, `Q.Z1`, `g1W`, `pZ1`, and `pDelta1` values as before. The edit also removes an `identical()` guard over columns built from the same vectors, so that guard could never fail. The fit calls and exported scenario keys are unchanged |
 | `tests/canonical/tmle_cde/probe_native_result2.R` | `e4ba2f586cb11dcca1a086d449ea6cfd12123a5cba070db7bad7e95ada81c087` | `3c20d4d5355742d25997e4a692a6db0001a6a015633a911e84236f12722cefb2` | result-neutral: the probe selects replication zero from the deduplicated sample file instead of selecting its former level-one duplicate. Both former scenario blocks contained identical observed and nuisance rows. The native second-result call, supplied truth, and output labels are unchanged |
 
+## Study modules a manifest omits
+
+`tests/unit/test_study_provenance.py` requires a manifest to record every study-specific Python
+module that the study's runner and properties modules import. A result-neutral refactor can open
+a gap. For example, a helper moves out of a study module into a new module. The manifest cannot
+record a hash for the new module, because those bytes did not run.
+
+Declare each such module in the table below. The `study` cell holds the registered study slug and
+the `source` cell holds the repository-relative module path. The judgement starts with
+`result-neutral:`. The gate fails on a row whose module the manifest records, or that the study
+no longer imports. Remove the row when you regenerate the study.
+
+| study | source | judgement |
+| --- | --- | --- |
+
 ## Descriptive manifest text
 
 A manifest's `configuration` block can also carry a descriptive string that no computation reads.
@@ -48,3 +63,25 @@ header.
 
 | study | manifest field | correction | judgement |
 | --- | --- | --- | --- |
+| ordinary missing-outcome natural-course TMLE | `configuration.comparator_search` | the study ran no comparator. A later stacked binary study reaches the R `tmle` 2.1.1 population-mean path with supplied stitched predictions | result-neutral: the manifest preserves the search statement recorded at generation. The later study changes the known comparator surface, not this study's fitted rows or verdicts |
+
+## Completed manifest provenance
+
+The stacked missing-outcome natural-course manifest initially omitted two Python helpers that
+produced its rows. The manifest now records their SHA-256 values. No fitted row or verdict changed.
+
+The manifest names commit `f899841` for the run. It also records `cleverly_worktree_clean=false`,
+so that commit does not reconstruct the executed tree. The other recorded module hashes match
+commit `df0b3cf`. The study runner hash matches `df0b3cf` and not `f899841`.
+
+Both added files have the same bytes at `f899841` and at `df0b3cf`. The git blobs at both commits
+hash to the recorded values. Each file therefore matches the run under either commit.
+
+The study also loads `tests/studies/evidence/pairing.py` through the shared evidence framework.
+The manifest does not record that file. `tests/unit/test_study_provenance.py` excludes the
+framework from the required module list, so this is not a gap.
+
+| study | added source | recorded SHA-256 | judgement |
+| --- | --- | --- | --- |
+| stacked missing-outcome natural-course CV-TMLE | `tests/studies/point_study_helpers.py` | `f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a` | result-neutral: the helper serialized the existing initial estimate and primary rows. Its bytes are identical at `f899841` and `df0b3cf` |
+| stacked missing-outcome natural-course CV-TMLE | `tests/conftest.py` | `6e991807afeae6a901f953040ab9080b86baed5e7a9a7ed043f7d6f4f6fb45ea` | result-neutral: the property study used its oracle outcome and response learners. Its bytes are identical at `f899841` and `df0b3cf` |

@@ -8,14 +8,13 @@ canonical gradient at :math:`P_0`.  The distinction is set out there and in
 knows that TMLE's curve is the efficient one has no other reason to think this module holds
 anything else.
 
-Every single-draw estimate the library reports is built the same way: a point estimate as a
-weighted mean of targeted predictions, plus an influence curve whose sample variance divided by
-:math:`n` gives the variance of the estimate. Repeated cross-fitting is the explicit exception:
-it reports the median point and the median split-adjusted variance, while retaining a central
-draw's curve for marginal diagnostics. Writing the influence curve out explicitly (rather than
-only its variance) is deliberate -- it is what makes cluster-robust variance, simultaneous
-confidence bands, the delta method and the score diagnostic all fall out of the same object where
-those operations are defined.
+Most single-draw estimates report a weighted targeted mean and the centered sample variance of
+their influence curve divided by :math:`n`. Two exceptions exist. The stacked missing-outcome
+natural-course CV-TMLE uses the curve's raw second moment. Fold-evaluated CV-TMLE uses the
+cross-validated variance of the fold curves. Repeated cross-fitting reports the median point and
+median split-adjusted variance while retaining a central draw's curve for marginal diagnostics.
+Writing the curve explicitly supports cluster-robust variance, simultaneous bands, the delta
+method, and score diagnostics where the declared covariance rule defines them.
 
 The influence curves, on the ``[0, 1]`` outcome scale, with
 :math:`r_i = \Delta_i (Y_i - \bar Q^*(A_i, W_i))`:
@@ -63,7 +62,7 @@ from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
 from ..utils.bounds import OutcomeScaler, bound
-from .cluster import influence_variance
+from .cluster import influence_variance, stacked_second_moment_variance
 from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
 
 __all__ = [
@@ -292,6 +291,14 @@ class BootstrapSummary:
         return float(self.std_error**2)
 
 
+#: Why the raw second-moment rule refuses clusters. One text for the estimate constructor
+#: and the covariance helpers in :mod:`cleverly.inference.results`.
+_SECOND_MOMENT_CLUSTER_REFUSAL = (
+    "the raw second-moment covariance rule is defined for independent rows only, "
+    "and this result declares clusters"
+)
+
+
 def make_estimate(
     name: str,
     psi: float,
@@ -302,10 +309,54 @@ def make_estimate(
     scale: Scale = "difference",
     alpha: float = 0.05,
     log_psi: float | None = None,
+    covariance_rule: CovarianceRule = "centered",
 ) -> ParameterEstimate:
-    """Assemble a :class:`ParameterEstimate`, computing its variance."""
+    """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
+
+    This function owns the map from a covariance rule to a stored variance, so an
+    estimate's :attr:`~ParameterEstimate.variance` and its declared
+    :attr:`~ParameterEstimate.covariance_rule` cannot disagree.
+
+    Parameters
+    ----------
+    name : str
+        Stable alias of the estimand.
+    psi : float
+        The estimate, on the outcome's original scale.
+    influence_curve : ndarray
+        Per-observation influence curve on the inference scale.
+    n : int
+        Number of observations behind the estimate.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes, or ``None`` for independent rows.
+    scale : {"level", "difference", "ratio", "fraction"}, default="difference"
+        Scale the estimate is reported on.
+    alpha : float, default=0.05
+        Significance level of the interval.
+    log_psi : float or None, default=None
+        The estimate on the log scale, for a ratio only.
+    covariance_rule : {"centered", "second_moment"}, default="centered"
+        ``"centered"`` stores :func:`~cleverly.inference.influence_variance`.
+        ``"second_moment"`` stores
+        :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
+        cluster.
+
+    Returns
+    -------
+    ParameterEstimate
+        The estimate, declaring ``covariance_rule``.
+    """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
-    variance = influence_variance(ic, cluster)
+    if covariance_rule == "second_moment":
+        if cluster is not None:
+            raise ValueError(_SECOND_MOMENT_CLUSTER_REFUSAL)
+        variance = stacked_second_moment_variance(ic)
+    elif covariance_rule == "centered":
+        variance = influence_variance(ic, cluster)
+    else:
+        raise ValueError(
+            f"covariance_rule must be 'centered' or 'second_moment'; got {covariance_rule!r}"
+        )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
     return ParameterEstimate(
         name=name,
@@ -317,6 +368,7 @@ def make_estimate(
         scale=scale,
         alpha=alpha,
         log_psi=log_psi,
+        covariance_rule=covariance_rule,
     )
 
 
@@ -373,6 +425,12 @@ def median_estimates(
     out: dict[str, ParameterEstimate] = {}
     for name in shared:
         parts = [report[name] for report in per_repeat]
+        rules = {part.covariance_rule for part in parts}
+        if len(rules) != 1:
+            raise ValueError(
+                f"{name} declares different covariance rules {sorted(rules)} across "
+                "repeats; a median over draws needs one rule"
+            )
         scale = parts[0].scale
         if scale == "ratio":
             # ``points`` and ``median_point`` are on the reporting scale, which for a
@@ -413,6 +471,9 @@ def median_estimates(
             scale=scale,
             alpha=parts[0].alpha,
             log_psi=log_psi,
+            # The stored variance is the median-adjusted rule above under either
+            # declaration. The declared rule still decides how covariance reads the curve.
+            covariance_rule=parts[0].covariance_rule,
         )
     return out
 

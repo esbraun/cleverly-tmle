@@ -67,6 +67,8 @@ STUDY = StudyRecord(
         "tests/studies/canonical_mar_natural_course_cvtmle.py",
         "tests/studies/mar_natural_course_cvtmle_properties.py",
         "tests/studies/missing_outcome_study_helpers.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/conftest.py",
         "tests/discrete_law_mar.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",

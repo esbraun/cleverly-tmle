@@ -83,21 +83,49 @@ compositions that each contract refuses.
 | estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused | `TMLE`. `CTMLE` and `DRTMLE` are refused |
 | treatment | two arms. A multi-valued treatment is refused | two arms. A multi-valued treatment is refused |
 | outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome is refused |
-| outer folds | one fold | package-generated folds with `stratify_by="none"`. Stratified folds and `split_plan=` are refused |
-| repeats | `repeats=1`. Repeated splits are refused | `repeats=1`. Repeated splits are refused |
+| outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold, stratified folds, and `split_plan=` are refused |
+| repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value is refused when the fit starts |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
 | inference | influence-curve Wald interval. `n_bootstrap > 0` is refused | influence-curve Wald interval. `n_bootstrap > 0` is refused |
 | rows | observation weights, clusters, baseline strata, and `intermediate=` are refused | observation weights, clusters, baseline strata, and `intermediate=` are refused |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
-Each composition refusal raises `CapabilityError` before any learner is fitted. The two
-response-support checks raise `DataError` after the folds are drawn and before either learner
-receives data.
+Three checks enforce the two contracts. Each check runs at a different time and raises a different
+error.
 
-| response-support failure | what the message says |
+| check | error | when it runs |
+| --- | --- | --- |
+| a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same reason | when `CrossFitting` or `TMLEMethod` is constructed |
+| a composition this target does not support | `CapabilityError` | when the fit starts, before any learner is fitted |
+| response support | `DataError` | after fold generation, before either learner receives data |
+
+The declaration check is not specific to this target. One function runs its steps in a fixed order,
+and it returns the first reason it finds. The declaration and the engine therefore give one reason
+for one input. A reason that names the cross-fitting switch names `enabled` from the declaration
+and `cross_fit` from the engine.
+`tests/unit/test_split_plan.py::TestOneInputEarnsOneReasonAtBothLayers` checks that both layers
+give the same reason.
+
+| order | the declaration check refuses |
+| ---: | --- |
+| 1 | `repeats` below 1 |
+| 2 | a `split_plan` that is not a `SplitPlan` |
+| 3 | a plan that the declared fold policy cannot use. A plan requires cross-fitting with at least two folds, and its fold and repeat counts must fit the declaration |
+| 4 | a plan together with `n_bootstrap` above 0. `TMLEMethod` runs this step, because it holds both settings |
+| 5 | `repeats` above 1 with cross-fitting disabled |
+
+A `split_plan` can pass the declaration check and still fail the natural-course contract. Under
+`enabled=True`, a valid plan constructs, and the stacked contract refuses it when the fit starts.
+Under `enabled=False`, step 3 refuses any plan at construction.
+
+| response-support failure | what the message tells you to do |
 | --- | --- |
-| the sample holds fewer than two respondents or fewer than two nonrespondents | no fold count or `random_state` can succeed. Use `cross_fit=False` |
-| one training complement holds no respondent or no nonrespondent | it names the repeat and the fold. Increase `n_folds` so each training complement is larger, use `n_folds=1`, or use a different `random_state` |
+| the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
+| one training complement holds no respondent or no nonrespondent | the message names the repeat and the fold. Increase `n_folds` so each training complement is larger, use a different `random_state`, or use the in-sample estimator |
+
+Both messages name the in-sample estimator as `CrossFitting(enabled=False, stratify_by='treatment')`,
+or `cross_fit=False` with `stratify_folds='treatment'` on the engine. Disabling cross-fitting is not
+enough by itself.
 
 `stratify_by="none"` is reserved for the stacked contract. A frame that declares `missingness=` but
 has no missing outcome takes the complete-outcome branch. Under `stratify_by="none"`, that fit
