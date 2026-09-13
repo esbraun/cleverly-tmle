@@ -32,13 +32,14 @@ unchecked, and there is a lot of it -- so this is one hole closed rather than th
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import unicodedata
 from pathlib import Path
 
 import pytest
 
-from tests.documents import DOCUMENTS, ROOT
+from tests.documents import DOCUMENTS, NOTEBOOKS, ROOT
 
 #: Every Python file that may carry a cross-reference in a docstring or comment.  These are not
 #: link *destinations* -- nothing anchors into a module -- but they are link *sources*, and a
@@ -123,9 +124,20 @@ def links(text: str) -> list[str]:
     return out
 
 
-ANCHORS = {
-    path: {slug(head) for head in headings(path.read_text(encoding="utf-8"))} for path in DOCUMENTS
-}
+def readable(path: Path) -> str:
+    """The markdown a reader sees: a notebook's markdown cells, or a document's whole text."""
+    if path.suffix != ".ipynb":
+        return path.read_text(encoding="utf-8")
+    cells = json.loads(path.read_text(encoding="utf-8"))["cells"]
+    markdown = ("".join(cell["source"]) for cell in cells if cell["cell_type"] == "markdown")
+    return "\n".join(markdown)
+
+
+#: A published notebook is a link source and a link destination like any Markdown page.  The
+#: examples are notebooks, and a Markdown page links into them by heading.
+LINKED = sorted({*DOCUMENTS, *NOTEBOOKS})
+
+ANCHORS = {path: {slug(head) for head in headings(readable(path))} for path in LINKED}
 
 
 def test_there_are_documents_to_check() -> None:
@@ -138,14 +150,14 @@ def test_there_are_documents_to_check() -> None:
     assert ROOT / "docs" / "architecture-invariants.md" in ANCHORS
 
 
-@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
+@pytest.mark.parametrize("path", LINKED, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_heading_has_a_derivable_anchor(path: Path) -> None:
     """No heading carries a character whose anchor this module has to guess at.
 
     A policy rather than a limitation: the alternative is a check that skips the headings most
     likely to be linked wrongly, which is where the guessing happens.
     """
-    offenders = {head: ambiguous(head) for head in headings(path.read_text(encoding="utf-8"))}
+    offenders = {head: ambiguous(head) for head in headings(readable(path))}
     carrying = {head: found for head, found in offenders.items() if found}
 
     assert not carrying, (
@@ -178,10 +190,10 @@ def unresolved(path: Path, targets: list[str]) -> list[str]:
     return broken
 
 
-@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
+@pytest.mark.parametrize("path", LINKED, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_relative_link_resolves(path: Path) -> None:
     """Both halves of a target: the file exists, and the fragment names one of its headings."""
-    broken = unresolved(path, links(path.read_text(encoding="utf-8")))
+    broken = unresolved(path, links(readable(path)))
     assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)
 
 

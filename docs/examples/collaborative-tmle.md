@@ -254,7 +254,7 @@ records both limits and links the registered studies. No diagnostic on the fit r
 Collaborative TMLE addresses *selection*. If your worry is the *inference* instead, because you
 expect one nuisance to be inconsistent however you choose it, read [DR-TMLE](dr-tmle.md). If the
 adjustment set is small and you would include all of it, the plain
-[point-treatment TMLE](point-treatment-tmle.md) is the right entry.
+[point-treatment TMLE](point-treatment-tmle.ipynb) is the right entry.
 
 The library refuses longitudinal and incremental-target C-TMLE. The technical entry gives the
 reasons.

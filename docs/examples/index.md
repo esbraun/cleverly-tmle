@@ -6,11 +6,11 @@ question in that program with one method, and the table below lists them.
 
 ## The program
 
-Start with [Point-treatment TMLE](point-treatment-tmle.md).
+Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 
 | tutorial | the evaluation question | method entry | the failure mode it demonstrates |
 | --- | --- | --- | --- |
-| [Point-treatment TMLE](point-treatment-tmle.md) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance gives a consistent point estimate. Two inconsistent nuisances have no general guarantee |
+| [Point-treatment TMLE](point-treatment-tmle.ipynb) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance gives a consistent point estimate. Two inconsistent nuisances have no general guarantee |
 | [CV-TMLE](cross-fitting.md) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | in-sample nuisance evaluation and ignored teams can understate uncertainty |
 | [Collaborative TMLE](collaborative-tmle.md) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery predicts assignment and confounds nothing |
 | [DR-TMLE](dr-tmle.md) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle/index.md) | solved score equations do not show that the nuisance or reduced regressions converge |

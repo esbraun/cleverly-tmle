@@ -22,6 +22,7 @@ from scripts.execute_notebook import (
     execute_notebook,
     validate_execution_environment,
     validate_notebook_path,
+    write_notebook,
 )
 from tests.notebooks import (
     GATED_DIGESTS,
@@ -559,6 +560,24 @@ def test_the_executor_rejects_cells_nbclient_cannot_execute(tmp_path: Path) -> N
     reserved["cells"][1]["metadata"] = {"tags": [NEVER_SKIP_TAG]}
     with pytest.raises(ValueError, match="reserved tag"):
         execute_notebook(reserved, timeout=30, repository_root=tmp_path)
+
+
+def test_the_executor_writes_line_feeds_on_every_platform(tmp_path: Path) -> None:
+    """A stamped notebook matches the line endings git stores, including on Windows.
+
+    The source strings carry line feeds, so a text-mode write on Windows would put a carriage
+    return before each one.  The check reads bytes, which is where the difference lives.
+    """
+    import nbformat
+
+    notebook = nbformat.from_dict(_notebook())
+    path = tmp_path / "docs" / "example.ipynb"
+    path.parent.mkdir()
+    write_notebook(notebook, path)
+
+    written = path.read_bytes()
+    assert b"\n" in written and b"\r\n" not in written
+    assert json.loads(written)["cells"] == _notebook()["cells"]
 
 
 def test_notebook_paths_are_rejected_before_execution(tmp_path: Path) -> None:

@@ -350,13 +350,14 @@ verdict, whatever a runtime gate reads off that example. Evidence manifests such
 `docs/technical-reference/evidence.md` remain test-enforced source registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
-executes the registered documents' fences. It runs two gates, and the table states what each one
-covers.
+executes the registered documents' fences and the tutorial notebooks' code cells. It runs three
+gates, and the table states what each one covers.
 
 | gate | documents | sample size | what it asserts |
 | --- | --- | --- | --- |
-| `test_every_nonsemantic_example_runs` | entries in `PRELUDES` that are not tutorials | shrunk to `SMALL_N` | nothing raises |
-| `test_tutorial_semantics_at_documented_size` | every Markdown tutorial under `docs/examples/` | the size the page prints | nothing raises, then one reviewed callback checks that page |
+| `test_every_nonsemantic_example_runs` | entries in `PRELUDES`, none of them tutorials | shrunk to `SMALL_N` | nothing raises |
+| `test_tutorial_semantics_at_documented_size` | every tutorial under `docs/examples/`, as Markdown or as a notebook, offline | the size the page prints | nothing raises, then one reviewed callback checks that page |
+| `test_every_narrated_decimal_matches_a_stored_output` | every tutorial notebook | none, it reads stored outputs | each decimal in the prose rounds from a stored output |
 
 The smoke gate asserts no number. It exists because compiling a fence cannot see a name the
 package does not have. Six shipped examples were broken that way at once: two on a renamed
@@ -373,10 +374,11 @@ page's own seed. An identity holds in every sample. A seeded relation holds in t
 reader sees, so the callback detects a page that contradicts itself and certifies no method. A
 method claim still needs an ordinary fast test or a registered study.
 
-The gate is bounded by review rather than by a heuristic. Each callback lives in the test module
-and not in the document, so a rewritten page cannot grant itself a numeric gate.
-`test_every_tutorial_has_one_semantic_assertion` discovers the Markdown tutorials and pins the
-registry to them. The documented-size gate is their only runtime pass, which avoids repeating each
+The gate is bounded by review rather than by a heuristic. Each callback lives in its own module
+under `tests/unit/tutorial_semantics/` and not in the document, so a rewritten page cannot grant
+itself a numeric gate. One module per tutorial lets several tutorials change at once without an
+edit to a shared registry. `test_every_tutorial_has_one_semantic_assertion` discovers the
+tutorials and pins the modules to them. The documented-size gate is their only runtime pass, which avoids repeating each
 fit at the smoke size. *Reconsider when* a callback needs a looser tolerance to keep passing. A
 relation that moves under a supported change is a sampling claim, and it belongs in a registered
 study.

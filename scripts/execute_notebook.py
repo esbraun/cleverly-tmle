@@ -161,6 +161,17 @@ def execute_notebook(notebook: Any, *, timeout: int, repository_root: Path) -> N
     ).execute()
 
 
+def write_notebook(notebook: Any, path: Path) -> None:
+    """Write ``notebook`` to ``path`` with line-feed endings on every platform.
+
+    :func:`nbformat.write` opens a path in text mode, which writes carriage returns on Windows.
+    The digests read parsed JSON and ignore that, but ``.gitattributes`` stores every text file
+    with line feeds. A carriage-return copy then shows as a whole-file change in the working tree.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        nbformat.write(notebook, handle)
+
+
 def main() -> None:
     """Execute the notebook named on the command line, then write its stamp back.
 
@@ -218,7 +229,7 @@ def main() -> None:
         return
 
     notebook.metadata["cleverly_execution"] = notebook_execution_stamp(notebook, path)
-    nbformat.write(notebook, path)
+    write_notebook(notebook, path)
 
 
 if __name__ == "__main__":

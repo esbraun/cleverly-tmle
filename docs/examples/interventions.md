@@ -336,6 +336,6 @@ Every axis on this page acts at one decision time. Read
 [longitudinal TMLE](longitudinal-tmle.md) for a rule that assigns navigation again at day seven.
 Read [MSM projections](msm-projections.md) for the working model that summarizes many plans as one
 trend. The contrast these three axes replace is the average treatment effect, and
-[point-treatment TMLE](point-treatment-tmle.md) estimates it.
+[point-treatment TMLE](point-treatment-tmle.ipynb) estimates it.
 
 The [examples index](index.md#the-program) lists every tutorial in the program.

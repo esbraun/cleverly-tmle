@@ -5,7 +5,7 @@ their fold arithmetic.
 
 ## The applied question
 
-The [point-treatment tutorial](point-treatment-tmle.md) fit boosted learners. A reviewer of the
+The [point-treatment tutorial](point-treatment-tmle.ipynb) fit boosted learners. A reviewer of the
 network report asks why the sample was split, given that the learners predict held-out patients
 well. The reviewer also asks whether patients from two hundred navigator teams are independent
 observations.

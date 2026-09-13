@@ -21,10 +21,14 @@ examples: both live on a page whose fences assume a ``study`` from the surroundi
 check limited to documents that build their own data would have run neither.
 
 **What this checks and what it deliberately does not.**  The general gate is a smoke check on
-*executability*: the assertion is that the block raises nothing.  A bounded gate runs the nine
-tutorials at their documented sizes and replaces their smaller smoke pass.  Its explicit callbacks
-check identification metadata, display identities, and the seeded relations that those pages
-narrate.  This does not turn one seeded example into statistical evidence.
+*executability*: the assertion is that the block raises nothing.  A bounded gate runs every
+tutorial under ``docs/examples`` at its documented size and replaces its smaller smoke pass.  A
+tutorial is a Markdown page or an executed notebook, and a notebook's code cells run in order in
+one namespace, offline, without a kernel.  Each tutorial's explicit callback lives in its own
+module in :mod:`tests.unit.tutorial_semantics`, and checks identification metadata, display
+identities, and the seeded relations that the page narrates.  A notebook tutorial also has its
+narrated decimals compared against its stored outputs.  None of this turns one seeded example
+into statistical evidence.
 ``docs/architecture-invariants.md`` keeps that rule, and method claims still need an ordinary fast
 test or a registered study.
 
@@ -55,13 +59,16 @@ library change that moves a published number while every cell keeps its bytes.
 from __future__ import annotations
 
 import ast
+import importlib.util
+import ipaddress
 import re
+import socket
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import nbformat
-import numpy as np
 import pytest
 
 from tests.documents import NOTEBOOKS, READER_FACING, ROOT, python_blocks
@@ -73,6 +80,19 @@ from tests.notebooks import (
     UNKNOWN,
     code_cells,
     notebook_execution_stamp,
+)
+from tests.unit.tutorial_semantics import (
+    NOT_TUTORIALS,
+    callback,
+    callback_module,
+    callback_modules,
+    markdown_text,
+    module_name,
+    narrated_decimals,
+    narration_mismatches,
+    notebook_code,
+    stored_text,
+    tutorials,
 )
 
 #: Small enough that the whole module is a fast-tier cost, large enough that a fit converges.
@@ -198,18 +218,11 @@ data = frame.rename(
 )
 
 #: Document -> the code its fences assume was already run.  An empty string means the document
-#: builds everything it uses, which is the standard the examples section is held to.
+#: builds everything it uses.  Tutorials under ``docs/examples`` hold that standard without an
+#: entry here: :data:`TUTORIALS` discovers them, so converting one to a notebook edits no
+#: shared registry.
 PRELUDES: dict[str, str] = {
     "README.md": "",
-    "docs/examples/point-treatment-tmle.md": "",
-    "docs/examples/cross-fitting.md": "",
-    "docs/examples/collaborative-tmle.md": "",
-    "docs/examples/dr-tmle.md": "",
-    "docs/examples/interventions.md": "",
-    "docs/examples/survey-nonresponse.md": "",
-    "docs/examples/longitudinal-tmle.md": "",
-    "docs/examples/longitudinal-survival.md": "",
-    "docs/examples/msm-projections.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
@@ -227,508 +240,44 @@ TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
 
 # ---------------------------------------------------------------- semantic tutorial assertions
 
-
-def _missing_outcome_semantics(namespace: dict[str, Any]) -> None:
-    """The survey question reports the observation factor its fitted score uses.
-
-    The same documented-size run also witnesses the tutorial's interval and sensitivity claims.
-    """
-    effect = namespace["effect"]
-    fitted = namespace["full"]
-    expression = effect.functional.expression
-    assumptions = " ".join(effect.identification.assumptions).lower()
-    nuisances = effect.identification.required_nuisances
-    summary = effect.summary()
-
-    assert "responded=1" in expression
-    assert "missingness at random" in assumptions
-    assert "response positivity" in assumptions
-    assert "missingness_mechanism" in nuisances
-    assert fitted.nuisance.missingness is not None
-    assert expression in summary
-    assert "missingness_mechanism" in summary
-    assert "E_W[E(Y | A=a, W)] and the declared smooth contrast" not in summary
-
-    # "About a quarter of patients never return the 30-day survey."
-    assert 0.70 < float(namespace["frame"]["responded"].mean()) < 0.80
-
-    truth = namespace["truth"]["ate"]
-    complete_case = namespace["complete_case"]["ate"]
-    full = fitted["ate"]
-    assert complete_case.psi > truth
-    assert not complete_case.ci[0] <= truth <= complete_case.ci[1]
-    assert full.ci[0] <= truth <= full.ci[1]
-
-    mild_truth = namespace["mild_truth"]["ate"]
-    mild = namespace["mild"]["ate"]
-    assert mild.ci[0] <= mild_truth <= mild.ci[1]
-
-    box_study = namespace["box_study"]
-    box_method = namespace["box_method"]
-    risk_ratio = box_study.identify(namespace["RiskRatio"](reference=0)).estimate(
-        method=box_method
-    )["rr"]
-    odds_ratio = box_study.identify(namespace["OddsRatio"](reference=0)).estimate(
-        method=box_method
-    )["or"]
-    assert odds_ratio.psi > risk_ratio.psi > 1.0
-    # "near gamma=1.3", and "at most about 0.29 of the score range" is expit(gamma) - 0.5.
-    assert namespace["tipping_gamma"] == pytest.approx(1.30, abs=0.03)
-    # The refusal is the attributable fraction's missing-outcome refusal, not another error.
-    assert "does not yet support PointTreatment(missingness=...)" in namespace["refusal"]
-
-    # The curve's gamma=0 row is the MAR estimate, and its interval reuses the MAR standard error.
-    curve = namespace["missingness_curve"]
-    mar = curve[curve["gamma"] == 0.0]
-    assert float(mar["psi"].iloc[0]) == pytest.approx(full.psi, rel=1e-9)
-    assert (curve["std_err"] == full.std_error).all()
-    # Positive gamma lowers the navigation-arm mean, so the ATE falls along the grid.
-    assert curve["psi"].is_monotonic_decreasing
+#: Tutorial sources, Markdown or notebook.  Each has one reviewed callback module in
+#: :mod:`tests.unit.tutorial_semantics`, and none needs a prelude.
+TUTORIALS = tuple(tutorials())
 
 
-def _multi_arm_identification_semantics(namespace: dict[str, Any]) -> None:
-    """The arm-mean question names its actual support instead of a binary surrogate."""
-    effect = namespace["arms"]
-    fitted = namespace["arm_result"]
-    levels = tuple(namespace["study"].data.treatment_levels)
-    positivity = " ".join(
-        assumption
-        for assumption in effect.identification.assumptions
-        if "positivity" in assumption.lower()
-    )
-    summary = effect.summary()
-
-    assert len(levels) == 3, "the tutorial no longer witnesses multi-arm identification"
-    assert fitted.nuisance.propensity.values.shape[1] == len(levels)
-    for level in levels:
-        assert str(level) in positivity
-    assert "treatment_mechanism" in summary
-    assert "P(A = 1 | W)" not in summary
-    assert "both counterfactual means" not in summary
-
-    population = namespace["population"]
-    assert population[0] < population[1] < population[2]
-    assert population[2] - population[1] > population[1] - population[0]
-    # The page refuses text cadence labels. Only the MSM.linear refusal may satisfy it.
-    assert "reads the treatment level" in namespace["refusal"]
-
-    projection = namespace["projection"]
-    trend = namespace["trend_result"]
-    for name, target in zip(
-        ("msm[(intercept)]", "msm[assigned contacts]"), projection, strict=True
-    ):
-        assert trend[name].ci[0] <= target <= trend[name].ci[1]
-
-    saturated = namespace["saturated_result"]
-    mappings = {
-        "msm[(intercept)]": namespace["arm_result"]["ey[low]"],
-        "msm[medium vs low]": namespace["arm_contrasts"]["ate[medium vs low]"],
-        "msm[high vs low]": namespace["arm_contrasts"]["ate[high vs low]"],
-    }
-    for name, counterpart in mappings.items():
-        coefficient = saturated[name]
-        assert coefficient.psi == pytest.approx(counterpart.psi, rel=1e-12, abs=1e-12)
-        np.testing.assert_allclose(
-            coefficient.influence_curve,
-            counterpart.influence_curve,
-            rtol=1e-12,
-            atol=1e-12,
-        )
-        np.testing.assert_allclose(coefficient.ci, counterpart.ci, rtol=1e-12, atol=1e-12)
-
-    line = namespace["design"] @ projection
-    residual = line - population
-    assert abs(residual[1]) > 0.15, "the contact mapping no longer witnesses misspecification"
-    assert 0.17 < abs(residual[1]) < 0.21, "the prose says the line misses medium by about 0.19"
-    # "Well below" the medium interval: the gap is measured at about 3.5 standard errors.
-    medium = namespace["arm_result"]["ey[medium]"]
-    gap = medium.ci[0] - namespace["estimated_line"][1]
-    assert gap > 2.0 * medium.std_error, (
-        "on this draw the estimated line no longer falls well below the medium interval"
-    )
-
-
-def _survival_output_semantics(namespace: dict[str, Any]) -> None:
-    """The survival view, delta-method differences, and competing-risk narrative hold."""
-    result = namespace["exit_result"]
-    risk = result.curve(scale="risk")
-    survival = namespace["survival_curve"]
-    keys = set(result.estimates)
-    assert len(risk) == len(survival) == 4
-
-    # ``estimand`` names the survival quantity and ``parameter`` names the risk behind it.
-    assert set(risk["view"]) == {"risk"} and set(survival["view"]) == {"survival"}
-    assert set(risk["scale"]) == {"level"} and set(survival["scale"]) == {"level"}
-    assert list(risk["parameter"]) == list(survival["parameter"])
-    assert set(survival["parameter"]) <= keys
-    assert not set(survival["estimand"]) & keys
-    assert all(str(name).startswith("survival_regimen[") for name in survival["estimand"])
-    np.testing.assert_allclose(survival["psi"], 1.0 - risk["psi"], rtol=0.0, atol=1e-14)
-    np.testing.assert_allclose(survival["ci_lower"], 1.0 - risk["ci_upper"], rtol=0.0, atol=1e-14)
-    np.testing.assert_allclose(survival["ci_upper"], 1.0 - risk["ci_lower"], rtol=0.0, atol=1e-14)
-    np.testing.assert_array_equal(survival["std_err"], risk["std_err"])
-
-    # "both risk differences are negative, and the 60-day difference is larger" (ratio 1.37).
-    exit_differences = namespace["exit_differences"]
-    exit_t1, exit_t2 = exit_differences[1], exit_differences[2]
-    assert exit_t1.psi < -0.05
-    assert exit_t2.psi < 1.15 * exit_t1.psi
-    retention = survival.set_index(["regimen", "time"])
-    assert retention.loc[("always", 2), "psi"] > retention.loc[("never", 2), "psi"] + 0.05
-    exit_truth = namespace["exit_truth"]
-    assert (
-        exit_truth["ate_regimen[always vs never @ t=2]"]
-        < exit_truth["ate_regimen[always vs never @ t=1]"]
-        < 0.0
-    )
-    # "26% ... within 30 days and 46% within 60 days under no navigation" are exact truths.
-    assert exit_truth["risk_regimen[never @ t=1]"] == pytest.approx(0.26, abs=0.005)
-    assert exit_truth["risk_regimen[never @ t=2]"] == pytest.approx(0.46, abs=0.006)
-
-    # "the same estimate and standard error as a separate RegimeContrast fit". The refit reuses
-    # the page's clustered study and method, and costs one more backward pass.
-    from cleverly import RegimeContrast
-
-    contrast = (
-        namespace["exit_study"]
-        .identify(RegimeContrast({"always": 1, "never": 0}, reference="never", horizons=(1, 2)))
-        .estimate(method=namespace["sequential"])
-    )
-    assert result.data.cluster is not None
-    for horizon, estimate in exit_differences.items():
-        fitted = contrast[f"ate_regimen[always vs never @ t={horizon}]"]
-        assert estimate.psi == pytest.approx(fitted.psi, abs=1e-10)
-        assert estimate.std_error == pytest.approx(fitted.std_error, rel=1e-8)
-
-    # The renamed censoring columns gate the event in their own period.
-    frame = namespace["exit_frame"]
-    assert frame.loc[frame["tracked_p1"] == 0, "plan_exit_p1"].isna().all()
-    assert frame.loc[frame["tracked_p1"] == 1, "plan_exit_p1"].notna().all()
-    at_risk_p2 = (frame["tracked_p1"] == 1) & (frame["plan_exit_p1"] == 0)
-    period_two = frame.loc[at_risk_p2]
-    assert period_two.loc[period_two["tracked_p2"] == 0, "plan_exit_p2"].isna().all()
-    assert period_two.loc[period_two["tracked_p2"] == 1, "plan_exit_p2"].notna().all()
-
-    event_truth = namespace["event_truth"]
-    # "60-day death risk is 21% under no navigation and 7% under navigation at both periods."
-    assert event_truth["cif_regimen[never, death @ t=2]"] == pytest.approx(0.21, abs=0.006)
-    assert event_truth["cif_regimen[always, death @ t=2]"] == pytest.approx(0.07, abs=0.006)
-    events = namespace["event_differences"]
-    readmission_t1, readmission_t2 = events["readmission", 1], events["readmission", 2]
-    # "negative at 30 days and shrinks toward zero by 60 days" (measured ratio 0.21).
-    assert readmission_t1.psi < -0.015
-    assert abs(readmission_t2.psi) < 0.5 * abs(readmission_t1.psi)
-    assert event_truth["ate_regimen[always vs never, relapse @ t=1]"] < 0.0
-    assert event_truth["ate_regimen[always vs never, relapse @ t=2]"] > 0.0
-    # "negative at both horizons and larger at 60 days" (measured ratio 1.55).
-    death_t1, death_t2 = events["death", 1], events["death", 2]
-    assert death_t1.psi < -0.03
-    assert death_t2.psi < 1.25 * death_t1.psi
-
-    # Death coded as censoring gives a larger reduction than the total effect, and it raises
-    # never-plan readmission risk more than always-plan risk.
-    eliminated = namespace["eliminated"]
-    assert eliminated.data.censoring_names == ("alive_p1", "alive_p2")
-    assert namespace["eliminated_t2"].psi < readmission_t2.psi - 0.01
-    levels = namespace["event_levels"]
-    raised_never = (
-        eliminated["risk_regimen[never @ t=2]"].psi
-        - levels["cif_regimen[never, readmission @ t=2]"].psi
-    )
-    raised_always = (
-        eliminated["risk_regimen[always @ t=2]"].psi
-        - levels["cif_regimen[always, readmission @ t=2]"].psi
-    )
-    assert raised_never > raised_always + 0.01 and raised_always > 0.0
-
-    for assessment in (namespace["exit_assessment"], namespace["event_assessment"]):
-        sensitivity = assessment.sensitivity.items
-        assert sensitivity and all(item.status.value == "unavailable" for item in sensitivity)
-        assert assessment.diagnostics["refute"].status.value == "unavailable"
-    event_support = namespace["event_assessment"].report("support").to_frame()
-    assert {"cause", "horizon"} <= set(event_support.columns)
-
-    assert len(levels.config.causes) == 2
-    with pytest.raises(ValueError, match="not all-cause survival"):
-        levels.curve(scale="survival")
-
-    # The reported total standard error is derived from the influence curves alone. This fit
-    # declares no cluster, so the independent formula is the iid one.
-    totals = namespace["incidence_totals"]
-    index = levels.parameter_index or {}
-    assert levels.data.cluster is None
-    for row in totals.itertuples(index=False):
-        names = [
-            name
-            for name, (regimen, _cause, horizon) in index.items()
-            if regimen == row.regimen and horizon == row.time
-        ]
-        assert len(names) == len(levels.config.causes)
-        curve = np.sum(np.column_stack([levels[name].influence_curve for name in names]), axis=1)
-        expected = float(np.sqrt(np.var(curve, ddof=1) / levels.data.n))
-        old_extra_scaling = expected / np.sqrt(levels.data.n)
-        assert row.std_err == pytest.approx(expected, rel=1e-12, abs=0.0)
-        assert row.std_err != pytest.approx(old_extra_scaling, rel=1e-6, abs=0.0)
-
-
-def _collaborative_summary_semantics(namespace: dict[str, Any]) -> None:
-    """A selector report describes its loss without assigning causal roles to omissions."""
-    selection = namespace["selection"]
-    assert selection.selected_covariates == ()
-
-    summary = selection.summary().lower()
-    assert "cross-validated" in summary and "loss" in summary
-    assert "does not determine why" in summary
-    # Whole words, because a substring test reads a footer that says "covariance" as a
-    # footer that says "variance", and the report would then fail for a word it never used.
-    for unsupported in ("bias", "variance", "confounder", "instrument"):
-        assert not re.search(rf"\b{unsupported}\b", summary)
-
-    # The rename is load-bearing: a stale column name would make the exclusion vacuous.
-    covariates = set(namespace["frame"].columns)
-    assert {"baseline_readiness", "queue_lottery_draw", "social_support"} <= covariates
-    weak_selection = namespace["weak_selection"]
-    assert "baseline_readiness" in weak_selection.selected_covariates
-    assert "queue_lottery_draw" not in weak_selection.selected_covariates
-    assert namespace["weak_collaborative"]["ate"].std_error < (
-        0.5 * namespace["weak_plain"]["ate"].std_error
-    )
-    assert namespace["nuisance"].treatment_role == "collaborative_working_model"
-
-    # "More than 5% ... below 0.1, and more than 5% ... above 0.9" for the plain fit.
-    overall = namespace["plain"].diagnostics.support().propensity_quantiles["overall"]
-    assert overall[0.05] < 0.1 and overall[0.95] > 0.9
-    # "its AUC is about 0.5" for the intercept-only working model. The calibration slope of a
-    # constant model is undefined noise, so the page makes no claim about it.
-    assert 0.45 < namespace["nuisance"]["propensity"].metrics["auc"] < 0.55
-
-
-def _cross_fitting_semantics(namespace: dict[str, Any]) -> None:
-    """The seeded relations docs/examples/cross-fitting.md narrates, at its documented size."""
-    cross_fitted = namespace["cross_fitted"]["ate"]
-    in_sample = namespace["in_sample"]["ate"]
-
-    assert "stacked CV-TMLE" in namespace["cross_fitted"].summary()
-    # "the two point estimates are close"; "less than a third" (measured ratio about 0.28).
-    assert abs(in_sample.psi - cross_fitted.psi) < 0.1
-    assert in_sample.std_error < cross_fitted.std_error / 3
-
-    # "nearly identical" points and "about 1.7 times larger" standard error.
-    ignoring = namespace["ignoring"]["ate"]
-    clustered = namespace["clustered"]["ate"]
-    assert abs(ignoring.psi - clustered.psi) < 0.02
-    assert 1.5 < clustered.std_error / ignoring.std_error < 1.9
-    assert namespace["clustered"].data.n_clusters == 200
-
-    # "warns that the out-of-fold propensity model is poorly calibrated" (slope about 0.49,
-    # warning below 0.7); "about 1%" truncated; "about 25%"; in-sample "above 85%".
-    diagnostics = namespace["diagnostics"]
-    assert diagnostics["nuisance_models"].status.value == "warning"
-    nuisance = diagnostics.report("nuisance_models")
-    assert nuisance["propensity"].metrics["calibration_slope"] < 0.6
-    support = diagnostics.report("support")
-    assert 0.005 < support.truncated["fraction"] < 0.02
-    ratios = [ess["ratio"] for ess in support.effective_sample_size.values()]
-    assert 0.2 < min(ratios) < 0.3
-    in_sample_support = namespace["in_sample"].diagnostics.support()
-    in_sample_ratios = [ess["ratio"] for ess in in_sample_support.effective_sample_size.values()]
-    assert min(in_sample_ratios) > 0.85
-
-    spread = namespace["repeated_nuisance"].repeat_spread
-    assert [row.n_repeats for row in spread] == [3]
-
-
-def _drtmle_semantics(namespace: dict[str, Any]) -> None:
-    """The DR-TMLE tutorial's seeded claims hold at the documented size.
-
-    The page claims an exact reduction to the ordinary estimator, a close estimate and standard
-    error on this draw, passing score and correction reports with no active truncation, and a
-    reduced-regression table whose g_r1 fits all favor the spline candidate.
-    """
-    ordinary = namespace["ordinary"]["ate"]
-    empty_guard = namespace["empty_guard"]["ate"]
-    guarded = namespace["guarded"]["ate"]
-    assert ordinary.psi == empty_guard.psi
-
-    # "moves by less than one standard error, and the standard errors are similar". The lower
-    # bound witnesses "the guarded estimate moves": about 0.4 SE on this draw.
-    shift = abs(guarded.psi - ordinary.psi) / ordinary.std_error
-    assert 0.1 < shift < 0.9
-    assert 0.8 < guarded.std_error / ordinary.std_error < 1.25
-
-    assessment = namespace["assessment"]
-    corrections = assessment.report("corrections")
-    assert corrections.passed
-    assert corrections.contract == "theorem"  # "no truncation was active"
-    assert assessment.report("score_equations").passed
-    summary = assessment.summary()
-    assert "omitted_confounding" in summary
-
-    nuisance = assessment.report("nuisance_models")
-    assert "look reasonable" in nuisance.summary()
-
-    reduced = namespace["reduced"]
-    assert set(reduced) == {"qr", "gr1", "gr2"}
-    # Fails on a revert to plain linear reducers, which leave these diagnostics empty.
-    assert reduced["gr1"] and all(fit.best == "spline" for fit in reduced["gr1"])
-
-
-def _longitudinal_semantics(namespace: dict[str, Any]) -> None:
-    """The two-decision tutorial keeps its named roles and its seeded narrative."""
-    frame = namespace["frame"]
-    # The page renames L2 by the signs of the law. Engagement must rise with discharge
-    # navigation and with day-seven navigation among tracked patients, or the name is wrong.
-    tracked = frame[frame["tracked_day7"] == 1]
-    by_first = tracked.groupby("navigation_discharge")["engagement_day7"].mean()
-    assert by_first[1.0] - by_first[0.0] > 0.5
-    by_second = tracked.groupby("navigation_day7")["engagement_day7"].mean()
-    assert by_second[1.0] > by_second[0.0]
-    complete = tracked.dropna(subset=["navigation_day7", "transition_top_box"])
-    for _, group in complete.groupby(["navigation_discharge", "navigation_day7"]):
-        high = group["engagement_day7"] > group["engagement_day7"].median()
-        assert (
-            group.loc[high, "transition_top_box"].mean()
-            > group.loc[~high, "transition_top_box"].mean()
-        )
-
-    summary = namespace["effect"].summary()
-    assert "sequential exchangeability" in summary and "sequential positivity" in summary
-    assert "The protocol scores death before day 30 as not top box" in summary
-
-    # "42% with no navigation and 78% with both offers" are quadrature truths, not draws.
-    truth = namespace["truth"]
-    assert truth["ey_regimen[never]"] == pytest.approx(0.42, abs=0.005)
-    assert truth["ey_regimen[always]"] == pytest.approx(0.78, abs=0.005)
-
-    target = namespace["target"]
-    adjusted, baseline_only = namespace["adjusted"], namespace["baseline_only"]
-    sequential = namespace["result"]["ate_regimen[always vs never]"]
-    # "more than 0.1 below" (measured 0.137), "about 0.05 above" (measured 0.051), and
-    # "within one standard error" (measured 0.43 standard errors).
-    assert adjusted.psi < target - 0.1
-    assert 0.03 < baseline_only.psi - target < 0.08
-    assert abs(sequential.psi - target) < sequential.std_error
-
-    rule = namespace["rule_result"]
-    assert set(rule.estimates) == {"ate_regimen[continue if engaged vs never]"}
-    shares = rule.diagnostics.support().to_frame().set_index(["regimen", "time"])
-    assert shares.loc[("continue if engaged", 1), "share_assigned_1"] == 1.0
-    assert 0.0 < shares.loc[("continue if engaged", 2), "share_assigned_1"] < 1.0
-
-    assessment = namespace["assessment"]
-    sensitivity = assessment.sensitivity.items
-    assert sensitivity and all(item.status.value == "unavailable" for item in sensitivity)
-    assert assessment.diagnostics["refute"].status.value == "unavailable"
-    assert assessment.diagnostics["corrections"].status.value == "not_applicable"
-    support = namespace["support"]
-    # "the bound replaces no row": the largest weight (measured 33) is well under the cap of 100.
-    assert (support["share_truncated"] == 0.0).all()
-    assert (support["max_weight"] < 60.0).all()
-    curve = namespace["curve"]
-    assert list(curve["lower_bound"]) == [0.01, 0.05, 0.1]
-    assert curve["truncated_score_cells"].iloc[0] == 0
-    assert curve["truncated_score_cells"].iloc[-1] > 0
-    # "less than 0.005, a small fraction of its standard error" (measured 0.0019 and 0.11 SE).
-    movement = float(curve["delta_from_fitted"].abs().max())
-    assert 0.0 < movement < 0.005
-    assert movement < 0.3 * sequential.std_error
-
-
-def _point_treatment_semantics(namespace: dict[str, Any]) -> None:
-    """The ATE tutorial's protocol, failure mode, warnings, and sensitivity claims hold."""
-    summary = namespace["effect"].summary()
-    assert "Discharge-home order" in summary
-    assert "scores death before day 30 as the worst transition score" in summary
-    assert "stacked CV-TMLE" in namespace["result"].summary()
-    spread_truth = namespace["spread_truth"]
-    assert spread_truth["att"] > spread_truth["ate"] > spread_truth["atc"]
-    assert spread_truth["atc"] < 0.25 * spread_truth["att"]
-    # "misses by several times more than either fit with one flexible learner"; about 6x here.
-    truth = namespace["truth"]["ate"]
-    errors = {label: abs(point.psi - truth) for label, point in namespace["dr_points"].items()}
-    one_flexible = max(errors["flexible Q, linear g"], errors["linear Q, flexible g"])
-    assert errors["both linear"] > 3.0 * one_flexible
-    assessment = namespace["assessment"]
-    assert "nuisance_models" in {item.name for item in assessment.attention}
-    ledger = assessment.to_frame()
-    rows = ledger[ledger["check"] == "nuisance_models"]
-    assert rows["detail"].str.contains("propensity is poorly calibrated").any()
-    assert 0.0 < namespace["support"].truncated["fraction"] < 0.05
-    # "about 0.26", at the worst-case alignment rho = 1 the prose names.
-    assert 0.2 < namespace["robustness"]["rv"] < 0.33
-    benchmark = namespace["benchmark"]
-    assert benchmark.covariates == ("discharge_risk",)
-    bounds = namespace["bounds"]
-    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
-    assert bounds.ci_lower > 0.0
-
-
-def _intervention_axes_semantics(namespace: dict[str, Any]) -> None:
-    """The three-axis tutorial's truths, support figures, and draw-specific claims hold."""
-    offer_all, screen = namespace["truth"]["ate"], namespace["screen_truth"]
-    assert 0.5 * offer_all < screen < offer_all
-    assert "positivity *for the shifted dose*" in namespace["shift_effect"].summary()
-    assert "*no positivity assumption*" in namespace["incremental_effect"].summary()
-    warned = namespace["positivity_warnings"]
-    assert len(warned) == 2
-    assert "'+0.5 uncapped'" in warned[0] and "'+1.0 uncapped'" in warned[1]
-    support = namespace["shift_assessment"].report("support")
-    assert support["current practice"].ess_ratio == pytest.approx(1.0)
-    capped = support["+0.5 capped at 5"]
-    assert 0.015 < capped.capped_fraction < 0.035
-    assert 0.35 < capped.ess_ratio < 0.55
-    # "more than three times as wide as either +0.5 interval"; about 4.5x here.
-    frame = namespace["shift_result"].to_frame().set_index("estimand")
-    width = frame["ci_upper"] - frame["ci_lower"]
-    wide = width["ate_shift[+1.0 uncapped vs current practice]"]
-    assert wide > 3.0 * width["ate_shift[+0.5 capped at 5 vs current practice]"]
-    assert wide > 3.0 * width["ate_shift[+0.5 uncapped vs current practice]"]
-    # "a few percent", far below the exp(-1) a true normal density ratio would keep.
-    assert 0.01 < support["+1.0 uncapped"].ess_ratio < 0.1
-    assert support["+1.0 uncapped"].ess_ratio < 0.5 * np.exp(-1.0)
-    truth = namespace["dose_truth"]
-    capped_name = "ate_shift[+0.5 capped at 5 vs current practice]"
-    uncapped_name = "ate_shift[+0.5 uncapped vs current practice]"
-    assert 0.02 < truth[uncapped_name] - truth[capped_name] < 0.06
-    capped = namespace["shift_result"][capped_name]
-    uncapped = namespace["shift_result"][uncapped_name]
-    assert abs(uncapped.psi - capped.psi) < 2.0 * max(capped.std_error, uncapped.std_error)
-    dose = np.asarray(namespace["dose_frame"]["assigned_navigation_intensity"], dtype=float)
-    # "a handful of rows" above the observed maximum: 2 and 3 rows on this draw.
-    beyond = {delta: int(np.sum(dose + delta > dose.max())) for delta in (0.5, 1.0)}
-    assert 1 <= beyond[0.5] <= 10 and 2 <= beyond[1.0] <= 10
-    incremental = namespace["incremental_assessment"]
-    assert "nuisance_models" in {item.name for item in incremental.attention}
-    ledger = incremental.to_frame()
-    rows = ledger[ledger["check"] == "nuisance_models"]
-    assert rows["detail"].str.contains("propensity is poorly calibrated").any()
-
-
-#: These tutorials make seeded output claims that need more than the shrunken smoke gate. The
-#: narrower map makes each semantic assertion an explicit review decision instead of a prose
-#: heuristic.
-TUTORIAL_SEMANTIC_ASSERTIONS: dict[str, Callable[[dict[str, Any]], None]] = {
-    "docs/examples/collaborative-tmle.md": _collaborative_summary_semantics,
-    "docs/examples/cross-fitting.md": _cross_fitting_semantics,
-    "docs/examples/dr-tmle.md": _drtmle_semantics,
-    "docs/examples/interventions.md": _intervention_axes_semantics,
-    "docs/examples/longitudinal-survival.md": _survival_output_semantics,
-    "docs/examples/longitudinal-tmle.md": _longitudinal_semantics,
-    "docs/examples/msm-projections.md": _multi_arm_identification_semantics,
-    "docs/examples/point-treatment-tmle.md": _point_treatment_semantics,
-    "docs/examples/survey-nonresponse.md": _missing_outcome_semantics,
-}
+def _tutorial_id(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
 
 
 def test_every_tutorial_has_one_semantic_assertion() -> None:
-    """Every Markdown tutorial, and no index page, enters the documented-size gate."""
-    tutorials = {
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "docs/examples").rglob("*.md")
-        if path.name != "index.md"
-    }
-    assert set(TUTORIAL_SEMANTIC_ASSERTIONS) == tutorials
-    assert tutorials <= set(PRELUDES)
+    """Every tutorial, and no index page, enters the documented-size gate through one module.
+
+    The comparison runs in both directions.  A tutorial with no module never runs at its
+    documented size, and a module with no tutorial is a callback that checks nothing.
+    """
+    stems = [path.stem for path in TUTORIALS]
+    duplicated = sorted({stem for stem in stems if stems.count(stem) > 1})
+    assert not duplicated, (
+        f"tutorial(s) {duplicated} exist as both Markdown and a notebook. A converted tutorial "
+        "replaces its Markdown source, so delete the .md file"
+    )
+    assert len(TUTORIALS) >= 9, "the tutorial discovery found fewer pages than the program has"
+    expected = {module_name(stem) for stem in stems}
+    present = callback_modules()
+    assert present == expected, (
+        f"tutorial(s) without a callback module: {sorted(expected - present)}; "
+        f"callback module(s) without a tutorial: {sorted(present - expected)}"
+    )
+    for stem in stems:
+        assert callable(getattr(callback_module(stem), "check", None)), (
+            f"tests/unit/tutorial_semantics/{module_name(stem)}.py defines no check(namespace)"
+        )
+    assert not {_tutorial_id(path) for path in TUTORIALS} & set(PRELUDES), (
+        "a tutorial builds everything it uses, so it takes no PRELUDES entry"
+    )
+    # The exclusion is by name, so a renamed TWINS notebook must fail here rather than enter an
+    # offline gate it cannot pass.
+    assert TWINS_NOTEBOOK.is_file() and TWINS_NOTEBOOK.stem in NOT_TUTORIALS
 
 
 def documented() -> set[str]:
@@ -742,9 +291,9 @@ def test_every_documented_example_is_registered() -> None:
     A notebook stores its Python in cells rather than in a fence, so it never enters
     :func:`documented` and needs no exemption here.  Its own gate is
     :func:`test_every_notebook_has_an_internally_consistent_execution_artifact`, parametrized over
-    the same document set.
+    the same document set.  A tutorial is registered by discovery through :data:`TUTORIALS`.
     """
-    unregistered = documented() - set(PRELUDES)
+    unregistered = documented() - set(PRELUDES) - {_tutorial_id(path) for path in TUTORIALS}
     assert not unregistered, (
         f"reader-facing document(s) with Python and no runtime gate: {sorted(unregistered)}. "
         f"Add a PRELUDES entry for Markdown, or commit a stamped notebook artifact"
@@ -784,6 +333,7 @@ def test_each_rendered_python_alias_is_recognized_as_unsupported(opening: str) -
 def test_the_registry_names_real_documents() -> None:
     """The negative control: a rename would otherwise empty this module silently."""
     assert len(PRELUDES) >= 10
+    assert all(path.is_file() for path in TUTORIALS)
     assert NOTEBOOKS, "the reader-facing notebook set is unexpectedly empty"
     for relative in PRELUDES:
         assert (ROOT / relative).is_file(), f"{relative} is registered but does not exist"
@@ -998,7 +548,7 @@ def _run_document(
     monkeypatch: Any,
     *,
     transform: Callable[[str, str], Any],
-    module_name: str,
+    namespace_name: str,
 ) -> dict[str, Any]:
     """Run one document's prelude and fences, in order, in one returned namespace.
 
@@ -1007,12 +557,13 @@ def _run_document(
 
     Both gates use this harness. Their callers select disjoint documents and transforms: the
     smoke gate shrinks non-tutorial blocks, while the semantic gate compiles tutorials as written.
-    ``module_name`` names the namespace each gate builds, so a traceback says which one ran.
+    ``namespace_name`` names the namespace each gate builds, so a traceback says which one ran.
+    A tutorial has no :data:`PRELUDES` entry and runs with an empty prelude.
     """
     monkeypatch.chdir(tmp_path)
     document = ROOT / relative
-    namespace: dict[str, Any] = {"__name__": module_name}
-    exec(compile(PRELUDES[relative], f"<prelude for {relative}>", "exec"), namespace)
+    namespace: dict[str, Any] = {"__name__": namespace_name}
+    exec(compile(PRELUDES.get(relative, ""), f"<prelude for {relative}>", "exec"), namespace)
 
     for line, code in python_blocks(document):
         name = f"{relative}:{line}"
@@ -1023,11 +574,125 @@ def _run_document(
     return namespace
 
 
-@pytest.mark.parametrize(
-    "relative",
-    sorted(set(PRELUDES) - set(TUTORIAL_SEMANTIC_ASSERTIONS)),
-    ids=lambda name: name,
-)
+# ------------------------------------------------------------------- notebook tutorials offline
+
+#: The name a notebook cell's last bare expression is routed through.  Dunder-wrapped so no
+#: tutorial can collide with it.
+DISPLAY_HOOK = "__cleverly_display__"
+
+
+def _render(*values: Any) -> None:
+    """Build the representations a kernel would publish, and discard them.
+
+    A kernel renders a cell's last expression through ``repr`` and, where the object has one,
+    ``_repr_html_``.  A library change that breaks either one breaks the published cell, so the
+    offline gate calls both rather than only evaluating the expression.
+    """
+    for value in values:
+        if value is None or isinstance(value, type):
+            continue
+        repr(value)
+        html = getattr(value, "_repr_html_", None)
+        if callable(html):
+            html()
+
+
+def displayed(code: str, name: str) -> Any:
+    """Compile one notebook cell so its last bare expression is rendered, as a kernel does.
+
+    A cell that is not plain Python raises :class:`SyntaxError` here.  IPython magics and shell
+    escapes are the usual cause, and the offline gate has no kernel to run them.
+    """
+    tree = ast.parse(code, filename=name)
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        last = tree.body[-1]
+        hook = ast.Call(func=ast.Name(DISPLAY_HOOK, ast.Load()), args=[last.value], keywords=[])
+        tree.body[-1] = ast.copy_location(ast.Expr(hook), last)
+    return compile(ast.fix_missing_locations(tree), name, "exec")
+
+
+def refuse_network(monkeypatch: Any) -> None:
+    """Make any non-loopback socket connection raise for the rest of one test.
+
+    Tutorials run in the offline fast tier, and a documentation build renders stored outputs
+    without a network.  A tutorial that downloads data passes on a connected laptop and fails
+    on a runner that blocks egress, so the gate refuses the connection everywhere.
+    """
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def _checked(sock: socket.socket, address: Any) -> None:
+        if sock.family not in (socket.AF_INET, socket.AF_INET6):
+            return
+        host = str(address[0])
+        try:
+            loopback = ipaddress.ip_address(host.split("%")[0]).is_loopback
+        except ValueError:
+            loopback = host == "localhost"
+        if not loopback:
+            raise OSError(f"the tutorial gate runs offline; a tutorial tried to reach {address!r}")
+
+    def connect(sock: socket.socket, address: Any) -> None:
+        _checked(sock, address)
+        original_connect(sock, address)
+
+    def connect_ex(sock: socket.socket, address: Any) -> int:
+        _checked(sock, address)
+        return original_connect_ex(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+
+
+def _headless_matplotlib(monkeypatch: Any) -> None:
+    """Select the non-interactive backend, so ``plt.show()`` cannot open a window and block."""
+    monkeypatch.setenv("MPLBACKEND", "Agg")
+    if importlib.util.find_spec("matplotlib") is not None:
+        import matplotlib
+
+        matplotlib.use("Agg")
+
+
+def _close_figures() -> None:
+    """Release every figure a notebook opened, so the next test starts with none."""
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    if pyplot is not None:
+        pyplot.close("all")
+
+
+def _run_notebook(relative: str, tmp_path: Path, monkeypatch: Any) -> dict[str, Any]:
+    """Run a notebook's code cells in order, in one namespace, without a kernel.
+
+    Execution happens in a scratch directory with the Agg backend.  The namespace carries
+    ``display`` because a kernel provides it as a builtin.
+    """
+    monkeypatch.chdir(tmp_path)
+    _headless_matplotlib(monkeypatch)
+    namespace: dict[str, Any] = {
+        "__name__": "__doc_semantic_example__",
+        DISPLAY_HOOK: _render,
+        "display": _render,
+    }
+    try:
+        for cell_id, code in notebook_code(ROOT / relative):
+            name = f"{relative}:{cell_id}"
+            try:
+                compiled = displayed(code, name)
+            except SyntaxError as error:
+                pytest.fail(
+                    f"{name} is not plain Python ({error}). The offline gate runs cells without "
+                    "a kernel, so remove IPython magics and shell escapes"
+                )
+            try:
+                exec(compiled, namespace)
+            except Exception as error:  # pragma: no cover - the failure is the message
+                pytest.fail(f"{name} raised {type(error).__name__}: {error}")
+    finally:
+        _close_figures()
+    return namespace
+
+
+@pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
 def test_every_nonsemantic_example_runs(relative: str, tmp_path: Path, monkeypatch: Any) -> None:
     """Each registered non-tutorial document runs once at the shrunken size."""
     _run_document(
@@ -1035,20 +700,95 @@ def test_every_nonsemantic_example_runs(relative: str, tmp_path: Path, monkeypat
         tmp_path,
         monkeypatch,
         transform=shrunk,
-        module_name="__doc_example__",
+        namespace_name="__doc_example__",
     )
 
 
-@pytest.mark.parametrize("relative", sorted(TUTORIAL_SEMANTIC_ASSERTIONS), ids=lambda name: name)
+@pytest.mark.parametrize("path", TUTORIALS, ids=_tutorial_id)
 def test_tutorial_semantics_at_documented_size(
-    relative: str, tmp_path: Path, monkeypatch: Any
+    path: Path, tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """Reviewed seeded tutorials satisfy their claims at the displayed sample size."""
-    namespace = _run_document(
-        relative,
-        tmp_path,
-        monkeypatch,
-        transform=lambda code, name: compile(code, name, "exec"),
-        module_name="__doc_semantic_example__",
+    """Reviewed seeded tutorials satisfy their claims at the displayed sample size.
+
+    A Markdown tutorial runs its fences and a notebook tutorial runs its code cells.  Both run
+    offline, and both hand their namespace to the tutorial's own callback module.
+    """
+    relative = _tutorial_id(path)
+    refuse_network(monkeypatch)
+    if path.suffix == ".ipynb":
+        namespace = _run_notebook(relative, tmp_path, monkeypatch)
+    else:
+        namespace = _run_document(
+            relative,
+            tmp_path,
+            monkeypatch,
+            transform=lambda code, name: compile(code, name, "exec"),
+            namespace_name="__doc_semantic_example__",
+        )
+    callback(path.stem)(namespace)
+
+
+@pytest.mark.parametrize(
+    "path", [path for path in TUTORIALS if path.suffix == ".ipynb"], ids=_tutorial_id
+)
+def test_every_narrated_decimal_matches_a_stored_output(path: Path) -> None:
+    """Each decimal a notebook tutorial's prose writes is one of its stored outputs, rounded.
+
+    The execution stamp ties the stored outputs to the code cells.  This ties the prose to the
+    stored outputs, so a re-execution that moves a number fails here until the prose follows.
+    It reads committed text only, so a platform difference in a fresh run cannot move it.
+    """
+    markdown = markdown_text(path)
+    declared = getattr(callback_module(path.stem), "UNPRINTED_DECIMALS", {})
+    unprinted: dict[str, str] = dict(declared)
+    missing = narration_mismatches(markdown, stored_text(path), unprinted)
+    assert not missing, (
+        f"{_tutorial_id(path)} narrates {missing}, and no stored output prints a value that "
+        "rounds to it. Print the number the prose reads, correct the prose, or give the reason "
+        f"in UNPRINTED_DECIMALS in tests/unit/tutorial_semantics/{module_name(path.stem)}.py"
     )
-    TUTORIAL_SEMANTIC_ASSERTIONS[relative](namespace)
+    stale = sorted(set(unprinted) - set(narrated_decimals(markdown)))
+    assert not stale, f"UNPRINTED_DECIMALS names {stale}, which the prose no longer writes"
+    for literal, reason in unprinted.items():
+        assert reason.strip(), f"UNPRINTED_DECIMALS gives no reason for {literal}"
+
+
+def test_the_narration_check_reads_precision_and_refuses_a_moved_number() -> None:
+    """The narration gate accepts a rounded value and refuses one a re-execution moved.
+
+    Without the refusal, a helper that accepted everything would pass every notebook.
+    """
+    outputs = "estimate: -0.2634\nCI=(0.110, 0.417)\n"
+    assert not narration_mismatches("The estimate is about 0.26. The bound is 0.42.", outputs)
+    assert narration_mismatches("The estimate is about 0.25.", outputs) == ["0.25"]
+    assert narration_mismatches("The estimate is 0.263.", outputs) == []
+    assert narration_mismatches("The estimate is 0.264.", outputs) == ["0.264"]
+    prose = "Use `alpha=0.07`, R 4.5.2, and [a](https://example.org/v1.23/)."
+    assert narrated_decimals(prose) == []
+    assert not narration_mismatches("A law value 0.73.", outputs, {"0.73": "a law parameter"})
+
+
+def test_the_offline_gate_renders_the_last_expression_and_refuses_the_network(
+    monkeypatch: Any,
+) -> None:
+    """Both notebook-harness guards fail when their target behaviour appears."""
+
+    class Broken:
+        def _repr_html_(self) -> str:
+            raise RuntimeError("the HTML representation broke")
+
+    namespace: dict[str, Any] = {DISPLAY_HOOK: _render, "Broken": Broken}
+    # A class is not rendered, and an assignment has no last expression to render.
+    exec(displayed("value = Broken()\nBroken", "<witness>"), namespace)
+    with pytest.raises(RuntimeError, match="HTML representation"):
+        exec(displayed("value = Broken()\nvalue", "<witness>"), namespace)
+    with pytest.raises(SyntaxError):
+        displayed("%matplotlib inline\n", "<witness>")
+
+    refuse_network(monkeypatch)
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        with pytest.raises(OSError, match="runs offline"):
+            probe.connect(("192.0.2.1", 80))
+    finally:
+        probe.close()

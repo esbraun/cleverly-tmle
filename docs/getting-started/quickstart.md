@@ -71,7 +71,7 @@ model unless you opt in. Each row carries one of seven statuses, and `completed`
 ## Choose the next path
 
 - Read the [workflow](../workflow.md) before adapting the quickstart to real observational data.
-- Read [point-treatment TMLE](../examples/point-treatment-tmle.md) for a complete applied analysis.
+- Read [point-treatment TMLE](../examples/point-treatment-tmle.ipynb) for a complete applied analysis.
 - Use the [estimands and interventions guide](../user-guide/estimands.md) to choose a question.
 - Use the [methods and learners guide](../user-guide/methods-learners.md) before replacing defaults.
 - Consult the [technical reference](../technical-reference/index.md) for equations, assumptions,
