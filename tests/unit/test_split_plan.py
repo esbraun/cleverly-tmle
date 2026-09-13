@@ -52,9 +52,9 @@ from cleverly import (
 from cleverly._typing import FoldStrata
 from cleverly.datasets import (
     make_longitudinal,
-    make_multi_arm,
     make_nonlinear_ate,
     make_shift_dose,
+    multi_arm_dgp,
 )
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.estimators.tmle import TMLE as TMLEEngine
@@ -548,9 +548,12 @@ def test_generated_and_supplied_binary_plans_are_exactly_identical(backend: str)
     assert supplied.data.backend == backend
 
 
+@pytest.mark.filterwarnings("error::cleverly.exceptions.PositivityWarning")
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: str) -> None:
-    frame, _ = make_multi_arm(n=180, seed=7, backend=backend)
+    # Split replay is the subject. Mild confounding keeps this fixture inside the
+    # automatic bounds instead of coupling the identity check to truncation.
+    frame, _ = multi_arm_dgp(confounding=0.1).sample(n=180, seed=7, backend=backend)
     generated, supplied = _generated_then_supplied(frame)
 
     _assert_same_fit(generated, supplied)
