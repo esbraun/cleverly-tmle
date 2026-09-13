@@ -90,9 +90,11 @@ compositions that each contract refuses.
 | rows | observation weights, clusters, baseline strata, and `intermediate=` are refused | observation weights, clusters, baseline strata, and `intermediate=` are refused |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
-Each composition refusal raises `CapabilityError` before any learner is fitted. The two
-response-support checks raise `DataError` after the folds are drawn and before either learner
-receives data.
+Each target-specific composition refusal raises `CapabilityError` before any learner is fitted.
+`CrossFitting(enabled=False, repeats>1)` and an incompatible `split_plan` raise
+`MethodConfigurationError` during normalized method declaration. The direct engine raises
+`ValueError` for the equivalent raw settings. The two response-support checks raise `DataError`
+after fold generation and before either learner receives data.
 
 | response-support failure | what the message says |
 | --- | --- |

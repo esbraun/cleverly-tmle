@@ -81,6 +81,17 @@ __all__ = [
 _LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
 
 
+def _repeat_policy_refusal(*, cross_fit: bool, repeats: int, option_name: str) -> str | None:
+    """Return why a repeat policy has no split to repeat, or ``None``."""
+    if repeats > 1 and not cross_fit:
+        return (
+            "repeats takes the median over independent cross-fitting splits, and "
+            f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting or "
+            "set repeats=1"
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class Folds:
     """A cross-fitting partition.

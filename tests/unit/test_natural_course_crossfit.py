@@ -119,6 +119,31 @@ def test_unstratified_folds_refuse_an_intermediate_fit_before_its_shared_nuisanc
     assert NeverFit.calls == 0
 
 
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'"),
+        ({"cv_evaluation": True}, "cv_evaluation=False"),
+    ],
+)
+def test_target_specific_fold_refusals_precede_the_generic_strata_gate(
+    overrides: dict[str, Any], message: str
+) -> None:
+    frame = law.frame().assign(S=(np.arange(law.N) % 2).astype(float))
+    estimator = stacked_tmle(**never_fit_learners(), **overrides)
+
+    with pytest.raises(CapabilityError, match=message):
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=("W", "S"),
+            delta="Delta",
+            strata="S",
+        )
+    assert NeverFit.calls == 0
+
+
 #: Rows in the response-support fixtures. Three folds make each training complement the
 #: union of two validation folds, so a check that read a validation fold instead of its
 #: complement names a different fold, or refuses a partition that fits.
@@ -281,6 +306,7 @@ def test_pooled_score_eif_and_variance_match_the_stacked_rows_exactly() -> None:
         gradient=lambda point: np.array([2.0]),
     )
     np.testing.assert_allclose(doubled.influence_curve, 2.0 * expected, atol=1e-14, rtol=0.0)
+    assert doubled.covariance_rule == "second_moment"
     assert doubled.variance == 4.0 * estimate.variance
     assert doubled.variance != pytest.approx(
         np.var(doubled.influence_curve, ddof=1) / result.data.n,

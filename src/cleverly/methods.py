@@ -9,7 +9,7 @@ from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, Targ
 from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
-from .learners.crossfit import SplitPlan
+from .learners.crossfit import SplitPlan, _repeat_policy_refusal
 from .learners.library import _validate_learner
 
 __all__ = [
@@ -179,6 +179,11 @@ class CrossFitting:
     split_plan: SplitPlan | None = None
 
     def __post_init__(self) -> None:
+        reason = _repeat_policy_refusal(
+            cross_fit=self.enabled, repeats=self.repeats, option_name="enabled"
+        )
+        if reason is not None:
+            raise MethodConfigurationError(reason)
         if self.split_plan is None:
             return
         if not isinstance(self.split_plan, SplitPlan):

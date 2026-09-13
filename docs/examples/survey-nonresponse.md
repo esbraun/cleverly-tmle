@@ -338,6 +338,15 @@ profile, it shifts the mean of the unobserved scores away from the respondents' 
 This curve does not detect why patients did not answer. It shows how far one stated departure must
 move before the conclusion changes.
 
+`NaturalCourseMean()` supports one scalar ordinary fit and one narrow stacked CV-TMLE fit. The
+[observed-data extensions](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+state both contracts. This page uses treatment-stratified folds, so its method refuses that target.
+The stacked contract requires `CrossFitting(stratify_by="none")`.
+
+`PopulationAttributableRisk` and `PopulationAttributableFraction` remain refused with
+`missingness=`. [RM8](../roadmap.md#rm8-missing-outcome-attributable-effects) tracks their joint
+outcome and response construction.
+
 | layer | establishes | does not establish |
 | --- | --- | --- |
 | the support report | overlap for each fitted mechanism, plus joint ESS, concentration, and maximum leverage | that the response model is correct or missingness at random holds |

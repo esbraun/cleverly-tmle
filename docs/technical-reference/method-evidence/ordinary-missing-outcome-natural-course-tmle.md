@@ -6,12 +6,12 @@ baseline covariates. Its score therefore uses the outcome and response nuisances
 mechanism. Binary and bounded-continuous primary laws share the same conditional means and
 observation process; the continuous outcome is beta distributed and uses fixed bounds `(0, 1)`.
 
-No canonical implementation is compared. The repository's pinned R `tmle` 2.1.1 adapter covers
-MAR intervention-arm means rather than this natural-course parameter. Díaz, Carone and van der
-Laan (2016), Section 2 and Equations (1)–(5) give the estimator construction, but the source and
-repository search found no maintained public implementation exposing a matching callable target.
-The validation evidence is therefore internal. `tests/unit/test_influence_gateaux_natural_course_mar.py`
-pins the target, the efficient influence curve, and the targeting score against the exact law.
+No canonical implementation is compared in this historical row. A later stacked study reaches the
+R `tmle` 2.1.1 population-mean path with supplied stitched predictions. This ordinary study ran no
+such adapter and inherits no parity claim. Its bounded-continuous target also remains uncompared.
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5) give the estimator
+construction. `tests/unit/test_influence_gateaux_natural_course_mar.py` pins the target, the
+efficient influence curve, and the targeting score against the exact law.
 `tests/unit/test_remainder_natural_course_mar.py` pins the signed second-order remainder and both
 double-robustness halves. This repeated-sampling study supplies the rest.
 
@@ -114,8 +114,8 @@ cases.
 - The exact efficiency comparison is for the binary property law; the continuous primary law is
   checked for truth recovery, coverage, and reported-SE calibration without claiming the same
   bound.
-- There is no external parity comparison because the audited maintained comparator does not expose
-  the same target.
+- This study ran no external parity comparison. The later stacked binary comparison does not
+  establish parity for ordinary fitting or the bounded-continuous target.
 - The study uses ordinary pointwise Wald intervals and excludes weights, clusters, missing
   treatment, multinomial treatment, MNAR outcomes, sensitivity analysis, and longitudinal data.
 

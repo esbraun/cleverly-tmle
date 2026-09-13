@@ -69,7 +69,8 @@ likelihood and the comparator boundary.
 
 | candidate | parameter it reaches | verdict |
 | --- | --- | --- |
-| R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational missing-outcome row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
+| R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational arm-indexed row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
+| R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The earlier ordinary natural-course study ran no comparator. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
 The fixed-weight survey is separate because observation weights change the target law and every
@@ -89,6 +90,7 @@ the source before you accept one.
 | candidate | how it aggregates over folds | verdict |
 | --- | --- | --- |
 | R `tmle3` at `ed72f8a` | stacks the validation rows, targets once, and evaluates on the whole sample | Used by the stacked CV-TMLE row. It is not the fold-evaluated construction. |
+| R `tmle` 2.1.1 population-mean path | accepts stitched out-of-fold outcome and response predictions, targets once, and evaluates on the whole sample | Used by the stacked missing-outcome natural-course row. The comparison is conditional on the supplied predictions. |
 | R `drtmle` 1.1.2 | pools the out-of-fold predictions and forms one estimate on the whole sample | Rejected for the fold-evaluated row. |
 | R `lmtp` 1.5.4 | takes `weighted.mean` of the pooled shifted regression column | Rejected for the fold-evaluated row. Used elsewhere for its intervention family. |
 | R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |

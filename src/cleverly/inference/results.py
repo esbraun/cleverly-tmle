@@ -33,6 +33,20 @@ __all__ = [
 ]
 
 
+def _with_second_moment_covariance(estimate: ParameterEstimate) -> ParameterEstimate:
+    """Return an estimate with raw second-moment variance and covariance.
+
+    ``make_estimate`` supplies the ordinary centered rule. The stacked natural-course
+    estimator and a contrast derived from it both need the same raw second-moment
+    conversion, so that association lives here rather than at both construction sites.
+    """
+    return replace(
+        estimate,
+        variance=stacked_second_moment_variance(estimate.influence_curve),
+        covariance_rule="second_moment",
+    )
+
+
 def sole_estimate(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
     """Return the sole estimate, refusing to guess on a multi-parameter result."""
     if len(estimates) != 1:
@@ -143,9 +157,5 @@ def smooth_contrast(
         alpha=alpha,
     )
     if rule == "second_moment":
-        estimate = replace(
-            estimate,
-            variance=stacked_second_moment_variance(curve),
-            covariance_rule=rule,
-        )
+        return _with_second_moment_covariance(estimate)
     return estimate

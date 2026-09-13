@@ -118,7 +118,7 @@ from ..fluctuation.iterative import (
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cross_validated_variance, stacked_second_moment_variance
+from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
     ParameterEstimate,
@@ -128,6 +128,7 @@ from ..inference.influence import (
     reduced_correction_parts,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..inference.results import _with_second_moment_covariance
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
@@ -136,6 +137,7 @@ from ..learners.crossfit import (
     CrossFitPlan,
     Folds,
     SplitPlan,
+    _repeat_policy_refusal,
     make_folds,
     missing_training_support,
 )
@@ -633,13 +635,11 @@ class TMLE:
                     "replicates duplicate sampled rows, while the supplied assignments "
                     "identify only the original row positions"
                 )
-        if self.repeats > 1 and not self.cross_fit:
-            raise ValueError(
-                "repeats= takes the median estimate over independent draws of the "
-                "cross-fitting split, and cross_fit=False makes no split to draw. There "
-                "is no fold noise to reduce when every nuisance is fitted in "
-                "sample. Set cross_fit=True, or leave repeats at 1."
-            )
+        reason = _repeat_policy_refusal(
+            cross_fit=self.cross_fit, repeats=self.repeats, option_name="cross_fit"
+        )
+        if reason is not None:
+            raise ValueError(reason)
 
     # ------------------------------------------------------------------- fit
 
@@ -918,6 +918,7 @@ class TMLE:
         """
         self._check_shifts(data)
         self._check_incremental(data)
+        estimands = self._resolve_estimands_for_data(data)
         if data.has_strata and data.is_continuous_treatment and self.msm is not None:
             raise NotImplementedError(
                 "continuous MSMs do not yet support baseline strata; conditional dose "
@@ -931,7 +932,6 @@ class TMLE:
                 "stratum probabilities and conditional treatment shares to be rebuilt "
                 "inside every validation fold; use the default pooled targeting scheme"
             )
-        estimands = self._resolve_estimands_for_data(data)
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
@@ -2787,11 +2787,7 @@ class TMLE:
                     if group == "natural_course" and self.cross_fit:
                         # The stacked RM9 estimator declares the raw second moment, so
                         # its covariance and contrasts read the same rule as its variance.
-                        estimate = replace(
-                            estimate,
-                            variance=stacked_second_moment_variance(estimate.influence_curve),
-                            covariance_rule="second_moment",
-                        )
+                        estimate = _with_second_moment_covariance(estimate)
                     out[estimate.name] = estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a

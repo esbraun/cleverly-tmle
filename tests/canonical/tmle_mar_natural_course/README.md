@@ -10,10 +10,10 @@ The property study uses the binary finite law to test the two-nuisance union mod
 root-n contraction and exact-EIF efficiency, interval calibration and two derived controls,
 targeting necessity, and the consequence of silently switching to a complete-case analysis.
 
-There is no external comparison in this row. The repository's pinned R `tmle` 2.1.1 adapter
-implements the MAR intervention-arm means, not this natural-course target. Díaz, Carone and van
-der Laan (2016), Section 2 and Equations (1)–(5) specify the estimator, but the source and repository
-search did not identify a maintained public implementation with a matching callable target. The
+There is no external comparison in this historical row. A later stacked study reaches the R
+`tmle` 2.1.1 population-mean path with supplied stitched predictions. This ordinary study ran no
+such adapter and inherits no parity claim. Its bounded-continuous target also remains uncompared.
+Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5) specify the estimator. The
 study therefore commits a schema-valid empty `equivalence.csv` and rests on exact-law and
 repeated-sampling evidence.
 

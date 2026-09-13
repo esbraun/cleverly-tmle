@@ -317,6 +317,13 @@ class TestSplitPlanRecord:
 
 
 class TestCrossFittingConfiguration:
+    def test_disabled_cross_fitting_refuses_repeated_splits_at_declaration(self) -> None:
+        with pytest.raises(MethodConfigurationError, match="enabled=False makes no split"):
+            CrossFitting(enabled=False, repeats=2)
+
+        with pytest.raises(MethodConfigurationError, match="enabled=False makes no split"):
+            TMLEMethod().with_overrides(cross_fit=False, repeats=2)
+
     def test_flat_shortcut_sets_the_plan_on_the_normalized_configuration(self) -> None:
         plan = SplitPlan([[0, 1, 0, 1]])
 

@@ -8,14 +8,12 @@ canonical gradient at :math:`P_0`.  The distinction is set out there and in
 knows that TMLE's curve is the efficient one has no other reason to think this module holds
 anything else.
 
-Every single-draw estimate the library reports is built the same way: a point estimate as a
-weighted mean of targeted predictions, plus an influence curve whose sample variance divided by
-:math:`n` gives the variance of the estimate. Repeated cross-fitting is the explicit exception:
-it reports the median point and the median split-adjusted variance, while retaining a central
-draw's curve for marginal diagnostics. Writing the influence curve out explicitly (rather than
-only its variance) is deliberate -- it is what makes cluster-robust variance, simultaneous
-confidence bands, the delta method and the score diagnostic all fall out of the same object where
-those operations are defined.
+Most single-draw estimates report a weighted targeted mean and the centered sample variance of
+their influence curve divided by :math:`n`. The stacked missing-outcome natural-course CV-TMLE
+uses the curve's raw second moment instead. Repeated cross-fitting reports the median point and
+median split-adjusted variance while retaining a central draw's curve for marginal diagnostics.
+Writing the curve explicitly supports cluster-robust variance, simultaneous bands, the delta
+method, and score diagnostics under each declared covariance rule.
 
 The influence curves, on the ``[0, 1]`` outcome scale, with
 :math:`r_i = \Delta_i (Y_i - \bar Q^*(A_i, W_i))`:

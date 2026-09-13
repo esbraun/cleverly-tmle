@@ -48,3 +48,15 @@ header.
 
 | study | manifest field | correction | judgement |
 | --- | --- | --- | --- |
+| ordinary missing-outcome natural-course TMLE | `configuration.comparator_search` | the study ran no comparator. A later stacked binary study reaches the R `tmle` 2.1.1 population-mean path with supplied stitched predictions | result-neutral: the manifest preserves the search statement recorded at generation. The later study changes the known comparator surface, not this study's fitted rows or verdicts |
+
+## Completed manifest provenance
+
+The stacked missing-outcome natural-course manifest initially omitted two Python helpers that
+produced its rows. Both files match commit `f899841`, which the manifest records for the run. The
+manifest now records their SHA-256 values without changing any fitted row or verdict.
+
+| study | added source | recorded SHA-256 | judgement |
+| --- | --- | --- | --- |
+| stacked missing-outcome natural-course CV-TMLE | `tests/studies/point_study_helpers.py` | `f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a` | result-neutral: the helper serialized the existing initial estimate and primary rows. Its bytes match the recorded run commit |
+| stacked missing-outcome natural-course CV-TMLE | `tests/conftest.py` | `6e991807afeae6a901f953040ab9080b86baed5e7a9a7ed043f7d6f4f6fb45ea` | result-neutral: the property study used its oracle outcome and response learners. Its bytes match the recorded run commit |
