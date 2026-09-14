@@ -47,8 +47,9 @@ each assumption and explains why consistency requires a well-defined interventio
 
 `navigation_protocol()` in `cleverly.datasets` returns this design as the `StudyProtocol` of the
 standard offer. Each point-treatment tutorial starts from it and uses `dataclasses.replace` to change
-only the fields its question changes. The two longitudinal tutorials write their own protocols. Their
-time zero is the discharge, and their eligibility requires a live discharge.
+only the fields its question changes. The two longitudinal tutorials start from
+`longitudinal_navigation_protocol()` in the same way. Their time zero is the discharge, and their
+eligibility requires a live discharge.
 
 Only baseline information enters a point-treatment adjustment set. In particular, actual length of
 stay and completed contacts occur after assignment and cannot serve as baseline confounders.

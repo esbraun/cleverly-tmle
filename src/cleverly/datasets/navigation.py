@@ -1,16 +1,104 @@
-"""The study protocol of the care-transition navigation program the tutorials share.
+"""The study protocols and the program data of the care-transition navigation tutorials.
 
 The tutorials under ``docs/examples/`` analyse one program with several methods.  Each
 point-treatment tutorial asks a variant of one question, so its protocol differs from the
 program's in a few fields.  :func:`navigation_protocol` holds the program's values once, and a
 tutorial changes only the fields its question changes with :func:`dataclasses.replace`.
+:func:`longitudinal_navigation_protocol` does the same for the tutorials whose time zero is the
+discharge and whose navigation is offered at more than one decision.
+
+Several tutorials draw :func:`~cleverly.datasets.make_nonlinear_ate` and read its columns under
+the program's names.  :func:`navigation_data` holds that one mapping.  Other generators give their
+``W`` columns other meanings, so each of those tutorials keeps its own mapping.
 """
 
 from __future__ import annotations
 
-from ..protocol import StudyProtocol
+from typing import Any
 
-__all__ = ["navigation_protocol"]
+import numpy as np
+
+from .._typing import Backend
+from ..protocol import StudyProtocol
+from ..utils.frames import as_frame
+from .synthetic import make_nonlinear_ate
+
+__all__ = ["longitudinal_navigation_protocol", "navigation_data", "navigation_protocol"]
+
+#: The program name of each :func:`make_nonlinear_ate` column, in the generator's column order.
+_PROGRAM_COLUMNS = {
+    "Y": "transition_score",
+    "A": "transition_navigation",
+    "W1": "discharge_risk",
+    "W2": "prior_utilization",
+    "W3": "medication_burden",
+    "W4": "age",
+}
+
+
+def navigation_data(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    r"""Draw the point-treatment program data, with the columns under the program's names.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
+
+    Returns
+    -------
+    dataframe
+        The draw of :func:`make_nonlinear_ate` with each column renamed. The values and the column
+        order are unchanged.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
+
+    See Also
+    --------
+    cleverly.datasets.make_nonlinear_ate : The generator this function renames.
+    cleverly.datasets.navigation_protocol : The protocol of the program these data describe.
+
+    Notes
+    -----
+    The same seed gives the same rows as :func:`make_nonlinear_ate`.  Only the names change.
+
+    ========= =======================
+    generator program
+    ========= =======================
+    ``Y``     ``transition_score``
+    ``A``     ``transition_navigation``
+    ``W1``    ``discharge_risk``
+    ``W2``    ``prior_utilization``
+    ``W3``    ``medication_burden``
+    ``W4``    ``age``
+    ========= =======================
+
+    Examples
+    --------
+    >>> from cleverly.datasets import navigation_data
+    >>> frame, truth = navigation_data(n=500, seed=21)
+    >>> print(*frame.columns, sep="\n")
+    transition_score
+    transition_navigation
+    discharge_risk
+    prior_utilization
+    medication_burden
+    age
+    >>> frame.shape
+    (500, 6)
+    >>> round(truth["ate"], 3)
+    1.75
+    """
+    frame, truth = make_nonlinear_ate(n, seed=seed, backend=backend)
+    return as_frame(frame).rename(_PROGRAM_COLUMNS).to_native(), truth
 
 
 def navigation_protocol() -> StudyProtocol:
@@ -25,7 +113,8 @@ def navigation_protocol() -> StudyProtocol:
     See Also
     --------
     cleverly.StudyProtocol : The record this function fills.
-    cleverly.datasets.make_nonlinear_ate : The synthetic law the reference tutorial draws.
+    cleverly.datasets.navigation_data : The program data the point-treatment tutorials draw.
+    cleverly.datasets.longitudinal_navigation_protocol : The protocol of the two-decision program.
 
     Notes
     -----
@@ -85,5 +174,87 @@ def navigation_protocol() -> StudyProtocol:
             "The recorded baseline variables cover the measured common causes",
             "The standardized offer and version records support consistency",
             "Reserved navigator capacity and access controls support no interference",
+        ),
+    )
+
+
+def longitudinal_navigation_protocol() -> StudyProtocol:
+    """Return the protocol for navigation offered at two decisions after discharge.
+
+    Returns
+    -------
+    StudyProtocol
+        The protocol that compares navigation at discharge and day seven with no navigation at
+        either decision, on the top-box transition score at day 30.
+
+    See Also
+    --------
+    cleverly.datasets.navigation_protocol : The protocol of the one-decision program.
+    cleverly.datasets.make_longitudinal : The synthetic law the two-decision tutorial draws.
+
+    Notes
+    -----
+    Time zero is the discharge itself, so eligibility requires a live discharge.  The strategies
+    name the two static plans.  A tutorial that reports another plan or a dynamic rule appends its
+    strategy and its version with :func:`dataclasses.replace`, and a tutorial with another outcome
+    replaces the outcome, the horizon, and the intercurrent-event handling.
+
+    Examples
+    --------
+    >>> from dataclasses import replace
+    >>> from cleverly.datasets import longitudinal_navigation_protocol
+    >>> program = longitudinal_navigation_protocol()
+    >>> program.treatment_strategies
+    ('Offer navigation at discharge and day seven', 'Offer no navigation at either decision')
+    >>> program.fingerprint
+    '0fe91ade3fc3f249'
+
+    A tutorial that also reports a dynamic rule names it as a third strategy:
+
+    >>> with_rule = replace(
+    ...     program,
+    ...     treatment_strategies=(
+    ...         *program.treatment_strategies,
+    ...         "Offer navigation at discharge, and continue on day seven if engaged",
+    ...     ),
+    ...     treatment_versions=(
+    ...         *program.treatment_versions,
+    ...         "The discharge contact, and the day-seven contact for engaged patients",
+    ...     ),
+    ... )
+    >>> len(with_rule.treatment_strategies)
+    3
+    """
+    program = navigation_protocol()
+    return StudyProtocol(
+        target_population=(
+            "Adults discharged home from a participating hospital during the enrollment period"
+        ),
+        eligibility=(
+            "Age 18 years or older",
+            "Discharged alive",
+            "Discharged home from a participating hospital",
+        ),
+        time_zero="Hospital discharge, after baseline measurement and before first assignment",
+        treatment_strategies=(
+            "Offer navigation at discharge and day seven",
+            "Offer no navigation at either decision",
+        ),
+        treatment_versions=(
+            "The declared discharge and day-seven navigation contacts",
+            "Usual discharge support without navigation contacts",
+        ),
+        outcome="Top-box patient-reported transition score",
+        horizon=program.horizon,
+        intercurrent_event_handling=(
+            program.intercurrent_event_handling[0],
+            "The protocol scores death before day 30 as not top box (composite strategy)",
+            "Analyze each navigation offer regardless of completed contacts",
+        ),
+        interference_unit=program.interference_unit,
+        assumption_rationale=(
+            "Recorded history covers the measured common causes at each decision",
+            "Version records support consistency at both navigation decisions",
+            "Reserved navigator capacity supports no interference between patients",
         ),
     )
