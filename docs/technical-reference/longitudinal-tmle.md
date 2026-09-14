@@ -25,9 +25,9 @@ Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_m
 before any model is fitted.
 
 A worked applied analysis is in the
-[longitudinal tutorial](../examples/longitudinal-tmle.md). It runs a point-treatment analysis
+[longitudinal tutorial](../examples/longitudinal-tmle.ipynb). It runs a point-treatment analysis
 of the same data as a control, and that analysis fails in both available directions.
-[Time-to-event outcomes](../examples/longitudinal-survival.md) is the companion tutorial for
+[Time-to-event outcomes](../examples/longitudinal-survival.ipynb) is the companion tutorial for
 the event-process extensions below.
 
 ## The algorithm as implemented
@@ -136,7 +136,7 @@ The direct `stagewise()` method remains a compatibility alias.
 
 ### Survival and competing risks
 
-[Time-to-event outcomes](../examples/longitudinal-survival.md) works this section applied.
+[Time-to-event outcomes](../examples/longitudinal-survival.ipynb) works this section applied.
 
 An outcome sequence represents an absorbing event process. **Which population each node's
 regression is fitted on is the whole of what changes**, and it is the one thing here that is easy

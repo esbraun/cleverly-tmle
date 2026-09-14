@@ -29,6 +29,10 @@ rejects blank text and unmatched treatment strategy and version counts.
 its canonical representation, and `fingerprint` supplies its BLAKE2b digest. The digest identifies
 the protocol record. It does not replace the separate data and fold fingerprints in `Provenance`.
 
+The fingerprint records the protocol. It does not verify it. The package does not check that
+`treatment_strategies` names the regimens or arms a result estimates, because the strategies are
+free text. The typed estimand stores the contrast.
+
 The public objects divide responsibility as follows:
 
 | object | responsibility |

@@ -26,7 +26,7 @@ Collaborative TMLE is available for point-treatment, arm-axis fits whose target 
 before any model is fitted.
 
 A worked applied analysis is in the
-[collaborative TMLE tutorial](../examples/collaborative-tmle.md). It shows both the
+[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It shows both the
 comparison that discriminates and the one that does not.
 
 The selector does not identify a causal adjustment set. Establish the eligible baseline set from
@@ -90,6 +90,12 @@ canonical CV-TMLE changes the estimator and needs a separate derivation.
 step from the selected candidate's own targeted regression, not from the initial one. Both the
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
 selection.
+
+**Omitted-variable outputs read the selected working mechanism.** The robustness value, the bounds,
+and `elements()` build $\nu^2$ from the selected g. An intercept-only representer is the within-arm
+average of the full representer, so its $\nu^2$ is never larger. The collaborative robustness value
+therefore overstates robustness for the declared adjustment set. Do not report it as a bound.
+[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses a clustered fit, and it refuses

@@ -22,6 +22,7 @@ from scripts.execute_notebook import (
     execute_notebook,
     validate_execution_environment,
     validate_notebook_path,
+    write_notebook,
 )
 from tests.notebooks import (
     GATED_DIGESTS,
@@ -524,6 +525,59 @@ def test_the_check_comparison_reads_non_image_outputs() -> None:
     assert comparable_outputs(image_changed) == collected
 
 
+def _stream_notebook(*outputs: tuple[str, str]) -> dict[str, Any]:
+    """Return a notebook whose one code cell stores the ``(name, text)`` streams in order."""
+    return {
+        "cells": [
+            {
+                "cell_type": "code",
+                "id": "answer",
+                "source": "report()",
+                "execution_count": 1,
+                "outputs": [
+                    {"output_type": "stream", "name": name, "text": text} for name, text in outputs
+                ],
+            }
+        ]
+    }
+
+
+def test_the_check_comparison_ignores_how_the_kernel_chunked_a_stream() -> None:
+    """One print stored in one chunk and in three chunks is the same reproduced output.
+
+    The kernel sends stream text in as many messages as its I/O thread flushes, and the split
+    moves between runs of an unchanged cell.  Before adjacent streams merged, ``--check`` failed
+    on that alone.  The controls keep the boundaries a reader sees: a changed digit, a switch to
+    ``stderr``, and a display between two prints all still count as moved output.
+    """
+    clock = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-08T23:26:45+00:00\n"
+    whole = _stream_notebook(("stdout", "psi = -0.0639\nse = 0.0128\n" + clock))
+    # The last split falls inside the wall clock, which must still be masked after the merge.
+    chunked = _stream_notebook(
+        ("stdout", "psi = -0.0"),
+        ("stdout", "639\nse = 0.0128\n" + clock[:60]),
+        ("stdout", clock[60:].replace("23:26:45", "01:54:45")),
+    )
+    assert comparable_outputs(chunked) == comparable_outputs(whole)
+
+    moved = _stream_notebook(("stdout", "psi = -0.0"), ("stdout", "539\nse = 0.0128\n" + clock))
+    assert comparable_outputs(moved) != comparable_outputs(whole)
+
+    to_stderr = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", "se = 0.0128\n" + clock))
+    assert comparable_outputs(to_stderr) != comparable_outputs(whole)
+
+    displayed = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stdout", "se = 0.0128\n" + clock))
+    displayed["cells"][0]["outputs"].insert(
+        1, {"output_type": "display_data", "data": {"text/plain": "figure"}}
+    )
+    separated = copy.deepcopy(displayed)
+    del separated["cells"][0]["outputs"][1]
+    separated["cells"][0]["outputs"].append(
+        {"output_type": "display_data", "data": {"text/plain": "figure"}}
+    )
+    assert comparable_outputs(displayed) != comparable_outputs(separated)
+
+
 def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch: Any) -> None:
     """A stale output behind nbclient's default skip tag must be replaced."""
     notebook = _notebook()
@@ -559,6 +613,24 @@ def test_the_executor_rejects_cells_nbclient_cannot_execute(tmp_path: Path) -> N
     reserved["cells"][1]["metadata"] = {"tags": [NEVER_SKIP_TAG]}
     with pytest.raises(ValueError, match="reserved tag"):
         execute_notebook(reserved, timeout=30, repository_root=tmp_path)
+
+
+def test_the_executor_writes_line_feeds_on_every_platform(tmp_path: Path) -> None:
+    """A stamped notebook matches the line endings git stores, including on Windows.
+
+    The source strings carry line feeds, so a text-mode write on Windows would put a carriage
+    return before each one.  The check reads bytes, which is where the difference lives.
+    """
+    import nbformat
+
+    notebook = nbformat.from_dict(_notebook())
+    path = tmp_path / "docs" / "example.ipynb"
+    path.parent.mkdir()
+    write_notebook(notebook, path)
+
+    written = path.read_bytes()
+    assert b"\n" in written and b"\r\n" not in written
+    assert json.loads(written)["cells"] == _notebook()["cells"]
 
 
 def test_notebook_paths_are_rejected_before_execution(tmp_path: Path) -> None:

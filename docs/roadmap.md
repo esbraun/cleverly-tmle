@@ -19,10 +19,31 @@ The "next action" column states the remediation work. It is not a readiness labe
 implementation is complete. RM9 retains two separate extensions from the same source audit. The
 review of the stacked study, not the examples, exposed the RM10 gap.
 
+The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
+shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
+the probe that measured it.
+
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Remaining missing-outcome CV-TMLE extensions | audit the scale and fold-weighting laws, then write separate contracts for the bounded-continuous stacked and binary fold-evaluated estimators | the binary stacked estimator is implemented, but its two source-backed extensions need distinct contracts and evidence | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
+| 0.1 | Cross-fitted missing-outcome TMLE audit and evidence | audit the arm-indexed stacked surface, then write separate contracts for the supported bounded-continuous and fold-evaluated extensions | registered evidence covers only the binary natural-course mean, while tutorials expose arm-indexed stacked MAR contrasts | [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) |
 | 0.2 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
+| 0.3 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
+| 0.4 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
+| 0.5 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
+| 0.6 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
+| 0.7 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
+| 0.8 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+
+Use five delivery groups for these eight rows and investigations. Keep each item's acceptance
+criteria separate inside its group.
+
+| delivery group | items | shared boundary |
+| --- | --- | --- |
+| missing-outcome evidence | RM9, then RM10 | one audit and the same stitched-nuisance R comparator |
+| sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
+| collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
+| pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
+| diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -134,10 +155,10 @@ An item is complete only when all applicable conditions hold:
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. The ordinary and binary stacked missing-at-random natural-course means
-are implemented and registered there. RM9 holds the two supported follow-ups to the stacked
-estimator, and RM10 holds the comparator for the ordinary estimator. Replicate-weight designs are
-the next source-audit item in the main grid. Implement them only after RM9 and RM10 are complete
-and that audit supports the planned variance construction.
+are implemented and registered there. RM9 also audits the exposed arm-indexed stacked surface.
+RM10 holds the comparator for the ordinary estimator. Replicate-weight designs are
+the next source-audit item in the main grid. Implement them only after the remediation rows are
+complete and that audit supports the planned variance construction.
 
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -164,12 +185,23 @@ therefore moves this item to [F20](#f20-missing-outcome-attributable-effects).
 Keep the public pre-fit refusal. Complete-data PAR and PAF remain supported. The iid MAR
 natural-course mean and arm-specific missing-outcome means also remain separate supported results.
 
-### RM9. Cross-fitted missing-outcome natural-course mean
+### RM9. Cross-fitted missing-outcome TMLE audit and evidence
 
-The binary one-repeat stacked estimator is implemented. Its scientific and public contracts now
-live in the [point-treatment](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+The binary one-repeat stacked natural-course estimator is implemented and registered. Its public
+contracts live in the
+[point-treatment](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
 and [CV-TMLE](technical-reference/cv-tmle.md) references. Its validation results live in the
 [implementation validation grid](technical-reference/method-evidence/validation-grid.md).
+
+The public surface also fits one-repeat stacked arm-indexed MAR means and contrasts. These include
+ATE for bounded-continuous outcomes and ATE, RR, and OR for binary outcomes. No registered study
+covers those compositions. Existing rows separately cover ordinary arm-indexed MAR fits,
+complete-outcome stacked fits, and the binary stacked natural-course mean.
+
+Audit response-weighted pooled targeting, outcome scaling, whole-sample plug-in evaluation, fold
+weighting, and same-row covariance for the arm-indexed surface. Add one registered study for the
+supported binary and bounded-continuous parameters against R `tmle` with identical stitched
+nuisances. Refuse any composition the audit cannot support.
 
 RM9 retains two separate follow-ups. First, the bounded-continuous stacked extension needs an exact
 contract for scaling the fluctuation, score, point, and influence curve. Second, the original
@@ -199,6 +231,236 @@ If the transforms differ, record the continuous comparison as refused and state 
 
 Regenerate the ordinary study after the comparison is added. Do not transfer the stacked study's
 agreement to the ordinary estimator.
+
+### RM11. Sensitivity bounds outside their derivation
+
+Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) bound the omitted-variable bias of a
+linear functional of the outcome regression. The bound is $\sqrt{\sigma^2 \nu^2}$ times a strength
+factor. Here $\nu^2$ is the second moment of the Riesz representer for the declared adjustment set.
+An estimate of $\nu^2$ is only as good as the fitted representer. The bound has one treatment-side
+strength and no response mechanism.
+
+`sensitivity_elements` builds $\sigma^2$, $\nu^2$, and the representer from the nuisances of the
+reported repeat (`src/cleverly/sensitivity/omitted_variable.py:193-281`). The bounds, the
+benchmark, the robustness value, and the contour all call it (`:526`, `:762`, `:842`, `:866`). The
+assessment declares these operations for `tmle`, `collaborative_tmle`, and `drtmle`
+(`src/cleverly/assessment.py:312`, `:3414-3429`). A probe on a DR-TMLE fit reports each capability
+as available and returns a robustness value with no warning.
+
+| defect | mechanism | evidence | consequence for users |
+| --- | --- | --- | --- |
+| DR-TMLE $\nu^2$ | the default estimator $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$ by the Riesz identity. It is low when the fitted mechanism is wrong, which is the case DR-TMLE guards against. Only the bound's standard error adds the corrected curve (`:536-537`, `:561-564`), and no derivation covers that sum | on the stored `dr-tmle` notebook draw, the reported $\nu^2$ is 4.34. The sample value of $E[1/g_0 + 1/(1 - g_0)]$ is 7.75 | the bounds are too narrow, and the robustness value is too large |
+| C-TMLE $\nu^2$ | a C-TMLE fit holds the selected working mechanism in `repeat.nuisance`. The intercept-only representer $A/p - (1 - A)/(1 - p)$ equals $E[\alpha_W \mid A]$, so its second moment cannot exceed that of $\alpha_W$. $\sigma^2$ still comes from a regression on every covariate | on `make_instrument(n=2000, seed=44)`, the plain fit gives $\nu^2 = 11.77$ and a robustness value of 0.229. The C-TMLE fit gives 4.00 and 0.381 | the collaborative robustness value is optimistic by construction, and $\sigma^2 \nu^2$ belongs to no single conditioning set |
+| refusal reason for a non-arm axis | the message says that a fit "whose counterfactuals are not arms does not have" a Riesz representer (`:178-185`) | a regime mean, a shift mean, and a point-treatment MSM coefficient are linear functionals of the regression, and each has a representer | a user reads a missing implementation as a mathematical limit |
+| suggestion for an MSM coefficient | a name outside `LINEAR_ESTIMANDS` receives "For a risk ratio or odds ratio use sensitivity.evalue()" (`:164-168`) | a probe on `msm[a]` returns that text. `evalue` refuses an `msm` target (`src/cleverly/sensitivity/evalue.py:342-346`) | the message sends the user to a second refusal |
+| missing-outcome fits | `sensitivity_elements` has no response-mechanism check. The representer carries the response weight through `nuisance_bound` (`:216`), $\sigma^2$ averages respondents only (`:245`), and the strength factor has no response-side term. The assessment offers the bounds, the robustness value, and the E-value on a `PointTreatment(missingness=...)` fit | a probe on a simulated fit with a response indicator reports all three capabilities as available and returns a robustness value of 0.040. The default $\nu^2$ estimator was not positive there, so the code fell back to `"plugin"` without a warning (`:258-259`, marked unreachable for coverage). The `survey-nonresponse` notebook prints a bias-adjusted interval of [0.9567, 1.414] | a user reads a bound that no derivation covers for a fit that models response |
+| standardized E-value on a missing-outcome fit | the Gaussian conversion divides by the standard deviation of the observed outcomes (`src/cleverly/sensitivity/evalue.py:449-460`). Under missing at random, the respondents' standard deviation estimates a different quantity from the population standard deviation | the same probe returns an E-value of 1.97 with `sd(Y)` computed from respondents | the standardized scale belongs to the respondents, not to the population the estimate targets |
+| documented estimator names | the `omitted_variable_bounds` docstring lists `"auto"`, `"analytic"`, and `"riesz"` (`:518`) | the code accepts `"auto"`, `"doubly_robust"`, and `"plugin"`, and raises `ValueError` for any other value (`:251-266`) | a documented argument fails |
+
+Apply these corrections:
+
+1. Refuse every omitted-variable operation on a `drtmle` fit, a `collaborative_tmle` fit, or a fit
+   with a response mechanism, before any computation. Put the refusal in `sensitivity_elements`,
+   so that all four entry points share it. Mark the matching assessment rows `unavailable` with the
+   same reason.
+2. State the missing result in the reason. For DR-TMLE and C-TMLE, the package has no estimate of
+   $\nu^2$ that stays valid when the estimator does not assume a consistent treatment mechanism.
+   For a missing-outcome fit, no derivation gives the bound with a response mechanism. The
+   missingness tilt remains the sensitivity analysis for response.
+3. Refuse the standardized E-value conversion on a missing-outcome fit, and name the population
+   standard deviation that it lacks. Keep an E-value computed from a reported ratio, because that
+   formula reads only the estimate and its interval.
+4. Remove the silent fallback to `"plugin"`. Raise a refusal that names the estimator whose value
+   was not positive.
+5. Do not substitute a separately fitted full mechanism. That substitution is a new estimator of
+   the bound, and [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) records its stop.
+6. Rewrite the non-arm refusal. Name the fit's parameter axis. For a regime, shift, or MSM axis,
+   state that the bound is well posed and not implemented. For an incremental axis, state that the
+   functional depends on the mechanism, so the regression-only bound does not cover it.
+7. Suggest `evalue()` only for a `rr` or `or` request.
+8. Correct the documented `nu2_estimator` values.
+
+The witnesses must fail when a component is wrong:
+
+- a pre-fit test pins each refusal and its message on a DR-TMLE fit, a C-TMLE fit, and a
+  missing-outcome fit;
+- a missing-outcome test pins the refused standardized E-value and the retained ratio E-value;
+- a test that a nonpositive $\nu^2$ raises, rather than returning the plug-in value;
+- a nonzero witness pins $\nu^2_{\text{intercept}} < \nu^2_{\text{full}}$ on one instrument law.
+  A mutation that removes the C-TMLE refusal then reports the smaller value, and the test fails;
+- a finite-support law with a wrong mechanism and a known $\nu_0^2$ shows the DR-TMLE shortfall
+  that the refusal prevents;
+- a message test for each parameter axis, including that an `msm` refusal does not name `evalue`;
+- a test that each documented `nu2_estimator` value is accepted.
+
+### RM12. Collaborative intervals at an inconsistent working mechanism
+
+The greedy, ordered, and discrete C-TMLE paths report ordinary EIF plug-in covariance at the
+selected working mechanism. The
+[technical reference](technical-reference/collaborative-tmle.md) says that the interval treats the
+selected candidate as fixed. The measured gap does not come from selection alone.
+
+With a correct linear outcome regression and an intercept-only working mechanism, the C-TMLE
+estimate equals the least-squares coefficient on the treatment given every covariate. The reported
+variance is then $\sigma^2 \nu^2 / n$ for the intercept-only representer. That variance ignores the
+association between the treatment and the covariates.
+
+| measurement | law and fits | result |
+| --- | --- | --- |
+| one draw | `make_instrument(n=2000, seed=44)`, greedy path | reported standard error 0.0441. The HC0 standard error of the same least-squares coefficient is 0.0545 |
+| least-squares sampling spread | `make_instrument(n=2000)`, seeds 1000 to 1999 | empirical standard deviation 0.0538 |
+| greedy C-TMLE repeated sampling | `make_instrument(n=2000)`, seeds 3000 to 3299, three outer folds, three selection folds | mean reported standard error 0.0454 against an empirical standard deviation of 0.0537, a ratio of 0.844. Nominal 95% intervals cover in 0.92 of fits. The selector chose the intercept-only mechanism in 172 of 300 fits |
+
+A user reads the smaller standard error as a precision gain, and the interval undercovers.
+
+The path record has a second defect. The `CTMLESelection.train_risk` docstring
+(`src/cleverly/estimators/ctmle.py:309-313`) and the module docstring (`:39-41`) say that the
+in-sample risk does not increase. `_forward_path` (`:1337-1348`) takes one more fluctuation step
+when no addition lowers the risk. If the next addition still raises it, the path adds that covariate
+anyway. The `collaborative-tmle` notebook output shows `risk` rising from 6.59305 to 6.60011.
+
+Apply these corrections:
+
+1. Print a label with every collaborative interval in the result summary, in `to_frame`, and in
+   the assessment. The label says that the curve is the EIF at the selected working mechanism. It
+   also says that no result shows this curve is the estimator's influence curve when that mechanism
+   is not consistent for the treatment law.
+2. Decide in the [F18](#f18-selector-path-c-tmle-inference) audit whether the interval is refused
+   or kept with that label. Do not add an ad hoc variance term in the meantime.
+3. Audit `_forward_path` against van der Laan and Gruber (2010) and the pinned R `ctmle`. If the
+   forced addition matches both, correct the two docstrings. If it does not, change the path and
+   regenerate the C-TMLE studies whose selections it moves.
+
+The witnesses must fail when a component is wrong:
+
+- a discrete-strategy fit with only the intercept-only candidate, on a finite-support law with a
+  correct outcome regression. The test compares the reported curve variance with the exact
+  variance of that fixed-candidate estimator, and the two must differ by a stated margin;
+- a greedy path on a law where `train_risk` rises, which pins the documented behavior;
+- a registered coverage cell on the instrument law, with its thresholds fixed before the final
+  run.
+
+### RM13. Estimated MSM projection weights
+
+The [MSM technical reference](technical-reference/msm-projections.md#variations) lists a
+projection weight derived from the estimated mechanism as refused. The same row says that such a
+weight "does not fail" and gives a standard error that is too small. The code checks only that
+`weights` is callable (`src/cleverly/msm.py:373-378`), and a coverage pragma marks that branch as
+unreachable.
+
+A callable receives an arm label and a covariate frame, and it can close over any estimate. A
+callable over sample shares or a fitted mechanism therefore fits with no message. The weight is
+then a functional of $P$, and the influence curve omits its pathwise derivative. The reported
+standard error is too small, and the reference calls the composition refused.
+
+The package cannot inspect a closure, so make the status of the weight a declaration:
+
+1. Require an explicit known-weight declaration on `MSM` whenever `weights` is set. Refuse
+   `weights` without it before any nuisance fit. `PointTreatment.weights_estimated` is the
+   precedent for declared observation weights (`src/cleverly/study.py:407`).
+2. Refuse a weight declared as estimated. The message names the missing pathwise-derivative term.
+3. Correct the reference row, so that it describes the declaration and both refusals.
+
+The witnesses must fail when a component is wrong:
+
+- a pre-fit test pins both refusals and their messages, and a spy learner shows that no nuisance
+  fit ran;
+- a repeated-sampling control with weights equal to the sample arm shares. It records a reported
+  standard error below the sampling standard deviation, which is the reason for the refusal.
+
+### RM14. Intervention refusals at identification
+
+The typed estimands do not check the kinds of their elements. `RegimeMean.regimens` and
+`RegimeContrast.regimens` are typed `Any` (`src/cleverly/study.py:953`, `:991`), and
+`IncrementalMean.interventions` and `IncrementalEffect.interventions` declare
+`Sequence[Incremental]` with no runtime check (`:1062`, `:1104`). The refusal
+happens only when the estimator runs `as_interventions` (`src/cleverly/interventions/base.py:558-584`).
+
+| request | behavior | evidence |
+| --- | --- | --- |
+| `RegimeContrast(regimens=(Static(1), Incremental(2.0)))` | `identify` returns an `IdentifiedEffect`. `estimate` raises the `ValueError` from `refuse_unsupported` | probe, and `base.py:347-358` |
+| `IncrementalEffect((Incremental(1.0), Static(1)))` | `identify` succeeds. `estimate` raises `AttributeError: 'Static' object has no attribute 'delta'` | probe |
+| a `Shift` in a regimen set | the message tells the user to pass it to `TMLE(shifts=...)` | `base.py:359-366` |
+
+The messages name the low-level keywords `TMLE(incremental=...)` and `TMLE(shifts=...)`. The top
+level does not export `TMLE` (`src/cleverly/__init__.py:105-166`). A `CausalStudy` user declares
+`IncrementalMean`, `IncrementalEffect`, `ModifiedTreatmentPolicy`, or
+`ModifiedTreatmentPolicyEffect`. The incremental message also says that the object is "not an
+intervention", although the user imported it from `cleverly.interventions`.
+
+A user who declares a mixed request learns of the refusal only after the study is built. An
+`AttributeError` is a crash, not a refusal.
+
+Apply these corrections:
+
+1. Check the element kinds when `CausalStudy.identify` builds the functional. Refuse a `Shift` or an
+   `Incremental` in a regimen set. Refuse any element other than `Incremental` in an incremental
+   estimand.
+2. Name the typed estimand for each kind in the message. Cite
+   [F17](#f17-joint-point-treatment-parameter-axes) for a joint request.
+3. Keep `as_interventions` as a second guard for direct estimator use, and name the typed estimands
+   there too.
+
+The witnesses must fail when a component is wrong:
+
+- a pre-fit test for each row above pins the refusal, its message, and its raise at `identify`;
+- a spy learner shows that no nuisance fit ran;
+- a mutation that removes the identification check makes the test fail at `identify`, rather than
+  pass at `estimate`.
+
+### RM15. Calibration-slope warning rule
+
+`NuisanceDiagnostics.findings` warns when a calibration slope falls outside [0.7, 1.4]. The finding
+says that the model "biases the weights" (`src/cleverly/validation/nuisance.py:513-517`). The
+assessment turns any finding into a `nuisance_models` warning (`src/cleverly/assessment.py:2638-2645`).
+
+The band ignores the spread of the true probabilities. With a weak signal, noise in the out-of-fold
+coefficients spreads the predictions more than the truth does. A correct model then gives a slope
+below 1. The finding also asserts an effect on the weights that the rule does not measure.
+
+| law | fits | result |
+| --- | --- | --- |
+| point treatment, $n = 2000$, $\operatorname{logit} g_0 = 0.15 W_1$, correct logistic learner, three folds | 40 seeds | mean slope 0.647, median slope 0.738, mean AUC 0.537. The rule flagged 14 fits |
+| longitudinal censoring at node 2, `make_longitudinal(n=8000)`, correct logistic model, a separate three-fold split | 60 seeds | out-of-fold slope mean 0.767, standard deviation 0.114 |
+
+The longitudinal nuisance report applies no band (`assessment.py:2587-2597`), so the second row
+raises no warning. Its `calibration_slope` column also holds two statistics under one name. Binary
+rows use a logistic recalibration slope, and pseudo-outcome rows use a linear regression slope
+(`nuisance.py:845-862`).
+
+A user who sees the warning respecifies a correct model. The warning does not say how to tell weak
+signal from miscalibration.
+
+Apply these corrections:
+
+1. Do not tune a new constant to these draws.
+2. Register a calibration study before a new rule ships. One law is correct with weak signal and
+   measures the false-warning rate. One law is miscalibrated and measures the detection rate. Fix
+   the thresholds before the final run.
+3. Until that study exists, word the finding as a prompt to review the model. Report the AUC and the
+   largest weight beside the slope, and do not assert that the weights are biased.
+4. Give the linear slope in the longitudinal report its own column name.
+
+The witnesses must fail when a component is wrong:
+
+- a unit test on the correct weak-signal law pins the outcome of the registered rule;
+- a mutation back to the fixed band makes that test fail;
+- a miscalibrated law shows that the rule still warns.
+
+### RM16. Summary and error-message accuracy
+
+| surface | defect | evidence | correction |
+| --- | --- | --- | --- |
+| longitudinal `RegimeMean` result summary | prints `reference: always`, although the result keeps no contrast | `src/cleverly/study.py:2872-2878` drops the contrasts. `src/cleverly/longitudinal/estimator.py:598-605` prints the reference unconditionally. A probe prints `reference: always` beside `ey_regimen[always]` and `ey_regimen[never]` only | clear the reference when the study keeps no contrast, and print the line only for a contrast |
+| longitudinal identification summary | the `adjustment/history` line lists only the baseline covariates | `study.py:2268` sets `adjustment=tuple(design.baseline)`, and `:2574` prints it. A probe prints `['W1', 'W2']` for a design with `L2` at node 2 | print the history for each node |
+| DR-TMLE result summary | names neither DR-TMLE, the guard, nor the reduction | `src/cleverly/estimators/base.py:1180` fixes the header, and `config.describe()` (`:179-200`) has no method line. A probe finds `fitted_method` equal to `drtmle` and none of `drtmle`, `DR-TMLE`, or `guard` in the summary | add the method, the guard, and the reduction |
+| regime support table | `min g`, `max ratio`, and `ratio effective n` use the mechanism before truncation. `score load` uses the truncated weights. The table does not say so | `src/cleverly/interventions/support.py:276-294` and the header at `:244-260`. In the `interventions` notebook, offer to all prints a `min g` of 0.001463, below the fit's bound of 0.0114 | label the basis of each column. The source chooses the untruncated mechanism on purpose, so this is a display gap and not an estimator defect |
+| identification and result summaries | each summary reprints all 11 protocol lines, so a notebook that prints the protocol, the identified effect, and the result shows the record three times | `StudyProtocol.summary_lines` returns 11 lines (`src/cleverly/protocol.py:180-200`). `IdentifiedEffect.summary` and `IdentifiedEffect.summary_lines` append them (`src/cleverly/study.py:2566-2578`, `:2587-2597`), and the result summary appends `summary_lines` (`src/cleverly/estimators/base.py:1190-1191`). The `dr-tmle` notebook shows the block three times | add a summary option that prints only the `causal study protocol: schema N; fingerprint` line. Keep the full record as the default, so that a summary read alone stays complete |
+| missing-outcome `DataError` | tells a study user to pass `delta=<column>` | `src/cleverly/data/validate.py:311`. `PointTreatment` names the field `missingness` (`src/cleverly/study.py:403`). A probe through `CausalStudy` returns the `delta=` text | name `missingness=` for a study design. Keep `delta=` only where the low-level `CausalData` constructor raises the error |
+
+Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
+`RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
+at its node. A truncated fit labels a `score load` that differs from its `ratio effective n`.
 
 ### P1. EP learner
 
@@ -586,6 +848,12 @@ Standard orthogonal-score arguments can then treat the complete selector as a nu
 algorithm, subject to its rate conditions. The current global risk aggregation does not have that
 independence.
 
+The fixed-candidate curve is itself unproved when the candidate's mechanism limit differs from the
+treatment law. [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) records an
+instrument law where the intercept-only curve gives a standard error of 0.0441. The sampling
+standard deviation of the numerically identical least-squares coefficient is 0.0538. A result must
+settle that fixed-candidate case before it addresses selection.
+
 Accept a result only when it covers the selected index and the selector's three split layers.
 Those layers are outer nuisance folds, selection folds, and inner selection-training folds. The
 result must establish whether the current curve suffices or an additional contribution is
@@ -747,6 +1015,12 @@ Each C-TMLE extension needs its target-specific collaborative score and selectio
 Each DR-TMLE extension needs reduced regressions, a correction, a remainder, and rate conditions.
 PAR and PAF also need the joint observed-mean curve and covariance. Complete simulated-confounding
 replay receives its own audit only after the estimator can fit the target.
+
+Omitted-variable bounds join these refused compositions once
+[RM11](#rm11-sensitivity-bounds-outside-their-derivation) lands. A bound on either fit needs
+an estimate of $\nu^2$ that stays valid when the estimator does not assume a consistent treatment
+mechanism. It also needs the influence curve of the bound under that estimator. A separately fitted
+full mechanism is a new estimator of the bound, and it needs the same derivation.
 
 An estimated-weight DR-TMLE fit is not refused. Its interval conditions on the supplied weights.
 An unconditional interval claim needs the influence contribution from weight estimation. This

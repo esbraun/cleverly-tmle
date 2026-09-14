@@ -79,9 +79,11 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 The fast suite is the handoff gate for every row. It recomputes registered-study verdicts from
 committed artifacts, so the statistical evidence is checked in minutes rather than hours.
 
-The notebook command executes every cell and replaces the stored outputs. It needs network
-access, because the TWINS notebook downloads a pinned dataset. It then writes a stamp with two
-halves, and only one half can fail the fast suite.
+The notebook command executes every cell and replaces the stored outputs. The TWINS notebook needs
+network access, because it downloads a pinned dataset. The tutorial notebooks run offline. The
+command then writes a stamp with two halves, and only one half can fail the fast suite.
+[Example notebooks](example-notebooks.md) gives the cell outline, the rules, and the procedure for
+a tutorial notebook.
 
 | stamp half | covers | the fast suite |
 | --- | --- | --- |

@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | fewer effective folds than rows suggest |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -31,7 +31,7 @@ interval, and folds address one of them.
 The last condition is the one a *variant* of the estimator can weaken. That variant is
 [DR-TMLE](dr-tmle/index.md).
 
-A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.md). It
+A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.ipynb). It
 measures what an in-sample interval costs under a flexible learner.
 
 ## The algorithm as implemented
@@ -139,7 +139,8 @@ estimates, the weighting difference is $O(1/n)$. It is first-order negligible, b
 The original pooled, fold-evaluated construction has published support. It remains a separate
 estimator because its fold plug-in and variance law differ. Bounded-continuous stacked outcomes also
 remain refused until their scale transform has an exact contract. The
-[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean) tracks both follow-ups.
+[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) tracks both
+follow-ups.
 
 Fold-specific targeting and repeated-split reporting remain separate hard stops. The source audit
 found no direct interval result for either composition. See
@@ -155,7 +156,7 @@ records the repeated-sampling evidence. It also compares the pooled target again
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
 them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. This
 section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
-and the [tutorial](../examples/cross-fitting.md#reuse-the-same-outer-split) link here rather than
+and the [tutorial](../examples/cross-fitting.ipynb#step-9-reuse-the-same-outer-split) link here rather than
 restating it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and

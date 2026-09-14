@@ -36,6 +36,7 @@ from cleverly.datasets import (
     make_weak_overlap,
     missing_outcome_dgp,
     multi_arm_dgp,
+    navigation_data,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
@@ -516,3 +517,31 @@ class TestTheMultiArmBinomialLaw:
     def test_an_unknown_family_is_refused(self) -> None:
         with pytest.raises(ValueError, match="family must be"):
             multi_arm_dgp(family="poisson")
+
+
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_the_program_data_renames_the_nonlinear_draw_and_changes_nothing_else(
+    backend: str,
+) -> None:
+    """``navigation_data`` is ``make_nonlinear_ate`` under the program's names, row for row.
+
+    The mapping is written out here rather than read from the module, so a swapped pair of
+    covariate names fails even though the column set and every value still agree.
+    """
+    frame, truth = navigation_data(300, seed=21, backend=backend)
+    raw, raw_truth = make_nonlinear_ate(300, seed=21, backend=backend)
+    expected = {
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "prior_utilization",
+        "W3": "medication_burden",
+        "W4": "age",
+    }
+    assert type(frame) is type(raw)
+    assert list(frame.columns) == list(expected.values())
+    for generator_name, program_name in expected.items():
+        np.testing.assert_array_equal(
+            np.asarray(frame[program_name]), np.asarray(raw[generator_name])
+        )
+    assert truth == raw_truth
