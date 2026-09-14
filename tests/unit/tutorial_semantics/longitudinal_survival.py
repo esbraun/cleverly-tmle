@@ -15,6 +15,7 @@ import pytest
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
+    changed_fields,
     covers,
     stored_output,
 )
@@ -38,8 +39,63 @@ def check(namespace: dict[str, Any]) -> None:
         ),
     }
     assert len(fingerprints) == 3
-    # "The fit refuses a horizon outside 1..T rather than interpolating it."
-    assert "outside 1..2" in stored_output(NOTEBOOK, "estimate-retention")
+    # "The code changes seven fields of the program protocol and keeps three."
+    exit_protocol, event_protocol = namespace["exit_protocol"], namespace["event_protocol"]
+    assert changed_fields(exit_protocol, namespace["program"]) == {
+        "eligibility",
+        "treatment_strategies",
+        "treatment_versions",
+        "outcome",
+        "horizon",
+        "intercurrent_event_handling",
+        "assumption_rationale",
+    }
+    # "Four fields changed: the treatment strategies, the outcome, ... the assumption rationale."
+    assert changed_fields(event_protocol, exit_protocol) == {
+        "treatment_strategies",
+        "outcome",
+        "intercurrent_event_handling",
+        "assumption_rationale",
+    }
+    # "The death-as-censoring protocol changes three fields."
+    assert changed_fields(namespace["eliminated_protocol"], event_protocol) == {
+        "outcome",
+        "intercurrent_event_handling",
+        "assumption_rationale",
+    }
+    # "The fit refuses a horizon outside 1..2 rather than interpolating it."
+    retention_output = stored_output(NOTEBOOK, "estimate-retention")
+    assert "outside 1..2" in retention_output
+    # "reference: never ... A RegimeMean fit reports no contrast, so this line changes no number."
+    assert result.config.reference == "never" and "reference: never" in retention_output
+    assert all(name.startswith("risk_regimen[") for name in result.estimates)
+    from cleverly import RegimeMean
+
+    default_reference = (
+        namespace["exit_study"]
+        .identify(RegimeMean(namespace["plans"], horizons=(1, 2)))
+        .estimate(method=namespace["sequential"])
+    )
+    # The witness is nonzero: the library default names the other plan.
+    assert default_reference.config.reference == "always"
+    assert set(default_reference.estimates) == set(result.estimates)
+    for name, estimate in result.estimates.items():
+        assert default_reference[name].psi == pytest.approx(estimate.psi, abs=1e-12)
+        assert default_reference[name].std_error == pytest.approx(estimate.std_error, abs=1e-12)
+    # "The adjustment/history line lists the baseline covariates only. The design still adds
+    # identified_needs to the history at the second node."
+    assert "adjustment/history: ['age', 'baseline_readiness']" in stored_output(
+        NOTEBOOK, "identify"
+    )
+    assert "identified_needs" not in result.data.history_names(1)
+    assert result.data.history_names(2)[-1] == "identified_needs"
+    # "The simultaneous bands are built to hold all four parameters at once ... wider than the
+    # pointwise intervals."
+    bands = result.simultaneous
+    assert bands is not None and len(bands.bands) == 4
+    assert bands.critical_value > bands.pointwise_critical_value
+    for name, (low, high) in bands.bands.items():
+        assert low < result[name].ci[0] and high > result[name].ci[1]
 
     # "offered patients are older ... less ready", and the day-31 offer goes to more needs.
     frame = namespace["exit_frame"]
@@ -70,7 +126,7 @@ def check(namespace: dict[str, Any]) -> None:
     np.testing.assert_allclose(survival["ci_upper"], 1.0 - risk["ci_lower"], rtol=0.0, atol=1e-14)
     np.testing.assert_array_equal(survival["std_err"], risk["std_err"])
 
-    # "both risk differences are negative, and the 60-day difference is larger" (ratio 1.37).
+    # "both risk differences are negative, and the 60-day reduction is larger" (ratio 1.37).
     exit_differences = namespace["exit_differences"]
     exit_t1, exit_t2 = exit_differences[1], exit_differences[2]
     assert exit_t1.psi < -0.05
@@ -127,19 +183,58 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(readmission_t2.psi) < 0.5 * abs(readmission_t1.psi)
     assert event_truth["ate_regimen[always vs never, relapse @ t=1]"] < 0.0
     assert event_truth["ate_regimen[always vs never, relapse @ t=2]"] > 0.0
-    # "negative at both horizons and larger at 60 days" (measured ratio 1.55).
+    # "negative at both horizons, and the reduction is larger at 60 days" (measured ratio 1.55).
     death_t1, death_t2 = events["death", 1], events["death", 2]
     assert death_t1.psi < -0.03
     assert death_t2.psi < 1.25 * death_t1.psi
-    # "The 60-day death interval ... excludes its population value" on this draw.
-    assert not covers(death_t2, event_truth["ate_regimen[always vs never, death @ t=2]"])
+    # "Two intervals miss their population values on this draw", out of the 12 the step prints:
+    # the 60-day death difference and the never-plan death incidence at 60 days.
+    levels = namespace["event_levels"]
+    assert len(levels.estimates) == 8 and len(events) == 4
+    level_misses = {
+        name
+        for name, estimate in levels.estimates.items()
+        if not covers(estimate, event_truth[name.replace("readmission", "relapse")])
+    }
+    assert level_misses == {"cif_regimen[never, death @ t=2]"}
+    difference_misses = {
+        key
+        for key, estimate in events.items()
+        if not covers(
+            estimate,
+            event_truth[
+                f"ate_regimen[always vs never, "
+                f"{'relapse' if key[0] == 'readmission' else key[0]} @ t={key[1]}]"
+            ],
+        )
+    }
+    assert difference_misses == {("death", 2)}
+    # "Both misses come from one estimate. The never-plan death incidence sits below its
+    # population value, and the difference inherits that gap." The always-plan death incidence
+    # covers its value, and the difference sits above its (negative) population value.
+    never_death = levels["cif_regimen[never, death @ t=2]"]
+    assert never_death.psi < event_truth["cif_regimen[never, death @ t=2]"]
+    assert covers(
+        levels["cif_regimen[always, death @ t=2]"], event_truth["cif_regimen[always, death @ t=2]"]
+    )
+    assert death_t2.psi > event_truth["ate_regimen[always vs never, death @ t=2]"]
+    # The printed distances are 2.9 and 2.3 standard errors.
+    never_distance = (never_death.psi - event_truth["cif_regimen[never, death @ t=2]"]) / (
+        never_death.std_error
+    )
+    assert never_distance == pytest.approx(-2.9, abs=0.05)
+    death_distance = (
+        death_t2.psi - event_truth["ate_regimen[always vs never, death @ t=2]"]
+    ) / death_t2.std_error
+    assert death_distance == pytest.approx(2.3, abs=0.05)
+    # "More patients die under the never plan": the population incidence the reading relies on.
+    assert event_truth["ate_regimen[always vs never, death @ t=2]"] < 0.0
 
     # Death coded as censoring gives a larger reduction than the total effect, and it raises
     # never-plan readmission risk more than always-plan risk.
     eliminated = namespace["eliminated"]
     assert eliminated.data.censoring_names == ("alive_p1", "alive_p2")
     assert namespace["eliminated_t2"].psi < readmission_t2.psi - 0.01
-    levels = namespace["event_levels"]
     raised_never = (
         eliminated["risk_regimen[never @ t=2]"].psi
         - levels["cif_regimen[never, readmission @ t=2]"].psi
@@ -163,6 +258,22 @@ def check(namespace: dict[str, Any]) -> None:
     event_support = namespace["event_assessment"].report("support").to_frame()
     assert {"horizon", "time"} <= set(exit_support.columns) and "cause" not in exit_support
     assert set(event_support.columns) == set(exit_support.columns) | {"cause"}
+    # "a minimum effective-sample-size ratio of 77.8%. That is the never plan at the second node:
+    # an effective sample of about 473 from 608 followers."
+    ratios = exit_support["effective_n"] / exit_support["n_followed"]
+    weakest = exit_support.loc[ratios.idxmin()]
+    assert (weakest["regimen"], weakest["time"], weakest["n_followed"]) == ("never", 2, 608)
+    assert ratios.min() == pytest.approx(0.778, abs=0.0005)
+    assert "minimum effective-sample-size ratio 77.8%" in stored_output(NOTEBOOK, "assessment")
+    # "The largest [epsilon], -0.1324, is on the never-plan death row at the second node."
+    largest = event_support.loc[event_support["epsilon"].abs().idxmax()]
+    assert (largest["regimen"], largest["cause"], largest["horizon"], largest["time"]) == (
+        "never",
+        "death",
+        2,
+        2,
+    )
+    assert largest["epsilon"] == pytest.approx(-0.1324, abs=5e-5)
 
     assert len(levels.config.causes) == 2
     with pytest.raises(ValueError, match="not all-cause survival"):
@@ -180,6 +291,11 @@ def check(namespace: dict[str, Any]) -> None:
             if regimen == row.regimen and horizon == row.time
         ]
         assert len(names) == len(levels.config.causes)
+        # "incidence_total() sums the causes ... It does not renormalize them", and "excess ...
+        # is 0.0 in every row". A renormalizing mutation would still show a zero excess, so the
+        # witness is the sum itself.
+        assert row.total == pytest.approx(sum(levels[name].psi for name in names), abs=1e-12)
+        assert row.total < 1.0 and row.excess == 0.0
         curve = np.sum(np.column_stack([levels[name].influence_curve for name in names]), axis=1)
         expected = float(np.sqrt(np.var(curve, ddof=1) / levels.data.n))
         old_extra_scaling = expected / np.sqrt(levels.data.n)
