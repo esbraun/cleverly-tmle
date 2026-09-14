@@ -15,6 +15,11 @@ stored output prints it.  :func:`narration_mismatches` reads that mapping.
 **What is not a tutorial.**  ``index`` is navigation.  The TWINS notebook downloads its data, so
 it cannot run in the offline fast tier.  :data:`NOT_TUTORIALS` names both, and the runtime module
 asserts that every other example has exactly one callback and every callback has a tutorial.
+
+**What is checked statically only.**  A notebook in :data:`STATIC_ONLY` is not a tutorial, and
+its prose is still compared against its stored outputs.  Its module defines no ``check``.  It may
+define ``UNPRINTED_DECIMALS``, and ``check_stored()`` for the committed outputs its readings rely
+on.  :func:`narrated_notebooks` lists every notebook the static narration check reads.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ __all__ = [
     "EXAMPLES",
     "NOT_TUTORIALS",
     "PACKAGE",
+    "STATIC_ONLY",
     "assert_protocol_recorded",
     "callback",
     "callback_module",
@@ -45,6 +51,7 @@ __all__ = [
     "markdown_text",
     "module_name",
     "narrated_decimals",
+    "narrated_notebooks",
     "narration_mismatches",
     "notebook_code",
     "stored_output",
@@ -60,6 +67,10 @@ PACKAGE = Path(__file__).resolve().parent
 #: Stems under ``docs/examples`` that are not program tutorials.
 NOT_TUTORIALS = frozenset({"index", "twins-causal-inference"})
 
+#: Notebooks outside the tutorial program whose stored text the static checks still read.  Each
+#: needs the network to execute, so none enters the offline semantic gate.
+STATIC_ONLY = frozenset({"twins-causal-inference"})
+
 
 def tutorials() -> list[Path]:
     """Every tutorial source under ``docs/examples``, sorted, Markdown or notebook."""
@@ -69,6 +80,19 @@ def tutorials() -> list[Path]:
         if path.parent == EXAMPLES
         and path.suffix in {".md", ".ipynb"}
         and path.stem not in NOT_TUTORIALS
+    )
+
+
+def narrated_notebooks() -> list[Path]:
+    """Every notebook whose narrated decimals the static check reads, sorted.
+
+    That is each tutorial notebook, and each notebook in :data:`STATIC_ONLY`.
+    """
+    return sorted(
+        [
+            *(path for path in tutorials() if path.suffix == ".ipynb"),
+            *(EXAMPLES / f"{stem}.ipynb" for stem in STATIC_ONLY),
+        ]
     )
 
 

@@ -83,6 +83,7 @@ from tests.notebooks import (
 )
 from tests.unit.tutorial_semantics import (
     NOT_TUTORIALS,
+    STATIC_ONLY,
     assert_protocol_recorded,
     callback,
     callback_module,
@@ -92,6 +93,7 @@ from tests.unit.tutorial_semantics import (
     markdown_text,
     module_name,
     narrated_decimals,
+    narrated_notebooks,
     narration_mismatches,
     notebook_code,
     stored_text,
@@ -265,7 +267,7 @@ def test_every_tutorial_has_one_semantic_assertion() -> None:
         "replaces its Markdown source, so delete the .md file"
     )
     assert len(TUTORIALS) >= 9, "the tutorial discovery found fewer pages than the program has"
-    expected = {module_name(stem) for stem in stems}
+    expected = {module_name(stem) for stem in (*stems, *STATIC_ONLY)}
     present = callback_modules()
     assert present == expected, (
         f"tutorial(s) without a callback module: {sorted(expected - present)}; "
@@ -274,6 +276,14 @@ def test_every_tutorial_has_one_semantic_assertion() -> None:
     for stem in stems:
         assert callable(getattr(callback_module(stem), "check", None)), (
             f"tests/unit/tutorial_semantics/{module_name(stem)}.py defines no check(namespace)"
+        )
+    # A static-only module is never executed, so a check there would read as a gate that runs.
+    assert STATIC_ONLY <= NOT_TUTORIALS
+    for stem in STATIC_ONLY:
+        module = callback_module(stem)
+        assert not hasattr(module, "check") and callable(module.check_stored), (
+            f"tests/unit/tutorial_semantics/{module_name(stem)}.py must define check_stored() "
+            "and no check(namespace), because no offline gate executes the notebook"
         )
     assert not {_tutorial_id(path) for path in TUTORIALS} & set(PRELUDES), (
         "a tutorial builds everything it uses, so it takes no PRELUDES entry"
@@ -461,50 +471,14 @@ def test_the_stamp_splits_into_a_gated_half_and_a_recorded_half() -> None:
     assert set(stamp["recorded"]) == set(RECORDED_DIGESTS) | set(RECORDED_IDENTITY)
 
 
-def test_the_twins_notebook_retains_its_specific_evidence_outputs() -> None:
-    """The TWINS artifact retains its figures, outcome, protocol, and typed contrasts."""
-    notebook = nbformat.read(TWINS_NOTEBOOK, as_version=4)
-    code = code_cells(notebook)
-    source = "\n".join(str(cell["source"]) for cell in notebook.cells)
-    figures = [
-        output
-        for cell in code
-        for output in cell.get("outputs", ())
-        if "image/png" in output.get("data", {})
-    ]
-    comparison_cell = next(cell for cell in code if cell["id"] == "comparison-figure")
-    comparison_text = "".join(
-        text
-        for output in comparison_cell.get("outputs", ())
-        for text in output.get("data", {}).get("text/plain", ())
-    )
-    ordinary_tmle_row = next(
-        line for line in comparison_text.splitlines() if "ordinary package TMLE" in line
-    )
-    load_cell = next(cell for cell in code if cell["id"] == "load-data")
-    load_text = "".join(
-        str(output.get("data", {}).get("text/plain", "")) for output in load_cell.get("outputs", ())
-    )
-    identify_cell = next(cell for cell in code if cell["id"] == "identify")
-    identify_text = "".join(
-        str(output.get("text", "")) for output in identify_cell.get("outputs", ())
-    )
-    scales_cell = next(cell for cell in code if cell["id"] == "effect-scales")
-    scales_html = "".join(
-        str(output.get("data", {}).get("text/html", ""))
-        for output in scales_cell.get("outputs", ())
-    )
+@pytest.mark.parametrize("stem", sorted(STATIC_ONLY))
+def test_every_static_only_notebook_keeps_its_pinned_outputs(stem: str) -> None:
+    """A notebook the offline tier cannot execute keeps the stored outputs its readings rely on.
 
-    assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
-    assert "NaN" not in ordinary_tmle_row, (
-        "the ordinary package TMLE lost its confidence interval in the comparison figure"
-    )
-    assert "mortality_3y" not in source and "three-year mortality" not in load_text
-    assert "first-year mortality" in load_text
-    assert "causal study protocol: schema" in identify_text
-    assert "causal study protocol: absent" not in identify_text
-    assert "<td>risk ratio</td>" in scales_html
-    assert "not shown" not in scales_html
+    The assertions live in the notebook's own module, so the author who owns the notebook owns
+    them.  They read committed text only.
+    """
+    callback_module(stem).check_stored()
 
 
 @pytest.mark.parametrize(
@@ -731,11 +705,12 @@ def test_tutorial_semantics_at_documented_size(
     callback(path.stem)(namespace)
 
 
-@pytest.mark.parametrize(
-    "path", [path for path in TUTORIALS if path.suffix == ".ipynb"], ids=_tutorial_id
-)
+@pytest.mark.parametrize("path", narrated_notebooks(), ids=_tutorial_id)
 def test_every_narrated_decimal_matches_a_stored_output(path: Path) -> None:
-    """Each decimal a notebook tutorial's prose writes is one of its stored outputs, rounded.
+    """Each decimal a notebook's prose writes is one of its stored outputs, rounded.
+
+    The check covers each tutorial notebook and each :data:`STATIC_ONLY` notebook, because it
+    needs no execution.
 
     The execution stamp ties the stored outputs to the code cells.  This ties the prose to the
     stored outputs, so a re-execution that moves a number fails here until the prose follows.
