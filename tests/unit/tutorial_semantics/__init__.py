@@ -28,6 +28,7 @@ from types import ModuleType
 from typing import Any
 
 from tests.documents import READER_FACING, ROOT
+from tests.prose import markdown_cells
 
 __all__ = [
     "EXAMPLES",
@@ -135,12 +136,8 @@ def stored_text(path: Path) -> str:
 
 
 def markdown_text(path: Path) -> str:
-    """Every markdown cell of the notebook at ``path``, joined."""
-    return "\n".join(
-        _joined(cell["source"])
-        for cell in _notebook(path)["cells"]
-        if cell["cell_type"] == "markdown"
-    )
+    """Every markdown cell of the notebook at ``path``, joined as the prose report reads them."""
+    return markdown_cells(path)
 
 
 #: Inline code, a fenced block, a link target, and a bare URL.  None of them is narration: a

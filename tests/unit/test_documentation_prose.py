@@ -122,6 +122,35 @@ def test_the_notebook_reader_skips_code_and_output() -> None:
         assert "import " not in text, "a code cell reached the markdown-only text"
 
 
+def test_a_cell_boundary_ends_a_paragraph(tmp_path: Path) -> None:
+    """Two adjacent markdown cells are two paragraphs, as the rendered page shows them.
+
+    Jupyter stores a cell's last line without a newline.  Joining cells with one newline made the
+    last paragraph of one cell and the first paragraph of the next a single paragraph, and the
+    scanner then reported an eight-sentence paragraph that no reader sees.
+    """
+    four = "One. Two. Three. Four."
+    notebook = tmp_path / "cells.ipynb"
+    notebook.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {"cell_type": "markdown", "source": ["# Title\n", "\n", four]},
+                    {"cell_type": "code", "source": "print(1)", "outputs": []},
+                    {"cell_type": "markdown", "source": [four]},
+                    {"cell_type": "markdown", "source": [four]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    lines = prose.prose_lines(prose.markdown_cells(notebook))
+    counts = [len(prose.sentences(text)) for _, text in prose.paragraphs(lines)]
+
+    assert counts == [4, 4, 4]
+
+
 def test_every_finding_carries_a_judgment() -> None:
     """The gate.  It fails on an unread finding, never on the prose itself."""
     recorded = prose.dispositions()

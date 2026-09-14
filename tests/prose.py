@@ -262,9 +262,13 @@ def markdown_cells(notebook: Path) -> str:
 
     Not tidiness: a stored output draws its table rules with hyphens, and
     ``----------  ------  --  ---`` in the TWINS notebook contains the spaced double hyphen.
+
+    Cells join with a blank line because a cell boundary ends a paragraph.  Jupyter stores a
+    cell's last line without a newline, so a single newline glued the last paragraph of one cell
+    to the first paragraph of the next and reported sentence counts that no reader sees.
     """
     cells = json.loads(notebook.read_text(encoding="utf-8"))["cells"]
-    return "\n".join(
+    return "\n\n".join(
         "".join(cell["source"]) for cell in cells if cell.get("cell_type") == "markdown"
     )
 
