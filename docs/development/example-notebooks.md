@@ -125,8 +125,8 @@ where `base` is the protocol that `replace` received.
 | Give every code cell visible output. Print text rather than rely on a bare last expression | the reading needs an output to interpret, and `--check` compares text |
 | Print each number the prose quotes, rounded the way the prose writes it | the narration test compares prose decimals with stored outputs |
 | Pass explicit, cheap learners to every fit. Prefer linear and logistic models where the lesson allows | the default learner library costs 30 to 120 seconds per fit |
-| Set every seed: the generator seed, `Runtime(random_state=...)`, and each learner's `random_state` | a rerun must reproduce the stored outputs |
-| Set `n_jobs=1` in `Runtime` and in every learner that accepts it | several notebooks execute on one machine at once |
+| Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
+| Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
 | Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The reference notebook takes 12 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
@@ -243,9 +243,12 @@ Do these steps in order. Run each command from the repository root.
     ```bash
     ruff format --check docs/examples/<stem>.ipynb
     python -m tests.prose --path docs/examples/<stem>.ipynb
-    pytest -q -p no:cacheprovider tests/unit/test_documentation_runtime.py -k <stem>
-    pytest -q -p no:cacheprovider tests/unit/test_documentation_links.py -k <stem>
+    pytest -q -p no:cacheprovider tests/unit/test_documentation_runtime.py -k <module>
+    pytest -q -p no:cacheprovider tests/unit/test_documentation_links.py -k <module>
     ```
+
+Use the callback module name for ``<module>``. It replaces hyphens with underscores, so the
+selection is valid in a pytest expression.
 
 11. Report to the orchestrator. The report is in the last section.
 

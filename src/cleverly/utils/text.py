@@ -18,7 +18,29 @@ from collections.abc import Sequence
 
 import numpy as np
 
-__all__ = ["format_draw", "format_pvalue", "format_table"]
+__all__ = ["format_draw", "format_negligible", "format_pvalue", "format_table"]
+
+
+def format_negligible(
+    value: float,
+    reference: float,
+    *,
+    digits: int,
+    fraction: float = 1e-5,
+) -> str:
+    """Format a diagnostic value, displaying negligible floating residue as zero.
+
+    The raw report frames retain ``value``. Summaries suppress only values at least five
+    orders below the tolerance that gives them meaning. This keeps executed documentation
+    stable across equivalent BLAS and interpreter arithmetic without hiding a diagnostic
+    movement near its decision boundary.
+    """
+    if not np.isfinite(value):
+        return "-"
+    displayed = value
+    if np.isfinite(reference) and reference > 0 and abs(value) < reference * fraction:
+        displayed = 0.0
+    return f"{displayed:.{digits}e}"
 
 
 def format_draw(reported: int, total: int) -> str:

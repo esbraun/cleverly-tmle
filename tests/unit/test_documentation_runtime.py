@@ -736,11 +736,15 @@ def test_the_narration_check_reads_precision_and_refuses_a_moved_number() -> Non
 
     Without the refusal, a helper that accepted everything would pass every notebook.
     """
-    outputs = "estimate: -0.2634\nCI=(0.110, 0.417)\n"
-    assert not narration_mismatches("The estimate is about 0.26. The bound is 0.42.", outputs)
+    outputs = "estimate: -0.2634\nchange: +0.110\nCI=(-0.417, 0.417)\n"
+    assert not narration_mismatches("The estimate is about -0.26. The bound is 0.42.", outputs)
+    assert not narration_mismatches("The estimate is about \N{MINUS SIGN}0.26.", outputs)
+    assert not narration_mismatches("The change is +0.11.", outputs)
+    assert narration_mismatches("The estimate is about 0.26.", outputs) == ["0.26"]
+    assert narration_mismatches("The change is -0.11.", outputs) == ["-0.11"]
     assert narration_mismatches("The estimate is about 0.25.", outputs) == ["0.25"]
-    assert narration_mismatches("The estimate is 0.263.", outputs) == []
-    assert narration_mismatches("The estimate is 0.264.", outputs) == ["0.264"]
+    assert narration_mismatches("The estimate is -0.263.", outputs) == []
+    assert narration_mismatches("The estimate is -0.264.", outputs) == ["-0.264"]
     prose = "Use `alpha=0.07`, R 4.5.2, and [a](https://example.org/v1.23/)."
     assert narrated_decimals(prose) == []
     assert not narration_mismatches("A law value 0.73.", outputs, {"0.73": "a law parameter"})

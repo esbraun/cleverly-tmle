@@ -209,9 +209,11 @@ def markdown_text(path: Path) -> str:
 #: learner argument such as ``alpha=0.05`` or a pinned version in a URL is not a reported number.
 _NOT_NARRATION = re.compile(r"```.*?```|`[^`\n]*`|\]\([^)]*\)|https?://\S+", re.DOTALL)
 
-#: A decimal written in prose.  The lookarounds refuse a version such as ``1.5.4`` and a digit run
-#: glued to a word, and still accept a decimal that ends a sentence.
-_DECIMAL = re.compile(r"(?<![\w.])(\d+)\.(\d+)(?!\w|\.\d)")
+#: A signed decimal written in prose. The lookarounds refuse a version such as ``1.5.4`` and a
+#: digit run glued to a word, and still accept a decimal that ends a sentence. Unicode minus is
+#: normalized because mathematical prose often uses it while stored Python output uses ASCII.
+_UNICODE_MINUS = "\N{MINUS SIGN}"
+_DECIMAL = re.compile(r"(?<![\w.])([+\-\N{MINUS SIGN}]?)(\d+)\.(\d+)(?!\w|\.\d)")
 
 #: Any number a stored output prints, including scientific notation.
 _OUTPUT_NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
@@ -220,7 +222,10 @@ _OUTPUT_NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 def narrated_decimals(markdown: str) -> list[str]:
     """Each decimal literal the prose of ``markdown`` writes, in order of appearance."""
     prose = _NOT_NARRATION.sub(" ", markdown)
-    return [f"{whole}.{fraction}" for whole, fraction in _DECIMAL.findall(prose)]
+    return [
+        f"{'-' if sign == _UNICODE_MINUS else sign}{whole}.{fraction}"
+        for sign, whole, fraction in _DECIMAL.findall(prose)
+    ]
 
 
 def narration_mismatches(
@@ -228,8 +233,8 @@ def narration_mismatches(
 ) -> list[str]:
     """Decimals the prose writes that no stored output prints at that precision.
 
-    A narrated ``0.26`` matches a stored ``0.2634`` or ``-0.2571``, because each lies within half
-    a unit of the last written place once the sign is dropped.  It does not match ``0.2491``.
+    A narrated ``-0.26`` matches a stored ``-0.2634`` because it lies within half a unit of the
+    last written place. It does not match ``0.2634`` or ``-0.2491``.
     The check is static: it reads the committed outputs, so a platform difference in a fresh run
     cannot move it.  The execution stamp ties those outputs to the code, and this ties the prose to them.
 
@@ -240,7 +245,7 @@ def narration_mismatches(
     printed = []
     for token in _OUTPUT_NUMBER.findall(outputs):
         try:
-            printed.append(abs(float(token)))
+            printed.append(float(token))
         except ValueError:  # pragma: no cover - the pattern admits only numeric text
             continue
     missing = []

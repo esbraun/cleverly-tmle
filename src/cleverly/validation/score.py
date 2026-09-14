@@ -79,7 +79,7 @@ import numpy as np
 
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_table
+from ..utils.text import format_negligible, format_table
 from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -326,7 +326,8 @@ class ScoreCheck:
         if not failures:
             return (
                 f"score check: PASS -- all {len(self.rows)} within tolerance "
-                f"(worst |score| {self._worst_ratio():.2e} of its threshold)."
+                f"(worst |score| {format_negligible(self._worst_ratio(), 1.0, digits=2)} "
+                "of its threshold)."
             )
         named = "; ".join(
             f"{row.name} |score| {abs(row.score):.3e} against {row.threshold:.3e}"
@@ -447,15 +448,13 @@ class ScoreCheck:
                         [
                             row.name,
                             row.kind,
-                            f"{abs(row.score):.3e}",
-                            f"{abs(row.score_initial):.3e}"
-                            if np.isfinite(row.score_initial)
-                            else "-",
+                            format_negligible(abs(row.score), row.threshold, digits=3),
+                            format_negligible(abs(row.score_initial), row.threshold, digits=3),
                             # A `diagnostic` row is held to no threshold, so it has none to
                             # print. A `nan` beside a `yes` in the `ok` column reads as a
                             # bug rather than as a row that is not being judged.
                             f"{row.threshold:.3e}" if np.isfinite(row.threshold) else "-",
-                            f"{row.ratio:.2e}" if np.isfinite(row.ratio) else "-",
+                            format_negligible(row.ratio, 1.0, digits=2),
                             "yes" if row.passed else "NO",
                         ]
                         for row in self.rows

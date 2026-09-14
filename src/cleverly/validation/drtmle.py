@@ -144,7 +144,7 @@ import numpy as np
 from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_table
+from ..utils.text import format_negligible, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -551,10 +551,18 @@ class CorrectionCheck:
                             str(row.draw),
                             row.label,
                             row.equation,
-                            "-" if not np.isfinite(row.stored) else f"{row.stored:.3e}",
-                            f"{row.reported:.3e}",
-                            "-" if not np.isfinite(row.residual) else f"{row.residual:.3e}",
-                            "-" if not np.isfinite(row.clip_bias) else f"{row.clip_bias:.3e}",
+                            format_negligible(
+                                row.stored,
+                                self.threshold if row.solved else 0.0,
+                                digits=3,
+                            ),
+                            format_negligible(
+                                row.reported,
+                                self.threshold if row.solved else 0.0,
+                                digits=3,
+                            ),
+                            format_negligible(row.residual, self.identity_threshold, digits=3),
+                            format_negligible(row.clip_bias, self.identity_threshold, digits=3),
                         ]
                         for row in self.rows
                     ],
