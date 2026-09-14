@@ -7,10 +7,12 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.dummy import DummyRegressor
 
 from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
@@ -112,8 +114,7 @@ def check(namespace: dict[str, Any]) -> None:
     for name in names:
         assert explicit_uniform[name].psi == pytest.approx(trend[name].psi, rel=1e-12, abs=1e-12)
     # (b) A fixed, strongly nonuniform weight moves the fitted slope to its own projection.
-    # A dropped h in the clever covariate or in the Gram matrix would leave it at the uniform
-    # target, which lies outside this fit's interval, and vice versa.
+    # This fit's correctly specified Q witnesses the weighted Gram matrix.
     fixed = {"low": 1.0, "medium": 10.0, "high": 1.0}
     weighted = study.identify(
         MSMProjection(
@@ -130,6 +131,25 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(weighted["msm[assigned contacts]"], fixed_target[1])
     assert not covers(trend["msm[assigned contacts]"], fixed_target[1])
     assert not covers(weighted["msm[assigned contacts]"], projection[1])
+    # (c) Deliberately misspecify Q while retaining the correctly specified multinomial g.
+    # Targeting must now do the adjustment. Dropping h from its clever covariate moves the
+    # slope back across the uniform target and outside the fixed-weight target's interval.
+    misspecified_q = replace(
+        method,
+        models=replace(method.models, outcome_learner=DummyRegressor()),
+    )
+    weighted_misspecified_q = study.identify(
+        MSMProjection(
+            MSM(
+                design=contacts_design,
+                terms=terms,
+                weights=lambda arm, data: np.full(len(data), fixed[arm]),
+            )
+        )
+    ).estimate(method=misspecified_q)
+    weighted_slope = weighted_misspecified_q["msm[assigned contacts]"]
+    assert covers(weighted_slope, fixed_target[1])
+    assert not covers(weighted_slope, projection[1])
 
     saturated = namespace["saturated_result"]
     mappings = {
@@ -197,6 +217,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{slope_curve['psi'].min():.4f}" == "0.2657"
     assert f"{slope_curve['psi'].max():.4f}" == "0.2703"
     assert slope_curve["truncated_fraction"].iloc[-1] > 0.5
+    assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0029"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
     # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts have one.
