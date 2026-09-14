@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -14,6 +15,7 @@ import pandas as pd
 
 from cleverly import DataError
 from cleverly.datasets import navigation_protocol
+from cleverly.inference import median_estimates
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -43,6 +45,7 @@ def check(namespace: dict[str, Any]) -> None:
     cross_fitted = first["ate"]
     in_sample = namespace["in_sample"]["ate"]
     truth = namespace["truth"]["ate"]
+    assert np.isclose(truth, 1.75, atol=1e-6)
 
     # The data come from the shared helper under the program's names.
     assert list(namespace["frame"].columns) == [
@@ -78,6 +81,7 @@ def check(namespace: dict[str, Any]) -> None:
     ignoring = namespace["ignoring"]
     clustered = namespace["clustered"]
     team_truth = namespace["team_truth"]["ate"]
+    assert np.isclose(team_truth, 1.0, atol=1e-12)
     assert abs(ignoring["ate"].psi - clustered["ate"].psi) < 0.02
     assert ignoring["ate"].psi != clustered["ate"].psi
     assert ignoring.provenance.fold_fingerprint != clustered.provenance.fold_fingerprint
@@ -126,13 +130,16 @@ def check(namespace: dict[str, Any]) -> None:
 
     # Step 11: "one warning, nuisance_models"; slope 0.49 below 1; small g(W); 30 units (1.00%)
     # truncated; the treated arm has the 25.2% ratio; the in-sample ratio is 91.6%.
-    diagnostics = namespace["diagnostics"]
-    warned = [item.name for item in diagnostics.items if item.status.value == "warning"]
+    assessment = namespace["assessment"]
+    warned = [item.name for item in assessment.attention if item.status.value == "warning"]
     assert warned == ["nuisance_models"]
-    assert diagnostics["score_equations"].status.value == "passed"
-    nuisance = diagnostics.report("nuisance_models")
+    assert assessment.validation["score_equations"].status.value == "passed"
+    nuisance = assessment.report("nuisance_models")
+    assert nuisance is namespace["nuisance"]
+    assert assessment.report("score_equations") is namespace["scores"]
     assert nuisance["propensity"].metrics["calibration_slope"] < 0.6
     support = namespace["support"]
+    assert assessment.report("support") is support
     assert support.propensity_quantiles["overall"][0.0] < 0.01
     assert support.truncated["count"] == 30
     ess = support.effective_sample_size
@@ -142,14 +149,72 @@ def check(namespace: dict[str, Any]) -> None:
     in_sample_ratios = [row["ratio"] for row in in_sample_support.effective_sample_size.values()]
     assert min(in_sample_ratios) > 0.85
 
-    # Step 12: one estimate, so no band applies; the median over 3 draws; its standard error is
-    # below Step 5's, as the Step 9 redraw's is; the redraw moved the point by about five spreads.
+    # Step 12: reconstruct the median and its within-plus-between variance from the three retained
+    # draws. This seed gives nonzero displacement even though the median happens to equal the
+    # within-only median, so the controlled mutation below makes that term result-determining.
+    # The diagnostic row must describe that same headline estimate.
     repeated = namespace["repeated"]
     assert len(repeated.to_frame()) == 1
     assert "median over 3 independent draws" in repeated.summary()
+    draw_estimates = []
+    for draw in repeated.repeats:
+        estimates, _, _ = repeated.estimator._retarget_detailed(
+            repeated.data,
+            draw.nuisance,
+            estimands=("ate",),
+            g_bounds=repeated.config.g_bounds,
+            g_bounds_conditional=repeated.config.g_bounds_conditional,
+        )
+        draw_estimates.append(estimates["ate"])
+    points = np.asarray([estimate.psi for estimate in draw_estimates])
+    centre = float(np.median(points))
+    assert repeated["ate"].psi == centre
+    displacements = (points - centre) ** 2
+    assert np.count_nonzero(displacements) == 2
+    expected_variance = float(
+        np.median(
+            [
+                estimate.variance + displacement
+                for estimate, displacement in zip(draw_estimates, displacements, strict=True)
+            ]
+        )
+    )
+    assert np.isclose(repeated["ate"].variance, expected_variance, rtol=1e-12, atol=0.0)
+    mutation_parts = [
+        {"ate": replace(draw_estimates[0], psi=draw_estimates[0].psi + shift)}
+        for shift in (-0.1, 0.0, 0.2)
+    ]
+    mutation_witness = median_estimates(mutation_parts)["ate"]
+    assert mutation_witness.psi == draw_estimates[0].psi
+    assert np.isclose(
+        mutation_witness.variance,
+        draw_estimates[0].variance + 0.01,
+        rtol=1e-12,
+        atol=1e-15,
+    )
+    assert mutation_witness.variance != draw_estimates[0].variance
     assert repeated["ate"].std_error < cross_fitted.std_error
     assert redrawn["ate"].std_error < cross_fitted.std_error
     spread = namespace["repeated_nuisance"].repeat_spread
     assert [row.n_repeats for row in spread] == [3]
+    assert np.isclose(spread[0].standard_deviation, np.std(points, ddof=1))
+    assert spread[0].reported_standard_error == repeated["ate"].std_error
+    assert np.isclose(
+        spread[0].ratio_to_standard_error,
+        spread[0].standard_deviation / repeated["ate"].std_error,
+    )
     assert spread[0].standard_deviation < spread[0].reported_standard_error
     assert 4 < abs(redrawn["ate"].psi - cross_fitted.psi) / spread[0].standard_deviation < 6
+
+    # Step 13: the live assessment retains the ordinary point-treatment sensitivity calculation.
+    robustness = namespace["robustness"]
+    confounding = namespace["confounding"]
+    assert 0.15 < robustness["rv"] < 0.35
+    assert (confounding.cf_y, confounding.cf_d, confounding.rho) == (0.03, 0.03, 1.0)
+    assert confounding.lower < cross_fitted.psi < confounding.upper
+    assert confounding.ci_lower < confounding.lower
+    assert confounding.ci_upper > confounding.upper
+    at_rv = first.sensitivity.omitted_confounding(
+        cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0
+    )
+    assert abs(at_rv.lower) < 1e-3
