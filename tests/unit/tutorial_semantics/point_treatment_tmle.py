@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cleverly.datasets import navigation_protocol
 from tests.unit.tutorial_semantics import EXAMPLES, stored_output
 
 NOTEBOOK = EXAMPLES / "point-treatment-tmle.ipynb"
@@ -28,6 +29,7 @@ def check(namespace: dict[str, Any]) -> None:
 
     # The protocol step prints the record, and the fit and the restored artifact carry its digest.
     fingerprint = namespace["protocol"].fingerprint
+    assert namespace["protocol"] == navigation_protocol()
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert namespace["result"].provenance.protocol_fingerprint == fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "save-and-restore")

@@ -15,6 +15,7 @@ from .longitudinal import (
     rule_arm_at_node_two,
     survival_truth,
 )
+from .navigation import navigation_protocol
 from .synthetic import (
     DGP,
     GENERATORS,
@@ -88,6 +89,7 @@ __all__ = [
     "missing_outcome_binary_dgp",
     "missing_outcome_dgp",
     "multi_arm_dgp",
+    "navigation_protocol",
     "nonlinear_dgp",
     "rule_arm_at_node_two",
     "sampling_probability",

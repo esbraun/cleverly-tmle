@@ -10,7 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from cleverly.datasets import navigation_protocol
+from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
 
 NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
@@ -36,6 +37,11 @@ def check(namespace: dict[str, Any]) -> None:
         assert by_arm.loc[1.0, column] > by_arm.loc[0.0, column] + 0.5
 
     # The protocol step prints the record, and the collaborative fit carries its digest.
+    # The reading names the fields this page changes in the program protocol.
+    assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+        "time_zero",
+        "assumption_rationale",
+    }
     fingerprint = namespace["protocol"].fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert namespace["collaborative"].provenance.protocol_fingerprint == fingerprint

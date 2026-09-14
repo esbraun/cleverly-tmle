@@ -19,6 +19,7 @@ asserts that every other example has exactly one callback and every callback has
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import json
 import re
@@ -37,6 +38,7 @@ __all__ = [
     "callback",
     "callback_module",
     "callback_modules",
+    "changed_fields",
     "markdown_text",
     "module_name",
     "narrated_decimals",
@@ -86,6 +88,20 @@ def callback(stem: str) -> Callable[[dict[str, Any]], None]:
     """The ``check`` function a tutorial's module defines."""
     check: Callable[[dict[str, Any]], None] = callback_module(stem).check
     return check
+
+
+def changed_fields(protocol: Any, base: Any) -> set[str]:
+    """The names of the dataclass fields in which ``protocol`` differs from ``base``.
+
+    A tutorial that starts from :func:`cleverly.datasets.navigation_protocol` names the fields its
+    question changes.  Asserting the exact set checks that sentence in both directions: a field
+    the reading omits and a field the code no longer changes each fail.
+    """
+    return {
+        field.name
+        for field in dataclasses.fields(protocol)
+        if getattr(protocol, field.name) != getattr(base, field.name)
+    }
 
 
 def _notebook(path: Path) -> dict[str, Any]:

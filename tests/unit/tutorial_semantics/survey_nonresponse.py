@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 from scipy.special import expit
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from cleverly.datasets import navigation_protocol
+from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
 
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
 
@@ -40,6 +41,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert "stacked CV-TMLE" in fitted.summary()
 
     # The protocol step prints the record, and the fit carries its digest.
+    # The reading names the fields this page changes in the program protocol.
+    assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+        "target_population",
+        "outcome",
+        "assumption_rationale",
+    }
     fingerprint = namespace["protocol"].fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert fitted.provenance.protocol_fingerprint == fingerprint

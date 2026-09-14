@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from cleverly.datasets import navigation_protocol
+from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
 
 NOTEBOOK = EXAMPLES / "dr-tmle.ipynb"
 
@@ -23,6 +24,8 @@ def check(namespace: dict[str, Any]) -> None:
     fits all favor the spline candidate.
     """
     # The protocol step prints the record, and the guarded fit carries its digest.
+    # The reading names the fields this page changes in the program protocol.
+    assert changed_fields(namespace["protocol"], navigation_protocol()) == {"assumption_rationale"}
     fingerprint = namespace["protocol"].fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert namespace["guarded"].provenance.protocol_fingerprint == fingerprint

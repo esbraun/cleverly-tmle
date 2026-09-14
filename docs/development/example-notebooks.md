@@ -83,6 +83,13 @@ The protocol does not store the contrast or the analysis. The typed estimand own
 the method owns the analysis configuration. The
 [shared study design](../examples/index.md#the-shared-study-design) gives the program values.
 
+Do not copy the program values into a notebook. Start a point-treatment protocol from
+`cleverly.datasets.navigation_protocol()`. Pass it to `dataclasses.replace`, and give only the
+fields your question changes. Reuse an unchanged entry of a sequence field by index, such as
+`*program.assumption_rationale[1:]`. Write a new `StudyProtocol` only when most fields differ, as the
+longitudinal tutorials do. Name the changed fields in the reading, and assert them in the callback
+with `changed_fields`.
+
 ## Rules for code cells
 
 | rule | reason |

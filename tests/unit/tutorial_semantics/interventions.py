@@ -12,7 +12,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from cleverly.datasets import navigation_protocol
+from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
 
 NOTEBOOK = EXAMPLES / "interventions.ipynb"
 
@@ -28,6 +29,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert "positivity *for the shifted dose*" in namespace["shift_effect"].summary()
     assert "*no positivity assumption*" in namespace["incremental_effect"].summary()
 
+    # The reading names the fields this page changes in the program protocol.
+    assert changed_fields(namespace["regime_protocol"], navigation_protocol()) == {
+        "treatment_strategies",
+        "treatment_versions",
+        "assumption_rationale",
+    }
     # Each axis has its own protocol, printed in its step and stamped on its result.
     for cell, protocol, result in (
         ("protocol", "regime_protocol", "regime_result"),

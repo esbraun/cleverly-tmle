@@ -6,6 +6,9 @@ tests, and method studies.
 Each generator accepts a sample size, random seed, and dataframe backend. Its return value contains
 the generated frame and a mapping of known population quantities.
 
+`navigation_protocol` is not a generator. It returns the `StudyProtocol` of the navigation program
+that the [examples](../examples/index.md) share.
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -28,4 +31,5 @@ the generated frame and a mapping of known population quantities.
    cleverly.datasets.make_longitudinal_survival
    cleverly.datasets.make_longitudinal_competing
    cleverly.datasets.make_longitudinal_weighted
+   cleverly.datasets.navigation_protocol
 ```

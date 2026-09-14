@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from cleverly.datasets import navigation_protocol
 from tests.unit.tutorial_semantics import EXAMPLES, stored_output
 
 NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
@@ -34,7 +35,9 @@ def check(namespace: dict[str, Any]) -> None:
     in_sample = namespace["in_sample"]["ate"]
     truth = namespace["truth"]["ate"]
 
-    # The protocol is the point-treatment tutorial's, so both pages print one fingerprint.
+    # The protocol is the program's, unchanged, so this page and the point-treatment page print
+    # one fingerprint.
+    assert namespace["protocol"] == navigation_protocol()
     fingerprint = namespace["protocol"].fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert fingerprint in stored_output(EXAMPLES / "point-treatment-tmle.ipynb", "protocol")

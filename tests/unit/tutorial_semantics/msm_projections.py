@@ -12,7 +12,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from cleverly.datasets import navigation_protocol
+from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
 
 NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
 
@@ -38,6 +39,14 @@ def check(namespace: dict[str, Any]) -> None:
     assert "both counterfactual means" not in summary
 
     # The protocol step prints the record, and both fits carry its digest.
+    # The reading names the fields this page changes in the program protocol.
+    assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+        "time_zero",
+        "treatment_strategies",
+        "treatment_versions",
+        "intercurrent_event_handling",
+        "assumption_rationale",
+    }
     fingerprint = namespace["protocol"].fingerprint
     assert fingerprint in stored_output(NOTEBOOK, "protocol")
     assert fitted.provenance.protocol_fingerprint == fingerprint
