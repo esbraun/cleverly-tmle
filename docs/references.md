@@ -53,10 +53,11 @@ previous reader had is not a citation; a page number is.
 
   | locator | content |
   | --- | --- |
-  | Section 2.3, pages 6–7 | observed data with a response indicator $\Delta$, the clever covariate $I(A = a, \Delta = 1) / g(A, \Delta \mid W)$ with $g = g_A g_\Delta$, and an outcome regression fit on complete observations |
+  | Section 1, page 4 | states that the FAQ estimates a categorical treatment through the marginal mean under each level |
+  | Section 2.3, pages 6–7 | observed data with a response indicator $\Delta$, the clever covariate $I(A = a, \Delta = 1) / g(A, \Delta \mid W)$ for a generic arm $a$ with $g = g_A g_\Delta$, and an outcome regression fit on complete observations |
   | Section 3.2, page 16 | warns that the default observed-range bounds can fail under missing outcomes, and encourages bounds from domain knowledge |
   | Section 3.3, page 17 | applies the propensity bound to the product $g_A g_\Delta$ when two arms have missing outcomes |
-  | Section 6, page 28 | states that the package takes only a binary treatment; for a categorical treatment, it estimates one level at a time as a population mean with the binary indicator $\Delta_a = I(A = a)$, in an example whose data have no missing outcomes |
+  | Section 6, pages 28–29 | states that the package takes only a binary treatment; for a categorical treatment, it estimates one level at a time as a population mean with the binary indicator $\Delta_a = I(A = a)$, in an example whose data have no missing outcomes; the example gives no variance for a contrast |
   | Appendix A, page 34 | states joint normality with the covariance matrix of a possibly multi-dimensional parameter, and estimates each variance as $\mathrm{VAR}(IC)/n$ |
 
   The printed Appendix A display for the ATE curve ends in $\bar Q_0(1, W) - \bar Q_0(A, W)$. The
@@ -97,6 +98,25 @@ previous reader had is not a citation; a page number is.
   | 1623–1624, 1635–1636 | the log-RR and log-OR curves |
   | 1650 | the returned list holds the five curves |
   | 2053–2061 | the `evalATT` path sets the ATT response probabilities; lines 2056–2058 use marginal means when more than 95% of the ATT rows respond, and only the else branch refits intercepts |
+
+  An arm-indexed mean for three or more arms can use the population-mean path once for each arm
+  `a`. The table lists the lines of that route.
+
+  | lines | behavior |
+  | --- | --- |
+  | 1737–1739 | a missing or all-zero `A` becomes one, so a constant `A` selects the population-mean path; pass `Delta = 1{A = a} Delta` |
+  | 1101–1104 | a supplied two-column `Q` becomes `QAW`, `Q0W`, and `Q1W`; pass `cbind(Q(a, W), Q(a, W))` |
+  | 1505–1511 | a supplied mechanism records `"user-supplied values"`; pass `g1W` of ones with `pDelta1 = g_a pi_a`, or `g1W = g_a` with `pDelta1 = pi_a` |
+  | 1814–1818 | a two-column `pDelta1` is duplicated into four named columns |
+  | 1901 | the product of `g1W` and `pDelta1` is bounded as `g1W.total` |
+  | 2008, 2015, 2020–2021, 2023, 2027 | the respondent rows, the covariate `A/g1W.total`, the fluctuation fit, and the update |
+  | 2044–2045 | `calcParameters` evaluates the targeted predictions |
+  | 1560–1568 | a constant `A` gives `EY1` and `IC.EY1 = Delta/pDelta1*(Y-QAW) + Q1W - mu1`, with variance `var(IC.EY1)/n` |
+  | 2198 | the returned list holds `estimates` |
+
+  The K returned `IC.EY1` curves share rows, so they give the joint covariance and each reference
+  contrast. With a continuous outcome mapped to `[0, 1]`, line 1120 reads every non-`NA` `Y`. The
+  route therefore sets `Y` to `NA` on rows with `A != a`.
 
   JSS page 16 states that the function "ignores the Y value for observations having Δ = 0". Line
   1120 still reads that value when it is not `NA`.
@@ -148,6 +168,7 @@ previous reader had is not a citation; a page number is.
   | locator | content |
   | --- | --- |
   | Section 2, page 2 | defines the target as $\Psi : \mathcal{M} \to \mathbb{R}^d$, so one fit can target a vector parameter |
+  | Section 2, page 3 | assumes "a fixed d-variate function D(P)" as the canonical gradient, and a submodel whose score spans its components |
   | Theorem 1, page 7, and Theorem 2, pages 14–15 | assume that the split vector $B_n$ is uniformly distributed over a finite support |
   | Section 4, pages 19–21 | treats the ATE and maps an outcome in a known interval $(a, b)$ to $(Y - a)/(b - a)$ |
   | Section 4.1, Theorem 3, page 22, and Section 4.2, Theorem 4, page 31 | give the result under the squared-error loss and under the quasi-log-likelihood loss |
@@ -156,6 +177,10 @@ previous reader had is not a citation; a page number is.
   missing-outcome bounded-continuous cell therefore rests on Theorem 2 and the `(W, T_a, U)`
   reduction in the Levy entry. Section 4.2 and Theorem 4 support only the bounded-outcome
   transform.
+
+  Theorem 2 keeps the $d$-variate setup of Section 2, so its expansion holds for the vector of K arm
+  means. The joint covariance of that vector follows from the expansion. The paper does not state
+  that covariance.
 
   The theorems place limit and rate conditions on the initial estimators. They do not prescribe how
   a training sample builds them. A pooled outcome regression evaluated at each arm, and separately
@@ -167,6 +192,22 @@ previous reader had is not a citation; a page number is.
   Equation (3.14) defines the median of the within-partition variance plus squared split
   displacement. Corollary 3.3 gives the fixed-repeat interval under the paper's DML assumptions.
   It does not establish that a targeted MAR plug-in satisfies those assumptions.
+
+  The arXiv v7 manuscript, [arXiv:1608.00060](https://arxiv.org/abs/1608.00060), gives the split
+  in Definitions 3.1 and 3.2, pages 23–24. Each says "Take a K-fold random partition" of the indices,
+  with folds of size $N/K$. Neither definition stratifies the partition. This audit did not compare
+  that page with the journal version.
+  [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) cites
+  this wording.
+- Rafi (2023), [*Efficient Semiparametric Estimation of Average Treatment Effects Under Covariate
+  Adaptive Randomization*](https://arxiv.org/abs/2305.08340), arXiv:2305.08340v1. Read first-hand.
+  The paper treats a binary treatment under covariate-adaptive randomization, with target
+  proportions set by design. Assumption 4.2, page 20, splits each treatment-by-stratum cell into
+  folds. The folds "depend only on" an independent uniform draw and the cell size. The estimator is
+  a cross-fitted AIPW estimator, not a TMLE. The strata are covariate strata, not outcome strata.
+  The paper therefore does not cover the package's treatment-stratified folds for observational
+  data, which [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+  audits.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
@@ -212,6 +253,13 @@ previous reader had is not a citation; a page number is.
   exact treatment-specific-mean overlap applies to each arm at equal fold sizes. The stacked plug-in weights fold `v`
   by `n_v / n`, while Zheng and van der Laan weight each fold by `1 / V`. The two agree exactly at
   equal fold sizes and differ by $O(1/n)$ for near-balanced folds at fixed $V$.
+
+  Section 1, page 1, maps the model to $\mathbb{R}^d$ with a one-dimensional fluctuation parameter.
+  The general definition places no binary restriction on the treatment. A joint K-dimensional
+  fluctuation instead rests on the span condition in Zheng and van der Laan, Section 2, page 3. It
+  also rests on arm separability. The package clever covariate has one nonzero column in each row
+  for any K (`src/cleverly/fluctuation/submodel.py:463-466`). The fluctuation fits only the
+  `observed` rows (`src/cleverly/fluctuation/iterative.py:523`).
 - Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
   `R/tmle3_Update.R` selects the
@@ -285,7 +333,7 @@ previous reader had is not a citation; a page number is.
   | link | source | result |
   | --- | --- | --- |
   | parameter and curve | Díaz and van der Laan (2017), Section 2.1 and Equation (1); Gruber and van der Laan (2012), Section 2.3 | one arm indicator gives the curve `1{A = a} Delta / (g_a pi_a) (Y - Q(a, W)) + Q(a, W) - ψ_a` in the nonparametric model |
-  | cross-fitting | Zheng and van der Laan (2011), Section 2 and Theorems 1–2 | a vector parameter, an external uniform split, and initial estimators restricted only by limits and rates |
+  | cross-fitting | Zheng and van der Laan (2011), Section 2, pages 2–3, and Theorems 1–2 | a vector parameter with a d-variate canonical gradient, an external uniform split, and initial estimators restricted only by limits and rates |
   | remainder | Díaz, Carone and van der Laan (2016), Equation (3) | the exact product remainder supplies the second-order condition for each arm |
   | stacked evaluation | Levy (2018), abstract and conclusion | each arm's multiplier has no empirical mean, so stacked and fold-evaluated points agree at equal fold sizes |
   | contrasts | Gruber and van der Laan (2012), Appendix A; `tmle` 2.1.1 lines 1606, 1623–1624, 1635–1636 | the ATE is linear, and the log RR and log OR curves combine the two same-row arm curves |
@@ -293,6 +341,31 @@ previous reader had is not a citation; a page number is.
   Díaz and van der Laan state their Assumption 2 conditional on `W`. The curve in Equation (1)
   does not use the randomization, so it applies to observational treatment. The curve reads the
   record only through `(W, T_a, U)`, which the Levy entry defines.
+
+  The same chain covers three or more arms. The table gives the locator for each link. Page numbers
+  for Díaz and van der Laan are those of the arXiv v1 author manuscript.
+
+  | link | locator | result |
+  | --- | --- | --- |
+  | per-arm curve | Díaz and van der Laan, Section 2.1, page 6; Equation (1), page 10; Equation (3), pages 11–12 | `A` is "a binary treatment arm indicator", and the application has "four such indicators" |
+  | per-arm application | Díaz and van der Laan, Section 2.3, page 8; Tables 1–2, pages 8–9; Figure 1, pages 9–10 | the application fits missingness in each treatment arm and estimates four arm means, one indicator at a time |
+  | reduction | Díaz and van der Laan, page 25 | a referee's alternative defines `T = AM` and estimates $E\{E(Y \mid T = 1, W)\}$; the authors reject it as "unsatisfactory because it ignores intrinsic properties of the variables A and M", and the package keeps separate `g_a` and `pi_a` fits |
+  | generic arm | Gruber and van der Laan (2012), Section 2.3, page 7; Section 1, page 4; Section 6, pages 28–29 | the clever covariate is written for a generic arm, and a categorical treatment is estimated one level at a time |
+  | joint vector | Zheng and van der Laan, Section 2, pages 2–3 | the target lies in $\mathbb{R}^d$ with a d-variate canonical gradient; the joint covariance follows from the expansion, and the paper does not state it |
+  | stacked evaluation | Levy, Section 1, page 1 | the definition places no binary restriction on the treatment; its fluctuation parameter is one-dimensional |
+  | joint fluctuation | Zheng and van der Laan, Section 2, page 3; `src/cleverly/fluctuation/submodel.py:463-466`; `src/cleverly/fluctuation/iterative.py:523` | the span condition and arm separability support one K-dimensional fluctuation |
+  | reference contrasts | `src/cleverly/targets/builtin.py:311-353`, `419-449`; Gruber and van der Laan (2012), Appendix A, page 34 | each `ate`, `rr`, and `or` applies the Appendix A delta-method form to two coordinates of the joint vector |
+
+  Assumption 1 of Díaz and van der Laan, page 7, is written for two arms: "Y = M{AY1 + (1 − A)Y0}".
+  The arm mean uses only the `A = 1` branch, so the per-arm identification still holds. The FAQ in
+  Gruber and van der Laan (2012) has no missing outcomes and gives no contrast variance.
+
+  No reviewed source states the K-arm contrast curve. Each contrast curve is a standard consequence
+  of the joint expansion and the Appendix A delta-method form, and the papers do not state it. The
+  default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
+  (`src/cleverly/methods.py:312`). Its validity follows from the joint expansion and a conditional
+  multiplier central limit theorem for a fixed number of estimands. That step is also a standard
+  consequence that the papers do not state.
 
   Two package facts bound the joint fit. Each row of the arm-indexed clever covariate has one
   nonzero column (`src/cleverly/fluctuation/submodel.py:463-466`). In `_newton_logistic`
@@ -314,13 +387,14 @@ previous reader had is not a citation; a page number is.
   | binary outcome; `ey`, `ey0`, `ey1`, `ate` | source-supported | the five links |
   | binary outcome; `rr` and `or` on the log scale | source-supported | the five links and Appendix A, page 34 |
   | bounded continuous outcome with a fixed `q_bounds`; `ey`, `ey0`, `ey1`, `ate` | source-supported | Zheng and van der Laan, Theorem 2 with the `(W, T_a, U)` reduction; their Theorem 4 and Gruber and van der Laan (2010), Section 2 and Lemma 1, for the transform |
-  | continuous outcome with `q_bounds=None` | no source read | the scale depends on held-out outcomes, as the next paragraph states |
-  | three or more arms | source-supported | Díaz and van der Laan, Section 2.1, use one indicator per arm; no registered study exists, and JSS page 28 states that R `tmle` takes only a binary treatment |
+  | continuous outcome with `q_bounds=None` | no source read | the scale depends on held-out outcomes, as the next paragraph states; [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits it |
+  | three or more arms, with a binary outcome or a bounded continuous outcome with a fixed `q_bounds`; `ey`, and `ate` against the reference arm; `rr` and `or` against the reference arm for a binary outcome | source-supported | the three-arm table above, with the contrast curve as a standard consequence; the planned R comparator runs the population-mean path once for each arm |
+  | simultaneous bands over the reported estimands, with the centered rule | source-supported via the vector expansion | Zheng and van der Laan, Theorem 2, give a joint expansion of the vector with curve `D`, so the estimates are jointly asymptotically normal; the default Rademacher multiplier band then follows from a conditional multiplier central limit theorem for a fixed number of estimands, a standard consequence that the paper does not state |
   | ATT or ATC | no source read | the clever covariate carries an empirical arm share, so the Levy overlap statement does not cover it |
   | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
   | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |
   | supplied split plan | no source read | the balance and weighting requirements are unaudited |
-  | folds stratified on treatment or outcome | no source read | the sources analyze a split that does not depend on treatment or outcome values |
+  | folds stratified on treatment or outcome | no source read | the sources analyze a random split with no stratification wording; [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits it |
   | one fold with cross-fitting | not cross-fitting | one fold trains and evaluates on the same rows |
   | weights, clusters, or baseline strata | no source read | every source treats unweighted iid rows |
   | bootstrap inference | no source read | no source covers a bootstrap of this estimator |
@@ -339,9 +413,9 @@ previous reader had is not a citation; a page number is.
   | --- | --- |
   | shift, incremental, regime, MSM, and controlled-direct-effect targets | they fit today under cross-fitting with missing outcomes, and tests cover them |
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
-  | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`) |
+  | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds this gap |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | RM9 must audit this split separately, because the preflight cannot see it |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits those strata, and RM9 must check that each split contains every outcome class, because the preflight cannot see it |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
