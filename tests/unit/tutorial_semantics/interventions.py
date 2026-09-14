@@ -167,8 +167,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert not covers(tilt, double_odds)
     assert 2.15 <= (tilt.psi - double_odds) / tilt.std_error < 2.25
     assert "ipsi (mechanism)" in stored_output(NOTEBOOK, "incremental-fit")
-    # "the clever covariate stays between one half and two"; the load describes the outcome
-    # equations only, so the mechanism equation has no row-level load in the report.
+    # "the outcome-targeting score weight stays between one half and two"; the load describes
+    # the outcome equations only, so the mechanism equation has no row-level load in the report.
     assert "covariate in [0.5, 2]" in stored_output(NOTEBOOK, "incremental-support")
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
@@ -200,7 +200,13 @@ def check(namespace: dict[str, Any]) -> None:
     # "The outcome strength moves the flipped estimate by about as much as it moves the original fit."
     outcome_only = cells[0.0, 0.5].estimate - cells[0.0, 0.0].estimate
     with_flips = cells[0.1, 0.5].estimate - cells[0.1, 0.0].estimate
+    assert outcome_only > 0.0
     assert abs(with_flips - outcome_only) < 0.25 * abs(outcome_only)
-    # "the flips induce an association of only 0.0442", with P(A=1) near one half.
-    assert abs(cells[0.1, 0.0].induced_treatment_association) < 0.1
+    # "the flips induce an association of only +0.0442", with P(A=1) near one half.
+    association = cells[0.1, 0.0].induced_treatment_association
+    assert association is not None
+    assert 0.0 < association < 0.1
     assert abs(namespace["frame"]["transition_navigation"].mean() - 0.5) < 0.05
+    # The flips go in both directions, but they raise the offer rate on this draw.
+    offer_rates = namespace["offer_rates"]
+    assert offer_rates["after flips"] > offer_rates["before flips"]
