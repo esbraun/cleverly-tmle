@@ -92,10 +92,8 @@ iterative and the one-step sweeps are checked to solve the perturbed score. Reru
 selection.
 
 **Omitted-variable outputs read the selected working mechanism.** The robustness value, the bounds,
-and `elements()` build $
-u^2$ from the selected g. An intercept-only representer is the within-arm
-average of the full representer, so its $
-u^2$ is never larger. The collaborative robustness value
+and `elements()` build $\nu^2$ from the selected g. An intercept-only representer is the within-arm
+average of the full representer, so its $\nu^2$ is never larger. The collaborative robustness value
 therefore overstates robustness for the declared adjustment set. Do not report it as a bound.
 [RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
 

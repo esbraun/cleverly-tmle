@@ -139,7 +139,8 @@ estimates, the weighting difference is $O(1/n)$. It is first-order negligible, b
 The original pooled, fold-evaluated construction has published support. It remains a separate
 estimator because its fold plug-in and variance law differ. Bounded-continuous stacked outcomes also
 remain refused until their scale transform has an exact contract. The
-[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-natural-course-mean) tracks both follow-ups.
+[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) tracks both
+follow-ups.
 
 Fold-specific targeting and repeated-split reporting remain separate hard stops. The source audit
 found no direct interval result for either composition. See

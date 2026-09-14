@@ -25,7 +25,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Remaining missing-outcome CV-TMLE extensions | audit the scale and fold-weighting laws, then write separate contracts for the bounded-continuous stacked and binary fold-evaluated estimators | the binary stacked estimator is implemented, but its two source-backed extensions need distinct contracts and evidence | [RM9](#rm9-cross-fitted-missing-outcome-natural-course-mean) |
+| 0.1 | Cross-fitted missing-outcome TMLE audit and evidence | audit the arm-indexed stacked surface, then write separate contracts for the supported bounded-continuous and fold-evaluated extensions | registered evidence covers only the binary natural-course mean, while tutorials expose arm-indexed stacked MAR contrasts | [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) |
 | 0.2 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
 | 0.3 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.4 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
@@ -33,6 +33,17 @@ the probe that measured it.
 | 0.6 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.7 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.8 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+
+Use five delivery groups for these eight rows and investigations. Keep each item's acceptance
+criteria separate inside its group.
+
+| delivery group | items | shared boundary |
+| --- | --- | --- |
+| missing-outcome evidence | RM9, then RM10 | one audit and the same stitched-nuisance R comparator |
+| sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
+| collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
+| pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
+| diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -144,8 +155,8 @@ An item is complete only when all applicable conditions hold:
 
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. The ordinary and binary stacked missing-at-random natural-course means
-are implemented and registered there. RM9 holds the two supported follow-ups to the stacked
-estimator, and RM10 holds the comparator for the ordinary estimator. Replicate-weight designs are
+are implemented and registered there. RM9 also audits the exposed arm-indexed stacked surface.
+RM10 holds the comparator for the ordinary estimator. Replicate-weight designs are
 the next source-audit item in the main grid. Implement them only after the remediation rows are
 complete and that audit supports the planned variance construction.
 
@@ -174,12 +185,23 @@ therefore moves this item to [F20](#f20-missing-outcome-attributable-effects).
 Keep the public pre-fit refusal. Complete-data PAR and PAF remain supported. The iid MAR
 natural-course mean and arm-specific missing-outcome means also remain separate supported results.
 
-### RM9. Cross-fitted missing-outcome natural-course mean
+### RM9. Cross-fitted missing-outcome TMLE audit and evidence
 
-The binary one-repeat stacked estimator is implemented. Its scientific and public contracts now
-live in the [point-treatment](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+The binary one-repeat stacked natural-course estimator is implemented and registered. Its public
+contracts live in the
+[point-treatment](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
 and [CV-TMLE](technical-reference/cv-tmle.md) references. Its validation results live in the
 [implementation validation grid](technical-reference/method-evidence/validation-grid.md).
+
+The public surface also fits one-repeat stacked arm-indexed MAR means and contrasts. These include
+ATE for bounded-continuous outcomes and ATE, RR, and OR for binary outcomes. No registered study
+covers those compositions. Existing rows separately cover ordinary arm-indexed MAR fits,
+complete-outcome stacked fits, and the binary stacked natural-course mean.
+
+Audit response-weighted pooled targeting, outcome scaling, whole-sample plug-in evaluation, fold
+weighting, and same-row covariance for the arm-indexed surface. Add one registered study for the
+supported binary and bounded-continuous parameters against R `tmle` with identical stitched
+nuisances. Refuse any composition the audit cannot support.
 
 RM9 retains two separate follow-ups. First, the bounded-continuous stacked extension needs an exact
 contract for scaling the fluctuation, score, point, and influence curve. Second, the original
