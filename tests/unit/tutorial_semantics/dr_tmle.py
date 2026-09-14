@@ -45,6 +45,12 @@ def check(namespace: dict[str, Any]) -> None:
     frame = namespace["frame"]
     assert list(frame.columns)[:2] == ["transition_score", "transition_navigation"]
 
+    # Step 3: the unadjusted arm difference exceeds the ATE, and the arms differ on risk.
+    by_arm = namespace["by_arm"]
+    unadjusted = namespace["unadjusted"]
+    assert unadjusted > namespace["truth"]["ate"] + 0.05
+    assert by_arm.loc[1.0, "discharge_risk"] > by_arm.loc[0.0, "discharge_risk"] + 0.4
+
     # "The catalog lists drtmle as available for this ATE. For the ATT it prints False."
     catalog = {method.name: method for method in namespace["effect"].available_methods()}
     assert catalog["drtmle"].available
@@ -108,10 +114,11 @@ def check(namespace: dict[str, Any]) -> None:
     bounds = namespace["bounds"]
     assert "robustness value" in str(bounds)
     # "A wrong assignment model makes the estimate of nu^2 too small." A nonzero witness on this
-    # draw: the ATE representer's second moment under the true propensity, clipped to the fit's
-    # own truncation bound, exceeds the reported nu2 by a clear margin (about 5.6 against 4.34).
+    # draw: the expected sample second moment of the untruncated true ATE representer is 7.75,
+    # while the fitted assignment model reports 4.34.
     elements = assessment.report("elements")
     g0 = nonlinear_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
-    g0 = np.clip(g0, 0.01471, 0.9853)
     true_nu2 = float(np.mean(1.0 / g0 + 1.0 / (1.0 - g0)))
-    assert true_nu2 > 1.2 * elements.nu2
+    assert round(true_nu2, 2) == 7.75
+    assert round(elements.nu2, 2) == 4.34
+    assert true_nu2 > 1.7 * elements.nu2
