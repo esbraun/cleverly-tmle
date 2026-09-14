@@ -57,6 +57,7 @@ def check_stored() -> None:
 
     # Setup: no global warning filter hides the library's positivity or convergence warnings.
     assert "filterwarnings" not in code["setup"]
+    assert "from cleverly.learners import thread_limit" in code["setup"]
 
     # Data: first-year outcome, and no variable that the birth itself determines.
     load_text = stored_output(NOTEBOOK, "load-data")
@@ -80,6 +81,8 @@ def check_stored() -> None:
 
     # Hand-built TMLE: the nonzero witnesses the reading narrates stay asserted and printed.
     manual = code["manual-estimators"]
+    assert "LogisticRegression(max_iter=3_000, random_state=SEED)" in manual
+    assert manual.count("with thread_limit():") == 2
     assert "np.where(A == 1, q1_star, q0_star)" in manual
     assert "abs(initial_score) > 1e-5" in manual
     ladder = stored_output(NOTEBOOK, "manual-estimators")
@@ -111,7 +114,10 @@ def check_stored() -> None:
     assert "needs attention: ()" in diagnostics
     assert "passed  1      validation.score_equations" in diagnostics
     assert "VERDICT: nuisance fits look reasonable." in diagnostics
-    assert "truncated: 0 unit(s) (0.00%)" in stored_output(NOTEBOOK, "overlap")
+    overlap = stored_output(NOTEBOOK, "overlap")
+    assert "n = 12000; propensity truncated to [0.004859, 0.9951]" in overlap
+    assert re.search(r"^0\.05\s+0\.0000\s+0\.0002\s*$", overlap, re.MULTILINE)
+    assert "truncated: 0 unit(s) (0.00%)" in overlap
 
     # Sensitivity: the sign survives, and the benchmark gives no outcome-side scale.
     sensitivity = stored_output(NOTEBOOK, "sensitivity")
