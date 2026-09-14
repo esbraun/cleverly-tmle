@@ -525,6 +525,59 @@ def test_the_check_comparison_reads_non_image_outputs() -> None:
     assert comparable_outputs(image_changed) == collected
 
 
+def _stream_notebook(*outputs: tuple[str, str]) -> dict[str, Any]:
+    """Return a notebook whose one code cell stores the ``(name, text)`` streams in order."""
+    return {
+        "cells": [
+            {
+                "cell_type": "code",
+                "id": "answer",
+                "source": "report()",
+                "execution_count": 1,
+                "outputs": [
+                    {"output_type": "stream", "name": name, "text": text} for name, text in outputs
+                ],
+            }
+        ]
+    }
+
+
+def test_the_check_comparison_ignores_how_the_kernel_chunked_a_stream() -> None:
+    """One print stored in one chunk and in three chunks is the same reproduced output.
+
+    The kernel sends stream text in as many messages as its I/O thread flushes, and the split
+    moves between runs of an unchanged cell.  Before adjacent streams merged, ``--check`` failed
+    on that alone.  The controls keep the boundaries a reader sees: a changed digit, a switch to
+    ``stderr``, and a display between two prints all still count as moved output.
+    """
+    clock = "data f58e9392 | folds 404b7cec | cleverly 0.1.0 | 2026-09-08T23:26:45+00:00\n"
+    whole = _stream_notebook(("stdout", "psi = -0.0639\nse = 0.0128\n" + clock))
+    # The last split falls inside the wall clock, which must still be masked after the merge.
+    chunked = _stream_notebook(
+        ("stdout", "psi = -0.0"),
+        ("stdout", "639\nse = 0.0128\n" + clock[:60]),
+        ("stdout", clock[60:].replace("23:26:45", "01:54:45")),
+    )
+    assert comparable_outputs(chunked) == comparable_outputs(whole)
+
+    moved = _stream_notebook(("stdout", "psi = -0.0"), ("stdout", "539\nse = 0.0128\n" + clock))
+    assert comparable_outputs(moved) != comparable_outputs(whole)
+
+    to_stderr = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", "se = 0.0128\n" + clock))
+    assert comparable_outputs(to_stderr) != comparable_outputs(whole)
+
+    displayed = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stdout", "se = 0.0128\n" + clock))
+    displayed["cells"][0]["outputs"].insert(
+        1, {"output_type": "display_data", "data": {"text/plain": "figure"}}
+    )
+    separated = copy.deepcopy(displayed)
+    del separated["cells"][0]["outputs"][1]
+    separated["cells"][0]["outputs"].append(
+        {"output_type": "display_data", "data": {"text/plain": "figure"}}
+    )
+    assert comparable_outputs(displayed) != comparable_outputs(separated)
+
+
 def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch: Any) -> None:
     """A stale output behind nbclient's default skip tag must be replaced."""
     notebook = _notebook()

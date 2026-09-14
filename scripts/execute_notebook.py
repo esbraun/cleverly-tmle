@@ -52,19 +52,45 @@ def _mask_wall_clock(value: Any) -> Any:
     return value
 
 
+def _merged_streams(outputs: Any) -> list[Any]:
+    """Merge each run of consecutive stream outputs that share a name into one output.
+
+    The kernel flushes one ``print`` as however many stream messages its I/O thread happens to
+    send, so two runs of the same cell can store the same text in a different number of chunks.
+    Only a run of adjacent same-name streams merges.  A display between two prints, or a switch
+    from ``stdout`` to ``stderr``, stays a boundary, because that order is part of what a reader
+    sees.  Stream text is a string here, because :func:`nbformat.read` rejoins stored lines.
+    """
+    merged: list[Any] = []
+    for output in outputs:
+        previous = merged[-1] if merged else None
+        if (
+            output.get("output_type") == "stream"
+            and previous is not None
+            and previous.get("output_type") == "stream"
+            and previous.get("name") == output.get("name")
+        ):
+            merged[-1] = {**previous, "text": previous["text"] + output["text"]}
+        else:
+            merged.append(output)
+    return merged
+
+
 def comparable_outputs(notebook: Any) -> dict[str, list[str]]:
     """Map each cell id to its canonical non-image outputs.
 
     Raster and vector images are left out because renderers can change their bytes without moving
     an estimate.  Stream text and every non-image MIME payload remain, including HTML and JSON
-    tables that a documentation build can publish.
+    tables that a documentation build can publish.  Adjacent same-name streams merge first, as
+    :func:`_merged_streams` explains, and before the wall-clock mask so that a clock split across
+    two chunks is still masked.
     """
     collected: dict[str, list[str]] = {}
     for cell in notebook["cells"]:
         if cell["cell_type"] != "code":
             continue
         outputs = []
-        for output in cell.get("outputs", ()):
+        for output in _merged_streams(cell.get("outputs", ())):
             comparable: dict[str, Any] = {"output_type": output.get("output_type")}
             if "name" in output:
                 comparable["name"] = output["name"]
