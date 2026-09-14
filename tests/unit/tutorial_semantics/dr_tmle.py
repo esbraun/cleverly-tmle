@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    changed_fields,
+    covers,
+)
 
 NOTEBOOK = EXAMPLES / "dr-tmle.ipynb"
 
@@ -26,9 +31,7 @@ def check(namespace: dict[str, Any]) -> None:
     # The protocol step prints the record, and the guarded fit carries its digest.
     # The reading names the fields this page changes in the program protocol.
     assert changed_fields(namespace["protocol"], navigation_protocol()) == {"assumption_rationale"}
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert namespace["guarded"].provenance.protocol_fingerprint == fingerprint
+    assert_protocol_recorded(NOTEBOOK, "protocol", namespace["protocol"], namespace["guarded"])
 
     # "The catalog lists drtmle as available for this ATE. For the ATT it prints False."
     catalog = {method.name: method for method in namespace["effect"].available_methods()}
@@ -44,7 +47,7 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "The 95% interval ... contains the true ATE"; one draw, not a coverage result.
     truth = namespace["truth"]["ate"]
-    assert guarded.ci[0] <= truth <= guarded.ci[1]
+    assert covers(guarded, truth)
 
     # "moves by less than one standard error, and the standard errors are similar". The lower
     # bound witnesses "the guarded estimate moves": about 0.4 SE on this draw.

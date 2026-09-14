@@ -11,13 +11,14 @@ import re
 from typing import Any
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    changed_fields,
+    covers,
+)
 
 NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
-
-
-def _contains(interval: tuple[float, float], value: float) -> bool:
-    return interval[0] <= value <= interval[1]
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -42,9 +43,9 @@ def check(namespace: dict[str, Any]) -> None:
         "time_zero",
         "assumption_rationale",
     }
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert namespace["collaborative"].provenance.protocol_fingerprint == fingerprint
+    assert_protocol_recorded(
+        NOTEBOOK, "protocol", namespace["protocol"], namespace["collaborative"]
+    )
 
     # "For the ATT, the catalog refuses it with the reason ...".
     att_collaborative = namespace["att_collaborative"]
@@ -64,7 +65,7 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "Both intervals contain the true value" and the collaborative standard error is smaller.
     plain, collaborative = namespace["plain"]["ate"], namespace["collaborative"]["ate"]
-    assert _contains(plain.ci, truth["ate"]) and _contains(collaborative.ci, truth["ate"])
+    assert covers(plain, truth["ate"]) and covers(collaborative, truth["ate"])
     assert collaborative.std_error < plain.std_error
 
     # The plain fit's tails against the collaborative fit's none.
@@ -81,8 +82,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert "queue_lottery_draw" not in weak_selection.selected_covariates
     weak_plain, weak_collaborative = namespace["weak_plain"], namespace["weak_collaborative"]
     assert weak_collaborative["ate"].std_error < 0.5 * weak_plain["ate"].std_error
-    assert _contains(weak_plain["ate"].ci, truth["ate"])
-    assert _contains(weak_collaborative["ate"].ci, truth["ate"])
+    assert covers(weak_plain["ate"], truth["ate"])
+    assert covers(weak_collaborative["ate"], truth["ate"])
 
     assessment = namespace["assessment"]
     assert tuple(assessment.attention) == ()

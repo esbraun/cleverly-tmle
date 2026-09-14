@@ -11,7 +11,12 @@ from typing import Any
 
 import pytest
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "longitudinal-tmle.ipynb"
 
@@ -46,10 +51,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert "The protocol scores death before day 30 as not top box" in summary
 
     # The protocol step prints the record, and both fits carry its digest.
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert namespace["result"].provenance.protocol_fingerprint == fingerprint
-    assert namespace["rule_result"].provenance.protocol_fingerprint == fingerprint
+    fingerprint = assert_protocol_recorded(
+        NOTEBOOK, "protocol", namespace["protocol"], namespace["result"], namespace["rule_result"]
+    )
     assert fingerprint in stored_output(NOTEBOOK, "rule")
 
     # The top-box shares with no navigation and with both offers are quadrature truths.
@@ -62,7 +66,7 @@ def check(namespace: dict[str, Any]) -> None:
     adjusted, baseline_only = namespace["adjusted"], namespace["baseline_only"]
     sequential = namespace["result"]["ate_regimen[always vs never]"]
     # "the interval ... contains the true contrast" on this draw.
-    assert sequential.ci[0] <= target <= sequential.ci[1]
+    assert covers(sequential, target)
     # "0.137 below", "0.051 above", and "within one standard error" (measured 0.43 SE).
     assert adjusted.psi < target - 0.1
     assert 0.03 < baseline_only.psi - target < 0.08
@@ -72,7 +76,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert set(rule.estimates) == {"ate_regimen[continue if engaged vs never]"}
     rule_point = rule["ate_regimen[continue if engaged vs never]"]
     rule_truth = truth["ate_regimen[treat then continue if l2 positive vs never]"]
-    assert rule_point.ci[0] <= rule_truth <= rule_point.ci[1]
+    assert covers(rule_point, rule_truth)
     assigned = rule.diagnostics.support().to_frame().set_index(["regimen", "time"])
     assert assigned.loc[("continue if engaged", 1), "share_assigned_1"] == 1.0
     assert 0.0 < assigned.loc[("continue if engaged", 2), "share_assigned_1"] < 1.0

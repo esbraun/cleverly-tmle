@@ -139,8 +139,15 @@ that still describes the page. Rename a namespace key only when the notebook ren
 
 Add an assertion for each seeded relation the new readings narrate. An example is "the interval
 contains the true value". A relation is a claim about this draw, so it certifies no method. Use
-`stored_output(NOTEBOOK, "<cell id>")` to check a stored output that must stay present, such as the
-protocol fingerprint.
+`stored_output(NOTEBOOK, "<cell id>")` to check a stored output that must stay present.
+
+Use the shared helpers in `tests/unit/tutorial_semantics/__init__.py`. Do not define a local copy.
+
+| helper | what it checks |
+| --- | --- |
+| `covers(estimate, value)` | the estimate's interval, or a `(low, high)` pair, contains the value |
+| `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol fingerprint, and each result carries it |
+| `changed_fields(protocol, navigation_protocol())` | the set of protocol fields the page changes. Assert the exact set the reading names |
 
 Do not loosen a tolerance to make a relation pass. A relation that moves under a supported change is
 a sampling claim, and it belongs in a registered study.

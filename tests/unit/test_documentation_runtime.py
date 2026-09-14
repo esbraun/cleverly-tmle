@@ -83,9 +83,12 @@ from tests.notebooks import (
 )
 from tests.unit.tutorial_semantics import (
     NOT_TUTORIALS,
+    assert_protocol_recorded,
     callback,
     callback_module,
     callback_modules,
+    changed_fields,
+    covers,
     markdown_text,
     module_name,
     narrated_decimals,
@@ -766,6 +769,41 @@ def test_the_narration_check_reads_precision_and_refuses_a_moved_number() -> Non
     prose = "Use `alpha=0.07`, R 4.5.2, and [a](https://example.org/v1.23/)."
     assert narrated_decimals(prose) == []
     assert not narration_mismatches("A law value 0.73.", outputs, {"0.73": "a law parameter"})
+
+
+def test_the_shared_callback_helpers_refuse_what_they_must(tmp_path: Path) -> None:
+    """Each helper every callback leans on fails on the case a callback relies on it to catch.
+
+    A ``covers`` that returned ``True``, a ``changed_fields`` that returned an empty set, or a
+    protocol check that read no output would pass every callback that uses it.
+    """
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from cleverly.datasets import navigation_protocol
+
+    estimate = SimpleNamespace(ci=(1.0, 2.0))
+    assert covers(estimate, 1.0) and covers(estimate, 2.0) and covers((1.0, 2.0), 1.5)
+    assert not covers(estimate, 2.5) and not covers((1.0, 2.0), 0.5)
+
+    program = navigation_protocol()
+    assert changed_fields(program, program) == set()
+    moved = replace(program, horizon="60 days after discharge", interference_unit="Navigator team")
+    assert changed_fields(moved, program) == {"horizon", "interference_unit"}
+
+    notebook = tmp_path / "protocol.ipynb"
+    notebook.write_text(
+        '{"cells": [{"cell_type": "code", "id": "protocol", "source": "", "outputs": '
+        f'[{{"output_type": "stream", "name": "stdout", "text": "{program.fingerprint}"}}]}}]}}',
+        encoding="utf-8",
+    )
+    carried = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=program.fingerprint))
+    assert assert_protocol_recorded(notebook, "protocol", program, carried) == program.fingerprint
+    with pytest.raises(AssertionError, match="does not print the protocol fingerprint"):
+        assert_protocol_recorded(notebook, "protocol", moved)
+    stale = SimpleNamespace(provenance=SimpleNamespace(protocol_fingerprint=moved.fingerprint))
+    with pytest.raises(AssertionError):
+        assert_protocol_recorded(notebook, "protocol", program, carried, stale)
 
 
 def test_the_offline_gate_renders_the_last_expression_and_refuses_the_network(

@@ -29,16 +29,19 @@ from types import ModuleType
 from typing import Any
 
 from tests.documents import READER_FACING, ROOT
+from tests.notebooks import code_cells
 from tests.prose import markdown_cells
 
 __all__ = [
     "EXAMPLES",
     "NOT_TUTORIALS",
     "PACKAGE",
+    "assert_protocol_recorded",
     "callback",
     "callback_module",
     "callback_modules",
     "changed_fields",
+    "covers",
     "markdown_text",
     "module_name",
     "narrated_decimals",
@@ -104,6 +107,33 @@ def changed_fields(protocol: Any, base: Any) -> set[str]:
     }
 
 
+def covers(interval: Any, value: float) -> bool:
+    """Whether the closed interval contains ``value``.
+
+    ``interval`` is a ``(low, high)`` pair, or anything with a ``ci`` pair such as a
+    :class:`cleverly.ParameterEstimate`.  A reading that says "the interval contains the true value"
+    on one draw is a seeded relation, and every callback checks it the same way.
+    """
+    low, high = getattr(interval, "ci", interval)
+    return bool(low <= value <= high)
+
+
+def assert_protocol_recorded(path: Path, cell_id: str, protocol: Any, *results: Any) -> str:
+    """Assert that a stored output prints the protocol fingerprint and each result carries it.
+
+    The protocol step of every tutorial prints ``protocol.summary_lines()``, and each result fitted
+    from that study stores the fingerprint in its provenance.  Returns the fingerprint, so a
+    callback can look for it in a later output.
+    """
+    fingerprint: str = protocol.fingerprint
+    assert fingerprint in stored_output(path, cell_id), (
+        f"{path.name}: cell {cell_id!r} does not print the protocol fingerprint {fingerprint}"
+    )
+    for result in results:
+        assert result.provenance.protocol_fingerprint == fingerprint
+    return fingerprint
+
+
 def _notebook(path: Path) -> dict[str, Any]:
     notebook: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return notebook
@@ -115,11 +145,7 @@ def _joined(value: Any) -> str:
 
 def notebook_code(path: Path) -> list[tuple[str, str]]:
     """``(cell id, source)`` for each code cell of the notebook at ``path``, in order."""
-    return [
-        (str(cell.get("id")), _joined(cell["source"]))
-        for cell in _notebook(path)["cells"]
-        if cell["cell_type"] == "code"
-    ]
+    return [(str(cell.get("id")), _joined(cell["source"])) for cell in code_cells(_notebook(path))]
 
 
 def _output_text(output: Mapping[str, Any]) -> str:
@@ -145,8 +171,7 @@ def stored_text(path: Path) -> str:
     """The stored readable output of every code cell, joined."""
     return "\n".join(
         _output_text(output)
-        for cell in _notebook(path)["cells"]
-        if cell["cell_type"] == "code"
+        for cell in code_cells(_notebook(path))
         for output in cell.get("outputs", ())
     )
 

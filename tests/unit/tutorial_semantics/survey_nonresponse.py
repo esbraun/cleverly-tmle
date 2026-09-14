@@ -13,7 +13,13 @@ import pytest
 from scipy.special import expit
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    changed_fields,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
 
@@ -47,9 +53,7 @@ def check(namespace: dict[str, Any]) -> None:
         "outcome",
         "assumption_rationale",
     }
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert fitted.provenance.protocol_fingerprint == fingerprint
+    assert_protocol_recorded(NOTEBOOK, "protocol", namespace["protocol"], fitted)
     assert "scores death before day 30 as the worst transition score" in summary
 
     # "About a quarter of patients never return the 30-day survey."
@@ -66,8 +70,8 @@ def check(namespace: dict[str, Any]) -> None:
     complete_case = namespace["complete_case"]["ate"]
     full = fitted["ate"]
     assert complete_case.psi > truth
-    assert not complete_case.ci[0] <= truth <= complete_case.ci[1]
-    assert full.ci[0] <= truth <= full.ci[1]
+    assert not covers(complete_case, truth)
+    assert covers(full, truth)
 
     # "Both laws have the same population ATE", and the mild complete-case interval covers it.
     # The strength-2 interaction averages W1, whose mean is 0, so the laws share the ATE of 1.2;
@@ -75,14 +79,14 @@ def check(namespace: dict[str, Any]) -> None:
     mild_truth = namespace["mild_truth"]["ate"]
     assert mild_truth == pytest.approx(truth, abs=1e-4)
     mild = namespace["mild"]["ate"]
-    assert mild.ci[0] <= mild_truth <= mild.ci[1]
+    assert covers(mild, mild_truth)
 
     # "Each interval contains its population value", the odds ratio lies above the risk ratio,
     # and the ratio intervals are asymmetric on the reported scale.
     box_points = namespace["box_points"]
     box_truth = namespace["box_truth"]
     for key, point in box_points.items():
-        assert point.ci[0] <= box_truth[key] <= point.ci[1]
+        assert covers(point, box_truth[key])
     assert box_points["or"].psi > box_points["rr"].psi > 1.0
     for key in ("rr", "or"):
         point = box_points[key]

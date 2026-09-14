@@ -12,7 +12,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "longitudinal-survival.ipynb"
 
@@ -22,17 +27,17 @@ def check(namespace: dict[str, Any]) -> None:
     result = namespace["exit_result"]
 
     # Each protocol step prints its record, and each fit carries the digest of its own protocol.
-    exit_fingerprint = namespace["exit_protocol"].fingerprint
-    event_fingerprint = namespace["event_protocol"].fingerprint
-    eliminated_fingerprint = namespace["eliminated_protocol"].fingerprint
-    assert len({exit_fingerprint, event_fingerprint, eliminated_fingerprint}) == 3
-    assert exit_fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert event_fingerprint in stored_output(NOTEBOOK, "competing-events")
-    failure_output = stored_output(NOTEBOOK, "failure-mode")
-    assert event_fingerprint in failure_output and eliminated_fingerprint in failure_output
-    assert result.provenance.protocol_fingerprint == exit_fingerprint
-    assert namespace["event_levels"].provenance.protocol_fingerprint == event_fingerprint
-    assert namespace["eliminated"].provenance.protocol_fingerprint == eliminated_fingerprint
+    fingerprints = {
+        assert_protocol_recorded(NOTEBOOK, "protocol", namespace["exit_protocol"], result),
+        assert_protocol_recorded(
+            NOTEBOOK, "competing-events", namespace["event_protocol"], namespace["event_levels"]
+        ),
+        assert_protocol_recorded(NOTEBOOK, "failure-mode", namespace["event_protocol"]),
+        assert_protocol_recorded(
+            NOTEBOOK, "failure-mode", namespace["eliminated_protocol"], namespace["eliminated"]
+        ),
+    }
+    assert len(fingerprints) == 3
     # "The fit refuses a horizon outside 1..T rather than interpolating it."
     assert "outside 1..2" in stored_output(NOTEBOOK, "estimate-retention")
 
@@ -72,8 +77,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert exit_t2.psi < 1.15 * exit_t1.psi
     # "each interval contains its population value" on this draw.
     for horizon, estimate in exit_differences.items():
-        low, high = estimate.ci
-        assert low <= namespace["exit_truth"][f"ate_regimen[always vs never @ t={horizon}]"] <= high
+        assert covers(
+            estimate, namespace["exit_truth"][f"ate_regimen[always vs never @ t={horizon}]"]
+        )
     retention = survival.set_index(["regimen", "time"])
     assert retention.loc[("always", 2), "psi"] > retention.loc[("never", 2), "psi"] + 0.05
     exit_truth = namespace["exit_truth"]
@@ -126,8 +132,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert death_t1.psi < -0.03
     assert death_t2.psi < 1.25 * death_t1.psi
     # "The 60-day death interval ... excludes its population value" on this draw.
-    death_low, death_high = death_t2.ci
-    assert not death_low <= event_truth["ate_regimen[always vs never, death @ t=2]"] <= death_high
+    assert not covers(death_t2, event_truth["ate_regimen[always vs never, death @ t=2]"])
 
     # Death coded as censoring gives a larger reduction than the total effect, and it raises
     # never-plan readmission risk more than always-plan risk.

@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "point-treatment-tmle.ipynb"
 
@@ -28,10 +33,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert by_arm.loc[1.0, "discharge_risk"] > by_arm.loc[0.0, "discharge_risk"] + 0.3
 
     # The protocol step prints the record, and the fit and the restored artifact carry its digest.
-    fingerprint = namespace["protocol"].fingerprint
     assert namespace["protocol"] == navigation_protocol()
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert namespace["result"].provenance.protocol_fingerprint == fingerprint
+    fingerprint = assert_protocol_recorded(
+        NOTEBOOK, "protocol", namespace["protocol"], namespace["result"]
+    )
     assert fingerprint in stored_output(NOTEBOOK, "save-and-restore")
     assert {item.name for item in namespace["replayed"].attention} == {
         item.name for item in namespace["assessment"].attention
@@ -46,10 +51,8 @@ def check(namespace: dict[str, Any]) -> None:
     one_flexible = max(errors["flexible Q, linear g"], errors["linear Q, flexible g"])
     assert errors["both linear"] > 3.0 * one_flexible
     # "its interval ... excludes the true value", while the Step 6 interval contains it.
-    both_linear = namespace["dr_points"]["both linear"].ci
-    assert not both_linear[0] <= truth <= both_linear[1]
-    flexible = namespace["estimate"].ci
-    assert flexible[0] <= truth <= flexible[1]
+    assert not covers(namespace["dr_points"]["both linear"], truth)
+    assert covers(namespace["estimate"], truth)
 
     assessment = namespace["assessment"]
     assert "nuisance_models" in {item.name for item in assessment.attention}

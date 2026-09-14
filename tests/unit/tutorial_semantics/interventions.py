@@ -13,13 +13,15 @@ import numpy as np
 import pytest
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    changed_fields,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "interventions.ipynb"
-
-
-def _covers(interval: tuple[float, float], value: float) -> bool:
-    return interval[0] <= value <= interval[1]
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -41,9 +43,7 @@ def check(namespace: dict[str, Any]) -> None:
         ("dose-protocol", "dose_protocol", "shift_result"),
         ("incremental-protocol", "incremental_protocol", "incremental_result"),
     ):
-        fingerprint = namespace[protocol].fingerprint
-        assert fingerprint in stored_output(NOTEBOOK, cell)
-        assert namespace[result].provenance.protocol_fingerprint == fingerprint
+        assert_protocol_recorded(NOTEBOOK, cell, namespace[protocol], namespace[result])
     assert (
         len(
             {
@@ -63,8 +63,8 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "Each interval contains its population value on this draw."
     regimes = namespace["regime_result"]
-    assert _covers(regimes["ate_regime[offer to all vs offer to none]"].ci, offer_all)
-    assert _covers(regimes["ate_regime[screen on risk vs offer to none]"].ci, screen)
+    assert covers(regimes["ate_regime[offer to all vs offer to none]"], offer_all)
+    assert covers(regimes["ate_regime[screen on risk vs offer to none]"], screen)
 
     # Offer to all has the smallest ratio effective n and the largest ratio; the screen's zero
     # load falls exactly on the rows whose observed arm is off the plan.
@@ -113,9 +113,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert rows["detail"].str.contains("propensity is poorly calibrated").any()
     # "the interval excludes it on this draw".
     tilt = namespace["incremental_result"]["ate_ipsi[double odds vs current odds]"]
-    assert not _covers(
-        tilt.ci, namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
-    )
+    assert not covers(tilt, namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"])
     assert "ipsi (mechanism)" in stored_output(NOTEBOOK, "incremental-fit")
 
     # One axis per fit: the mixed request and the omitted-variable bound are refused.

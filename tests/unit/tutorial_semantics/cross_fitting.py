@@ -12,7 +12,12 @@ from typing import Any
 import numpy as np
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    covers,
+    stored_output,
+)
 
 NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
 
@@ -24,11 +29,6 @@ UNPRINTED_DECIMALS = {
 }
 
 
-def _covers(point: Any, target: float) -> bool:
-    low, high = point.ci
-    return bool(low <= target <= high)
-
-
 def check(namespace: dict[str, Any]) -> None:
     """The seeded relations the cross-fitting notebook narrates, at its documented size."""
     cross_fitted = namespace["cross_fitted"]["ate"]
@@ -38,10 +38,10 @@ def check(namespace: dict[str, Any]) -> None:
     # The protocol is the program's, unchanged, so this page and the point-treatment page print
     # one fingerprint.
     assert namespace["protocol"] == navigation_protocol()
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
+    fingerprint = assert_protocol_recorded(
+        NOTEBOOK, "protocol", namespace["protocol"], namespace["cross_fitted"]
+    )
     assert fingerprint in stored_output(EXAMPLES / "point-treatment-tmle.ipynb", "protocol")
-    assert namespace["cross_fitted"].provenance.protocol_fingerprint == fingerprint
 
     assert "stacked CV-TMLE" in namespace["cross_fitted"].summary()
     assert "in-sample nuisances" in namespace["in_sample"].summary()
@@ -49,8 +49,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(in_sample.psi - cross_fitted.psi) < 0.1
     assert in_sample.std_error < cross_fitted.std_error / 3
     # The comparison table: the in-sample interval excludes the truth, the cross-fitted one does not.
-    assert not _covers(in_sample, truth)
-    assert _covers(cross_fitted, truth)
+    assert not covers(in_sample, truth)
+    assert covers(cross_fitted, truth)
 
     # "nearly identical" points and "1.68 times larger" standard error; both cover on this draw.
     ignoring = namespace["ignoring"]["ate"]
@@ -58,7 +58,7 @@ def check(namespace: dict[str, Any]) -> None:
     team_truth = namespace["team_truth"]["ate"]
     assert abs(ignoring.psi - clustered.psi) < 0.02
     assert 1.5 < clustered.std_error / ignoring.std_error < 1.9
-    assert _covers(ignoring, team_truth) and _covers(clustered, team_truth)
+    assert covers(ignoring, team_truth) and covers(clustered, team_truth)
     assert namespace["clustered"].data.n_clusters == 200
 
     # "Each team spans at most 1 outer fold"; four teams realize four of five requested folds.

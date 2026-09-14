@@ -13,7 +13,12 @@ import numpy as np
 import pytest
 
 from cleverly.datasets import navigation_protocol
-from tests.unit.tutorial_semantics import EXAMPLES, changed_fields, stored_output
+from tests.unit.tutorial_semantics import (
+    EXAMPLES,
+    assert_protocol_recorded,
+    changed_fields,
+    covers,
+)
 
 NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
 
@@ -47,10 +52,9 @@ def check(namespace: dict[str, Any]) -> None:
         "intercurrent_event_handling",
         "assumption_rationale",
     }
-    fingerprint = namespace["protocol"].fingerprint
-    assert fingerprint in stored_output(NOTEBOOK, "protocol")
-    assert fitted.provenance.protocol_fingerprint == fingerprint
-    assert namespace["trend_result"].provenance.protocol_fingerprint == fingerprint
+    assert_protocol_recorded(
+        NOTEBOOK, "protocol", namespace["protocol"], fitted, namespace["trend_result"]
+    )
 
     population = namespace["population"]
     assert population[0] < population[1] < population[2]
@@ -61,8 +65,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert observed.loc["medium", "discharge_risk"] > observed.loc["high", "discharge_risk"]
     # "Each interval contains its true mean on this draw."
     for arm, target in zip(namespace["ARMS"], population, strict=True):
-        low, high = fitted[f"ey[{arm}]"].ci
-        assert low <= target <= high
+        assert covers(fitted[f"ey[{arm}]"], target)
     # The page refuses text cadence labels. Only the MSM.linear refusal may satisfy it.
     assert "reads the treatment level" in namespace["refusal"]
 
@@ -71,7 +74,7 @@ def check(namespace: dict[str, Any]) -> None:
     for name, target in zip(
         ("msm[(intercept)]", "msm[assigned contacts]"), projection, strict=True
     ):
-        assert trend[name].ci[0] <= target <= trend[name].ci[1]
+        assert covers(trend[name], target)
     # Under the uniform weight the slope is the fixed contrast of the three means, exactly.
     assert namespace["contrast_slope"] == pytest.approx(projection[1], rel=1e-12, abs=1e-12)
     # The share weight moves the population slope: the weight is part of the estimand.
