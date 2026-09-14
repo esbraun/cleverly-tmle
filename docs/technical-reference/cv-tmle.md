@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | fewer effective folds than rows suggest |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.

@@ -132,12 +132,12 @@ scale, because a coefficient vector has no single scale to map back with.
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
 | point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
 
-One thing is **refused rather than approximated**, in the sense
+One composition has **no refusal yet**, in the sense
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) sets out.
 
-| refused | kind | what it would need |
+| not refused | kind | what it would need |
 | --- | --- | --- |
-| weights derived from the estimated mechanism, a "stabilised" MSM | wrong by construction | the weight would be a functional of $P$, so the influence curve carries a further term for the pathwise derivative through the estimated mechanism. This is the same argument that gives an incremental intervention its own axis. Supplying such weights anyway does not fail. It reports a standard error that is too small |
+| weights derived from the estimated mechanism, a "stabilised" MSM | wrong by construction | the weight would be a functional of $P$, so the influence curve carries a further term for the pathwise derivative through the estimated mechanism. This is the same argument that gives an incremental intervention its own axis. The package cannot inspect a callable, so a weight that closes over an estimate fits with no message. That fit reports a standard error that is too small. [RM13](../roadmap.md#rm13-estimated-msm-projection-weights) tracks a declaration and a refusal |
 
 A one-shot non-identity-link fit is also refused. The derivative of the inverse link depends on the
 coefficient, so a single pass would report a standard error for an equation it did not solve. The
@@ -146,8 +146,9 @@ link is supported. What is refused is skipping the alternation it needs.
 ## Validation issues special to this method
 
 **A saturated oracle proves nothing about a projection.** A saturated working model *fits*, which
-is exactly what a projection does not promise, so it agrees with the per-arm means whatever the
-projection code does. The oracle's working model is therefore deliberately **not** saturated: three
+is exactly what a projection does not promise. A check against the per-arm means therefore cannot
+see a component that vanishes when the model fits, such as the projection weight or a link's
+curvature term. The oracle's working model is therefore deliberately **not** saturated: three
 coefficients against six covariate-and-arm cells at one node, and three coefficients against twelve
 regimen cells longitudinally. Both choices are asserted on the law itself, so they are shown to be
 load-bearing rather than claimed to be.

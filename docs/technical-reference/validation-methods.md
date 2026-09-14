@@ -668,6 +668,15 @@ $$
 with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
 two primitives are exposed as `elements()`. A median-combined repeated fit refuses this analysis
 because the median bound needs its own influence function.
+
+The estimate of $
+u^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
+model. A wrong model makes $
+u^2$ too small. The bounds then read too narrow, and the robustness
+value reads too large. No derivation covers these bounds on a DR-TMLE fit, a C-TMLE fit, or a fit
+with a response mechanism.
+[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
+
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
