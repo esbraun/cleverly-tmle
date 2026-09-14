@@ -27,13 +27,41 @@ previous reader had is not a citation; a page number is.
   Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), DOI
   10.1111/j.1541-0420.2011.01685.x.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
-  bounded continuous outcome*.
+  bounded continuous outcome*. Read first-hand in the
+  [author working paper](https://biostats.bepress.com/ucbbiostat/paper265), U.C. Berkeley
+  Division of Biostatistics Working Paper 265. That file prints no page numbers, so the locators
+  below are its PDF pages. This audit did not compare them with the journal version.
+
+  | locator | content |
+  | --- | --- |
+  | Section 2, PDF page 5 | assumes a known interval $Y \in [a, b]$ and maps $Y$ linearly to $[0, 1]$ |
+  | Lemma 1, PDF page 7 | shows that the logistic loss identifies the conditional mean of the transformed outcome |
+  | Section 3, PDF page 9 | sets $a$ and $b$ to the sample minimum and maximum, because the simulated outcome is unbounded |
+  | Section 4, PDF pages 13–14 | recommends the observed minimum and maximum when no bounds are known a priori |
+
+  The known-interval result supports a fixed `q_bounds` transform. Sections 3 and 4 state the
+  data-derived bounds as a practice, and they give no separate derivation for that choice.
 - Gruber & van der Laan (2012),
   [*tmle: An R Package for Targeted Maximum Likelihood Estimation*](https://doi.org/10.18637/jss.v051.i13),
   *Journal of Statistical Software* 51(13), DOI 10.18637/jss.v051.i13. Section 2.1,
   page 5, defines marginal risk and odds ratios from two counterfactual risks. Section 2.7,
   page 10, reports intervals for both ratios on the log scale. Appendix A, page 34, gives
   their log-scale influence curves.
+
+  The same article gives the missing-outcome construction for two arms. Page numbers are the
+  journal's printed pages.
+
+  | locator | content |
+  | --- | --- |
+  | Section 2.3, pages 6–7 | observed data with a response indicator $\Delta$, the clever covariate $I(A = a, \Delta = 1) / g(A, \Delta \mid W)$ with $g = g_A g_\Delta$, and an outcome regression fit on complete observations |
+  | Section 3.2, page 16 | warns that the default observed-range bounds can fail under missing outcomes, and encourages bounds from domain knowledge |
+  | Section 3.3, page 17 | applies the propensity bound to the product $g_A g_\Delta$ when two arms have missing outcomes |
+  | Section 6, page 28 | states that the package takes only a binary treatment; for a categorical treatment, it estimates one level at a time as a population mean with the binary indicator $\Delta_a = I(A = a)$, in an example whose data have no missing outcomes |
+  | Appendix A, page 34 | states joint normality with the covariance matrix of a possibly multi-dimensional parameter, and estimates each variance as $\mathrm{VAR}(IC)/n$ |
+
+  The printed Appendix A display for the ATE curve ends in $\bar Q_0(1, W) - \bar Q_0(A, W)$. The
+  ATE curve needs $\bar Q_0(0, W)$ in the second term. Line 1606 of the `tmle` 2.1.1 source uses
+  `Q[,"Q0W"]`, which is the corrected term.
 - CRAN `tmle` 2.1.1, source at commit
   [`f8d88a0`](https://github.com/cran/tmle/tree/f8d88a07a3d25c96688221b384043eef7a31fe68).
   [`R/tmle.R`](https://github.com/cran/tmle/blob/f8d88a07a3d25c96688221b384043eef7a31fe68/R/tmle.R)
@@ -41,14 +69,45 @@ previous reader had is not a citation; a page number is.
   plug-in evaluation, and influence-curve calculations. This source supports the weighted
   ordinary-TMLE refit. It does not implement a simulated common-cause surface.
 
-  The same file has a population-mean path for missing outcomes. Lines 1681–1683 set a missing or
-  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. Lines 1947–1967 fit
-  one fluctuation on the respondent rows. Line 1512 gives the influence curve
-  `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
+  The same file has a population-mean path for missing outcomes. Lines 1737–1739 set a missing or
+  all-zero `A` to one. Lines 170–172 then label `EY1` as the population mean. Line 2008 keeps
+  the respondent rows, and lines 2020–2021 fit the fluctuation on them with `subset=keep`. Line 1564
+  gives the influence curve `Delta / pDelta1 * (Y - QAW) + Q1W - mu1`.
 
-  Lines 1045–1080 and 1279–1288 accept and transform supplied `Q` predictions. Lines 1340–1464
-  pass supplied mechanism predictions through without a model fit. The registered stacked MAR
-  natural-course study supplies the stitched out-of-fold `Q(A,W)` and `pDelta1(A,W)` values.
+  The table lists the lines that the audit read, from supplied predictions and scaling through the
+  curves, variances, and intervals.
+
+  | lines | behavior |
+  | --- | --- |
+  | 1091–1127 | `.initStage1` bounds the outcome and a supplied `Q`, then maps both to `[0, 1]` |
+  | 1095–1096 | a missing `Qbounds` defaults to the respondent range, widened by one percent of each endpoint's magnitude |
+  | 1120 | `ab <- range(Ystar, na.rm=TRUE)` sets the scale from every `Y` value that is not `NA`, also when `Qbounds` is supplied; a non-`NA` `Y` on a row with `Delta = 0` enters the range |
+  | 1113, 1123 | `.initStage1` clips a supplied `Q` to `Qbounds` and then rescales it by `ab` |
+  | 1192–1193 | a supplied `Q` skips the outcome fit and records `"user-supplied values"` |
+  | 1328–1330 | line 1328 bounds the initial predictions; `qlogis` applies only when `maptoYstar` is set or the family is binomial |
+  | 1841–1848 | a scalar `gbound` becomes `c(gbound, 1)`, also with two arms |
+  | 1390–1521 | `estimateG` fits a mechanism; line 1396 skips the fit and lines 1505–1506 record `"user-supplied values"` for a supplied mechanism |
+  | 1710–1711 | the defaults are `alpha = 0.9995` and `target.gwt = FALSE` |
+  | 1747–1748 | a missing `gbound` defaults to `5/sqrt(sum(Delta))/log(sum(Delta))` |
+  | 1901–1902 | two-arm missing-outcome fits bound the product of the treatment and response probabilities |
+  | 2014–2016 | without `target.gwt`, the clever covariates are `A/g1W.total` and `(1-A)/g0W.total` |
+  | 1592, 1606 | the two-arm `EY1` and ATE curves, which carry the `Delta` factor |
+  | 1596, 1610 | each variance is `var(IC)/n` |
+  | 1599, 1613 | a binary outcome bounds the `EY1` interval to `[0, 1]` and the ATE interval to `[-1, 1]` |
+  | 1623–1624, 1635–1636 | the log-RR and log-OR curves |
+  | 1650 | the returned list holds the five curves |
+  | 2053–2061 | the `evalATT` path sets the ATT response probabilities; lines 2056–2058 use marginal means when more than 95% of the ATT rows respond, and only the else branch refits intercepts |
+
+  JSS page 16 states that the function "ignores the Y value for observations having Δ = 0". Line
+  1120 still reads that value when it is not `NA`.
+
+  `cleverly` bounds the response probability and the propensity separately
+  (`src/cleverly/estimators/targeting.py:333-337` and `349`). The R product bound at lines
+  1901–1902 is a different rule. A paired comparison must choose a `gbound` below every supplied
+  product. It must also check that the package bounds clip no supplied value.
+
+  The registered stacked MAR natural-course study supplies the stitched out-of-fold `Q(A,W)` and
+  `pDelta1(A,W)` values.
   Its adapter duplicates each realized-arm prediction and passes a constant synthetic `A`.
   It carries the original treatment beside `W`, preserving the conditioning set represented by
   each supplied prediction. This selects the population-mean path without fitting a treatment
@@ -61,10 +120,12 @@ previous reader had is not a citation; a page number is.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
   10.1007/978-1-4419-9782-1_27. Read first-hand in the
-  [author working paper](https://biostats.bepress.com/ucbbiostat/paper273/). Sections 2 and 2.1,
-  article pages 3–5, train both the relevant initial estimator and its nuisance on each training
+  [author working paper](https://biostats.bepress.com/ucbbiostat/paper273/), Working Paper 273.
+  Page numbers below are the working paper's printed pages, which are the PDF pages minus two. This
+  audit did not compare them with the Springer chapter. Sections 2 and 2.1, pages 2–6, train both
+  the relevant initial estimator and its nuisance on each training
   complement. They choose one fluctuation by pooled validation loss and average the fold plug-ins.
-  Section 2.1 leaves a linear empirical-distribution component untargeted. Theorem 2, article pages
+  Section 2.1 leaves a linear empirical-distribution component untargeted. Theorem 2, pages
   14–18, gives the partial-targeting expansion and conditions without a complexity restriction on
   the initial nuisance classes. Its split vector is an external random draw over a finite support.
   The common fluctuation must converge, and its finite-dimensional fluctuation class must satisfy
@@ -81,6 +142,24 @@ previous reader had is not a citation; a page number is.
   separate fluctuation in each fold, or repeated-split aggregation. Its fold expectation also does
   not justify treating an arbitrarily imbalanced supplied partition as a row-weighted stacked
   sample.
+
+  The arm-indexed audit uses four further locators.
+
+  | locator | content |
+  | --- | --- |
+  | Section 2, page 2 | defines the target as $\Psi : \mathcal{M} \to \mathbb{R}^d$, so one fit can target a vector parameter |
+  | Theorem 1, page 7, and Theorem 2, pages 14–15 | assume that the split vector $B_n$ is uniformly distributed over a finite support |
+  | Section 4, pages 19–21 | treats the ATE and maps an outcome in a known interval $(a, b)$ to $(Y - a)/(b - a)$ |
+  | Section 4.1, Theorem 3, page 22, and Section 4.2, Theorem 4, page 31 | give the result under the squared-error loss and under the quasi-log-likelihood loss |
+
+  Theorems 3 and 4 treat $O = (W, A, Y)$ with a binary treatment and no missing outcomes. The
+  missing-outcome bounded-continuous cell therefore rests on Theorem 2 and the `(W, T_a, U)`
+  reduction in the Levy entry. Section 4.2 and Theorem 4 support only the bounded-outcome
+  transform.
+
+  The theorems place limit and rate conditions on the initial estimators. They do not prescribe how
+  a training sample builds them. A pooled outcome regression evaluated at each arm, and separately
+  bounded treatment and response probabilities, are therefore admissible initial estimators.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
@@ -120,6 +199,19 @@ previous reader had is not a citation; a page number is.
   difference for fixed $V$. This difference is first-order negligible, but it is not zero when fold
   sizes differ. The mapping supports the implemented stacked, pooled, whole-sample construction for
   one near-balanced V-fold partition. Levy gives no repeated-split result.
+
+  The arXiv v1 PDF prints page numbers that equal the PDF page minus two. Section 1, page 2, defines
+  $B_n$ as a random split of the rows. Section 2, page 3, uses standard 10-fold cross-validation for
+  an example whose clever covariate contains an empirical mean. Section 3.1, page 7, gives the
+  remainder. The conclusion, page 8, states that the general class of valid parameters "remains to
+  be more formally generalized".
+
+  For an arm-indexed mean, let `T_a = 1{A = a} * Delta` and keep `U = Delta * Y`. The observed-data
+  curve depends on the record only through `(W, T_a, U)`. Its multiplier is `T_a / (g_a * pi_a)`,
+  and `g_a * pi_a` is `P(T_a = 1 | W)`. That multiplier contains no empirical mean, so the abstract's
+  exact treatment-specific-mean overlap applies to each arm at equal fold sizes. The stacked plug-in weights fold `v`
+  by `n_v / n`, while Zheng and van der Laan weight each fold by `1 / V`. The two agree exactly at
+  equal fold sizes and differ by $O(1/n)$ for near-balanced folds at fixed $V$.
 - Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
   [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
   `R/tmle3_Update.R` selects the
@@ -185,6 +277,71 @@ previous reader had is not a citation; a page number is.
   Zheng and van der Laan (2011) and Levy (2018) separately support the implemented stacked
   cross-fitted contract. None of these results covers population attributable risk or population
   attributable fraction.
+- Source audit of stacked CV-TMLE for arm-indexed means with missing outcomes (2026-09-14): it covers
+  cross-fitted TMLE means `ψ_a = E_W E(Y | A = a, Delta = 1, W)` and their contrasts.
+  [RM9](roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) holds the contract
+  that the next implementation must satisfy. The support chain has five links.
+
+  | link | source | result |
+  | --- | --- | --- |
+  | parameter and curve | Díaz and van der Laan (2017), Section 2.1 and Equation (1); Gruber and van der Laan (2012), Section 2.3 | one arm indicator gives the curve `1{A = a} Delta / (g_a pi_a) (Y - Q(a, W)) + Q(a, W) - ψ_a` in the nonparametric model |
+  | cross-fitting | Zheng and van der Laan (2011), Section 2 and Theorems 1–2 | a vector parameter, an external uniform split, and initial estimators restricted only by limits and rates |
+  | remainder | Díaz, Carone and van der Laan (2016), Equation (3) | the exact product remainder supplies the second-order condition for each arm |
+  | stacked evaluation | Levy (2018), abstract and conclusion | each arm's multiplier has no empirical mean, so stacked and fold-evaluated points agree at equal fold sizes |
+  | contrasts | Gruber and van der Laan (2012), Appendix A; `tmle` 2.1.1 lines 1606, 1623–1624, 1635–1636 | the ATE is linear, and the log RR and log OR curves combine the two same-row arm curves |
+
+  Díaz and van der Laan state their Assumption 2 conditional on `W`. The curve in Equation (1)
+  does not use the randomization, so it applies to observational treatment. The curve reads the
+  record only through `(W, T_a, U)`, which the Levy entry defines.
+
+  Two package facts bound the joint fit. Each row of the arm-indexed clever covariate has one
+  nonzero column (`src/cleverly/fluctuation/submodel.py:463-466`). In `_newton_logistic`
+  (`src/cleverly/fluctuation/iterative.py:696`), the gradient and Hessian separate by arm, but the
+  line search and the stopping rule act on the whole vector. A joint fluctuation therefore equals
+  the per-arm fits only to solver tolerance.
+
+  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:138`).
+  It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
+  this centered rule (`src/cleverly/estimators/tmle.py:2784-2786`). The stacked natural-course
+  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:240-278`). A stacked curve
+  has empirical mean zero to targeting tolerance, so the two rules agree to first order.
+
+  The table gives the source verdict for each composition in the arm-indexed mean group. RM9 decides
+  how the implementation admits or refuses each one.
+
+  | composition | source verdict | reason |
+  | --- | --- | --- |
+  | binary outcome; `ey`, `ey0`, `ey1`, `ate` | source-supported | the five links |
+  | binary outcome; `rr` and `or` on the log scale | source-supported | the five links and Appendix A, page 34 |
+  | bounded continuous outcome with a fixed `q_bounds`; `ey`, `ey0`, `ey1`, `ate` | source-supported | Zheng and van der Laan, Theorem 2 with the `(W, T_a, U)` reduction; their Theorem 4 and Gruber and van der Laan (2010), Section 2 and Lemma 1, for the transform |
+  | continuous outcome with `q_bounds=None` | no source read | the scale depends on held-out outcomes, as the next paragraph states |
+  | three or more arms | source-supported | Díaz and van der Laan, Section 2.1, use one indicator per arm; no registered study exists, and JSS page 28 states that R `tmle` takes only a binary treatment |
+  | ATT or ATC | no source read | the clever covariate carries an empirical arm share, so the Levy overlap statement does not cover it |
+  | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
+  | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |
+  | supplied split plan | no source read | the balance and weighting requirements are unaudited |
+  | folds stratified on treatment or outcome | no source read | the sources analyze a split that does not depend on treatment or outcome values |
+  | one fold with cross-fitting | not cross-fitting | one fold trains and evaluates on the same rows |
+  | weights, clusters, or baseline strata | no source read | every source treats unweighted iid rows |
+  | bootstrap inference | no source read | no source covers a bootstrap of this estimator |
+  | linear fluctuation, one-step targeting, or weighted targeting | no source read | Zheng's Theorem 3 treats the squared-error loss without missing outcomes |
+  | C-TMLE with cross-fitted arm-indexed missing outcomes | no source read | the collaborative score and selection risk are not derived |
+
+  With `q_bounds=None`, `_scaler` builds the outcome scale from every observed outcome before the
+  split (`src/cleverly/estimators/tmle.py:1134-1141`). The outcome learners train on the scaled
+  outcome (`src/cleverly/estimators/_nuisance.py:1202`). A held-out outcome therefore sets the
+  scale of the training fit. Gruber and van der Laan (2010) derive only the known-interval case.
+  Gruber and van der Laan (2012), Section 3.2, warn about observed-range bounds under missingness.
+
+  The audit did not examine five sibling surfaces.
+
+  | sibling surface | fact |
+  | --- | --- |
+  | shift, incremental, regime, MSM, and controlled-direct-effect targets | they fit today under cross-fitting with missing outcomes, and tests cover them |
+  | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
+  | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`) |
+  | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
+  | the `learner_folds` split inside a Super Learner | RM9 must audit this split separately, because the preflight cannot see it |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
@@ -192,6 +349,11 @@ previous reader had is not a citation; a page number is.
   positivity conditions. Section 3, Equation (1), gives the treatment-by-response influence
   curve. Equation (3) gives the logistic TMLE. Conditions 1–2 and Equations (4)–(5) give its
   product-rate conditions.
+
+  Section 2.1, page 6, defines `A` as a binary treatment arm indicator. It notes that the
+  application has four such indicators. This locator comes from the arXiv v1 author manuscript, and
+  this audit did not compare it with the journal version. The
+  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same paper records its other locators.
 
   The paper fixes a randomized binary treatment. It does not establish the package's observational
   attributable-effect pair. Hubbard and van der Laan supply the complete-data treatment mechanism.
@@ -851,12 +1013,27 @@ rather than a comparison target.
   an expansion of van der Laan's binary theorem.
 - Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819, DOI
-  [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). Read first-hand. §2.1 states the observed-
-  data model and EIF; equation (6) defines the reductions; Theorems 1–2 and equations (11)–(13)
-  give the corrections and targeting algorithm. This establishes the missing-outcome construction
-  for randomized treatment; it does not establish the observational-treatment or missing-treatment
-  compositions exposed by the canonical package, and it explicitly leaves cross-validation to
-  future work.
+  [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). Read first-hand in the arXiv v1 author
+  manuscript. The locators below are that manuscript's pages. This audit did not compare them with
+  the journal version.
+
+  | locator | content |
+  | --- | --- |
+  | Section 2.1, page 6 | observed data $(W, A, M, MY)$ in the nonparametric model, with `A` a binary arm indicator |
+  | Assumption 2, page 7 | treatment independent of the potential outcome given `W` |
+  | Section 3, Equation (1), page 10 | the efficient influence function |
+  | Section 3, Equation (3), page 11 | the logistic TMLE among rows with $(A, M) = (1, 1)$ |
+  | Equation (6), page 15 | the reductions |
+  | Theorem 1, page 16, Equations (11)–(13), page 19, and Theorem 2, page 20 | the corrections and the targeting algorithm |
+
+  The [point-treatment entry](#point-treatment-and-stochastic-interventions) for the same paper
+  records its identification and rate locators.
+
+  The paper establishes the missing-outcome construction for randomized treatment. It does not
+  establish the observational-treatment or missing-treatment compositions that the canonical
+  package exposes. Page 4 calls cross-validated results "straightforward extensions of the work of
+  Zheng and van der Laan (2011)". It adds "we do not pursue such results here". Page 26 states that
+  such a development "would follow from trivial extensions" of that work.
 
 The `benkeser/drtmle` R package supplies implementation provenance and a bounded numerical
 comparison. Agreement with it does not establish the theorem or truth-based validity. The
