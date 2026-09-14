@@ -81,6 +81,8 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "Respondents are a lower-risk group", and the naive respondent contrast overshoots.
     by_response = namespace["by_response"]
+    assert by_response.loc[1.0, "discharge_risk"] < 0.0 < by_response.loc[0.0, "discharge_risk"]
+    assert round(float(by_response.loc[1.0, "discharge_risk"]), 3) == -0.232
     assert by_response.loc[0.0, "discharge_risk"] > by_response.loc[1.0, "discharge_risk"] + 0.5
     truth = namespace["truth"]["ate"]
     assert namespace["unadjusted"] > truth
