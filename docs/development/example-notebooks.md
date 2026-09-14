@@ -122,8 +122,8 @@ to the reference. The table gives a starting sentence and a link for the common 
 | double robustness | the point estimate stays consistent when either nuisance model is consistent | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | sensitivity analysis | how strong an unmeasured confounder would need to be to change the conclusion | [sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis) |
 
-Link to a sibling tutorial by its current file name. A sibling that is still Markdown keeps its
-`.md` link until its own conversion lands.
+Link to a sibling tutorial by its notebook file name, such as `cross-fitting.ipynb`. A heading
+anchor in a notebook includes its step number, such as `#step-9-reuse-the-same-outer-split`.
 
 ## Write the callback
 

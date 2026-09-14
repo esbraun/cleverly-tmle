@@ -26,7 +26,7 @@ Collaborative TMLE is available for point-treatment, arm-axis fits whose target 
 before any model is fitted.
 
 A worked applied analysis is in the
-[collaborative TMLE tutorial](../examples/collaborative-tmle.md). It shows both the
+[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It shows both the
 comparison that discriminates and the one that does not.
 
 The selector does not identify a causal adjustment set. Establish the eligible baseline set from

@@ -609,12 +609,12 @@ previous reader had is not a citation; a page number is.
 - Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &
   Hall/CRC. Chapter 20 treats treatment-confounder feedback. Section 20.3, pages 271-273 of the
   edition dated 19 August 2026, shows why adjustment for that confounder opens a collider path. Cited by the
-  [longitudinal TMLE tutorial](examples/longitudinal-tmle.md).
+  [longitudinal TMLE tutorial](examples/longitudinal-tmle.ipynb).
 - Young, Stensrud, Tchetgen Tchetgen & Hernán (2020), [*A causal framework for classical
   statistical estimands in failure-time settings with competing events*](https://doi.org/10.1002/sim.8471),
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
-  conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.md).
+  conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
 
 ## Incremental interventions
 

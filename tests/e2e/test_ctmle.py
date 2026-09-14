@@ -449,7 +449,7 @@ class TestBackendParity:
 
 
 def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
-    """The exact numbers ``docs/examples/collaborative-tmle.md`` asks a reader to read.
+    """The exact numbers ``docs/examples/collaborative-tmle.ipynb`` asks a reader to read.
 
     At this seed the search cuts at the intercept-only candidate, so the working
     mechanism is a constant: AUC lands on chance and the calibration slope on ``-2``.

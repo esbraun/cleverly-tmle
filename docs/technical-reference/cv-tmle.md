@@ -31,7 +31,7 @@ interval, and folds address one of them.
 The last condition is the one a *variant* of the estimator can weaken. That variant is
 [DR-TMLE](dr-tmle/index.md).
 
-A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.md). It
+A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.ipynb). It
 measures what an in-sample interval costs under a flexible learner.
 
 ## The algorithm as implemented
@@ -155,7 +155,7 @@ records the repeated-sampling evidence. It also compares the pooled target again
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
 them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. This
 section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
-and the [tutorial](../examples/cross-fitting.md#reuse-the-same-outer-split) link here rather than
+and the [tutorial](../examples/cross-fitting.ipynb#step-9-reuse-the-same-outer-split) link here rather than
 restating it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and

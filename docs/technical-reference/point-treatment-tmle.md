@@ -30,8 +30,8 @@ Reach for a different entry in four cases.
 Three worked applied analyses cover this entry. The
 [point-treatment tutorial](../examples/point-treatment-tmle.ipynb) is the main one, and it also
 demonstrates the conditional-population effects below. The intervention axes have their own
-tutorial in [intervention axes](../examples/interventions.md). Missing outcomes have theirs in
-[survey non-response](../examples/survey-nonresponse.md).
+tutorial in [intervention axes](../examples/interventions.ipynb). Missing outcomes have theirs in
+[survey non-response](../examples/survey-nonresponse.ipynb).
 
 ## The algorithm as implemented
 

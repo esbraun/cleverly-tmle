@@ -25,7 +25,7 @@ which is the single most important page in this section.
 
 What this is *not*: a better point estimate. The extra fluctuations update the outcome
 regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
-[DR-TMLE tutorial](../../examples/dr-tmle.md) prints both estimates on one draw. The design does
+[DR-TMLE tutorial](../../examples/dr-tmle.ipynb) prints both estimates on one draw. The design does
 not aim at a smaller error for `Ψ̂`. It aims at asymptotic linearity when one primary nuisance is
 inconsistent, so its interval needs weaker conditions.
 
@@ -79,7 +79,7 @@ inference can survive one inconsistent primary nuisance.
 `DRTMLE` ships under **conditional validity**. Read
 [the release claim](#the-release-claim-in-one-paragraph) before you rely on it.
 
-A worked applied analysis is in the [DR-TMLE tutorial](../../examples/dr-tmle.md). It shows why
+A worked applied analysis is in the [DR-TMLE tutorial](../../examples/dr-tmle.ipynb). It shows why
 one fit cannot display what this variant buys.
 
 An inconsistent nuisance model is not unmeasured confounding. This variant still requires the

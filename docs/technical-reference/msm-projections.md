@@ -23,7 +23,7 @@ The projection is a fourth parameter axis. `msm=` cannot be combined with `inter
 parameters from two axes would put two of them under one heading.
 
 A worked applied analysis is in the
-[MSM projections tutorial](../examples/msm-projections.md). It checks the saturated case
+[MSM projections tutorial](../examples/msm-projections.ipynb). It checks the saturated case
 against the per-arm report.
 
 ## The algorithm as implemented
