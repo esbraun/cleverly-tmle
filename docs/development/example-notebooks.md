@@ -22,6 +22,10 @@ in order, in one namespace, and passes that namespace to `check`. The module can
 `UNPRINTED_DECIMALS`, a mapping from a decimal the prose writes to the reason no output prints it.
 The package docstring in `tests/unit/tutorial_semantics/__init__.py` states the convention.
 
+The TWINS notebook downloads its data, so the offline fast tier does not execute it. Its module
+`tests/unit/tutorial_semantics/twins_causal_inference.py` defines no `check`. It defines
+`UNPRINTED_DECIMALS` and `check_stored()`, which read committed outputs only.
+
 These fast tests read your notebook. Each one takes the notebook path as its test id, so the
 selection `-k <stem>` runs all of them.
 
@@ -31,7 +35,8 @@ selection `-k <stem>` runs all of them.
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
 | `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds |
-| `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision |
+| `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
+| `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
 
 The link test `tests/unit/test_documentation_links.py` also reads the markdown cells. Every relative
 link and every heading anchor in them must resolve.
@@ -46,7 +51,7 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 | 1 | `title` | markdown | the title as the only level-one heading, the applied question, who asks it, and a "What you will learn" table | none |
 | 2 | `plan` | markdown | "Why this method", and a table of the terms the page uses most | none |
 | 3 | `setup` | code | the imports and the installed `cleverly` version | the version |
-| 4 | `data` | code | the data, with the columns renamed to the program's names | the shape, the first rows, and the known truth of the synthetic law |
+| 4 | `data` | code | the data under the program's column names, as [the data step](#the-data-step) describes | the shape, the column names, the first rows, and the known truth of the synthetic law |
 | 5 | `association` | code | an unadjusted comparison, where confounding is part of the lesson | the naive contrast beside the truth |
 | 6 | `protocol` | code | the `StudyProtocol` for the question | `protocol.summary_lines()`, including the fingerprint |
 | 7 | `identify` | code | the `CausalStudy`, the design, and `study.identify(...)` | `effect.summary()`: the formula, the nuisances, and the assumptions |
@@ -60,6 +65,18 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 A tutorial can add steps between rows 8 and 11, such as a second population or a truncation curve.
 Give each added step a heading, a code cell, and its reading. Keep every scientific claim of the
 Markdown tutorial. A claim the output cannot show moves into the reading as a stated condition.
+
+### The data step
+
+Take the program's column names from one place, so every page uses the same names.
+
+| generator | what to write |
+| --- | --- |
+| `make_nonlinear_ate` | `frame, truth = navigation_data(n=..., seed=...)`, imported from `cleverly.datasets`. Do not rename its columns in the notebook |
+| another generator | `frame.rename(columns=...)` with that generator's mapping. Each generator gives its `W` columns other meanings, so no shared mapping fits them |
+
+Print the column names in the data step, such as `print(list(frame.columns))`. The printed names
+show the reader which columns the page uses. Name the generator in the reading.
 
 ### The protocol step
 
@@ -83,12 +100,23 @@ The protocol does not store the contrast or the analysis. The typed estimand own
 the method owns the analysis configuration. The
 [shared study design](../examples/index.md#the-shared-study-design) gives the program values.
 
-Do not copy the program values into a notebook. Start a point-treatment protocol from
-`cleverly.datasets.navigation_protocol()`. Pass it to `dataclasses.replace`, and give only the
-fields your question changes. Reuse an unchanged entry of a sequence field by index, such as
-`*program.assumption_rationale[1:]`. Write a new `StudyProtocol` only when most fields differ, as the
-longitudinal tutorials do. Name the changed fields in the reading, and assert them in the callback
-with `changed_fields`.
+Do not copy the program values into a notebook. Start from the helper in `cleverly.datasets` that
+matches the design.
+
+| design | helper |
+| --- | --- |
+| one navigation decision at the discharge-home order | `navigation_protocol()` |
+| navigation decisions at discharge and later, with time zero at discharge | `longitudinal_navigation_protocol()` |
+
+Pass the helper's result to `dataclasses.replace`, and give only the fields your question changes.
+Reuse an unchanged entry of a sequence field by index, such as `*program.assumption_rationale[1:]`.
+To add a strategy, such as a dynamic rule, append it and its version:
+`treatment_strategies=(*program.treatment_strategies, "<the rule>")`. Write a new `StudyProtocol`
+only when neither helper fits the design.
+
+Every protocol that a notebook derives with `dataclasses.replace` needs two records. The reading
+names the changed fields. The callback asserts the exact set with `changed_fields(protocol, base)`,
+where `base` is the protocol that `replace` received.
 
 ## Rules for code cells
 
@@ -98,7 +126,8 @@ with `changed_fields`.
 | Print each number the prose quotes, rounded the way the prose writes it | the narration test compares prose decimals with stored outputs |
 | Pass explicit, cheap learners to every fit. Prefer linear and logistic models where the lesson allows | the default learner library costs 30 to 120 seconds per fit |
 | Set every seed: the generator seed, `Runtime(random_state=...)`, and each learner's `random_state` | a rerun must reproduce the stored outputs |
-| Set `n_jobs=1` in `Runtime` and in every learner | several notebooks execute on one machine at once |
+| Set `n_jobs=1` in `Runtime` and in every learner that accepts it | several notebooks execute on one machine at once |
+| Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
 | Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The reference notebook takes 12 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
@@ -114,6 +143,26 @@ table where the content is parallel. `python -m tests.prose --path <notebook>` r
 Start each reading with `**What this output tells you.**`. Then name the part of the output you
 read, give its value, and say what it means for the program. Quote a number only when a stored
 output prints it.
+
+Each reading also follows these rules.
+
+| rule | reason |
+| --- | --- |
+| Put a status word, a label, or a column name in backticks only when a stored output prints it. The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token. No test catches this, because each program protocol prints "regardless of completed contacts" |
+| Do not write that one seeded draw shows or establishes a property of the method. Cite a registered study for the property | one draw is one sample. The callback pins it as a relation, and a relation certifies no method |
+| Explain an interval that misses the true value as sampling variation, and give the distance in standard errors. Name another cause only when a probe or a study supports it | a 95% interval misses on about one draw in 20 |
+| Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` uses the joint influence curve, so it includes their correlation |
+| Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Otherwise print it, state which derivation is missing, and do not interpret the number | an underived bound can be too narrow. The next table gives the known cases |
+| Describe a refusal as what `cleverly` does not implement. Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
+
+The [omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+are derived for the ordinary treatment model. `_elements_for` in
+`src/cleverly/sensitivity/omitted_variable.py` builds $\nu^2$ from the fit's own treatment model.
+
+| fitted estimator | why the bounds and the robustness value are not derived for it |
+| --- | --- |
+| DR-TMLE | the page doubts the treatment model. A wrong treatment model makes the estimate of $\nu^2$ too small, so the bounds read too narrow and the robustness value reads too large |
+| C-TMLE | $\nu^2$ comes from the selected working treatment model. By Jensen's inequality, a propensity on fewer covariates gives a $\nu^2$ no larger than the full set gives. The robustness value is then optimistic by construction |
 
 Introduce each TMLE concept the first time the page uses it. Write one plain sentence, then link
 to the reference. The table gives a starting sentence and a link for the common concepts.
@@ -147,7 +196,7 @@ Use the shared helpers in `tests/unit/tutorial_semantics/__init__.py`. Do not de
 | --- | --- |
 | `covers(estimate, value)` | the estimate's interval, or a `(low, high)` pair, contains the value |
 | `assert_protocol_recorded(NOTEBOOK, "<cell id>", protocol, *results)` | the cell prints the protocol fingerprint, and each result carries it |
-| `changed_fields(protocol, navigation_protocol())` | the set of protocol fields the page changes. Assert the exact set the reading names |
+| `changed_fields(protocol, base)` | the set of fields in which `protocol` differs from the protocol it was derived from. Assert the exact set the reading names |
 
 Do not loosen a tolerance to make a relation pass. A relation that moves under a supported change is
 a sampling claim, and it belongs in a registered study.
