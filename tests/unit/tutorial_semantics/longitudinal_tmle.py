@@ -87,6 +87,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(sequential, target)
     # "0.137 below", "0.051 above", and "within one standard error" (measured 0.43 SE).
     assert adjusted.psi < target - 0.1
+    assert namespace["adjusted_gap_magnitude"] == pytest.approx(target - adjusted.psi)
+    assert round(namespace["adjusted_gap_magnitude"], 3) == 0.137
     assert 0.03 < baseline_only.psi - target < 0.08
     assert abs(sequential.psi - target) < sequential.std_error
     # "400 navigator teams".
@@ -168,14 +170,27 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.0 < movement < 0.005
     assert movement < 0.3 * sequential.std_error
 
-    # "Every score row passed": solver rows at solver precision, stitching rows near zero in SE.
+    # "Every score row passed": raw solver residuals are nonzero but far below the report
+    # tolerance, while the presentation copy renders only those negligible solver values as zero.
     scores = namespace["scores"]
     assert scores["passed"].all()
     solver = scores[scores["kind"] == "solver"]
     stitching = scores[scores["kind"] == "stitching"]
     assert len(solver) == len(stitching) == 4
-    assert (solver["relative_score"] < 1e-10).all()
-    assert stitching["z"].abs().max() < 1.0
+    assert solver["relative_score"].gt(0.0).any()
+    assert (solver["relative_score"] < namespace["solver_display_floor"]).all()
+    score_display = namespace["score_display"]
+    displayed_solver = score_display[score_display["kind"] == "solver"]
+    assert (displayed_solver["relative_score"] == 0.0).all()
+    # Stitching is not a second solver check: its pooled out-of-fold scores remain measurably
+    # nonzero, have both signs, and are judged against their sampling scale.
+    assert stitching["relative_score"].gt(0.0).all()
+    assert stitching["z"].min() < -0.1 < 0.0 < stitching["z"].max()
+    stitching_max_abs_z = namespace["stitching_max_abs_z"]
+    assert stitching_max_abs_z == pytest.approx(stitching["z"].abs().max())
+    assert round(stitching_max_abs_z, 2) == 0.14
+    retained_output = stored_output(NOTEBOOK, "retained-reports")
+    assert "largest absolute stitching z: 0.14" in retained_output
     # "The lowest calibration slope is ... for the censoring model at node 2", below the ideal 1,
     # "beside the `auc` of 0.541": the model barely separates who stays tracked.
     nuisance = namespace["nuisance"]
