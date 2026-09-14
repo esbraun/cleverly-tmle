@@ -125,8 +125,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["nuisance"].treatment_role == "collaborative_working_model"
     # "no row is truncated" in the support report of the collaborative fit.
     assert namespace["support"].truncated["fraction"] == 0.0
-    # "its AUC is about 0.5" for the intercept-only working model. The page quotes the
-    # calibration slope only to say it is not meaningful, so no relation is asserted.
+    # "its AUC is about 0.5" for the intercept-only working model. The page says the
+    # calibration slope is not meaningful for a constant model, so no relation is asserted.
     assert 0.45 < namespace["nuisance"]["propensity"].metrics["auc"] < 0.55
 
     # "The difference comes from `nu2`", because the representer reads the selected constant
