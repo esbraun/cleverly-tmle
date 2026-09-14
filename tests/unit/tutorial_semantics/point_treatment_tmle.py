@@ -45,6 +45,7 @@ def check(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]
     unadjusted = namespace["unadjusted"]
     assert unadjusted > truth["ate"]
+    assert by_arm.loc[0.0, "discharge_risk"] < 0.0 < by_arm.loc[1.0, "discharge_risk"]
     assert by_arm.loc[1.0, "discharge_risk"] > by_arm.loc[0.0, "discharge_risk"] + 0.3
     # "the ATT exceeds the ATE", and "Other terms of the law give the offered patients lower
     # scores without the offer": the two distortions have opposite signs in the law.
@@ -89,6 +90,12 @@ def check(namespace: dict[str, Any]) -> None:
     # "its interval ... excludes the true value", while the Step 6 interval contains it.
     assert not covers(namespace["dr_points"]["both linear"], ate)
     assert covers(namespace["estimate"], ate)
+    # The summary prints padded scaling bounds, not the observed outcome range. The signed
+    # endpoints witness both the padding and the direction of the narrated negative value.
+    scaler = namespace["result"].nuisance.scaler
+    assert (round(scaler.lower, 3), round(scaler.upper, 2)) == (-4.372, 14.81)
+    outcome = np.asarray(namespace["frame"]["transition_score"], dtype=float)
+    assert scaler.lower < outcome.min() < outcome.max() < scaler.upper
 
     # Step 9: exactly one warning, and the score-equation check passed.
     assessment = namespace["assessment"]
@@ -106,6 +113,9 @@ def check(namespace: dict[str, Any]) -> None:
     # of the patients" at the largest bound, and the fitted bound comes from 5 / (sqrt(n) log n).
     curve = namespace["curve"]
     assert curve["std_err"].is_monotonic_decreasing
+    assert curve["std_err"].iloc[0] > curve["std_err"].iloc[-1] + 0.1
+    assert float(np.ptp(curve["psi"].to_numpy())) > 0.02
+    assert np.all(np.diff(curve["truncated_fraction"].to_numpy()) > 0.0)
     assert curve["truncated_fraction"].iloc[-1] > 0.25
     n = len(namespace["frame"])
     fitted_bound = 5.0 / (np.sqrt(n) * np.log(n))
