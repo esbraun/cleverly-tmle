@@ -46,7 +46,7 @@ criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| cross-fitted evidence | RM17 audit, then RM9, then RM10, then the RM17 default changes and study regeneration | the RM17 decision sets the RM9 fold and scale rules; RM9 and RM10 use the same stitched-nuisance R comparator |
+| cross-fitted evidence | RM9, then RM10, then the RM17 default changes and study regeneration; the RM17 iid audit is complete | the RM17 decision sets the RM9 fold and scale rules; RM9 and RM10 use the same stitched-nuisance R comparator |
 | sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
 | collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
@@ -693,8 +693,8 @@ conditions.
 
 | cell | audit decision | next implementation |
 | --- | --- | --- |
-| point-treatment TMLE and DR-TMLE, treatment strata | no reviewed inference result covers the observational outer split | make `"none"` the default; refuse explicit treatment strata before nuisance fitting |
-| point-treatment TMLE and DR-TMLE, treatment-plus-outcome strata | no reviewed result covers a split that uses held-out outcomes | refuse the option before nuisance fitting |
+| point-treatment TMLE and DR-TMLE, treatment strata | no reviewed inference result covers the observational outer split | make `"none"` the default; with `cross_fit=True`, refuse explicit treatment strata before nuisance fitting |
+| point-treatment TMLE and DR-TMLE, treatment-plus-outcome strata | no reviewed result covers a split that uses held-out outcomes | with `cross_fit=True`, refuse the option before nuisance fitting |
 | C-TMLE outer, selection, and nested selection folds | the reviewed CV-TMLE and C-TMLE sources do not cover these data-dependent assignments; selector inference has the separate [F18](#f18-selector-path-c-tmle-inference) gap | use external random folds at each layer; refuse explicit treatment or outcome strata without claiming F18 is closed |
 | longitudinal TMLE first-node treatment strata | the reviewed longitudinal theorem defines random near-balanced row folds, but its targeting construction also differs from the shipped estimator | generate unstratified folds for iid rows; audit grouped folds and the fold-local targeting theorem separately |
 | grouped outer folds | this iid audit does not establish a split law for whole-cluster assignments | audit the clustered point and longitudinal studies against a cluster-level result; refuse an unsupported composition before nuisance fitting |
@@ -705,7 +705,28 @@ conditions.
 
 After RM10, implement the global RM17 changes. Remove the `"none"` reservation in
 `src/cleverly/estimators/tmle.py:1236-1245`. Route unsupported split policies, supplied plans,
-and missing bounds to named pre-fit refusals. Keep the ordinary one-fold path separate.
+and missing bounds to named pre-fit refusals. Keep the ordinary one-fold path separate. That path
+ignores fold strata (`tmle.py:1413-1414`), so the point-treatment strata refusals apply only when
+`cross_fit=True`.
+
+Update each message that recommends a policy RM17 refuses or no longer needs:
+
+| location | stale text |
+| --- | --- |
+| `src/cleverly/estimators/tmle.py:193-199` | the in-sample remedy restores `stratify_by='treatment'` because of the removed reservation |
+| `src/cleverly/study.py:858-859` | the docstring says the complete-outcome branch refuses `stratify_by="none"` |
+| `src/cleverly/estimators/_nuisance.py:829-833` | the empty-training-fold remedy recommends `stratify_folds='treatment+outcome'` |
+| `src/cleverly/estimators/ctmle.py:869-871` | the empty-training-outcome remedy recommends `stratify_folds='treatment+outcome'` |
+
+For iid rows, generated unstratified folds cap the fold count only by the row count. The cap
+uses the rarest stratum only when strata exist (`src/cleverly/learners/crossfit.py:726-730`).
+The split then uses plain `KFold` (`:805-807`), so a rare arm can be absent from a training
+complement.
+
+Check arm support in every training complement after fold generation. Refuse before the first
+learner call. Do not redraw the split, because a redraw conditioned on `A` makes the
+assignment depend on treatment again. `_preflight_natural_course_folds` (`tmle.py:1247-1279`)
+already applies this check to response support.
 
 Audit the full validation grid before regeneration. The canonical CV-TMLE, fold-evaluated
 CV-TMLE, repeated cross-fitting, C-TMLE selector, C-TMLE property, and longitudinal studies use
@@ -730,8 +751,11 @@ nuisance rates that this audit does not establish.
 
 The witnesses must fail when a component is wrong:
 
-- an iid test that generated outer fold membership depends on row count and seed, with separate
-  mutations that make it depend on `A` or `Y`;
+- an iid test that generated outer folds depend only on the row count and the seed, with
+  separate mutations adding a dependence on `A` or `Y`;
+- a counting learner that records zero fits when `TMLE` or `DRTMLE` with `cross_fit=True` refuses
+  `"treatment"` or `"treatment+outcome"` strata;
+- the same counting learner on a generated split that leaves an arm out of a training complement;
 - scaled training predictions that stay fixed under a fixed `q_bounds` and move under
   `q_bounds=None`;
 - an outer-held-out outcome mutation that leaves every inner Super Learner training fold fixed;
