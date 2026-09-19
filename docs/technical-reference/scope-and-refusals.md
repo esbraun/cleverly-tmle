@@ -181,6 +181,11 @@ error.
 | `DRTMLE` with `delta=` and `cross_fit=True` | `NotImplementedError` | when the fit starts, before any learner is fitted |
 | minimum content | `DataError` | after fold generation, before any learner is fitted |
 
+A `DRTMLE` fit with `stratify_folds="none"` meets a different refusal first. The engine reserves
+unstratified folds for ordinary TMLE, so that fit raises the reservation `CapabilityError` at
+every `guard`, including `guard=()`. It does not reach the `NotImplementedError` in the table.
+`tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
+
 The composition check runs its steps in a fixed order. A fit that breaks several rules receives
 the first one. Each message names the missing result and the setting that the contract admits.
 A setting message gives both the engine keyword and the public spelling. `tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and
