@@ -12,18 +12,18 @@ published theory do not enter this sequence.
 ## Remediation
 
 The examples are executable, but their review exposed gaps in the public study record and in
-post-fit coverage. Complete these rows in order before main-roadmap priority 1. A new capability
-still needs its own contract and evidence, even when it appears in this top-priority queue.
+post-fit coverage. Follow the delivery order below. Complete every row before main-roadmap
+priority 1. A new capability still needs its own contract and evidence, even in this queue.
 
 The "next action" column states the remediation work. It is not a readiness label. The first RM9
 implementation is complete. The RM9 source audit of the arm-indexed stacked surface is also
 complete. RM9 holds the contract for the next implementation. The review of the stacked study, not
 the examples, exposed the RM10 gap.
 
-The 2026-09-14 review of the RM9 contract exposed RM17. The default cross-fitted fit builds its
-fold strata and its outcome scale from the data. The cited theorems analyze a random split that
-does not depend on the data. Complete the RM17 audit first, because its result sets the RM9 fold and
-scale rules.
+The 2026-09-14 review of the RM9 contract exposed RM17. The 2026-09-18 source audit found no
+result for the shipped data-dependent outer folds or the continuous outcome scale. RM9 can use
+generated unstratified folds and prespecified bounds. The global default changes follow RM9 and
+RM10.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -31,7 +31,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Data-dependent fold strata and outcome scales under cross-fitting | audit the sources for treatment-stratified folds, for `"treatment+outcome"` folds, and for an outcome scale built from all rows before the split, across CV-TMLE, DR-TMLE, C-TMLE, and longitudinal TMLE; then register evidence for each supported composition, or refuse it and change the default | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the cited theorems analyze a random split that does not depend on the data | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
+| 0.1 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; after RM9 and RM10, change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
 | 0.2 | Cross-fitted missing-outcome TMLE audit and evidence | implement the arm-indexed stacked contract, its refusals and response preflight, and register its R `tmle` study | tutorials fit arm-indexed stacked MAR means and contrasts that no study covers, and the fit accepts compositions that no audited source supports | [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) |
 | 0.3 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
 | 0.4 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
@@ -164,8 +164,8 @@ An item is complete only when all applicable conditions hold:
 The [implementation validation grid](technical-reference/method-evidence/validation-grid.md)
 records completed studies. The ordinary and binary stacked missing-at-random natural-course means
 are implemented and registered there. The ordinary arm-indexed missing-outcome row covers only
-binary `ey1`, `ey0`, and `ate`. RM17 audits the fold strata and the outcome scale that the
-default cross-fitted fit and several registered studies use. RM9 holds the arm-indexed stacked
+binary `ey1`, `ey0`, and `ate`. The RM17 source audit records the fold and outcome-scale gaps in
+the default cross-fitted fit and several registered studies. RM9 holds the arm-indexed stacked
 contract and its study. RM10 holds the comparator for the ordinary estimator.
 
 Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
@@ -250,10 +250,9 @@ declares the centered rule (`src/cleverly/estimators/tmle.py:2784-2786`).
 The band rests on the joint expansion of Zheng and van der Laan, Theorem 2. It also rests on a conditional multiplier
 central limit theorem for a fixed number of estimands. The paper does not state the band.
 
-The contract keeps `stratify_by="none"` and a fixed `q_bounds` until the
-[RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audit decides. If
-RM17 supports treatment strata, RM9 admits them. The implementation inventory then needs fewer
-`stratify_by="none"` edits to tutorials and tests.
+The [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audit found no
+result for treatment-stratified folds or an outcome scale derived from held-out rows. This
+contract therefore uses `stratify_by="none"` and prespecified `q_bounds`.
 
 A preflight raises `DataError` after fold generation and before any learner call.
 
@@ -272,7 +271,7 @@ A preflight raises `DataError` after fold generation and before any learner call
 | `estimator_name` labels a one-fold cross-fit "stacked CV-TMLE (Levy)" | the property reads only `cross_fit`, `targeting_scheme`, and `cv_evaluation` (`src/cleverly/estimators/base.py:172`) | refuse `n_folds=1` |
 | a response class with too few rows fails inside a learner | probe A | add the preflight |
 | held-out outcomes set the training scale | `_scaler` reads every observed outcome before the split (`src/cleverly/estimators/tmle.py:1134-1141`); learners train on the scaled outcome (`src/cleverly/estimators/_nuisance.py:1202`) | refuse `q_bounds=None` for a continuous outcome |
-| the `"none"` reservation excludes this surface | `src/cleverly/estimators/tmle.py:1236-1245` reserves it for the natural-course mean; the default is `"treatment"` (`src/cleverly/methods.py:177`) | admit `"none"` here, and refuse strata until RM17 decides |
+| the `"none"` reservation excludes this surface | `src/cleverly/estimators/tmle.py:1236-1245` reserves it for the natural-course mean; the default is `"treatment"` (`src/cleverly/methods.py:177`) | admit `"none"` here, and refuse treatment or outcome strata under the RM17 audit |
 | two docstrings call `cv_targeting.pooled` the stacked report | `src/cleverly/estimators/base.py:254-263` and `src/cleverly/estimators/tmle.py:301-302`; `_validation_weights` reweights folds by `n / (V n_v)` under `cv_evaluation=True` (`src/cleverly/estimators/tmle.py:2358-2384`) | state that the field equals the stacked report only at equal fold sizes |
 
 Both probes ran at commit `cd30299`. Probe A draws `make_missing_outcome_binary(n=200, seed=3)`,
@@ -642,9 +641,8 @@ at its node. A truncated fit labels a `score load` that differs from its `ratio 
 
 The default cross-fitted fit builds two inputs from the data before the split. The treatment
 constrains fold membership. For a continuous outcome, a scale from every observed outcome sets the
-transform. The cited
-cross-fitting theorems analyze a random split, and no reviewed source derives either choice. This
-row records a missing derivation, not a measured bias.
+transform. The 2026-09-18 audit found no reviewed result for either choice under the shipped
+estimators. This finding does not establish bias or invalid coverage.
 
 | surface | default | evidence |
 | --- | --- | --- |
@@ -675,6 +673,11 @@ it checked in each.
 | Rafi (2023), arXiv:2305.08340v1 | Assumption 4.2, page 20: the folds of each treatment-by-stratum cell "depend only on" an independent uniform draw and the cell size | does not cover the package; it treats a cross-fitted AIPW estimator for a binary treatment under covariate-adaptive randomization, with target proportions set by design and covariate strata, not outcome strata |
 | Gruber and van der Laan (2010), Working Paper 265 | Section 3, PDF page 9; Section 4, PDF pages 13–14 | data-derived bounds as a practice, with no derivation and no cross-fitting split |
 | Gruber and van der Laan (2012) | Section 3.2, page 16 | warns about observed-range bounds under missing outcomes; no cross-fitting split |
+| Smith et al. (2025) | Sections 2.1 and 6 | describes sample-range scaling, but studies binary outcomes only and calls for continuous-outcome research |
+| Polley (2010) | Section 1.1.2, PDF page 15, and Section 2.2, Theorem 1, PDF pages 23–24 | the Super Learner oracle result uses folds independent of its learning sample |
+| Ju et al. (2018 preprint of the 2019 C-TMLE article) | Algorithm 1, PDF page 5; Section 5.5, PDF pages 9–10 | selects by cross-validated loss, but does not define treatment or outcome strata; its scalable selector explicitly avoids nested cross-validation |
+| Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation and sketches CV-C-TMLE; neither covers the shipped stratified nested selector |
+| Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal page 853, and Theorem 3, page 854 | defines a random near-balanced row partition for a longitudinal TMLE; its pooled all-row fluctuation differs from the shipped fold-local recursion |
 
 Three probes ran at commit `1cf6628` on complete-outcome ATE fits with ten folds and a logistic
 treatment learner. They measure sensitivity, not coverage.
@@ -685,31 +688,56 @@ treatment learner. They measure sensitivity, not coverage.
 | scale only | the unmodified draw and the same folds; the scale fixed at the moved-row range against `q_bounds=None` | the ATE moves by -1.7e-4 (0.0009 SE) with `LinearRegression`, and by +3.2e-4 (0.0021 SE) with a random forest of 50 trees and `min_samples_leaf=5` |
 | fold strata | one `make_linear_ate(n, seed=5)` draw at each size, 25 fold seeds, treatment strata against unstratified folds through a probe subclass that bypasses the `"none"` reservation | the standard deviation of the paired difference is 0.114 SE at n = 300 and 0.077 SE at n = 1200; the mean differences are -0.0035 and 0.0003 in outcome units, against Monte Carlo standard errors of 0.0027 and 0.0009 (the difference SD over the square root of 25), so both lie within two Monte Carlo standard errors of zero |
 
-Apply these corrections:
+The audit gives these separate decisions. A later source can reopen a cell under its own
+conditions.
 
-1. Audit the sources first. Cover treatment strata, `"treatment+outcome"` strata, and a pre-split
-   outcome scale, for CV-TMLE, DR-TMLE, C-TMLE, and longitudinal TMLE.
-2. Do not change a default before the audit ends.
-3. If a source covers treatment strata, admit them with that source's conditions.
-4. Refuse outcome strata unless a source covers them.
-5. If no source covers treatment strata, remove the `"none"` reservation
-   (`src/cleverly/estimators/tmle.py:1236-1245`), make `"none"` the default, and regenerate the
-   affected studies.
-6. Require a fixed `q_bounds` for a continuous cross-fitted fit, unless a source covers the
-   pre-split scale.
+| cell | audit decision | next implementation |
+| --- | --- | --- |
+| point-treatment TMLE and DR-TMLE, treatment strata | no reviewed inference result covers the observational outer split | make `"none"` the default; refuse explicit treatment strata before nuisance fitting |
+| point-treatment TMLE and DR-TMLE, treatment-plus-outcome strata | no reviewed result covers a split that uses held-out outcomes | refuse the option before nuisance fitting |
+| C-TMLE outer, selection, and nested selection folds | the reviewed CV-TMLE and C-TMLE sources do not cover these data-dependent assignments; selector inference has the separate [F18](#f18-selector-path-c-tmle-inference) gap | use external random folds at each layer; refuse explicit treatment or outcome strata without claiming F18 is closed |
+| longitudinal TMLE first-node treatment strata | the reviewed longitudinal theorem defines random near-balanced row folds, but its targeting construction also differs from the shipped estimator | generate unstratified folds for iid rows; audit grouped folds and the fold-local targeting theorem separately |
+| grouped outer folds | this iid audit does not establish a split law for whole-cluster assignments | audit the clustered point and longitudinal studies against a cluster-level result; refuse an unsupported composition before nuisance fitting |
+| continuous outcomes under cross-fitting | a known support interval has support; the all-row observed range has no reviewed cross-fitted result | require a `q_bounds` declaration before nuisance fitting, and document that it must be prespecified from known support |
+| unbounded continuous outcomes under cross-fitting | no finite known support gives the cited logistic transform | refuse this composition; do not turn a realized sample range into a declared bound |
+| supplied outer plans | `SplitPlan.validate` checks integrity and training support, but neither near-balance nor how a caller generated the labels | refuse them until a plan records a package-generated external random scheme, or a separate contract establishes split provenance and balance; keep RM9's refusal |
+| Super Learner inner classification folds | these folds see only outer-training rows, so they do not read outer held-out outcomes; Polley's oracle result does not cover their target strata | retain them as part of the training algorithm; make no oracle claim for this inner split |
 
-The scope includes the Super Learner inner outcome strata and the longitudinal first-node strata.
-[RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) keeps `stratify_by="none"` and a
-fixed `q_bounds` until this audit decides.
+After RM10, implement the global RM17 changes. Remove the `"none"` reservation in
+`src/cleverly/estimators/tmle.py:1236-1245`. Route unsupported split policies, supplied plans,
+and missing bounds to named pre-fit refusals. Keep the ordinary one-fold path separate.
+
+Audit the full validation grid before regeneration. The canonical CV-TMLE, fold-evaluated
+CV-TMLE, repeated cross-fitting, C-TMLE selector, C-TMLE property, and longitudinal studies use
+affected paths. The binary and multi-arm canonical DR-TMLE comparisons supply
+treatment-stratified folds explicitly. Replace those assignments before regeneration.
+
+The C-TMLE selector studies use selection folds even when `cross_fit=False`. Rebuild every
+registered study whose fits or verdicts can move. Update the split-plan reference and tutorial
+when its provenance rule changes. Preserve that provenance when a result exposes a plan or a refit
+reuses it.
+
+The canonical clustered continuous study uses a Gaussian outcome law with unbounded support.
+It cannot acquire a valid finite `q_bounds` from that law. Retire its cross-fitted continuous
+claim, or replace the law with a bounded one and register fresh evidence. Do not treat the old
+artifact as evidence for the new law.
+
+[RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) uses generated unstratified folds
+and prespecified `q_bounds` under its own narrow contract. The Super Learner inner split needs a
+risk result before its stratified oracle performance can be claimed. For iid point-treatment
+CV-TMLE, its inner strata do not expose outer-held-out outcomes. The outer result still requires
+nuisance rates that this audit does not establish.
 
 The witnesses must fail when a component is wrong:
 
-- a test that fold membership is a function of `A` and the seed only, with a mutation that
-  stratifies on `Y`;
+- an iid test that generated outer fold membership depends on row count and seed, with separate
+  mutations that make it depend on `A` or `Y`;
 - scaled training predictions that stay fixed under a fixed `q_bounds` and move under
   `q_bounds=None`;
-- a paired coverage cell with stratified and unstratified folds on the same draws;
-- a coverage cell with `"treatment+outcome"` strata.
+- an outer-held-out outcome mutation that leaves every inner Super Learner training fold fixed;
+- paired coverage diagnostics for treatment-stratified and unstratified folds on the same draws;
+- a coverage diagnostic with `"treatment+outcome"` strata. These diagnostics can detect a failure.
+  They do not supply the missing inference result.
 
 ### P1. EP learner
 
