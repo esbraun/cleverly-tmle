@@ -193,8 +193,9 @@ Cross-validated, observational, and missing-treatment DR-TMLE compositions are n
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
 the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array
 is row-aligned however few equations are being solved. An unguarded `delta=` fit with known
-probabilities is a plain TMLE and is accepted as one; `_FailIfFit` is the witness that the
-supplied array reaches the fit rather than the refusal merely being gone.
+probabilities and `cross_fit=False` is a plain TMLE and is accepted as one; `_FailIfFit` is the
+witness that the supplied array reaches the fit rather than the refusal merely being gone. With
+`cross_fit=True`, the same fit is refused at every `guard=`, including `guard=()`.
 
 **Bounding the two mechanisms separately is what the scope label had to learn.** `contract`
 measured its truncation witnesses on the treatment mechanism alone. That is blind in exactly the
