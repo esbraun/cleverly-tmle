@@ -211,7 +211,8 @@ lists every refusal for both fits. The source for the ordinary fit is
 Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
 [ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
 checks both robustness halves, targeting, complete-case controls, root-$n$ behavior, efficiency,
-and interval calibration. The separate
+and interval calibration. It also compares both laws with the R `tmle` 2.1.1 population-mean path.
+The separate
 [stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
 checks the cross-fitted estimator under its own contract.
 
