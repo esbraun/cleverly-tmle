@@ -530,17 +530,24 @@ Expect more refusals from `_check_categorical_fold_support`
 Update its hint at `:540-541`, which recommends folds that preserve treatment support.
 
 After RM10, implement the global RM17 changes. Remove the `"none"` reservation in
-`src/cleverly/estimators/tmle.py:1236-1245`. Route unsupported split policies, supplied plans,
-and missing bounds to named pre-fit refusals. Keep the ordinary one-fold path separate. That path
-ignores fold strata (`tmle.py:1413-1414`), so the point-treatment strata refusals apply only when
-`cross_fit=True`.
+`_validate_fold_strata_for_data` (`src/cleverly/estimators/tmle.py:1430-1453`). Route unsupported
+split policies, supplied plans, and missing bounds to named pre-fit refusals. Keep the ordinary
+one-fold path separate. That path ignores fold strata (`_folds`, `tmle.py:1842-1843`), so the
+point-treatment strata refusals apply only when `cross_fit=True`.
 
 Update each message that recommends a policy RM17 refuses or no longer needs:
 
 | location | stale text |
 | --- | --- |
-| `src/cleverly/estimators/tmle.py:193-199` | the in-sample remedy restores `stratify_by='treatment'` because of the removed reservation |
-| `_IN_SAMPLE_ARM_INDEXED_REMEDY` in `src/cleverly/estimators/tmle.py`, after `4811661` | the arm-indexed in-sample remedy also restores `stratify_by='treatment'`, for the same reason |
+| `_IN_SAMPLE_NATURAL_COURSE_REMEDY` (`src/cleverly/estimators/tmle.py:192-199`) | the in-sample remedy restores `stratify_by='treatment'` because of the removed reservation |
+| `_IN_SAMPLE_ARM_INDEXED_REMEDY` (`src/cleverly/estimators/tmle.py:278-283`) | the arm-indexed in-sample remedy also restores `stratify_by='treatment'`, for the same reason |
+| the reservation `CapabilityError` in `_validate_fold_strata_for_data` (`src/cleverly/estimators/tmle.py:1447-1453`) | the message says `stratify_folds='none'` "is currently reserved" for the two stacked estimators |
+| the `stratify_folds` parameter of `TMLE` (`src/cleverly/estimators/tmle.py:449-454`) | the docstring says `"none"` is currently reserved for the two stacked estimators |
+| the `stratify_by` parameter of `CrossFitting` (`src/cleverly/methods.py:142-148`) | the docstring says `"none"` is reserved for the two stacked estimators |
+| the `FoldStrata` comment (`src/cleverly/_typing.py:49-52`) | the comment says `"none"` is reserved for estimators whose split law has been audited |
+| `docs/technical-reference/cv-tmle.md`, the `stratify_folds="none"` row of the "Variations" table | the row says every other fit refuses `"none"`, in-sample fits included |
+| `docs/user-guide/methods-learners.md`, the `stratify_by="none"` item and the in-sample sentence after its table | the text says every other fit refuses `"none"`, and an in-sample fit refuses it |
+| `docs/technical-reference/scope-and-refusals.md`, the paragraph that begins `` `stratify_by="none"` is reserved `` and its table | the text lists the fits that meet the reservation, and it says an in-sample remedy restores `stratify_by='treatment'` |
 | `src/cleverly/study.py:858-859` | the docstring says the complete-outcome branch refuses `stratify_by="none"` |
 | `src/cleverly/estimators/_nuisance.py:829-833` | the empty-training-fold remedy recommends `stratify_folds='treatment+outcome'` |
 | `src/cleverly/estimators/ctmle.py:869-871` | the empty-training-outcome remedy recommends `stratify_folds='treatment+outcome'` |
@@ -552,7 +559,7 @@ complement.
 
 Check arm support in every training complement after fold generation. Refuse before the first
 learner call. Do not redraw the split, because a redraw conditioned on `A` makes the
-assignment depend on treatment again. `_preflight_natural_course_folds` (`tmle.py:1247-1279`)
+assignment depend on treatment again. `_preflight_natural_course_folds` (`tmle.py:1676-1708`)
 already applies this check to response support. `_preflight_arm_indexed_folds` applies it to arm
 and response support on the arm-indexed stacked surface.
 
