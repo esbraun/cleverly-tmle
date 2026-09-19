@@ -116,13 +116,14 @@ give the same reason.
 | ---: | --- |
 | 1 | `repeats` below 1 |
 | 2 | a `split_plan` that is not a `SplitPlan` |
-| 3 | a plan that the declared fold policy cannot use. A plan requires cross-fitting with at least two folds, and its fold and repeat counts must fit the declaration |
-| 4 | a plan together with `n_bootstrap` above 0. `TMLEMethod` runs this step, because it holds both settings |
-| 5 | `repeats` above 1 with cross-fitting disabled |
+| 3 | a plan that records no generator. See [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the two plans that carry the record |
+| 4 | a plan that the declared fold policy cannot use. A plan requires cross-fitting with at least two folds, and its fold and repeat counts must fit the declaration |
+| 5 | a plan together with `n_bootstrap` above 0. `TMLEMethod` runs this step, because it holds both settings |
+| 6 | `repeats` above 1 with cross-fitting disabled |
 
 A `split_plan` can pass the declaration check and still fail the natural-course contract. Under
 `enabled=True`, a valid plan constructs, and the stacked contract refuses it when the fit starts.
-Under `enabled=False`, step 3 refuses any plan at construction.
+Under `enabled=False`, step 4 refuses any plan at construction.
 
 | response-support failure | what the message tells you to do |
 | --- | --- |
@@ -284,6 +285,7 @@ number is wrong.
 | a `cap=` fitted from the data on a shift | the estimand becomes data-dependent. The interval conditions on an estimated boundary, and every bootstrap replicate targets a slightly different policy |
 | `CTMLE` on an `incremental=` fit | each candidate `ghat` defines a different estimand, so the cross-validated search selects between *estimands* rather than between estimators |
 | splitting a cluster across folds to buy more of them | the out-of-fold predictions stop being independent of the rows they are used on, and the standard error shrinks in exactly the direction `id=` was passed to prevent |
+| a supplied `SplitPlan` whose labels no recorded draw produces | the labels could have been chosen by reading the outcome, the treatment, or a covariate, which is the leak cross-fitting exists to prevent. The fit draws each repeat again from the plan's record and compares it label for label. [Reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) states what a plan records |
 | reusing a supplied `SplitPlan` on rows it was not realized on | a fold label is a row position. A reordering, a replaced column, or an added covariate leaves every label pointing at a different unit, while the row count still agrees. The out-of-fold guarantee is gone, and nothing in the output says so. [Reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) states how a plan binds to its rows |
 | joint covariance, post-fit contrasts, or simultaneous bands after `repeats=` | coordinatewise medians do not preserve linear identities among estimates; a central-draw curve also does not represent the split-adjusted median estimator needed for a multiplier band |
 | a cross-validated variance for the curve a repeated fit retains | at equal fold sizes it collapses to the pooled uncentred second moment for *every* partition, so the partition carries no information. That rule was rejected, and the split-adjusted median variance replaced it |

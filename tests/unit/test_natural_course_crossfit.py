@@ -27,7 +27,7 @@ from cleverly.inference.cluster import (
     influence_variance,
 )
 from cleverly.inference.influence import make_estimate
-from cleverly.learners import make_folds
+from cleverly.learners import make_folds, random_partition
 from cleverly.utils.bounds import logit
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome
@@ -113,7 +113,7 @@ def test_the_audited_engine_cell_records_generated_unstratified_folds() -> None:
         ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'"),
         ({"cv_evaluation": True}, "cv_evaluation=False"),
         (
-            {"split_plan": SplitPlan((tuple(np.arange(law.N) % 2),))},
+            {"split_plan": SplitPlan.from_folds([random_partition(law.N, 2, seed=0)])},
             "package-generated folds",
         ),
     ],

@@ -51,7 +51,7 @@ from cleverly.data import CausalData
 from cleverly.datasets import make_missing_outcome, make_missing_outcome_binary
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators._nuisance import fit_nuisances
-from cleverly.learners import make_folds
+from cleverly.learners import make_folds, random_partition
 from cleverly.utils.bounds import OutcomeScaler
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -64,6 +64,11 @@ CONTRACT = (
 #: Rows in the refusal frames, and the outer folds every admitted setting declares.
 N = 200
 FOLDS = 3
+
+#: A plan the package drew, which is the only kind any layer accepts. The contract refuses
+#: it for being supplied, and a plan with no generator record would be refused earlier,
+#: for a reason this contract row is not about.
+_DRAWN_PLAN = SplitPlan.from_folds([random_partition(N, FOLDS, seed=0)])
 
 #: The admitted engine settings that each refusal row departs from.
 ADMITTED: dict[str, Any] = {
@@ -156,12 +161,8 @@ ROWS: tuple[Row, ...] = (
     Row(
         "split-plan",
         "Leave split_plan=None (CrossFitting(split_plan=None))",
-        engine={"split_plan": SplitPlan((tuple(int(v) for v in np.arange(N) % FOLDS),))},
-        public={
-            "cross_fitting": {
-                "split_plan": SplitPlan((tuple(int(v) for v in np.arange(N) % FOLDS),))
-            }
-        },
+        engine={"split_plan": _DRAWN_PLAN},
+        public={"cross_fitting": {"split_plan": _DRAWN_PLAN}},
     ),
     Row(
         "one-fold",

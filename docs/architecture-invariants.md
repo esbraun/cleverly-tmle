@@ -128,6 +128,14 @@ longitudinal fits, and any refutation that changes the row set refuse a supplied
 define their own row-mapping and validation contracts.
 *Reconsider when* either engine records enough identity to validate a supplied plan before fitting.
 
+A fit accepts a supplied plan only when the plan records how `random_partition` drew each repeat.
+Draw each repeat again from that record before nuisance fitting, and refuse labels the record does
+not produce. Labels no recorded draw produces could have been chosen by reading the outcome, which
+is the leak cross-fitting prevents. A result carries the record of every retained draw, and a
+refit keeps the record and drops the fingerprint binding. `SplitPlan` stays constructible from
+labels alone, and every layer that accepts a plan refuses one with no record.
+*Reconsider when* another generator records enough identity to be drawn again from its record.
+
 A normalized method declaration either changes the selected engine request or fails before that
 engine is constructed. Shared configuration groups do not imply shared implementation: every
 non-default point-only setting is refused on a longitudinal design, while supported semantic

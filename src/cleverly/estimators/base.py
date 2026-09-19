@@ -589,8 +589,14 @@ class TMLEResult:
         meaningful for the rows it was realised on: reuse it on reordered rows, or on
         rows a refutation replaced, and every label points at a different unit while the
         row count still agrees.  :meth:`~cleverly.SplitPlan.validate` refuses that, and a
-        caller who means to reuse the labels on other rows says so by rebuilding an
-        unbound plan from :attr:`~cleverly.SplitPlan.assignments`.
+        caller who means to reuse the labels on other rows says so with
+        :meth:`~cleverly.SplitPlan.unbound`.
+
+        The plan carries each repeat's :class:`~cleverly.learners.FoldOrigin` when
+        :func:`~cleverly.learners.random_partition` drew every repeat, and a fit accepts
+        only such a plan.  A stratified or in-sample fit returns a plan whose
+        :attr:`~cleverly.SplitPlan.provenance` is ``None``: it records the split the fit
+        ran, and no fit accepts it back.
         """
         return SplitPlan.from_folds(
             (repeat.folds for repeat in self.repeats),

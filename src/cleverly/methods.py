@@ -151,7 +151,10 @@ class CrossFitting:
     fold_evaluation : bool, default=False
         Whether to retain fold-evaluated CV-TMLE estimates.
     split_plan : SplitPlan, optional
-        Reusable outer-fold assignments in repeat-major order.
+        Reusable outer-fold assignments in repeat-major order. The plan must record
+        how :func:`~cleverly.learners.random_partition` drew each repeat, as
+        ``result.split_plan`` from an unstratified fit does. A plan without that record
+        is refused here.
 
     See Also
     --------

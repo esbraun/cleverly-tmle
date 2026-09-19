@@ -887,12 +887,14 @@ class TMLE:
         refutations for a change that moves no row.  What a refit cannot do is change the
         row *set*: the count check inside ``validate`` still refuses that, and
         :func:`~cleverly.validation.refute` refuses the subsampling test up front.
+        :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
+        refit accepts the plan and draws its labels again to check them.
         """
         estimator = self
         plan = self.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             estimator = copy.copy(self)
-            estimator.split_plan = SplitPlan(plan.assignments)
+            estimator.split_plan = plan.unbound()
         if random_state is not None and random_state != self.random_state:
             if estimator is self:
                 estimator = copy.copy(self)
@@ -1872,8 +1874,10 @@ class TMLE:
         Every realized draw also passes :meth:`_preflight_missing_outcome_folds`, so each
         fit path that draws folds checks response support before its first learner fit.
 
-        The supplied path asks :meth:`SplitPlan.validate` whether the labels can serve
-        these rows, and asks nothing else.  It does *not* compare the plan's fold count
+        The supplied path first asks :meth:`SplitPlan.verify` whether the plan's generator
+        record draws exactly these labels on these rows.  It then asks
+        :meth:`SplitPlan.validate` whether the labels can serve these rows, and asks
+        nothing else.  It does *not* compare the plan's fold count
         against :func:`resolve_n_folds`, which answers "how many folds could a generated
         stratified split make here" -- a question about a split nobody is generating.  A
         usable plan may hold more folds than that: the rarest stratum has to reach every
@@ -1895,6 +1899,9 @@ class TMLE:
         if supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
+            # The record check comes first: labels the recorded generator does not draw
+            # are refused whatever support they would give.
+            supplied.verify(n=data.n, cluster=data.cluster)
             stratify = self._fold_strata(data)
             folds = supplied.validate(
                 n=data.n,

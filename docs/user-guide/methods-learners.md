@@ -137,21 +137,33 @@ rolling-origin refusal would survive a time index; it asks for a different stora
 Every point-treatment result records its realized outer folds as an immutable `split_plan`. Most
 point-treatment methods accept that plan to compare methods on the same validation rows.
 
+A fit accepts a plan only when the plan records how `random_partition` drew each repeat. Before
+the first learner runs, the fit draws each repeat again from that record and compares the labels.
+A plan whose labels no recorded draw produces could have been chosen by reading the outcome, and
+the fit refuses it. Two plans carry the record: the plan `SplitPlan.from_folds` copies off
+`random_partition` draws, and `result.split_plan` from a fit whose folds were drawn unstratified.
+A plan you build from labels alone carries no record, and so does the plan of a fit with
+stratified folds.
+
 ```python
+from cleverly import SplitPlan
+from cleverly.learners import random_partition
+
+plan = SplitPlan.from_folds([random_partition(result.data.n, 5, seed=3)])
 reused_method = TMLEMethod(
     models=method.models,
     cross_fitting=CrossFitting(
         n_folds=5,
         learner_folds=3,
         repeats=1,
-        split_plan=result.split_plan,
+        split_plan=plan,
     ),
     targeting=method.targeting,
     inference=method.inference,
     runtime=method.runtime,
 )
 reused_result = effect.estimate(method=reused_method)
-assert reused_result.provenance.fold_fingerprint == result.provenance.fold_fingerprint
+assert reused_result.provenance.fold_fingerprint == plan.fingerprint
 ```
 
 Set `repeats` to the repeat count the plan records. Set `n_folds` to the count the plan was
@@ -159,7 +171,8 @@ declared under, which can exceed the plan's own fold count when the data capped 
 the plan cannot serve raises `MethodConfigurationError` instead of changing the plan.
 
 A plan read off a result is bound to the rows that produced it, by position. Reuse it on those
-rows, in that order.
+rows, in that order. Call `plan.unbound()` to reuse the labels on other rows deliberately. The
+method keeps the generator record and drops the binding.
 
 The two stacked missing-outcome contracts do not accept `split_plan=`. They cover the binary
 `NaturalCourseMean` and the cross-fitted arm-indexed means and contrasts. Each audited contract

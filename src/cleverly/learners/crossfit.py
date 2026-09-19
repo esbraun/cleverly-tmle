@@ -40,7 +40,9 @@ a caller reads off one result and gives to the next.  Handing back the seed woul
 it, for the reason above.  The generated and the supplied paths both check the assignments
 before any nuisance is fitted, by different routes -- :func:`make_folds` checks what it
 built, and :meth:`SplitPlan.validate` checks what it was given against the data it is
-about to label.
+about to label.  A supplied plan must also carry the :class:`FoldOrigin` of every repeat,
+and :meth:`SplitPlan.verify` draws each repeat again from that record: labels that no
+recorded draw produces could have been chosen by looking at the outcome.
 
 The unstratified outer splits, row-level and grouped, are the package's own:
 :func:`random_partition` draws them from the seed alone and records how on
@@ -56,9 +58,9 @@ import warnings
 # dataclass field annotation, and a documentation build that resolves those annotations
 # needs the name to exist.
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from numbers import Integral
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
@@ -91,6 +93,15 @@ _MAX_SEED = 2**32 - 1
 
 
 _LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
+
+#: Why a plan without a generator record is refused, and how to get one that has it.
+_UNRECORDED_PLAN_REASON = (
+    "split_plan carries no generator record, so the fit cannot draw its labels again and "
+    "confirm that no treatment, outcome or covariate value chose them. A hand-built "
+    "assignment has no record, and neither has a stratified split. Pass result.split_plan "
+    "from a fit with unstratified folds (stratify_by='none'), or build the plan with "
+    "SplitPlan.from_folds over random_partition draws"
+)
 
 
 def _cross_fit_policy_refusal(
@@ -324,8 +335,14 @@ class Folds(_DefaultingUnpickle):
 
 
 @dataclass(frozen=True, repr=False)
-class SplitPlan:
+class SplitPlan(_DefaultingUnpickle):
     """Reusable cross-fitting assignments for every repeat.
+
+    A fit accepts a plan only when the plan records how :func:`random_partition` drew
+    each repeat. :attr:`~cleverly.estimators.TMLEResult.split_plan` and
+    :meth:`from_folds` write that record. Before any learner runs, :meth:`verify` draws
+    each repeat again and refuses labels that differ. A plan built from labels alone
+    stays constructible, and every fit refuses it.
 
     Parameters
     ----------
@@ -339,7 +356,11 @@ class SplitPlan:
         :attr:`~cleverly.Provenance.data_fingerprint` records it.
         :attr:`~cleverly.estimators.TMLEResult.split_plan` fills it in, and
         :meth:`validate` then refuses data that fingerprint differently. ``None`` is a
-        plan bound to no data, which is what a hand-built plan is.
+        plan bound to no data, which is what :meth:`unbound` returns.
+    provenance : tuple of FoldOrigin or None, default=None
+        One generator record per repeat, in repeat order. ``None`` for labels with no
+        record: a hand-built plan, a stratified split, or a pickle that predates the
+        field. A fit refuses a plan whose provenance is ``None``.
 
     Attributes
     ----------
@@ -352,19 +373,23 @@ class SplitPlan:
     --------
     cleverly.learners.CrossFitPlan : Policy that generates folds from data.
     cleverly.learners.Folds : Mutable-array materialization of one repeat.
+    cleverly.learners.random_partition : The generator a plan must record.
 
     Examples
     --------
     >>> from cleverly import SplitPlan
-    >>> plan = SplitPlan(((0, 1, 0, 1),))
-    >>> plan.n_folds, plan.n_repeats
-    (2, 1)
-    >>> plan.to_folds()[0].test_index(0).tolist()
-    [0, 2]
+    >>> from cleverly.learners import random_partition
+    >>> plan = SplitPlan.from_folds([random_partition(6, 3, seed=0)])
+    >>> plan.assignments
+    ((2, 1, 0, 1, 2, 0),)
+    >>> plan.provenance[0].seed
+    0
+    >>> plan.verify(n=6)
     """
 
     assignments: Sequence[Sequence[int]] | Sequence[IntArray] | IntArray
     source_fingerprint: str | None = None
+    provenance: tuple[FoldOrigin, ...] | None = None
 
     def __post_init__(self) -> None:
         """Copy and validate the complete repeat-major assignment.
@@ -443,6 +468,28 @@ class SplitPlan:
             normalized.append(assignment)
         object.__setattr__(self, "assignments", tuple(normalized))
 
+        if self.provenance is not None:
+            if isinstance(self.provenance, (str, bytes)):
+                raise DataError("split-plan provenance must be a sequence of FoldOrigin records")
+            try:
+                records = tuple(self.provenance)
+            except TypeError as exc:
+                raise DataError(
+                    "split-plan provenance must be a sequence of FoldOrigin records"
+                ) from exc
+            if len(records) != len(normalized):
+                raise DataError(
+                    f"split-plan provenance holds {len(records)} record(s) for "
+                    f"{len(normalized)} repeat(s); a plan records one origin per repeat"
+                )
+            for repeat, record in enumerate(records):
+                if not isinstance(record, FoldOrigin):
+                    raise DataError(
+                        f"split-plan provenance for repeat {repeat} must be a FoldOrigin; "
+                        f"got {type(record).__name__}"
+                    )
+            object.__setattr__(self, "provenance", records)
+
     @property
     def n(self) -> int:
         """Return the number of rows in each repeat."""
@@ -471,32 +518,42 @@ class SplitPlan:
         A plan holds one label per row per repeat, so the generated ``__repr__`` prints
         the whole dataset back: 150 KB for a 50,000-row plan, in a traceback or a
         notebook cell that asked for one line.  What identifies a plan is its shape and
-        its fingerprint, and both are here.
+        its fingerprint, and both are here.  The generator says whether a fit can accept
+        the plan at all: ``generator=None`` is a plan with no record, which every fit
+        refuses.
         """
+        if self.provenance is None:
+            generator = "None"
+        else:
+            generator = "+".join(sorted({origin.generator for origin in self.provenance}))
         bound = "" if self.source_fingerprint is None else f", source={self.source_fingerprint}"
         return (
             f"SplitPlan(n={self.n}, n_folds={self.n_folds}, n_repeats={self.n_repeats}, "
-            f"fingerprint={self.fingerprint}{bound})"
+            f"fingerprint={self.fingerprint}, generator={generator}{bound})"
         )
 
     def to_folds(self) -> tuple[Folds, ...]:
         """Return fresh mutable-array fold objects for every repeat.
+
+        Each fold object carries its repeat's :class:`FoldOrigin` when the plan records
+        one, so a fit on this plan returns a plan with the same record.
 
         Returns
         -------
         tuple of Folds
             Independent materializations in repeat order.
         """
+        origins = (None,) * self.n_repeats if self.provenance is None else self.provenance
         return tuple(
-            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds)
-            for assignment in self.assignments
+            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds, origin=origin)
+            for assignment, origin in zip(self.assignments, origins, strict=True)
         )
 
     @classmethod
     def from_folds(
         cls, folds: Iterable[Folds], *, source_fingerprint: str | None = None
     ) -> SplitPlan:
-        """Copy repeat assignments from realized folds.
+        """Copy repeat assignments, and their generator records, from realized folds.
 
         Parameters
         ----------
@@ -509,12 +566,127 @@ class SplitPlan:
         Returns
         -------
         SplitPlan
-            Immutable copies of the assignments.
+            Immutable copies of the assignments. :attr:`provenance` holds each repeat's
+            :attr:`Folds.origin` when every repeat has one, and is ``None`` otherwise.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> plan = SplitPlan.from_folds([random_partition(4, 2, seed=s) for s in (1, 2)])
+        >>> plan.n_repeats, [origin.seed for origin in plan.provenance]
+        (2, [1, 2])
         """
+        draws = tuple(folds)
+        origins = tuple(draw.origin for draw in draws)
         return cls(
-            tuple(draw.assignment for draw in folds),
+            tuple(draw.assignment for draw in draws),
             source_fingerprint=source_fingerprint,
+            provenance=(
+                None
+                if any(origin is None for origin in origins)
+                else cast("tuple[FoldOrigin, ...]", origins)
+            ),
         )
+
+    def unbound(self) -> SplitPlan:
+        """Return this plan bound to no data, with its generator record kept.
+
+        A refit on the same rows with one column replaced changes the data fingerprint
+        and moves no row. The unbound plan serves that refit, and a caller who means to
+        reuse the labels on other rows asks for it by name. :meth:`verify` still draws
+        every repeat again, so an unbound plan cannot carry labels the record does not
+        produce.
+
+        Returns
+        -------
+        SplitPlan
+            The same assignments and :attr:`provenance`, with
+            :attr:`source_fingerprint` set to ``None``.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> bound = SplitPlan.from_folds([random_partition(4, 2, seed=3)], source_fingerprint="ab")
+        >>> free = bound.unbound()
+        >>> free.source_fingerprint is None, free.provenance == bound.provenance
+        (True, True)
+        """
+        return replace(self, source_fingerprint=None)
+
+    def verify(self, *, n: int, cluster: IntArray | None = None) -> None:
+        """Refuse labels that the recorded generator does not produce on these rows.
+
+        Each repeat is drawn again with :func:`random_partition`, from its recorded fold
+        count and seed, and compared label for label. The recorded scheme must be
+        ``"grouped"`` when the data declare clusters and ``"vfold"`` when they do not. The
+        draw reads ``n`` and the cluster labels only, so a plan that passes holds labels
+        that no treatment, outcome or covariate value chose.
+
+        Parameters
+        ----------
+        n : int
+            Number of data rows.
+        cluster : ndarray or None, default=None
+            Cluster code for each row, or ``None`` for data without clusters.
+
+        Raises
+        ------
+        DataError
+            If the plan has no generator record, if the row count differs, or if a
+            repeat names another generator, the other scheme, or labels its record does
+            not produce. The message names the repeat.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> SplitPlan.from_folds([random_partition(6, 2, seed=5)]).verify(n=6)
+        """
+        if self.provenance is None:
+            raise DataError(_UNRECORDED_PLAN_REASON)
+        if self.n != n:
+            raise DataError(f"split plan has {self.n} rows but the data have {n} rows")
+        scheme = "vfold" if cluster is None else "grouped"
+        for repeat, (assignment, origin) in enumerate(
+            zip(self.assignments, self.provenance, strict=True)
+        ):
+            if origin.generator != RANDOM_PARTITION_GENERATOR:
+                raise DataError(
+                    f"split-plan repeat {repeat} records generator {origin.generator!r}, and "
+                    f"this version draws with {RANDOM_PARTITION_GENERATOR!r}, so it cannot "
+                    "draw the labels again to check them"
+                )
+            if origin.scheme != scheme:
+                declared = "declare clusters" if cluster is not None else "declare no clusters"
+                raise DataError(
+                    f"split-plan repeat {repeat} records a {origin.scheme!r} draw, and these "
+                    f"data {declared}, which a {scheme!r} draw serves. A row-level draw cuts "
+                    "across clusters, and a grouped draw needs the cluster labels it split"
+                )
+            # The cap warning belongs to the fit that drew the split. This draw repeats it
+            # to check the labels, and resolves no fold count for the fit.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                try:
+                    redrawn = random_partition(
+                        n, origin.requested_n_folds, cluster=cluster, seed=origin.seed
+                    )
+                except (ValueError, DataError) as exc:
+                    raise DataError(
+                        f"split-plan repeat {repeat} records a draw that cannot run on these "
+                        f"rows: {exc}"
+                    ) from exc
+            differing = int(np.count_nonzero(redrawn.assignment != np.asarray(assignment)))
+            if differing:
+                raise DataError(
+                    f"split-plan repeat {repeat} differs from the split its record draws "
+                    f"(seed {origin.seed}, {origin.requested_n_folds} requested folds) at "
+                    f"{differing} row(s). A fit accepts only labels the recorded generator "
+                    "produces, because other labels could have been chosen by reading the "
+                    "outcome"
+                )
 
     def _policy_refusal(self, *, cross_fit: bool, n_folds: int, repeats: int) -> str | None:
         """Return why this plan cannot serve a declared fold policy, or ``None``.
@@ -534,6 +706,11 @@ class SplitPlan:
         the labels can serve a particular dataset is :meth:`validate`'s question, and
         :meth:`~cleverly.estimators.TMLE._repeat_draws` asks it there.
 
+        A plan with no generator record is refused first, whatever else it holds. No
+        declaration can make such a plan acceptable, so a caller who fixes its shape
+        would only meet this refusal next. Whether the record reproduces the labels is
+        :meth:`verify`'s question, and it needs the rows.
+
         Parameters
         ----------
         cross_fit : bool
@@ -548,6 +725,8 @@ class SplitPlan:
         str or None
             The reason to refuse, or ``None`` when the plan can serve the policy.
         """
+        if self.provenance is None:
+            return _UNRECORDED_PLAN_REASON
         if not cross_fit or n_folds < 2:
             return "split_plan requires enabled cross-fitting with at least two folds"
         if self.n_folds > n_folds:
@@ -605,8 +784,8 @@ class SplitPlan:
                 "position, so a reordering, a replaced column or an added covariate leaves "
                 "every label pointing at a different unit, and the row count cannot see it. "
                 "Fit without split_plan= to draw a split for these data, or, when the rows "
-                "are the same units in the same order, hand over SplitPlan(plan.assignments) "
-                "to reuse the labels unbound"
+                "are the same units in the same order, hand over plan.unbound() to reuse "
+                "the labels unbound"
             )
         # Each vector is read once here rather than once per (repeat x fold): none of them
         # changes as the loop below walks the folds, and neither does the set of values a

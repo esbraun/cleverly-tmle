@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import pytest
 
 from cleverly import SplitPlan
 from cleverly.datasets import make_binary_outcome
+from cleverly.learners import random_partition
 from tests.conftest import fast_tmle
 
 LINEAR = ("ate", "ey1", "ey0")
@@ -25,8 +25,11 @@ LINEAR = ("ate", "ey1", "ey0")
 def _fits(n: int) -> tuple[Any, Any]:
     """The default stacked fit and the fold-evaluated fit on the same two-fold split."""
     frame = make_binary_outcome(n=n, seed=3)[0]
-    # Alternating labels fix the fold sizes: 50 and 50 at n = 100, 51 and 50 at n = 101.
-    plan = SplitPlan((tuple(int(label) for label in np.arange(n) % 2),))
+    # A two-fold draw fixes the fold sizes: 50 and 50 at n = 100, 51 and 50 at n = 101.
+    # The seed is named because the reweighting gap below is a property of this split:
+    # every two-fold draw has these sizes, and they move the fluctuation by different
+    # amounts. This one moves it furthest from the stacked report.
+    plan = SplitPlan.from_folds([random_partition(n, 2, seed=5)])
     settings: dict[str, Any] = {"estimands": LINEAR, "n_folds": 2, "split_plan": plan}
     stacked = fast_tmle(**settings).fit(frame, outcome="Y", treatment="A").single()
     evaluated = (

@@ -186,13 +186,32 @@ records the evidence.
 ## Reusable outer split plans
 
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
-them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. This
-section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
+them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. A fit accepts
+a plan only when the plan records the draw that made it. This section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
 and the [tutorial](../examples/cross-fitting.ipynb#step-9-reuse-the-same-outer-split) link here rather than
 restating it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and
-`n_repeats` properties describe those assignments.
+`n_repeats` properties describe those assignments. Its `provenance` holds one `FoldOrigin` per
+repeat, which records the generator, the scheme, the requested fold count, and the seed of that
+repeat's draw.
+
+**A fit accepts only labels the recorded generator draws.** `SplitPlan.verify` draws each repeat
+again from its record and compares the labels one by one. It runs before the first learner. Labels
+that no recorded draw produces could have been chosen by reading the outcome, the treatment, or a
+covariate, and a fit refuses them. The refusal names the repeat.
+
+| the plan | what it records | a fit |
+| --- | --- | --- |
+| `SplitPlan.from_folds(...)` over `random_partition` draws | one `FoldOrigin` per draw | accepts it |
+| `result.split_plan` of a fit whose folds `random_partition` drew | one `FoldOrigin` per repeat | accepts it |
+| `result.split_plan` of a fit with stratified folds, or of an in-sample fit | nothing | refuses it |
+| `SplitPlan(labels)` built from labels alone | nothing | refuses it |
+
+The record also fixes the scheme. A draw is `"grouped"` when the data declare clusters, and
+`"vfold"` when they do not. A fit refuses the other scheme, because a row-level draw cuts across
+clusters and a grouped draw needs the cluster labels it split. The draw reads the row count, the
+cluster labels, and the seed, and it reads no other column.
 
 **A fold label is a row position.** It is not a pandas index label, and it is not Polars row
 metadata. A plan is therefore meaningful only for the rows it was realized on. Reorder those rows,
@@ -201,8 +220,8 @@ and every label points at a different unit while the row count still agrees.
 A plan read off a result carries the data fingerprint of the fit that produced it, under
 `source_fingerprint`. Validation compares that value with the fingerprint of the data in hand. It
 refuses a plan whose fingerprint differs. A plan you build by hand carries `None` and binds to no
-data. Rebuild an unbound plan with `SplitPlan(plan.assignments)` to reuse the labels on other rows
-deliberately.
+data. Call `plan.unbound()` to reuse the labels on other rows deliberately. The method drops the
+binding and keeps the generator record, so `verify` still draws the labels again.
 
 A clustered design applies one further rule. Every row from one cluster must receive the same fold
 label within each repeat.
@@ -213,8 +232,9 @@ bound on the plan, and it is the only rule that reads a fold count.
 
 | when | what it checks | what it refuses |
 | --- | --- | --- |
-| you construct `CrossFitting` | the plan's fold count against the declared `n_folds` | a plan holding more folds than the declaration. No cap produces that direction |
-| before nuisance fitting | the plan's labels against the data in hand | a plan whose folds cannot serve these rows |
+| you construct `CrossFitting` | that the plan records a generator, and the plan's fold count against the declared `n_folds` | a plan with no record, and a plan holding more folds than the declaration. No cap produces that direction |
+| before nuisance fitting, first | each repeat against the split its record draws again | a plan whose labels, scheme, or row count the record does not produce |
+| before nuisance fitting, then | the plan's labels against the data in hand | a plan whose folds cannot serve these rows |
 
 So `n_folds=10` on data carrying four clusters realizes a four-fold plan, and `n_folds=10` accepts
 that plan back. The fit still records the declared 10, under `config.crossfit.n_folds`. The fit
@@ -225,8 +245,9 @@ must equal the plan's repeat count exactly.
 The plan controls only the outer nuisance split. Inner Super Learner folds still follow
 `learner_folds`. Collaborative TMLE selection folds still follow their repeat-specific seeds.
 
-Validation happens before nuisance fitting. It checks row count, repeat count, label contiguity,
-required training arms, requested stratification, and whole-cluster assignment. The implementation
+Verification and validation both happen before nuisance fitting. Verification checks the record.
+Validation checks row count, repeat count, label contiguity, required training arms, requested
+stratification, and whole-cluster assignment. The implementation
 rejects a supplied plan rather than repairing an invalid one. The `SplitPlan.validate` method names
 the balancing vector `stratify=`, as `make_folds` does, because `strata` is the survey design role.
 A fit then records the values validation held the folds to, under `config.crossfit.stratify_by`,
@@ -250,7 +271,8 @@ declared number of rows, so a count check cannot see it. A battery run under
 rest of the battery.
 
 A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
-`split_plan=` is refused because supplied plans require cross-fitting.
+`split_plan=` is refused. `random_partition` draws two folds at least, so a one-fold plan records
+no draw.
 
 Point-treatment bootstrap samples do not preserve the original positional unit sequence. Targeted
 bootstrap inference therefore refuses a supplied plan. Longitudinal estimation also refuses it

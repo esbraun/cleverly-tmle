@@ -24,7 +24,7 @@ from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.learners.crossfit import SplitPlan, make_folds
+from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
 TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
@@ -720,8 +720,9 @@ class TestOutcomeAdaptiveCrossFitting:
         from cleverly.datasets import make_binary_outcome
 
         frame, _ = make_binary_outcome(n=180, seed=31)
-        assignment = np.arange(len(frame), dtype=int) % 3
-        plan = SplitPlan((tuple(assignment),))
+        drawn = random_partition(len(frame), 3, seed=31)
+        assignment = drawn.assignment
+        plan = SplitPlan.from_folds([drawn])
         settings = {
             **TMLE_KWARGS,
             "strategy": "oat",
