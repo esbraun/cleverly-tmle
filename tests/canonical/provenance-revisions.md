@@ -57,13 +57,12 @@ no longer imports. Remove the row when you regenerate the study.
 
 A manifest's `configuration` block can also carry a descriptive string that no computation reads.
 When the study module corrects such a string, the manifest keeps the text written at generation
-time, for the same reason it keeps a recorded hash. The row below states the correction and why it
+time, for the same reason it keeps a recorded hash. Each row states the correction and why it
 leaves every artifact unchanged. No test parses this table. The gated table above keeps its own
 header.
 
 | study | manifest field | correction | judgement |
 | --- | --- | --- | --- |
-| ordinary missing-outcome natural-course TMLE | `configuration.comparator_search` | the study ran no comparator. A later stacked binary study reaches the R `tmle` 2.1.1 population-mean path with supplied stitched predictions | result-neutral: the manifest preserves the search statement recorded at generation. The later study changes the known comparator surface, not this study's fitted rows or verdicts |
 
 ## Completed manifest provenance
 
