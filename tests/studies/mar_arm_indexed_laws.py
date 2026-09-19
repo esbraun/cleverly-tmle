@@ -38,6 +38,7 @@ from scipy.optimize import brentq
 from scipy.special import expit, logit
 from sklearn.base import BaseEstimator
 
+from cleverly._typing import EstimandName
 from tests import discrete_law_mar as mar
 from tests import discrete_law_multi as multi
 
@@ -187,7 +188,7 @@ LAWS: dict[str, Law] = {
 BY_SCENARIO: dict[str, Law] = {law.scenario: law for law in LAWS.values()}
 
 #: What each law's fit requests, in the engine's estimand vocabulary.
-REQUESTS: dict[str, tuple[str, ...]] = {
+REQUESTS: dict[str, tuple[EstimandName, ...]] = {
     "l1": ("ey0", "ey1", "ate", "rr", "or"),
     "l2": ("ey0", "ey1", "ate"),
     "l3": ("ey", "ate", "rr", "or"),
