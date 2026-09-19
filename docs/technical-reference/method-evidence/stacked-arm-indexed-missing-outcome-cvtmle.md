@@ -60,6 +60,22 @@ targeting, plug-in, influence curves, and joint covariance. It does not validate
 cross-fit training. [`docs/references.md`](../../references.md) records the locator for each
 candidate below.
 
+The paired tests alone cannot show that `cleverly` targets. The saturated trees leave the initial
+plug-in almost unbiased, so an estimate without its targeting step still passes every paired test
+and every truth test. The claim that `cleverly` reproduces the R targeting step rests on a separate
+check over the committed replications.
+
+| check | requirement |
+| --- | --- |
+| targeting move, `estimate - initial_estimate` | nonzero in every replication and estimand |
+| `abs(cleverly - R) / abs(targeting move)` | below `1e-2` in every replication and estimand |
+| initial estimates of the two implementations | equal to `1e-12` |
+| mutation: `cleverly` reports its initial estimate | the ratio exceeds `0.9` in every row, so the check fails |
+
+R `tmle` stops its fluctuation `glm` at a relative deviance change of `1e-8`. That stop resolves
+the fluctuation coefficient to about `1e-4` of its scale, and the bound allows a hundredfold over
+that. `tests/unit/test_arm_indexed_cvtmle_method_study.py` runs the check and the mutation.
+
 | candidate | disposition |
 | --- | --- |
 | R `tmle` 2.1.1 | compared through its two-arm path for L1 and L2, and its population-mean path for each arm of L3 and L4 |

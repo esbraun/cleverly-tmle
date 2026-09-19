@@ -297,6 +297,60 @@ def test_a_band_at_the_pointwise_critical_value_fails_its_cell() -> None:
     assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
 
 
+#: The largest ``|cleverly - R| / |targeting move|`` the parity check admits in any
+#: replication and estimand.  Both implementations target the same stitched predictions, so
+#: their initial estimates agree to rounding and their targeted estimates differ only through
+#: where each fluctuation solver stops.  cleverly iterates to a relative score of ``1e-10``.
+#: R ``tmle`` fits the fluctuation with ``glm`` at its default ``epsilon = 1e-8``, a relative
+#: change in deviance.  The deviance is quadratic in the coefficient near its minimum, so that
+#: stop resolves the coefficient, and with it the move, to about ``sqrt(1e-8) = 1e-4`` of its
+#: scale.  The bound allows a hundredfold over that for a move whose coefficient is close to
+#: zero.  A missing targeting step has ratio 1 (the initial estimates agree), and a step wrong
+#: by a fraction ``f`` has a ratio near ``f``, so the bound still sits two orders below both.
+TARGETING_RATIO_BOUND = 1e-2
+
+
+def _paired_primary_rows() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The committed primary rows of each implementation, aligned by replication and estimand."""
+    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    key = ["scenario", "replicate", "estimand"]
+    subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
+    reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)
+    assert len(subject) == len(reference) == len(rows) // 2
+    return subject.sort_index(), reference.loc[subject.sort_index().index]
+
+
+def _targeting_ratio(
+    estimate: pd.Series, subject: pd.DataFrame, reference: pd.DataFrame
+) -> pd.Series:
+    move = (subject["estimate"] - subject["initial_estimate"]).abs()
+    assert (move > 0).all(), "a replication has no targeting move"
+    return (estimate - reference["estimate"]).abs() / move
+
+
+def test_the_r_parity_reproduces_every_targeting_move() -> None:
+    """The paired tests cannot see a missing targeting step; this ratio can.
+
+    The saturated primary trees leave the initial plug-in almost unbiased, so an estimate
+    that skipped targeting still passes every paired equivalence test and every truth test.
+    Each replication's difference from R is instead compared with the size of its own
+    targeting move.
+    """
+    subject, reference = _paired_primary_rows()
+    shared = (subject["initial_estimate"] - reference["initial_estimate"]).abs()
+    assert shared.max() < 1e-12
+    ratio = _targeting_ratio(subject["estimate"], subject, reference)
+    assert ratio.max() < TARGETING_RATIO_BOUND, ratio.idxmax()
+
+
+def test_a_missing_targeting_step_fails_the_parity_ratio() -> None:
+    """A deliberate mutation: cleverly's reported estimate replaced by its initial plug-in."""
+    subject, reference = _paired_primary_rows()
+    ratio = _targeting_ratio(subject["initial_estimate"], subject, reference)
+    assert (ratio >= TARGETING_RATIO_BOUND).all()
+    assert ratio.min() > 0.9
+
+
 def test_the_study_directory_is_the_registered_one() -> None:
     assert study.STUDY.artifacts == ROOT / "tests" / "canonical" / "tmle_mar_arm_indexed_cvtmle"
     assert study.STUDY.artifacts.joinpath("regenerate.py").exists()
