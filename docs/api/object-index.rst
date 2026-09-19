@@ -76,10 +76,12 @@ categorized API tables.
    cleverly.learners.CorrelationScreener
    cleverly.learners.CrossFitPlan
    cleverly.learners.Folds
+   cleverly.learners.FoldOrigin
    cleverly.learners.ConditionalDensity
    cleverly.learners.DensityDiagnostics
    cleverly.learners.default_library
    cleverly.learners.make_folds
+   cleverly.learners.random_partition
    cleverly.learners.thread_limit
    cleverly.learners.set_thread_limit
    cleverly.learners.get_thread_limit

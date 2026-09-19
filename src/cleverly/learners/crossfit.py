@@ -25,8 +25,8 @@ deliver it and an imbalanced split is still a usable one.
 Four objects, and the distinction between the first two is the point of the module.
 :class:`CrossFitPlan` is what a caller *declares*: a policy, made of numbers, that says
 nothing about any particular dataset.  :class:`Folds` is what that policy *realises* on
-one: an actual assignment of rows to folds, which depends on the row order and on the
-scikit-learn version that made it as much as on the seed -- which is why
+one: an actual assignment of rows to folds, which depends on the row order as much as on
+the seed, and for a stratified split on the scikit-learn version that made it -- which is why
 :mod:`cleverly.provenance` fingerprints the realisation separately from the seed, and why
 a fit records the plan it declared beside the fold count it got.  :func:`make_folds` is
 the map from one to the other, and calls :func:`check_integrity` on its way out, so every
@@ -41,6 +41,11 @@ it, for the reason above.  The generated and the supplied paths both check the a
 before any nuisance is fitted, by different routes -- :func:`make_folds` checks what it
 built, and :meth:`SplitPlan.validate` checks what it was given against the data it is
 about to label.
+
+The unstratified outer splits, row-level and grouped, are the package's own:
+:func:`random_partition` draws them from the seed alone and records how on
+:class:`FoldOrigin`.  Their assignment depends on ``n``, the cluster labels and the seed,
+and not on the installed scikit-learn.  The stratified splits stay on scikit-learn.
 """
 
 from __future__ import annotations
@@ -51,31 +56,38 @@ import warnings
 # dataclass field annotation, and a documentation build that resolves those annotations
 # needs the name to exist.
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numbers import Integral
 from typing import Any
 
 import numpy as np
-from sklearn.model_selection import (
-    GroupKFold,
-    KFold,
-    StratifiedGroupKFold,
-    StratifiedKFold,
-)
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
+from ..utils.records import _DefaultingUnpickle
 
 __all__ = [
     "CrossFitPlan",
+    "FoldOrigin",
     "Folds",
     "SplitPlan",
     "check_integrity",
     "make_folds",
     "missing_training_support",
+    "random_partition",
     "refuse_scheme",
     "resolve_n_folds",
 ]
+
+#: The generator name and version :func:`random_partition` writes on every
+#: :class:`FoldOrigin`.  The version changes when the same inputs would give a different
+#: assignment, so a recorded origin never names an algorithm that no longer runs.
+RANDOM_PARTITION_GENERATOR = "cleverly.random_partition/1"
+
+#: The largest seed :func:`random_partition` accepts, which is the range
+#: :class:`numpy.random.RandomState` accepts.
+_MAX_SEED = 2**32 - 1
 
 
 _LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
@@ -153,7 +165,39 @@ def _cross_fit_policy_refusal(
 
 
 @dataclass(frozen=True)
-class Folds:
+class FoldOrigin(_DefaultingUnpickle):
+    """The record of how :func:`random_partition` drew one split.
+
+    The four fields and the rows' cluster labels determine the assignment.  A caller
+    can therefore draw the split again from this record and compare the result.
+
+    Parameters
+    ----------
+    generator : str
+        The generator name and version, ``"cleverly.random_partition/1"`` for every
+        split this package draws.
+    scheme : str
+        ``"vfold"`` for a row-level split, and ``"grouped"`` for a split of whole
+        clusters.
+    requested_n_folds : int
+        The fold count the caller asked for, before :func:`resolve_n_folds` capped it.
+    seed : int
+        The seed of the draw.
+
+    See Also
+    --------
+    random_partition : The generator that writes this record.
+    Folds : The split that carries this record as its ``origin``.
+    """
+
+    generator: str
+    scheme: str
+    requested_n_folds: int
+    seed: int
+
+
+@dataclass(frozen=True)
+class Folds(_DefaultingUnpickle):
     """A cross-fitting partition.
 
     ``assignment[i]`` is the index of the fold that holds out observation ``i``.
@@ -165,10 +209,16 @@ class Folds:
         ``assignment[i]`` is the index of the fold that holds out observation ``i``.
     n_folds : int
         Number of folds the assignment ranges over.
+    origin : FoldOrigin or None, default=None
+        How :func:`random_partition` drew the split.  ``None`` for a split from any other
+        source: a stratified split, a hand-built one, or a pickle that predates the field.
+        Equality ignores it, because two splits with the same labels hold out the same
+        rows.
     """
 
     assignment: IntArray
     n_folds: int
+    origin: FoldOrigin | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         """Check what an assignment on its own can be wrong about.
@@ -638,11 +688,11 @@ def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
     and pays nothing.
 
     Called as a post-condition of :func:`make_folds`, so every split this library builds
-    is checked at construction.  It should never fire -- ``GroupKFold`` and
-    ``StratifiedGroupKFold`` both guarantee it -- which is the point: the one place the
-    guarantee is this library's own is the ``_grouped_splitter`` fallback for
-    scikit-learn before 1.6, and a post-condition is what turns that from a hope into a
-    checked claim.  Also exposed for the three holders of a :class:`Folds` that
+    is checked at construction.  It should never fire -- :func:`random_partition` and
+    ``StratifiedGroupKFold`` both guarantee it -- which is the point: the unstratified
+    grouped split is this library's own code, and a post-condition is what turns its
+    guarantee from a hope into a checked claim.  Also exposed for the three holders of a
+    :class:`Folds` that
     :func:`make_folds` never saw: a result reloaded from disk, a caller who built one by
     hand, and a :class:`SplitPlan` handed back to a later fit, which
     :meth:`SplitPlan.validate` puts through this check once per repeat.
@@ -775,36 +825,40 @@ def make_folds(
     cluster : ndarray or None
         Cluster codes; every row of a cluster lands in the same fold.
     random_state : int, Generator, or None
-        Seed or generator.  With ``cluster`` and ``stratify`` both given the
-        split is deterministic given the seed, so a fit is reproducible.
+        Seed or generator.  The split is deterministic given an integer seed, so a fit
+        is reproducible.  ``None`` draws a fresh seed for an unstratified split, which
+        the returned :attr:`Folds.origin` records.
 
     Returns
     -------
     Folds
         A checked partition, cluster-respecting and stratified as asked.
+
+    Notes
+    -----
+    Without ``stratify`` the split comes from :func:`random_partition`, which does not
+    depend on the installed scikit-learn.  With ``stratify`` it comes from
+    ``StratifiedKFold`` or, with ``cluster``, from ``StratifiedGroupKFold``.
     """
     if n < 2:
         raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
     seed = _as_seed(random_state)
+    if stratify is None:
+        return random_partition(
+            n, n_folds, cluster=cluster, seed=_fresh_seed() if seed is None else seed
+        )
     resolved = resolve_n_folds(n_folds, n, stratify, cluster=cluster)
     x = np.zeros((n, 1))
     assignment = np.empty(n, dtype=np.int64)
 
     if cluster is not None:
-        if stratify is not None:
-            splitter = StratifiedGroupKFold(n_splits=resolved, shuffle=True, random_state=seed)
-            iterator = splitter.split(x, np.asarray(stratify), groups=cluster)
-        else:
-            # GroupKFold gained shuffle support in scikit-learn 1.6; fall back to
-            # a seeded permutation of the group labels when it is unavailable.
-            splitter, groups = _grouped_splitter(resolved, cluster, seed)
-            iterator = splitter.split(x, None, groups=groups)
-    elif stratify is not None:
+        splitter: StratifiedGroupKFold | StratifiedKFold = StratifiedGroupKFold(
+            n_splits=resolved, shuffle=True, random_state=seed
+        )
+        iterator = splitter.split(x, np.asarray(stratify), groups=cluster)
+    else:
         splitter = StratifiedKFold(n_splits=resolved, shuffle=True, random_state=seed)
         iterator = splitter.split(x, np.asarray(stratify))
-    else:
-        splitter = KFold(n_splits=resolved, shuffle=True, random_state=seed)
-        iterator = splitter.split(x)
 
     for fold, (_, test) in enumerate(iterator):
         assignment[test] = fold
@@ -813,28 +867,145 @@ def make_folds(
     return folds
 
 
-def _grouped_splitter(
-    n_splits: int, cluster: IntArray, seed: int | None
-) -> tuple[GroupKFold, IntArray]:
-    """A shuffled group split that works across scikit-learn versions.
+def random_partition(
+    n: int,
+    n_folds: int,
+    *,
+    cluster: IntArray | None = None,
+    seed: int,
+) -> Folds:
+    """Draw an unstratified split of rows, or of whole clusters, from a seed.
 
-    ``GroupKFold`` gained ``shuffle`` in scikit-learn 1.6 and ``pyproject.toml`` declares
-    ``scikit-learn>=1.3``, so the fallback is supported rather than vestigial.  What it
-    gives up is worth being precise about: older ``GroupKFold`` assigns groups to folds
-    greedily by descending size, so permuting the group *labels* only reorders groups of
-    equal size.  The shuffling is therefore weaker than 1.6's -- but cluster integrity,
-    the prohibition that leaks, is a property of ``GroupKFold`` itself and is untouched.
-    :func:`check_integrity` is what holds that claim to account on both paths.
+    The draw reads no outcome, treatment or covariate.  The assignment depends on ``n``,
+    the cluster labels and ``seed`` alone, so the same inputs give the same split on
+    every supported scikit-learn.
+
+    Parameters
+    ----------
+    n : int
+        Number of rows to split.
+    n_folds : int
+        Folds requested.  :func:`resolve_n_folds` caps it at ``n`` and at the number of
+        clusters, with a warning.
+    cluster : ndarray or None, default=None
+        One cluster code per row.  Every row of a cluster lands in the same fold.
+    seed : int
+        Seed of the draw, in ``[0, 2**32 - 1]``.
+
+    Returns
+    -------
+    Folds
+        A checked split whose :attr:`~Folds.origin` records the generator, the scheme,
+        the requested fold count and the seed.
+
+    Raises
+    ------
+    ValueError
+        If ``n`` is below two, the seed is not an integer in range, or fewer than two
+        folds are possible.
+
+    See Also
+    --------
+    make_folds : Builds a split with or without strata, and calls this function
+        for an unstratified split.
+    FoldOrigin : The record this function attaches to the split.
+
+    Notes
+    -----
+    The row-level draw shuffles ``numpy.arange(n)`` with
+    ``numpy.random.RandomState(seed)``.  It then cuts the order into ``K`` contiguous
+    blocks of ``n // K`` rows, and the first ``n % K`` blocks take one extra row.  This
+    is the split ``sklearn.model_selection.KFold(K, shuffle=True, random_state=seed)``
+    makes.
+
+    The grouped draw permutes the sorted distinct cluster labels with
+    ``numpy.random.RandomState(seed)`` and cuts the permutation into ``K`` parts with
+    ``numpy.array_split``.  This is the split
+    ``sklearn.model_selection.GroupKFold(K, shuffle=True, random_state=seed)`` makes in
+    scikit-learn 1.6 and later.  The number of clusters in two folds differs by at most
+    one, and a cluster's size does not change where it lands.
+
+    Examples
+    --------
+    >>> from cleverly.learners import random_partition
+    >>> folds = random_partition(6, 3, seed=0)
+    >>> folds.assignment.tolist()
+    [2, 1, 0, 1, 2, 0]
+    >>> folds.origin.scheme, folds.origin.seed
+    ('vfold', 0)
     """
-    try:
-        return GroupKFold(n_splits=n_splits, shuffle=True, random_state=seed), cluster
-    except TypeError:
-        rng = np.random.default_rng(seed)
-        unique = np.unique(cluster)
-        relabel = rng.permutation(unique.size)
-        lookup = dict(zip(unique.tolist(), relabel.tolist(), strict=True))
-        shuffled = np.array([lookup[int(c)] for c in cluster], dtype=np.int64)
-        return GroupKFold(n_splits=n_splits), shuffled
+    if n < 2:
+        raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
+    if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, Integral):
+        raise ValueError(f"seed must be an integer; got {type(seed).__name__}")
+    if not 0 <= int(seed) <= _MAX_SEED:
+        raise ValueError(f"seed must lie in [0, {_MAX_SEED}]; got {seed}")
+    seed = int(seed)
+    resolved = resolve_n_folds(n_folds, n, cluster=cluster)
+    rng = np.random.RandomState(seed)
+    if cluster is None:
+        order = np.arange(n)
+        rng.shuffle(order)
+        assignment = np.empty(n, dtype=np.int64)
+        assignment[order] = _contiguous_blocks(n, resolved)
+        scheme = "vfold"
+    else:
+        codes = np.asarray(cluster).reshape(-1)
+        if codes.shape[0] != n:
+            raise DataError(f"cluster has {codes.shape[0]} row(s) but n is {n}")
+        labels, inverse = np.unique(codes, return_inverse=True)
+        permuted = rng.permutation(labels)
+        label_fold = np.empty(labels.size, dtype=np.int64)
+        label_fold[np.searchsorted(labels, permuted)] = _contiguous_blocks(labels.size, resolved)
+        assignment = label_fold[inverse.reshape(-1)]
+        scheme = "grouped"
+    origin = FoldOrigin(
+        generator=RANDOM_PARTITION_GENERATOR,
+        scheme=scheme,
+        requested_n_folds=int(n_folds),
+        seed=seed,
+    )
+    folds = Folds(assignment, resolved, origin=origin)
+    check_integrity(folds, cluster=cluster)
+    return folds
+
+
+def _contiguous_blocks(size: int, n_folds: int) -> IntArray:
+    """Return fold labels for ``size`` ordered items cut into ``n_folds`` blocks.
+
+    The blocks are contiguous.  Each holds ``size // n_folds`` items, and the first
+    ``size % n_folds`` blocks hold one more.  ``KFold`` and ``numpy.array_split`` both
+    cut this way.
+
+    Parameters
+    ----------
+    size : int
+        Number of ordered items.
+    n_folds : int
+        Number of blocks.
+
+    Returns
+    -------
+    ndarray
+        The block label of each item, in order.
+    """
+    sizes = np.full(n_folds, size // n_folds, dtype=np.int64)
+    sizes[: size % n_folds] += 1
+    return np.repeat(np.arange(n_folds, dtype=np.int64), sizes)
+
+
+def _fresh_seed() -> int:
+    """Draw a concrete seed from operating-system entropy.
+
+    The value lies in ``[0, 2**31 - 2]``, the range :meth:`CrossFitPlan.seeds` reduces
+    to, so a resolved seed is valid wherever a declared one is.
+
+    Returns
+    -------
+    int
+        A new seed.
+    """
+    return int(np.random.SeedSequence().generate_state(1)[0]) % (2**31 - 1)
 
 
 @dataclass(frozen=True)
@@ -922,9 +1093,15 @@ class CrossFitPlan:
 
         Spawned from ``random_state`` rather than derived by addition, so the draws are
         independent rather than merely different, and a repeated fit stays reproducible
-        under a seed.  ``random_state=None`` yields ``None`` per repeat: the draws differ
-        anyway, since :func:`make_folds` always shuffles, and pinning them here would
-        invent a reproducibility the caller declined.
+        under a seed.  ``random_state=None`` yields ``None`` per repeat, because the plan
+        is a declaration and the caller declared no seed.  The engine does not draw with
+        ``None``: :meth:`~cleverly.estimators.TMLE._repeat_draws` replaces each ``None``
+        with a fresh seed from operating-system entropy, in the same ``[0, 2**31 - 2]``
+        range, before it draws the folds.  That seed reaches the folds, the learners and
+        the C-TMLE selection folds, and
+        :attr:`~cleverly.estimators._nuisance.RepeatFit.seed` records it on the result.
+        The plan keeps ``random_state=None``, so the result still says that the caller
+        fixed no seed.
 
         One repeat passes ``random_state`` straight through rather than spawning from it,
         which is what makes ``repeats=1`` bit-for-bit an ordinary fit rather than merely

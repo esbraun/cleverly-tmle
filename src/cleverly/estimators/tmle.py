@@ -137,6 +137,7 @@ from ..learners.crossfit import (
     Folds,
     SplitPlan,
     _cross_fit_policy_refusal,
+    _fresh_seed,
     make_folds,
     missing_training_support,
 )
@@ -826,10 +827,10 @@ class TMLE:
 
     def _prepare_shared(
         self, data: CausalData, levels: Sequence[float], estimands: tuple[str, ...]
-    ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]]:
+    ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]]:
         """Fit the level-independent nuisances once, for every requested level.
 
-        One ``(folds, nuisance)`` pair per repeat: the levels share nuisances *within* a
+        One ``(folds, nuisance, seed)`` triple per repeat: the levels share nuisances *within* a
         draw, which is what this method exists for, and the draws remain separate, which
         is what makes them repeats.  The scaler is a function of the outcome alone and so
         is shared across both.
@@ -843,6 +844,7 @@ class TMLE:
                     self._fit_nuisances(
                         data, folds, scaler, levels[0], tuple(levels[1:]), seed=seed
                     ),
+                    seed,
                 )
             )
         return scaler, tuple(draws)
@@ -972,7 +974,9 @@ class TMLE:
         data: CausalData,
         *,
         intermediate_value: float | None,
-        shared: tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]] | None = None,
+        shared: (
+            tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]] | None
+        ) = None,
     ) -> TMLEResult:
         """Fit for one value of the intermediate (or for no intermediate at all).
 
@@ -1069,15 +1073,17 @@ class TMLE:
         extra: dict[str, Any] = {}
         if shared is not None:
             scaler, pooled = shared
-            fold_draws = [folds for folds, _ in pooled]
+            fold_draws = [folds for folds, _, _ in pooled]
+            draw_seeds = [seed for _, _, seed in pooled]
             nuisances = [
-                nuisance.at_level(cast("float", intermediate_value)) for _, nuisance in pooled
+                nuisance.at_level(cast("float", intermediate_value)) for _, nuisance, _ in pooled
             ]
             config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
             draws = self._repeat_draws(data, estimands)
             fold_draws = [folds for folds, _ in draws]
+            draw_seeds = [seed for _, seed in draws]
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
             # -- describes the first draw.  It is then the *same* config for every draw,
@@ -1099,7 +1105,7 @@ class TMLE:
         per_repeat: list[dict[str, ParameterEstimate]] = []
         repeats: list[RepeatFit] = []
         details: list[CVTargeting | None] = []
-        for nuisance in nuisances:
+        for nuisance, seed in zip(nuisances, draw_seeds, strict=True):
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -1114,6 +1120,7 @@ class TMLE:
                     nuisance=nuisance,
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
+                    seed=seed,
                 )
             )
             details.append(detail)
@@ -1841,9 +1848,10 @@ class TMLE:
     def _folds(self, data: CausalData, seed: int | None = None) -> Folds:
         """One draw of the split, from ``seed`` or from the plan's own.
 
-        ``seed=None`` means "the plan's", which is unambiguous rather than merely
-        convenient: :meth:`CrossFitPlan.seeds` hands a repeat ``None`` in exactly the case
-        where ``random_state`` is ``None`` too, so the two readings never disagree.
+        ``seed=None`` means "the plan's".  :meth:`_repeat_draws` always passes a concrete
+        seed, because it resolves an undeclared seed before it draws.  An unstratified
+        draw goes through :func:`~cleverly.learners.random_partition` inside
+        :func:`make_folds`, so its :attr:`Folds.origin` records the seed.
         """
         plan = self.crossfit_plan(data)
         if not plan.cross_fit:
@@ -1858,7 +1866,7 @@ class TMLE:
 
     def _repeat_draws(
         self, data: CausalData, estimands: tuple[str, ...]
-    ) -> tuple[tuple[Folds, int | None], ...]:
+    ) -> tuple[tuple[Folds, int], ...]:
         """Realize and validate all outer draws before fitting any nuisance model.
 
         Every realized draw also passes :meth:`_preflight_missing_outcome_folds`, so each
@@ -1872,8 +1880,17 @@ class TMLE:
         training complement, not to appear once in every fold, and ``validate`` checks
         that property directly.  Declaration time rules out the one direction no cap can
         produce, more folds than declared, which ``SplitPlan._policy_refusal`` does.
+
+        Every draw gets a concrete seed, the single-fold draw of ``cross_fit=False``
+        included.  Under ``random_state=None``, :meth:`CrossFitPlan.seeds` returns ``None``
+        per repeat, and this method replaces each one with a fresh seed from
+        operating-system entropy.  The same seed then reaches the folds, the learners and
+        the C-TMLE selection folds, and :attr:`RepeatFit.seed` records it on the result.
+        A caller-declared seed passes through unchanged.
         """
-        seeds = self.crossfit_plan(data).seeds()
+        seeds = tuple(
+            _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
+        )
         supplied = self.split_plan
         if supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)

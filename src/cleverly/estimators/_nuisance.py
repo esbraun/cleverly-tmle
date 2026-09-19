@@ -667,26 +667,32 @@ class RepeatFit:
     :attr:`~cleverly.estimators.base.TMLEResult.fluctuations` is -- that attribute now
     reads through to the first repeat.
 
-    Attributes
+    Parameters
     ----------
-    nuisance:
+    nuisance : NuisanceEstimates
         The out-of-fold nuisance predictions from this draw.  ``nuisance.folds`` is the
         draw itself, so a repeat carries the split that made it.
-    fluctuations:
+    fluctuations : dict of str to Fluctuation
         The solved fluctuation per target group, holding this draw's ``epsilon`` and its
         targeted outcome regression.
-    psi:
+    psi : mapping of str to float, default={}
         This draw's own point estimates, per estimand -- the numbers the reported estimate
         is the mean of.  The point estimates alone and not the whole
         :class:`~cleverly.ParameterEstimate`: what they exist for is
         :meth:`~cleverly.estimators.base.TMLEResult.repeat_spread`, and keeping ``R``
         further copies of every influence curve to compute a standard deviation of ``R``
         scalars would multiply the memory a fit holds for nothing.
+    seed : int or None, default=None
+        The concrete seed this draw ran under.  It seeded the folds, the learners and
+        any C-TMLE selection folds.  Under ``random_state=None`` the engine drew it from
+        operating-system entropy, so this field is the only record of it.  ``None`` for a
+        result pickled before the field existed.
     """
 
     nuisance: NuisanceEstimates
     fluctuations: dict[str, Fluctuation]
     psi: Mapping[str, float] = field(default_factory=dict)
+    seed: int | None = None
 
     @property
     def folds(self) -> Folds:
