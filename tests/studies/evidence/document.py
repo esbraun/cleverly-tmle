@@ -228,10 +228,23 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
                 tested,
                 required,
                 _measured(row),
-                _verdict(row.passed),
+                _property_verdict(row),
             )
         )
     return _table(PROPERTY_COLUMNS, rows)
+
+
+def _property_verdict(row: Any) -> str:
+    """How a property row's result reads, which its role decides.
+
+    A reported family states no verdict, so "pass" would be the wrong word: it is the word
+    every gated row beside it uses to mean "a declared margin was met", and a reader cannot
+    tell the two apart once they are spelled the same. See
+    :data:`~tests.studies.evidence.property_verdicts.DIAGNOSTIC_ROLE`.
+    """
+    if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+        return "reported"
+    return _verdict(row.passed)
 
 
 def _measured(row: Any) -> str:
@@ -304,6 +317,15 @@ def _measured(row: Any) -> str:
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.
         return f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family == property_verdicts.FOLD_POLICY_FAMILY:
+        measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        # Absent on the reference arm, which is differenced against itself.
+        if pd.notna(getattr(row, "coverage_gain_ci_lower", None)):
+            measured += (
+                ", paired coverage difference "
+                f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+            )
+        return measured
     if family == "clustered_inference":
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

@@ -353,6 +353,64 @@ class OracleOutcomeContinuous(BaseEstimator):
         return np.clip(self._intercept + self._slope * self._raw_mean(design), 1e-9, 1 - 1e-9)
 
 
+class OracleOutcomeUnit(BaseEstimator):
+    """The true conditional mean for an outcome the estimator does not rescale.
+
+    Between :class:`OracleOutcome` and :class:`OracleOutcomeContinuous`, and it exists
+    because a *bounded* continuous law sits between the two cases they cover.  A
+    proportion has a known support, so a fit declares ``q_bounds=(0, 1)`` and
+    :meth:`~cleverly.estimators.TMLE._scaler` builds the identity scaler from it.  The
+    structural mean is then already on the scale ``Qbar`` is fitted on, and returning it
+    is *exact* -- where :class:`OracleOutcomeContinuous` has to recover an affine map it
+    cannot know in advance, and pays one regression's worth of arithmetic for a map that
+    is the identity here.
+
+    Two guards, because the class is exact only under two conditions and each fails in a
+    way the other cannot see.
+
+    :meth:`fit` refuses a law whose conditional means leave ``(0, 1)``.  That is the
+    condition on the *law*: a Gaussian outcome mean of 2.5 is not a unit-interval mean,
+    and clipping it would return one law's oracle while the study sampled another.
+
+    The condition on the *fit* is that the scaler is the identity, and a learner cannot
+    see the scaler: it is handed the already-scaled outcome, and a scaler derived from the
+    observed range maps that outcome into ``[1/12, 11/12]``, which is a subset of the
+    values the identity produces.  No input distinguishes them.  A study therefore asserts
+    it on the fitted result instead, through
+    :func:`tests.studies.bounded_cv_laws.assert_unit_outcome_scaler`.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleOutcomeUnit:
+        del y, sample_weight
+        means = self._mean(np.asarray(X, dtype=float))
+        low, high = float(np.min(means)), float(np.max(means))
+        if not (low > 0.0 and high < 1.0):
+            raise ValueError(
+                f"OracleOutcomeUnit returns the structural mean unchanged, which is the "
+                f"fitted quantity only for an outcome the estimator does not rescale. This "
+                f"law's conditional mean reaches [{low:.4g}, {high:.4g}], outside the open "
+                f"unit interval. Use OracleOutcomeContinuous for an unbounded outcome."
+            )
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def _mean(self, design: Any) -> Any:
+        a, w = design[:, 0], design[:, 1:]
+        one = np.asarray(self.dgp.outcome_mean(w, 1.0, None), dtype=float)
+        zero = np.asarray(self.dgp.outcome_mean(w, 0.0, None), dtype=float)
+        return np.where(a == 1.0, one, zero)
+
+    def predict(self, X: Any) -> Any:
+        return self._mean(np.asarray(X, dtype=float))
+
+    def predict_proba(self, X: Any) -> Any:
+        p = self.predict(X)
+        return np.column_stack([1.0 - p, p])
+
+
 class OracleMissingness(BaseEstimator):
     """A missingness model returning the true ``P(Delta = 1 | A, W)``.
 

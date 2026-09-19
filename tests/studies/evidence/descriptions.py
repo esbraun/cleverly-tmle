@@ -337,6 +337,11 @@ PROPERTIES: dict[str, str] = {
         "the estimator stays consistent when either the outcome regression or the treatment "
         "mechanism is correct"
     ),
+    "fold_policy": (
+        "three outer-split policies are run on one law and one set of draws, and their coverage "
+        "is reported rather than gated, because a split that reads the treatment or the outcome "
+        "is refused and no cell here establishes that one is valid"
+    ),
     "generated_design": (
         "the outcome-adaptive design costs precision when its regression is estimated rather "
         "than known"
@@ -502,6 +507,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("crossfit_overfitting", "cross_fitted_oat"): (
         "outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    # The three fold policies. Each "what must hold" cell says the same thing on purpose:
+    # nothing has to hold. A reported row that borrowed a gated row's language would read
+    # as a claim, which is the one reading these cells must not carry.
+    ("fold_policy", "unstratified"): (
+        "the outer split is drawn without reading the treatment or the outcome",
+        "reported, not gated: the coverage interval is published and no margin is applied",
+    ),
+    ("fold_policy", "treatment_stratified"): (
+        "the outer split is balanced on the treatment, which the package refuses",
+        "reported, not gated: the coverage interval and its paired difference from the "
+        "unstratified arm are published and no margin is applied",
+    ),
+    ("fold_policy", "treatment_outcome_stratified"): (
+        "the outer split is balanced on the treatment crossed with the outcome, which the "
+        "package refuses",
+        "reported, not gated: the coverage interval and its paired difference from the "
+        "unstratified arm are published and no margin is applied",
     ),
     ("crossfit_overfitting", "fold_evaluated_cvtmle"): (
         "fold-evaluated CV-TMLE with a flexible learner",

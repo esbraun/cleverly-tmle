@@ -411,12 +411,32 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
-        unclassified = sorted(families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES)
+        unclassified = sorted(
+            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+        )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
             f"A family arriving without one is how a control came to publish the positive "
             f"arm's verdict; classify it above rather than leaving it ungated"
         )
+
+        # A reported family has the opposite failure mode to a gated one, so it gets the
+        # opposite check.  A gated row must not publish another row's verdict; a reported
+        # row must not publish a verdict at all.  Every cell carries the diagnostic role,
+        # which is what the rendered table reads to print "reported" instead of "pass", and
+        # every cell publishes the coverage interval the family exists to report.
+        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+            reported = published.loc[published["property"] == family]
+            assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
+                f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
+                f"family whose rows carry a gated role reads as a claim it does not make"
+            )
+            assert reported["passed"].all() and reported["property_passed"].all(), (
+                f"{family} publishes a failed verdict, and it declares no margin to fail"
+            )
+            assert reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all().all(), (
+                f"{family} publishes no coverage interval, which is what it reports"
+            )
         for family in sorted(families & BIAS_GATED_PROPERTIES):
             rows = published["property"] == family
             assert verdicts(rows & ~control, "passed") == verdicts(
@@ -851,6 +871,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "type_i_error",
     }
 )
+
+#: Families that publish numbers and no verdict.  A third list rather than a third entry in
+#: one of the two above, because the rule is not "which endpoint decides this row" but
+#: "this row decides nothing".  See
+#: :data:`~tests.studies.evidence.property_verdicts.FOLD_POLICY_FAMILY` for why a fold
+#: policy cannot be gated: two of the three policies it compares are refused, so no cell
+#: establishes that any of them is valid.
+DIAGNOSTIC_PROPERTIES = frozenset({property_verdicts.FOLD_POLICY_FAMILY})
 
 
 class TestNegativeControls:
