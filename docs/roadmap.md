@@ -629,13 +629,13 @@ drift that its implementation found.
 | --- | --- |
 | outer folds | package-generated unstratified folds; `stratify_by="treatment"`, `"treatment+outcome"`, and `split_plan=` are refused before fold generation |
 | continuous outcome scale | a fixed `q_bounds` equal to the known support; `q_bounds=None` is refused before fold generation |
-| arm and class support | a preflight after fold generation checks each training complement, and it asks for two rows in each class for a package `SuperLearner` classification role |
+| arm and class support | a preflight after fold generation checks the sample and each training complement. A package `SuperLearner` classification role needs three rows in each class in the sample and two in each complement. A sample shortfall names no remedy that repartitions |
 | drift | `"none"` stays reserved for the two stacked contracts, so it is refused in sample. Every in-sample remedy therefore still names `stratify_by='treatment'`: `_IN_SAMPLE_NATURAL_COURSE_REMEDY`, `_IN_SAMPLE_ARM_INDEXED_REMEDY`, and each message that includes one. RM17 removes the reservation, and then it must rewrite those remedies to `CrossFitting(enabled=False)` alone |
 
 The Super Learner inner split needs a risk result before its stratified oracle performance can be
 claimed. For iid point-treatment CV-TMLE, its inner strata do not expose outer-held-out outcomes
 when the outer split reads no outcome. `"treatment+outcome"` outer strata read outcomes
-(`src/cleverly/estimators/tmle.py:2123-2132`). The outer result still requires nuisance rates that
+(`_fold_strata`, `src/cleverly/estimators/tmle.py:2557-2561`). The outer result still requires nuisance rates that
 this audit does not establish.
 
 `estimator_name` labels a complete-outcome cross-fit with `n_folds=1` "stacked CV-TMLE (Levy)".
