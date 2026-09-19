@@ -11,6 +11,9 @@ because the targeting ratio admits a shift that small.
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -155,13 +158,67 @@ def test_the_scale_probe_failure_refuses_publication() -> None:
     failing = passing.assign(passed=[True, False, True])
     assert len(study.scientific_failures({"scale-probe.csv": failing})["scale-workaround probe"])
     for short in (passing.iloc[:0], passing.iloc[1:], passing.assign(replicate=[0, 0, 1])):
-        assert "scale-workaround probe coverage" in study.scientific_failures(
-            {"scale-probe.csv": short}
-        )
+        coverage = study.scientific_failures({"scale-probe.csv": short})[
+            "scale-workaround probe coverage"
+        ]
+        assert not coverage.empty  # the driver ignores empty failure frames
     binary = passing.assign(scenario="binary_mar_natural_course")
     assert "scale-workaround probe coverage" in study.scientific_failures(
         {"scale-probe.csv": binary}
     )
+    for missing_verdict in (
+        passing.assign(passed=[True, np.nan, True]),
+        passing.assign(passed=pd.Series([True, pd.NA, True], dtype="boolean")),
+    ):
+        assert (
+            len(
+                study.scientific_failures({"scale-probe.csv": missing_verdict})[
+                    "scale-workaround probe"
+                ]
+            )
+            == 1
+        )
+
+
+def test_the_probe_artifact_covers_the_reference_rows(tmp_path: Path) -> None:
+    reference_results = tmp_path / "reference.csv"
+    pd.DataFrame(
+        {
+            "scenario": ["binary_mar_natural_course", study.CONTINUOUS_SCENARIO] * 3,
+            "replicate": [0, 0, 1, 1, 2, 2],
+        }
+    ).to_csv(reference_results, index=False)
+
+    def write_full_probe(
+        _here: Path, _samples: Path, _truths: Path, path: Path, **_options: object
+    ) -> None:
+        pd.DataFrame({"scenario": [study.CONTINUOUS_SCENARIO] * 3, "replicate": [0, 1, 2]}).to_csv(
+            path, index=False
+        )
+
+    options = {
+        "here": tmp_path,
+        "samples": tmp_path / "samples.csv.gz",
+        "truths_path": tmp_path / "truth.csv",
+        "reference_results": reference_results,
+        "output": tmp_path,
+        "cores": 1,
+    }
+    complete = study.reference_artifacts(reference=SimpleNamespace(run=write_full_probe), **options)
+    assert list(complete["scale-probe.csv"]["replicate"]) == [0, 1, 2]
+
+    def write_short_probe(
+        _here: Path, _samples: Path, _truths: Path, path: Path, **_options: object
+    ) -> None:
+        pd.DataFrame({"scenario": [study.CONTINUOUS_SCENARIO] * 2, "replicate": [0, 1]}).to_csv(
+            path, index=False
+        )
+
+    with pytest.raises(RuntimeError, match="does not match the reference replications"):
+        study.reference_artifacts(
+            reference=SimpleNamespace(run=write_short_probe),
+            **options,
+        )
 
 
 # ------------------------------------------------------------------ committed parity

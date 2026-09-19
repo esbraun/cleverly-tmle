@@ -314,24 +314,30 @@ def reference_artifacts(
     cores: int,
 ) -> dict[str, pd.DataFrame]:
     """Run the exact-equality probe of the planted-row scale workaround on every continuous fit."""
-    del reference_results  # the probe writes its own table rather than reading the rows
     path = output / PROBE_ARTIFACT
     reference.run(here, samples, truths_path, path, cores=cores, runner=PROBE_RUNNER)
-    return {PROBE_ARTIFACT: pd.read_csv(path).sort_values("replicate", ignore_index=True)}
+    probe = pd.read_csv(path).sort_values("replicate", ignore_index=True)
+    reference_rows = pd.read_csv(reference_results, usecols=["scenario", "replicate"])
+    expected = (
+        reference_rows.loc[reference_rows["scenario"] == CONTINUOUS_SCENARIO, "replicate"]
+        .sort_values()
+        .reset_index(drop=True)
+    )
+    if not probe["replicate"].equals(expected):
+        raise RuntimeError("the scale-workaround probe does not match the reference replications")
+    return {PROBE_ARTIFACT: probe}
 
 
 def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """Refuse publication when the continuous comparison's scale workaround is not exact.
 
     Coverage requires exactly one probe row for each continuous replication ``0, ..., k - 1``.
-    The R probe itself refuses a run that returns fewer rows than it received replications.
+    The artifact hook also compares those rows with the reference's actual replications.
     """
     probe = extra_frames[PROBE_ARTIFACT]
+    if probe.empty:
+        return {"scale-workaround probe coverage": pd.DataFrame([{"error": "no probe rows"}])}
     replicates = sorted(int(value) for value in probe["replicate"])
-    if (
-        probe.empty
-        or set(probe["scenario"]) != {CONTINUOUS_SCENARIO}
-        or replicates != list(range(len(probe)))
-    ):
+    if set(probe["scenario"]) != {CONTINUOUS_SCENARIO} or replicates != list(range(len(probe))):
         return {"scale-workaround probe coverage": probe}
-    return {"scale-workaround probe": probe.loc[~probe["passed"].astype(bool)]}
+    return {"scale-workaround probe": probe.loc[~probe["passed"].fillna(False).eq(True)]}
