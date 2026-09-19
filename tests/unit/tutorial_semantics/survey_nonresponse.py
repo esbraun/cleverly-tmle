@@ -15,6 +15,7 @@ import pytest
 from scipy.special import expit
 
 from cleverly import (
+    ATE,
     CapabilityError,
     CausalStudy,
     CrossFitting,
@@ -55,7 +56,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert expression in summary
     assert "missingness_mechanism" in summary
     assert "E_W[E(Y | A=a, W)] and the declared smooth contrast" not in summary
-    assert "stacked CV-TMLE" in fitted.summary()
+    # Step 6 fits in sample: "TMLE (in-sample nuisances)" and no outer folds.
+    assert "TMLE (in-sample nuisances)" in fitted.summary()
+    assert "stacked CV-TMLE" not in fitted.summary()
+    assert not namespace["method"].cross_fitting.enabled
 
     # The protocol step prints the record, and the fit carries its digest.
     # The reading names the fields this page changes in the program protocol.
@@ -200,46 +204,54 @@ def check(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match=r"does not yet support PointTreatment\(missingness"):
         box_study.identify(PopulationAttributableFraction(reference=0))
 
-    # "Both use CrossFitting(n_folds=5), which keeps cross-fitting on and keeps the default
-    # stratify_by='treatment'", so "neither method nor box_method meets" the natural-course
-    # contracts.  The refusal comes before any learner is fitted.
+    # Step 6: "This Gaussian score has no finite support, so cleverly refuses the cross-fitted
+    # fit". The refusal names q_bounds, and it comes from the arm-indexed contract.
     study = namespace["study"]
     method = namespace["method"]
     box_method = namespace["box_method"]
-    for candidate_study, candidate_method in ((study, method), (box_study, box_method)):
-        crossing = candidate_method.cross_fitting
-        assert crossing.enabled and crossing.n_folds == 5 and crossing.stratify_by == "treatment"
-        with pytest.raises(CapabilityError, match="stratify_folds='none'"):
-            candidate_study.identify(NaturalCourseMean()).estimate(method=candidate_method)
-    # "NaturalCourseMean() alone is supported under missingness=": the ordinary contract fits
-    # the top-box study once cross-fitting is off.  This witness fails if the refusal widens.
-    ordinary = replace(box_method, cross_fitting=CrossFitting(enabled=False))
-    natural = box_study.identify(NaturalCourseMean()).estimate(method=ordinary)
+    assert method.cross_fitting == CrossFitting(enabled=False)
+    for folds in (CrossFitting(n_folds=5), CrossFitting(n_folds=5, stratify_by="none")):
+        with pytest.raises(CapabilityError, match="q_bounds=None"):
+            effect.estimate(method=replace(method, cross_fitting=folds))
+
+    # Step 9: the binary fit is cross-fitted over five folds with stratify_by="none", and
+    # "cleverly refuses the default stratify_by='treatment' here".
+    assert box_method.cross_fitting == CrossFitting(n_folds=5, stratify_by="none")
+    default_folds = replace(box_method, cross_fitting=CrossFitting(n_folds=5))
+    with pytest.raises(CapabilityError, match="stratify_folds='none'"):
+        box_study.identify(ATE(reference=0)).estimate(method=default_folds)
+
+    # Step 10: "box_method" fits the natural-course mean under the cross-fitted contract, and
+    # "method" is refused because the in-sample contract needs q_bounds for a continuous outcome.
+    natural = box_study.identify(NaturalCourseMean()).estimate(method=box_method)
     assert list(natural.estimates) == ["ey_obs"]
+    assert "stacked CV-TMLE" in natural.summary()
+    with pytest.raises(CapabilityError, match="continuous outcomes require fixed"):
+        study.identify(NaturalCourseMean()).estimate(method=method)
 
     # "No row needs attention", the support report prints the joint mechanism row, and the
     # nuisance report prints the verdict the reading quotes.
     assert tuple(namespace["assessment"].attention) == ()
     assessment_output = stored_output(NOTEBOOK, "assessment")
-    assert "P(A=a,Delta=1|W)  0.0072" in assessment_output
-    assert "max |clever covariate| (mean): 112.2" in assessment_output
+    assert "P(A=a,Delta=1|W)  0.0075" in assessment_output
+    assert "max |clever covariate| (mean): 90.2" in assessment_output
     assert "nuisance fits look reasonable" in assessment_output
     for row in ("omitted_confounding", "robustness_value", "elements", "contour", "evalue"):
         assert f"sensitivity  {row}" in assessment_output
 
-    # "tipping gamma is 1.299", and "at most 0.314 of the score range" is the maximum over the
-    # fitted [0, 1] mean of the logit move, reached at a mean of 0.657.
+    # "tipping gamma is 1.306", and "at most 0.315 of the score range" is the maximum over the
+    # fitted [0, 1] mean of the logit move, reached at a mean of 0.658.
     tipping = namespace["tipping_gamma"]
-    assert f"{tipping:.3f}" == "1.299"
+    assert f"{tipping:.3f}" == "1.306"
     grid = np.linspace(1e-6, 1 - 1e-6, 200_001)
     moves = grid - expit(np.log(grid / (1 - grid)) - tipping)
     assert namespace["largest_shift"] == pytest.approx(float(np.max(moves)), abs=1e-6)
     assert namespace["peak_mean"] == pytest.approx(float(grid[np.argmax(moves)]), abs=1e-4)
     # Witness: the mid-range move is strictly smaller, so the mid-range formula would fail.
     assert namespace["largest_shift"] > 0.5 - expit(-tipping) + 0.01
-    # "That is 6.29 score units": the shift times the fitted scaling range.
+    # "That is 6.32 score units": the shift times the fitted scaling range.
     assert namespace["largest_shift"] * (scaler.upper - scaler.lower) == pytest.approx(
-        6.29, abs=0.005
+        6.32, abs=0.005
     )
 
     # The curve's gamma=0 row is the MAR estimate, and its interval reuses the MAR standard error.
@@ -252,6 +264,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert curve["psi"].is_monotonic_decreasing
     assert float(curve.loc[curve["gamma"] == 1.0, "psi"].iloc[0]) > 0.0
     assert float(curve.loc[curve["gamma"] == 2.0, "psi"].iloc[0]) < 0.0
-    # "The ATE moves less than 0.314 of the range": at the tipping gamma the ATE has moved by
+    # "The ATE moves less than 0.315 of the range": at the tipping gamma the ATE has moved by
     # its full MAR value, which is a smaller fraction of the range.
     assert full.psi / (scaler.upper - scaler.lower) < namespace["largest_shift"]
