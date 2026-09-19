@@ -41,6 +41,12 @@ previous reader had is not a citation; a page number is.
 
   The known-interval result supports a fixed `q_bounds` transform. Sections 3 and 4 state the
   data-derived bounds as a practice, and they give no separate derivation for that choice.
+- Smith et al. (2025), [*Performance of Cross-Validated Targeted Maximum Likelihood
+  Estimation*](https://doi.org/10.1002/sim.70185), *Statistics in Medicine* 44(15-17):e70185,
+  DOI 10.1002/sim.70185. Read first-hand. Section 2.1 describes a transform based on the observed
+  minimum and maximum. Section 6 states that its simulations used binary outcomes only. The
+  authors leave continuous-outcome performance for further research. The paper does not derive
+  an interval result for a scale computed from every row before cross-fitting.
 - Gruber & van der Laan (2012),
   [*tmle: An R Package for Targeted Maximum Likelihood Estimation*](https://doi.org/10.18637/jss.v051.i13),
   *Journal of Statistical Software* 51(13), DOI 10.18637/jss.v051.i13. Section 2.1,
@@ -185,6 +191,18 @@ previous reader had is not a citation; a page number is.
   The theorems place limit and rate conditions on the initial estimators. They do not prescribe how
   a training sample builds them. A pooled outcome regression evaluated at each arm, and separately
   bounded treatment and response probabilities, are therefore admissible initial estimators.
+- Polley (2010), [*Super Learner*](https://escholarship.org/content/qt4qn0067v/qt4qn0067v.pdf),
+  U.C. Berkeley dissertation. Read first-hand. Section 1.1.2, PDF page 16 (printed page 4),
+  defines V-fold assignment independently of the learning observations. Section 2.2, Theorem 1,
+  PDF pages 24–25 (printed pages 12–13), states the Super Learner oracle result for that split.
+  Theorem 1 assumes bounded data, squared-error loss, and a finite grid of metalearner values.
+  The dissertation's software offers `stratifyCV` for a binary outcome (Appendix A, PDF pages
+  132–134). Theorem 1 does not cover that option. The package's Super Learner stratifies its
+  inner folds on a classification target. In an iid point-treatment or fold-local longitudinal
+  cross-fitted fit, those folds use only the outer-training rows. If the outer split reads no
+  outcome, their fold assignment then reads no outer-held-out outcome. The C-TMLE selection folds
+  cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). Polley's oracle
+  result does not establish a risk bound for the stratified inner folds.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
@@ -206,8 +224,9 @@ previous reader had is not a citation; a page number is.
   folds. The folds "depend only on" an independent uniform draw and the cell size. The estimator is
   a cross-fitted AIPW estimator, not a TMLE. The strata are covariate strata, not outcome strata.
   The paper therefore does not cover the package's treatment-stratified folds for observational
-  data, which [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-  audits.
+  data. The completed
+  [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+  records this gap.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
@@ -387,14 +406,14 @@ previous reader had is not a citation; a page number is.
   | binary outcome; `ey`, `ey0`, `ey1`, `ate` | source-supported | the five links |
   | binary outcome; `rr` and `or` on the log scale | source-supported | the five links and Appendix A, page 34 |
   | bounded continuous outcome with a fixed `q_bounds`; `ey`, `ey0`, `ey1`, `ate` | source-supported | Zheng and van der Laan, Theorem 2 with the `(W, T_a, U)` reduction; their Theorem 4 and Gruber and van der Laan (2010), Section 2 and Lemma 1, for the transform |
-  | continuous outcome with `q_bounds=None` | no source read | the scale depends on held-out outcomes, as the next paragraph states; [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits it |
+  | continuous outcome with `q_bounds=None` | no reviewed interval result | the scale depends on held-out outcomes, as the next paragraph states; the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires prespecified bounds |
   | three or more arms, with a binary outcome or a bounded continuous outcome with a fixed `q_bounds`; `ey`, and `ate` against the reference arm; `rr` and `or` against the reference arm for a binary outcome | source-supported | the three-arm table above, with the contrast curve as a standard consequence; the planned R comparator runs the population-mean path once for each arm |
   | simultaneous bands over the reported estimands, with the centered rule | source-supported via the vector expansion | Zheng and van der Laan, Theorem 2, give a joint expansion of the vector with curve `D`, so the estimates are jointly asymptotically normal; the default Rademacher multiplier band then follows from a conditional multiplier central limit theorem for a fixed number of estimands, a standard consequence that the paper does not state |
   | ATT or ATC | no source read | the clever covariate carries an empirical arm share, so the Levy overlap statement does not cover it |
   | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
   | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |
   | supplied split plan | no source read | the balance and weighting requirements are unaudited |
-  | folds stratified on treatment or outcome | no source read | the sources analyze a random split with no stratification wording; [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits it |
+  | folds stratified on treatment or outcome | no reviewed result for this fit | the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires generated unstratified folds for RM9 |
   | one fold with cross-fitting | not cross-fitting | one fold trains and evaluates on the same rows |
   | weights, clusters, or baseline strata | no source read | every source treats unweighted iid rows |
   | bootstrap inference | no source read | no source covers a bootstrap of this estimator |
@@ -415,7 +434,7 @@ previous reader had is not a citation; a page number is.
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds this gap |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) audits those strata, and RM9 must check that each split contains every outcome class, because the preflight cannot see it |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. RM9 must check that each split contains every outcome class, because the preflight cannot see it |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
@@ -484,7 +503,14 @@ previous reader had is not a citation; a page number is.
   American Statistical Association* 118(542):846–857, DOI 10.1080/01621459.2021.1955691. The
   package implements the point-treatment shift case; the citation supplies the general modified-
   policy identification and efficient influence-function theory, not a claim of longitudinal-shift
-  support.
+  support. Read first-hand in the [published PDF](https://epiresearch.org/wp-content/uploads/2024/04/Nonparametric-Causal-Effects-Based-on-Longitudinal-Modified-Treatment-Policies.pdf).
+  Section 5.2, journal page 852, defines random, approximately equal row folds and a continuous
+  outcome transform with known bounds. Theorem 3, page 853, gives the TMLE limit under its stated
+  conditions. The section pools its fluctuation over all rows after nuisance prediction. The
+  shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
+  The authors' `lmtp` 1.5.4 also targets within each training fold, and the registered comparison
+  uses it ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
+  The theorem does not certify the fold-local targeting or the first-node treatment strata.
 - van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
   Experimental Data*, Springer. Chapter 12 covers marginal structural model targets.
 
@@ -515,6 +541,13 @@ previous reader had is not a citation; a page number is.
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   DOI 10.1177/0962280217729845. Sections 4.1 through 5 define the general, greedy, and preordered
   binary-ATE paths. Section 7.4 forms each interval from the ordinary efficient influence curve.
+  Read first-hand in the [author preprint](https://arxiv.org/pdf/1703.02237). Algorithm 1,
+  PDF page 6, selects a candidate by cross-validated loss. Section 5.5, PDF pages 10–11, selects
+  the pre-ordering and the number of covariates with one cross-validation. To save computation,
+  the authors "do not rely on a nested cross-validation procedure to select k for each
+  pre-ordering strategy m". The source does not describe inner folds that cross-fit nuisances
+  within each selection-training fold, as the shipped selector does. It specifies no treatment-
+  or outcome-stratified fold rule for the shipped selector.
 - Ju, Benkeser & van der Laan (2020), [*Robust inference on the average treatment effect using the
   outcome highly adaptive lasso*](https://arxiv.org/abs/1806.06784), *Biometrics* 76(1):109-118,
   DOI 10.1111/biom.13121. This is another adaptive-propensity construction with explicit
@@ -528,7 +561,10 @@ previous reader had is not a citation; a page number is.
   smoothness, a higher-order remainder, and an empirical-process condition. Section 3.1 gives a
   cross-validated variance construction in which each fold's outcome and adaptive propensity are
   both learned without that fold's rows. No separate first-order generated-design term appears in
-  the theorem's influence function.
+  the theorem's influence function. Section 3.1 of the
+  [author preprint](https://arxiv.org/pdf/1901.05056), PDF page 9, randomly partitions rows into
+  approximately equal folds for variance estimation. It gives no treatment- or outcome-stratified
+  selection-fold rule.
   Appendix D explicitly constructs the binary ATE with one propensity fit on
   `(Qbar(1, W), Qbar(0, W))` and sketches a cross-validated C-TMLE. It does not derive treatment
   with more than two levels, the shipped joint all-arm fluctuation and covariance, or simultaneous
