@@ -674,7 +674,7 @@ it checked in each.
 | Gruber and van der Laan (2010), Working Paper 265 | Section 3, PDF page 9; Section 4, PDF pages 13–14 | data-derived bounds as a practice, with no derivation and no cross-fitting split |
 | Gruber and van der Laan (2012) | Section 3.2, page 16 | warns about observed-range bounds under missing outcomes; no cross-fitting split |
 | Smith et al. (2025) | Sections 2.1 and 6 | describes sample-range scaling, but studies binary outcomes only and calls for continuous-outcome research |
-| Polley (2010) | Section 1.1.2, PDF page 15, and Section 2.2, Theorem 1, PDF pages 23–24 | the Super Learner oracle result uses folds independent of its learning sample |
+| Polley (2010) | Section 1.1.2, PDF page 16 (printed page 4), and Section 2.2, Theorem 1, PDF pages 24–25 (printed pages 12–13) | the Super Learner oracle result uses folds independent of its learning sample |
 | Ju et al. (2019), read in the 2017 author preprint | Algorithm 1, PDF page 6; Section 5.5, PDF pages 10–11 | selects by cross-validated loss, but does not define treatment or outcome strata; its Super Learner C-TMLE uses one cross-validation for the pre-ordering and the depth, and it does not describe the shipped inner selection-training folds |
 | Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation and sketches CV-C-TMLE; neither covers treatment-stratified outer folds for the outcome-adaptive fit or the shipped stratified nested selector |
 | Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal page 852, and Theorem 3, page 853 | defines a random near-balanced row partition for a longitudinal TMLE; its pooled all-row fluctuation differs from the shipped fold-local recursion, which the authors' `lmtp` 1.5.4 also uses |
@@ -701,7 +701,7 @@ conditions.
 | continuous outcomes under cross-fitting | a known support interval has support; the padded range of every observed outcome has no reviewed cross-fitted result | require a `q_bounds` declaration before nuisance fitting, and document that it must be prespecified from known support; the package can check only that the interval contains the observed outcomes (`src/cleverly/utils/bounds.py:218-227`) |
 | unbounded continuous outcomes under cross-fitting | no finite known support gives the cited logistic transform | no pre-fit check can detect unbounded support or a bound derived from the sample; document that a caller with no known finite support must not cross-fit this outcome; do not derive `q_bounds` from a realized sample in package or study code |
 | supplied outer plans | `SplitPlan.validate` checks integrity and training support, but neither near-balance nor how a caller generated the labels | refuse them until a plan records a package-generated external random scheme, or a separate contract establishes split provenance and balance; keep RM9's refusal |
-| Super Learner inner classification folds | these folds see only outer-training rows, so they do not read outer held-out outcomes; Polley's oracle result does not cover their target strata | retain them as part of the training algorithm; make no oracle claim for this inner split |
+| Super Learner inner classification folds | in iid point-treatment and fold-local longitudinal cross-fitting, these folds see only outer-training rows; with an outer split that reads no outcome, their assignment reads no outer-held-out outcome; the C-TMLE selection folds cross the outer split ([F18](#f18-selector-path-c-tmle-inference)); Polley's oracle result does not cover their target strata | retain them as part of the training algorithm; make no oracle claim for this inner split |
 
 Unstratified longitudinal folds do not guarantee each first-node level in every training fold.
 Expect more refusals from `_check_categorical_fold_support`
@@ -765,7 +765,9 @@ continuous law of the stacked, fold-evaluated, and repeated studies is a Beta dr
 [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) uses generated unstratified folds
 and prespecified `q_bounds` under its own narrow contract. The Super Learner inner split needs a
 risk result before its stratified oracle performance can be claimed. For iid point-treatment
-CV-TMLE, its inner strata do not expose outer-held-out outcomes. The outer result still requires
+CV-TMLE, its inner strata do not expose outer-held-out outcomes when the outer split reads no
+outcome. `"treatment+outcome"` outer strata read outcomes
+(`src/cleverly/estimators/tmle.py:2123-2132`). The outer result still requires
 nuisance rates that this audit does not establish.
 
 The witnesses must fail when a component is wrong:
@@ -777,7 +779,9 @@ The witnesses must fail when a component is wrong:
 - the same counting learner on a generated split that leaves an arm out of a training complement;
 - scaled training predictions that stay fixed under a fixed `q_bounds` and move under
   `q_bounds=None`;
-- an outer-held-out outcome mutation that leaves every inner Super Learner training fold fixed;
+- with a binary outcome and fixed outer folds, an outer-held-out outcome mutation that leaves
+  every inner Super Learner fold assignment (`SuperLearner.folds_`) fixed. A mutant that
+  stratifies the inner split on the all-row target must fail it;
 - paired coverage diagnostics for treatment-stratified and unstratified folds on the same draws;
 - a coverage diagnostic with `"treatment+outcome"` strata. These diagnostics can detect a failure.
   They do not supply the missing inference result.

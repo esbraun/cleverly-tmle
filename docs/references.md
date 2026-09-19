@@ -192,12 +192,17 @@ previous reader had is not a citation; a page number is.
   a training sample builds them. A pooled outcome regression evaluated at each arm, and separately
   bounded treatment and response probabilities, are therefore admissible initial estimators.
 - Polley (2010), [*Super Learner*](https://escholarship.org/content/qt4qn0067v/qt4qn0067v.pdf),
-  U.C. Berkeley dissertation. Read first-hand. Section 1.1.2, PDF page 15, defines V-fold
-  assignment independently of the learning observations. Section 2.2, Theorem 1, PDF pages
-  23–24, states the Super Learner oracle result for that split. The package's Super Learner
-  stratifies its inner folds on a classification target. Those folds use only the outer-training
-  rows during an outer cross-fitted fit. They do not expose the outer-held-out outcome to the
-  nuisance learner. Polley's oracle result does not establish their stratified risk bound.
+  U.C. Berkeley dissertation. Read first-hand. Section 1.1.2, PDF page 16 (printed page 4),
+  defines V-fold assignment independently of the learning observations. Section 2.2, Theorem 1,
+  PDF pages 24–25 (printed pages 12–13), states the Super Learner oracle result for that split.
+  Theorem 1 assumes bounded data, squared-error loss, and a finite grid of metalearner values.
+  The dissertation's software offers `stratifyCV` for a binary outcome (Appendix A, PDF pages
+  132–134). Theorem 1 does not cover that option. The package's Super Learner stratifies its
+  inner folds on a classification target. In an iid point-treatment or fold-local longitudinal
+  cross-fitted fit, those folds use only the outer-training rows. If the outer split reads no
+  outcome, their fold assignment then reads no outer-held-out outcome. The C-TMLE selection folds
+  cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). Polley's oracle
+  result does not establish a risk bound for the stratified inner folds.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
@@ -428,7 +433,7 @@ previous reader had is not a citation; a page number is.
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds this gap |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`); the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds no outer-held-out outcome leakage but no stratified Super Learner oracle result. RM9 must check that each split contains every outcome class, because the preflight cannot see it |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. RM9 must check that each split contains every outcome class, because the preflight cannot see it |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
