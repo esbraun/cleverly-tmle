@@ -677,7 +677,7 @@ it checked in each.
 | Polley (2010) | Section 1.1.2, PDF page 15, and Section 2.2, Theorem 1, PDF pages 23–24 | the Super Learner oracle result uses folds independent of its learning sample |
 | Ju et al. (2019), read in the 2017 author preprint | Algorithm 1, PDF page 6; Section 5.5, PDF pages 10–11 | selects by cross-validated loss, but does not define treatment or outcome strata; its Super Learner C-TMLE uses one cross-validation for the pre-ordering and the depth, and it does not describe the shipped inner selection-training folds |
 | Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation and sketches CV-C-TMLE; neither covers treatment-stratified outer folds for the outcome-adaptive fit or the shipped stratified nested selector |
-| Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal page 853, and Theorem 3, page 854 | defines a random near-balanced row partition for a longitudinal TMLE; its pooled all-row fluctuation differs from the shipped fold-local recursion |
+| Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal page 852, and Theorem 3, page 853 | defines a random near-balanced row partition for a longitudinal TMLE; its pooled all-row fluctuation differs from the shipped fold-local recursion, which the authors' `lmtp` 1.5.4 also uses |
 
 Three probes ran at commit `1cf6628` on complete-outcome ATE fits with ten folds and a logistic
 treatment learner. They measure sensitivity, not coverage.
@@ -697,11 +697,16 @@ conditions.
 | point-treatment TMLE and DR-TMLE, treatment-plus-outcome strata | no reviewed result covers a split that uses held-out outcomes | with `cross_fit=True`, refuse the option before nuisance fitting |
 | C-TMLE outer, selection, and nested selection folds | the reviewed CV-TMLE and C-TMLE sources do not cover these data-dependent assignments; selector inference has the separate [F18](#f18-selector-path-c-tmle-inference) gap | use external random folds at each layer; refuse explicit treatment or outcome strata without claiming F18 is closed; with declared clusters, the grouped row below also applies to each layer |
 | longitudinal TMLE first-node treatment strata | the reviewed longitudinal theorem defines random near-balanced row folds, but its targeting construction also differs from the shipped estimator | generate unstratified folds for iid rows; audit grouped folds and the fold-local targeting theorem separately |
-| grouped outer, selection, and nested selection folds | this iid audit does not establish a split law for whole-cluster assignments | audit the clustered point and longitudinal studies against a cluster-level result; refuse an unsupported composition before nuisance fitting |
+| grouped outer, selection, and nested selection folds | this iid audit does not establish a split law for whole-cluster assignments | audit the registered clustered point-treatment studies and the unregistered clustered longitudinal path (`id=`, `StratifiedGroupKFold` on the first node) against a cluster-level result; refuse an unsupported composition before nuisance fitting |
 | continuous outcomes under cross-fitting | a known support interval has support; the all-row observed range has no reviewed cross-fitted result | require a `q_bounds` declaration before nuisance fitting, and document that it must be prespecified from known support |
 | unbounded continuous outcomes under cross-fitting | no finite known support gives the cited logistic transform | refuse this composition; do not turn a realized sample range into a declared bound |
 | supplied outer plans | `SplitPlan.validate` checks integrity and training support, but neither near-balance nor how a caller generated the labels | refuse them until a plan records a package-generated external random scheme, or a separate contract establishes split provenance and balance; keep RM9's refusal |
 | Super Learner inner classification folds | these folds see only outer-training rows, so they do not read outer held-out outcomes; Polley's oracle result does not cover their target strata | retain them as part of the training algorithm; make no oracle claim for this inner split |
+
+Unstratified longitudinal folds do not guarantee each first-node level in every training fold.
+Expect more refusals from `_check_categorical_fold_support`
+(`src/cleverly/longitudinal/sequential.py:494-548`) at a first node with three or more levels.
+Update its hint at `:540-541`, which recommends folds that preserve treatment support.
 
 After RM10, implement the global RM17 changes. Remove the `"none"` reservation in
 `src/cleverly/estimators/tmle.py:1236-1245`. Route unsupported split policies, supplied plans,

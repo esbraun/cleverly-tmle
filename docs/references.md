@@ -498,11 +498,13 @@ previous reader had is not a citation; a page number is.
   package implements the point-treatment shift case; the citation supplies the general modified-
   policy identification and efficient influence-function theory, not a claim of longitudinal-shift
   support. Read first-hand in the [published PDF](https://epiresearch.org/wp-content/uploads/2024/04/Nonparametric-Causal-Effects-Based-on-Longitudinal-Modified-Treatment-Policies.pdf).
-  Section 5.2, journal page 853, defines random, approximately equal row folds and a continuous
-  outcome transform with known bounds. Theorem 3, page 854, gives the TMLE limit under its stated
+  Section 5.2, journal page 852, defines random, approximately equal row folds and a continuous
+  outcome transform with known bounds. Theorem 3, page 853, gives the TMLE limit under its stated
   conditions. The section pools its fluctuation over all rows after nuisance prediction. The
   shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
-  The theorem does not directly certify that fold-local targeting or first-treatment strata.
+  The authors' `lmtp` 1.5.4 also targets within each training fold, and the registered comparison
+  uses it ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
+  The theorem does not certify the fold-local targeting or the first-node treatment strata.
 - van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
   Experimental Data*, Springer. Chapter 12 covers marginal structural model targets.
 
