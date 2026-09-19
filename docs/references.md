@@ -534,9 +534,12 @@ previous reader had is not a citation; a page number is.
   DOI 10.1177/0962280217729845. Sections 4.1 through 5 define the general, greedy, and preordered
   binary-ATE paths. Section 7.4 forms each interval from the ordinary efficient influence curve.
   Read first-hand in the [author preprint](https://arxiv.org/pdf/1703.02237). Algorithm 1,
-  PDF page 5, selects a candidate by cross-validated loss. Section 5.5, PDF pages 9–10, uses
-  one selection cross-validation and expressly avoids nested selection folds. It specifies no
-  treatment- or outcome-stratified fold rule for the shipped selector.
+  PDF page 6, selects a candidate by cross-validated loss. Section 5.5, PDF pages 10–11, selects
+  the pre-ordering and the number of covariates with one cross-validation. To save computation,
+  the authors "do not rely on a nested cross-validation procedure to select k for each
+  pre-ordering strategy m". The source does not describe inner folds that cross-fit nuisances
+  within each selection-training fold, as the shipped selector does. It specifies no treatment-
+  or outcome-stratified fold rule for the shipped selector.
 - Ju, Benkeser & van der Laan (2020), [*Robust inference on the average treatment effect using the
   outcome highly adaptive lasso*](https://arxiv.org/abs/1806.06784), *Biometrics* 76(1):109-118,
   DOI 10.1111/biom.13121. This is another adaptive-propensity construction with explicit
@@ -551,7 +554,7 @@ previous reader had is not a citation; a page number is.
   cross-validated variance construction in which each fold's outcome and adaptive propensity are
   both learned without that fold's rows. No separate first-order generated-design term appears in
   the theorem's influence function. Section 3.1 of the
-  [author preprint](https://arxiv.org/pdf/1901.05056), PDF page 8, randomly partitions rows into
+  [author preprint](https://arxiv.org/pdf/1901.05056), PDF page 9, randomly partitions rows into
   approximately equal folds for variance estimation. It gives no treatment- or outcome-stratified
   selection-fold rule.
   Appendix D explicitly constructs the binary ATE with one propensity fit on
