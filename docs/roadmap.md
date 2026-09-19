@@ -12,7 +12,7 @@ published theory do not enter this sequence.
 ## Remediation
 
 The examples are executable, but their review exposed gaps in the public study record and in
-post-fit coverage. Follow the delivery order below. Complete every row before main-roadmap
+post-fit coverage. Deliver the rows in priority order. Complete every row before main-roadmap
 priority 1. A new capability still needs its own contract and evidence, even in this queue.
 
 The "next action" column states the remediation work. It is not a readiness label. The first RM9
@@ -21,9 +21,9 @@ complete. RM9 holds the contract for the next implementation. The review of the 
 the examples, exposed the RM10 gap.
 
 The 2026-09-14 review of the RM9 contract exposed RM17. The 2026-09-18 source audit found no
-result for the shipped data-dependent outer folds or the continuous outcome scale. RM9 can use
-generated unstratified folds and prespecified bounds. The global default changes follow RM9 and
-RM10.
+result for the shipped data-dependent outer folds or the continuous outcome scale. RM9 uses
+generated unstratified folds and prespecified bounds under its own contract. RM10 then applies the
+same stitched-nuisance R comparator to the ordinary study. RM17 changes the global defaults after both.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -31,9 +31,9 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; after RM9 and RM10, change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
-| 0.2 | Cross-fitted missing-outcome TMLE audit and evidence | implement the arm-indexed stacked contract, its refusals and response preflight, and register its R `tmle` study | tutorials fit arm-indexed stacked MAR means and contrasts that no study covers, and the fit accepts compositions that no audited source supports | [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) |
-| 0.3 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
+| 0.1 | Cross-fitted missing-outcome TMLE audit and evidence | implement the arm-indexed stacked contract, its refusals and response preflight, and register its R `tmle` study | tutorials fit arm-indexed stacked MAR means and contrasts that no study covers, and the fit accepts compositions that no audited source supports | [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) |
+| 0.2 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
+| 0.3 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
 | 0.4 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.5 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.6 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
@@ -52,8 +52,8 @@ criteria separate inside its group.
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 
-Deliver the groups in table order. Inside a group, deliver the items in the stated order. A
-priority number identifies a row. It does not set the delivery order.
+Each group holds consecutive priorities, so the group order is the priority order. Deliver the
+items inside a group in priority order.
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -234,7 +234,7 @@ entry in the refuse column before any learner call. Each message names the missi
 
 | setting | admit | refuse |
 | --- | --- | --- |
-| estimator | ordinary TMLE, `CrossFitting(enabled=True)`, a logistic iterative fluctuation, and whole-sample evaluation | `fluctuation="linear"`, `algorithm="one_step"`, `target_weights=True`, `fold_evaluation=True`, and C-TMLE with cross-fitted arm-indexed missing outcomes |
+| estimator | ordinary TMLE, `CrossFitting(enabled=True)`, a logistic iterative fluctuation, and whole-sample evaluation | `fluctuation="linear"`, `algorithm="one_step"`, `target_weights=True`, `fold_evaluation=True`, C-TMLE with cross-fitted arm-indexed missing outcomes, and `DRTMLE` with cross-fitted missing outcomes at any `guard`, including `guard=()` |
 | targets | `ey`, `ey0`, `ey1`, and `ate`; `rr` and `or` for a binary outcome | `att` and `atc`, also when the default list or `"all"` includes them (`src/cleverly/targets/__init__.py:188-191`); the message names the admitted estimands, and the fit drops nothing silently; continuous `rr` and `or` stay refused |
 | treatment | two or more arms, subject to the outcome row | none |
 | outcome | binary, or bounded continuous with a fixed `q_bounds` equal to the known support | continuous with `q_bounds=None` |
@@ -264,18 +264,39 @@ A preflight raises `DataError` after fold generation and before any learner call
 | sample | two respondents, two nonrespondents, and two rows with `A = a` and `Delta = 1` for each arm |
 | each training complement | one respondent, one nonrespondent, one row in each arm, and one row with `A = a` and `Delta = 1` for each arm |
 | each training complement, binary outcome | both outcome classes among its respondents |
-| each Super Learner's `learner_folds` split (`src/cleverly/estimators/tmle.py:1464-1478`) | the preflight cannot see this split, so the implementation must audit it |
+| each training complement, for a role whose learner is a package `SuperLearner` with a classification task | two rows in each class of that role's target: the outcome among respondents, the response indicator, or the treatment |
+
+The last row follows from the inner split of the package `SuperLearner`. For a classification task,
+that split stratifies on the learner target (`src/cleverly/learners/super_learner.py:238-241`).
+`resolve_n_folds` raises when a class has one member (`src/cleverly/learners/crossfit.py:726-735`).
+The preflight reads the resolved learner of each role without a fit. It cannot see a Super Learner
+nested inside a user pipeline, so that learner can still fail inside the fit.
+
+#### Plan amendments
+
+The 2026-09-18 implementation plan amends the contract in five places. The other RM9 sections
+carry each change.
+
+| amendment | evidence | recorded in |
+| --- | --- | --- |
+| refuse `DRTMLE` with cross-fitted missing outcomes at every `guard` | probe C; `src/cleverly/estimators/drtmle.py:956`, `:976-980` | the estimator row, the current defects, and the inventory |
+| require two rows per class for each package `SuperLearner` classification role | `src/cleverly/learners/super_learner.py:238-241`; `src/cleverly/learners/crossfit.py:726-735` | the preflight table and the inventory |
+| state that `cv_targeting.pooled` equals the stacked report only at equal fold weight mass, and that a default stacked fit has no `cv_targeting` | `src/cleverly/estimators/tmle.py:2358-2384`, `:1967-1974`, `:2005-2018` | the current defects and the inventory |
+| fit the survey Step 6 continuous outcome in sample, and cross-fit the binary fit in cell 27 | `src/cleverly/datasets/synthetic.py:303` draws a Gaussian outcome with no finite support | the inventory |
+| move the complete-outcome one-fold label to RM17 | `src/cleverly/estimators/base.py:172` | the current defects and RM17 |
 
 #### Current defects
 
 | defect | evidence | required change |
 | --- | --- | --- |
-| the surface fits compositions outside the contract | `tests/unit/test_repeated_crossfit.py:997-1001` fits `repeats=2`; probe B fits `targeting_scheme="fold"`, `n_folds=1`, and the default list with `att` and `atc` | add the refusals |
-| `estimator_name` labels a one-fold cross-fit "stacked CV-TMLE (Levy)" | the property reads only `cross_fit`, `targeting_scheme`, and `cv_evaluation` (`src/cleverly/estimators/base.py:172`) | refuse `n_folds=1` |
+| the surface fits compositions outside the contract | `tests/unit/test_repeated_crossfit.py:996-1003` fits `repeats=2`; probe B fits `targeting_scheme="fold"`, `n_folds=1`, and the default list with `att` and `atc` | add the refusals |
+| `DRTMLE(guard=())` fits this surface | probe C; the missing-outcome checks run only when `guard` is not empty (`src/cleverly/estimators/drtmle.py:956`), so the cross-fit refusal at `:976-980` does not run | move the cross-fit refusal above the `guard` test, and keep its `NotImplementedError` and message, which `tests/unit/test_drtmle_missing.py::test_cross_fitted_missing_outcomes_are_refused` pins |
+| `estimator_name` labels a one-fold cross-fit "stacked CV-TMLE (Levy)" | the property reads only `cross_fit`, `targeting_scheme`, and `cv_evaluation` (`src/cleverly/estimators/base.py:172`) | refuse `n_folds=1`; [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds the complete-outcome case |
 | a response class with too few rows fails inside a learner | probe A | add the preflight |
 | held-out outcomes set the training scale | `_scaler` reads every observed outcome before the split (`src/cleverly/estimators/tmle.py:1134-1141`); learners train on the scaled outcome (`src/cleverly/estimators/_nuisance.py:1202`) | refuse `q_bounds=None` for a continuous outcome |
 | the `"none"` reservation excludes this surface | `src/cleverly/estimators/tmle.py:1236-1245` reserves it for the natural-course mean; the default is `"treatment"` (`src/cleverly/methods.py:177`) | admit `"none"` here, and refuse treatment or outcome strata under the RM17 audit |
-| two docstrings call `cv_targeting.pooled` the stacked report | `src/cleverly/estimators/base.py:254-263` and `src/cleverly/estimators/tmle.py:301-302`; `_validation_weights` reweights folds by `n / (V n_v)` under `cv_evaluation=True` (`src/cleverly/estimators/tmle.py:2358-2384`) | state that the field equals the stacked report only at equal fold sizes |
+| two docstrings call `cv_targeting.pooled` the stacked report | `src/cleverly/estimators/base.py:254-263` and `src/cleverly/estimators/tmle.py:301-302`; under `cv_evaluation=True`, `_validation_weights` multiplies each fold by `n / (V sum(w_fold))` (`src/cleverly/estimators/tmle.py:2358-2384`) | state that the field equals the stacked report only when every fold has equal weight mass, which for unweighted rows means equal fold sizes |
+| the `CVTargeting` docstring says "both are always here" | `src/cleverly/estimators/base.py:263`; the fit builds the object only for fold targeting or `cv_evaluation=True`, and returns `None` otherwise (`src/cleverly/estimators/tmle.py:1967-1974`, `:2005-2018`) | state that a default stacked fit has no `cv_targeting` |
 
 Both probes ran at commit `cd30299`. Probe A draws `make_missing_outcome_binary(n=200, seed=3)`,
 sets `Delta` to 1 except on the first row, and sets missing `Y` to 0. It declares
@@ -284,6 +305,11 @@ learners. It uses `CrossFitting(n_folds=5)` with default treatment strata and `R
 learner fits, scikit-learn raises "This solver needs samples of at least 2 classes". Probe B fits
 `fast_tmle` from `tests/conftest.py` on `make_missing_outcome_binary(n=300, seed=1)` with
 `delta="Delta"`.
+
+The 2026-09-18 code plan reran probes A and B at commit `4811661` with the same results. Probe C ran at commit `4811661` on `make_missing_outcome_binary(n=300, seed=1)`. It fits `DRTMLE`
+with `cross_fit=True`, `n_folds=3`, `randomized=True`, estimands `ate`, `ey1`, and `ey0`, and three
+`LogisticRegression(max_iter=1000)` learners. With `guard=()`, the fit returns a result. With
+`guard=("Q", "g")`, it raises the `NotImplementedError` at `drtmle.py:976-980`.
 
 #### Witnesses
 
@@ -311,6 +337,9 @@ Each witness must fail when its component is wrong.
 - The band critical value recomputed with the same seed from the matrix of centered curves on the
   same rows, with a mutation that uses a diagonal covariance.
 - Each refusal before any learner call, a preflight with zero learner calls, and unequal folds.
+- A package `SuperLearner` classification role with a one-member class in a training complement,
+  which raises before any learner call. At two rows per class, every inner training set holds
+  both classes.
 
 #### Registered study
 
@@ -349,16 +378,22 @@ The property cells report coverage and standard-error calibration for each estim
 shrunken-SE control. A fully grown tree is fitted cross-fitted and in sample. The rescue cells are
 only `Q` wrong, only `g` wrong, and only `pi` wrong. The bias control has `Q` and `pi` both wrong.
 
+The contract admits a simultaneous band, but no cell above measures its joint coverage. Add a
+joint-coverage cell if the study framework supports one. Otherwise, the evidence page states that
+the band has no coverage result.
+
 #### Implementation inventory
 
 | surface | change |
 | --- | --- |
-| `survey-nonresponse.ipynb`, cells counted from zero | cell 18 fits a Gaussian, unbounded outcome (`src/cleverly/datasets/synthetic.py:303`), so it needs a law with known bounded support or no cross-fitting, and `stratify_by="none"`; cells 21 and 24 reuse `method` for complete-case fits, which the `"none"` reservation refuses, so they need their own method; cell 27 needs `stratify_by="none"`; the outputs of cells 33 and 36 change, and so do the 6.29 score units that cell 36 computes from `scaler.range` and cell 37 reports |
+| `survey-nonresponse.ipynb`, cells counted from zero | cell 18 fits a Gaussian, unbounded outcome (`src/cleverly/datasets/synthetic.py:303`) with no known finite support, so Step 6 fits it in sample with `CrossFitting(enabled=False)`; cells 21 and 24 reuse that in-sample method for complete-case fits; cell 27 becomes the admitted cross-fitted binary fit with `stratify_by="none"`; the outputs of cells 33, 34, 36, and 37 change, including the score units that cell 36 computes from `scaler.range` |
 | `tests/unit/tutorial_semantics/survey_nonresponse.py` | follow the notebook cells |
 | test fits | the sweep below |
 | `point-treatment-tmle.md`, `scope-and-refusals.md`, and `cv-tmle.md` | state the contract in the missing-outcome section and the refusal pages |
-| `CVTargeting` docstrings | correct `src/cleverly/estimators/base.py:254-263` and `src/cleverly/estimators/tmle.py:301-302` |
+| `CVTargeting` docstrings | correct `src/cleverly/estimators/base.py:254-263` and `src/cleverly/estimators/tmle.py:301-302`, including the equal-weight-mass condition and the `None` default |
 | C-TMLE | add the pre-fit refusal for C-TMLE with cross-fitted arm-indexed missing outcomes; `tests/e2e/test_ctmle.py::TestCombinedWithOtherOptions::test_missingness_is_refit_inside_selection_folds` fits it today |
+| DR-TMLE | move the cross-fit missing-outcome refusal at `src/cleverly/estimators/drtmle.py:976-980` above the `guard` test at `:956`, and add a `guard=()` refusal test |
+| preflight | apply the two-per-class rule to each role whose resolved learner is a package `SuperLearner` classification task, and document the nested-pipeline limit |
 | evidence | add the study's evidence page, its validation-grid row, and a release note for the new refusals |
 
 A logging sweep during one fast-suite run at `cd30299` found cross-fitted missing-outcome fits in
@@ -802,6 +837,13 @@ outcome. `"treatment+outcome"` outer strata read outcomes
 (`src/cleverly/estimators/tmle.py:2123-2132`). The outer result still requires
 nuisance rates that this audit does not establish.
 
+`estimator_name` labels a complete-outcome cross-fit with `n_folds=1` "stacked CV-TMLE (Levy)".
+The property reads only `cross_fit`, `targeting_scheme`, and `cv_evaluation`
+(`src/cleverly/estimators/base.py:172`). A probe at commit `4811661` on
+`make_linear_ate(n=300, seed=1)` returned that label. RM9 refuses `n_folds=1` only on the
+missing-outcome surface. RM17 holds the complete-outcome case. Refuse that fit before nuisance
+fitting, or give it a label that does not name CV-TMLE.
+
 The witnesses must fail when a component is wrong:
 
 - an iid test that generated outer folds depend only on the row count and the seed, with
@@ -816,7 +858,9 @@ The witnesses must fail when a component is wrong:
   stratifies the inner split on the all-row target must fail it;
 - paired coverage diagnostics for treatment-stratified and unstratified folds on the same draws;
 - a coverage diagnostic with `"treatment+outcome"` strata. These diagnostics can detect a failure.
-  They do not supply the missing inference result.
+  They do not supply the missing inference result;
+- a complete-outcome cross-fit with `n_folds=1` that either raises before any learner call or
+  reports a label other than "stacked CV-TMLE (Levy)".
 
 ### P1. EP learner
 
