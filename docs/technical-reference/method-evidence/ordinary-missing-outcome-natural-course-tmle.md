@@ -58,10 +58,16 @@ The witness `unplanted_point_difference` is small for this law. The observed ran
 outcome already lies close to `(0, 1)`. The planted rows therefore move the estimate very little.
 `scale-probe.csv` records the unplanted scale and the witness of each replication.
 
-The probe shows that the workaround sets the R scale exactly. It does not show that the comparison
-would fail without the workaround. In almost every replication, the witness is below `1e-2` of the
-targeting move, so the targeting-ratio check below admits it. The source is the witness in
-`scale-probe.csv` and the targeting move in `replicates.csv.gz`.
+The probe shows that the workaround sets the R scale exactly. The targeting-ratio check below
+cannot detect a missing workaround. In almost every replication, the witness is below `1e-2` of
+the targeting move, so that check admits it. The source is the witness in `scale-probe.csv` and
+the targeting move in `replicates.csv.gz`.
+
+A separate witness check compares `abs(cleverly - R)` with the witness in each continuous
+replication. An estimate at the unplanted scale sits about one witness from the R point. The
+check requires `abs(cleverly - R)` at or below `1e-2` of the witness in every replication. This
+bound was chosen after the regeneration, from the committed rows. The witness has no lower bound
+for this law, so the check covers the committed replications only.
 
 This comparison conditions on the supplied nuisance predictions. It validates the targeting, the
 plug-in, the influence curve, and the variance. It does not compare nuisance training.
@@ -77,15 +83,17 @@ variance rule.
 | `abs(cleverly - R) / abs(targeting move)` | below `1e-2` in every replication |
 | initial estimates of the two implementations | equal to `1e-12` |
 | `abs(SE_cleverly - SE_R) / SE_R` | below `1e-6` in every replication |
+| `abs(cleverly - R) / unplanted_point_difference`, continuous law | at or below `1e-2` in every replication |
 | mutation: `cleverly` reports its initial estimate | the ratio exceeds `0.9` in every row, so the check fails |
 | mutation: the standard error times `sqrt((n - 1) / n)` | the relative difference reaches `1e-6` in every row, so the check fails |
+| mutation: the `cleverly` estimate moves by the witness, in either direction | the witness ratio exceeds `0.9` in every row, so the check fails |
 
 R `tmle` stops its fluctuation `glm` at a relative deviance change of `1e-8`. That stop resolves
 the fluctuation coefficient to about `1e-4` of its scale, and the ratio bound allows a hundredfold
 over that. The second mutation is the uncentered second-moment rule of the stacked study. At
 `n = 2000` it differs from R by a relative `2.5e-4`, and the SE bound sits two orders below that
-gap. Commit `0605650` declared every bound before the regeneration.
-`tests/unit/test_mar_natural_course_method_study.py` runs the checks and both mutations.
+gap. Commit `0605650` declared every bound except the witness bound before the regeneration.
+`tests/unit/test_mar_natural_course_method_study.py` runs the checks and the three mutations.
 
 ## Accuracy against known truth
 
@@ -201,7 +209,8 @@ cases.
   not compare nuisance training.
 - The scale probe shows that the planted rows set the R scale exactly. For this law the unplanted
   fit differs only slightly. Neither the paired tests nor the targeting-ratio check would detect
-  a missing workaround, so the probe carries that claim.
+  a missing workaround. The witness check carries that claim, with a bound chosen after the
+  regeneration, for the committed replications only.
 - The study uses ordinary pointwise Wald intervals and excludes weights, clusters, missing
   treatment, multinomial treatment, MNAR outcomes, sensitivity analysis, and longitudinal data.
 

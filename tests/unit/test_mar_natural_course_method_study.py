@@ -4,7 +4,9 @@ The registered verdicts are recomputed by ``tests/unit/test_method_evidence.py``
 cover what that module cannot see: the reference payload, the R adapter's pinned settings, the
 scale-workaround probe, and per-replication parity with R ``tmle`` 2.1.1.  The 0.15-SD
 similarity margin alone cannot separate a missing targeting step, a wrong outcome scale, or a
-different variance rule, so each has its own bound and a deliberate-mutation control here.
+different variance rule, so each has its own bound and a deliberate-mutation control here.  The
+wrong scale is bounded against the probe's nonzero witness, ``unplanted_point_difference``,
+because the targeting ratio admits a shift that small.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_natural_course as study
 from tests.studies.evidence.registry import ROOT
 
@@ -41,6 +44,17 @@ INITIAL_ESTIMATE_BOUND = 1e-12
 #: sits two orders below that rule gap.  It was declared before the regeneration it checks.
 SE_RELATIVE_BOUND = 1e-6
 
+#: The largest ``|cleverly - R| / unplanted_point_difference`` in any continuous replication.
+#: The witness is the point shift of R's own fit when its scale moves from ``c(0, 1)`` to the
+#: observed range.  A ``cleverly`` estimate that matched the unplanted scale would sit about one
+#: witness from R's published point, a ratio near 1.  The committed gap is solver-stop noise,
+#: and its largest measured ratio is ``1.44e-3``, at replication 596.  The bound sits two orders
+#: below the wrong-scale ratio and about sevenfold above that maximum.  Unlike the bounds above,
+#: it was chosen after the regeneration, from the committed artifacts.  It is also not derived:
+#: the witness has no floor for this law, and a law whose observed range reaches ``(0, 1)``
+#: would drive it to zero.  The check therefore covers the committed rows and no other draw.
+WITNESS_RATIO_BOUND = 1e-2
+
 
 @pytest.mark.parametrize("scenario", study.SCENARIOS)
 def test_the_reference_payload_serializes_the_fitted_predictions(scenario: str) -> None:
@@ -48,10 +62,25 @@ def test_the_reference_payload_serializes_the_fitted_predictions(scenario: str) 
     result = study.fit_cleverly(frame, scenario)
     sample = study.reference_sample(frame, result, scenario=scenario, replicate=0)
 
-    expected_q = result.nuisance.scaler.unscale_levels(result.nuisance.outcome.observed)
-    expected_pi = result.nuisance.missingness_at_realised_arm(result.data.treatment)
-    np.testing.assert_array_equal(sample["qn"], expected_q)
-    np.testing.assert_array_equal(sample["pin"], expected_pi)
+    # The expectations come from the finite law and the drawn frame, not from the fit.  A
+    # payload that read another arm's column, a counterfactual prediction, or the scaled
+    # predictions under a data-range scaler would fail here, because both nuisances differ
+    # by arm in every covariate level (``tests/discrete_law_mar.py``).
+    level = frame["W"].to_numpy(dtype=int)
+    arm = frame["A"].to_numpy(dtype=int)
+    respondent = frame["Delta"].to_numpy() == 1
+    law_mean = mar.Q[level, arm]
+    if scenario == study.CONTINUOUS_SCENARIO:
+        # The continuous oracle is the least-squares line of the respondents' outcome on the
+        # law mean (``tests/conftest.py``, ``OracleOutcomeContinuous``).  The line is affine,
+        # so fitting it on the outcome scale gives the unscaled prediction directly.
+        slope, intercept = np.polyfit(law_mean[respondent], frame["Y"].to_numpy()[respondent], 1)
+        law_mean = intercept + slope * law_mean
+    np.testing.assert_allclose(sample["qn"], law_mean, rtol=0.0, atol=1e-12)
+    np.testing.assert_array_equal(sample["pin"], mar.PI[level, arm])
+    # Both laws fit on the [0, 1] scale, so the outcome scaler is the identity.  The qn check
+    # above therefore also reads the scale R's Qbounds = c(0, 1) assumes.
+    assert (result.nuisance.scaler.lower, result.nuisance.scaler.upper) == study.Q_BOUNDS
     np.testing.assert_array_equal(sample["Y"], frame["Y"])
     np.testing.assert_array_equal(sample["Delta"], frame["Delta"])
     assert list(sample.columns) == ["scenario", "replicate", "W", "A", "Y", "Delta", "qn", "pin"]
@@ -216,6 +245,41 @@ def test_every_continuous_fit_passed_the_scale_probe() -> None:
     assert (probe["rebuild_tolerance"] == 1e-12).all()
     assert (probe["unplanted_point_difference"] > 0).all()
     assert study.scientific_failures({"scale-probe.csv": probe})["scale-workaround probe"].empty
+
+
+def _continuous_witness() -> tuple[pd.Series, pd.Series, pd.Series]:
+    """cleverly's estimate, R's planted estimate, and the scale witness, per replication."""
+    subject, reference = _paired_primary_rows()
+    subject = subject.xs(study.CONTINUOUS_SCENARIO, level="scenario").droplevel("estimand")
+    reference = reference.xs(study.CONTINUOUS_SCENARIO, level="scenario").droplevel("estimand")
+    probe = pd.read_csv(study.STUDY.artifact("scale-probe.csv")).set_index("replicate")
+    witness = probe["unplanted_point_difference"]
+    assert list(witness.index) == list(subject.index) == list(reference.index)
+    assert (witness > 0).all()
+    return subject["estimate"], reference["estimate"], witness
+
+
+def test_the_r_parity_is_finer_than_the_scale_witness() -> None:
+    """The targeting ratio admits a missing workaround; this comparison with the witness does not.
+
+    In every continuous replication, cleverly's distance from R's planted fit is compared with
+    the distance between R's planted and unplanted fits.
+    """
+    estimate, reference, witness = _continuous_witness()
+    ratio = (estimate - reference).abs() / witness
+    assert ratio.max() <= WITNESS_RATIO_BOUND, (ratio.idxmax(), ratio.max())
+
+
+@pytest.mark.parametrize("sign", [1.0, -1.0], ids=["above", "below"])
+def test_an_unplanted_scale_estimate_fails_the_witness_check(sign: float) -> None:
+    """A deliberate mutation: cleverly's estimate moved by the witness, R's unplanted shift.
+
+    The probe records the shift's size and not its sign, so both signs are substituted.
+    """
+    estimate, reference, witness = _continuous_witness()
+    ratio = (estimate + sign * witness - reference).abs() / witness
+    assert (ratio > WITNESS_RATIO_BOUND).all(), (ratio.idxmin(), ratio.min())
+    assert ratio.min() > 0.9
 
 
 def test_the_study_directory_is_the_registered_one() -> None:

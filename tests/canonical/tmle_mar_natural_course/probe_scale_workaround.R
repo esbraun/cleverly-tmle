@@ -11,7 +11,9 @@
 #   4. an independent rebuild at the q_bounds scale, which fits the fluctuation on the
 #      respondents only, reproduces tmle's point and curve; and
 #   5. the fit R would run without the workaround reports a different point, so the
-#      comparison would see a wrong scale (unplanted_point_difference > 0).
+#      workaround is not a no-op on the published estimate (unplanted_point_difference > 0).
+#      The shift is small for this law, and the targeting-ratio parity check alone would
+#      admit it; the witness records its size for a separate check against |cleverly - R|.
 #
 # The file is deliberately not named run_*.R: tests/unit/test_canonical_runner_parity.py
 # holds those to the published-row contract, and this probe publishes a check table.
