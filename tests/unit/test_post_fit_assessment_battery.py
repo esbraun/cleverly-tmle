@@ -1387,7 +1387,7 @@ def test_real_tipping_search_retains_a_completed_none(tmp_path):
             estimands=("ate",),
             missingness_learner=LogisticRegression(max_iter=1000),
             # In sample: a cross-fitted continuous missing-outcome fit needs a known
-            # q_bounds (docs/roadmap.md RM9), and the subject is the tipping search.
+            # q_bounds (docs/technical-reference/point-treatment-tmle.md), and the subject is the tipping search.
             cross_fit=False,
         )
         .fit(frame, outcome="Y", treatment="A", delta="Delta")

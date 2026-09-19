@@ -165,8 +165,10 @@ raises `DataError`.
 
 Both messages name the in-sample estimator as
 `CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False`
-with `stratify_folds='treatment'`. Change both settings. Only the stacked contract accepts
-`stratify_by="none"`, so a stacked declaration with only cross-fitting disabled is still refused.
+with `stratify_folds='treatment'`. Change both settings. `stratify_by="none"` is reserved for two
+cross-fitted contracts: this one and the
+[arm-indexed contract](#stacked-cv-tmle-for-arm-indexed-targets). An in-sample fit therefore
+refuses it, and a stacked declaration with only cross-fitting disabled is still refused.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
 response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
@@ -231,9 +233,127 @@ when the response mechanism is wrong, and errors in the two mechanisms can cance
 
 Arm-indexed and controlled-direct-effect implementation:
 [`estimators/direct_effect.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/direct_effect.py).
-Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction. The registered
-[stacked arm-indexed missing-outcome CV-TMLE study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
-checks the cross-fitted arm-indexed estimator.
+Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction.
+[Stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states the
+cross-fitted contract and its evidence.
+
+### Stacked CV-TMLE for arm-indexed targets
+
+Ordinary TMLE cross-fits arm-indexed means and contrasts with missing outcomes under one stacked
+CV-TMLE contract. The contract applies to a fit when all of the conditions below hold
+(`_is_arm_indexed_missing_crossfit` in `estimators/tmle.py`):
+
+- the outcome is missing for at least one row;
+- `CrossFitting(enabled=True)`;
+- the parameters are indexed by the arms of a discrete treatment;
+- the design declares no intermediate; and
+- the request contains no `NaturalCourseMean`, PAR, or PAF.
+
+The shift, incremental, regime, MSM, and controlled-direct-effect fits are outside this contract.
+The natural-course mean has its own contract above. PAR and PAF keep their own refusal.
+
+The table gives the admitted settings. The fit refuses every other setting before fold generation.
+[Missing-outcome arm-indexed contract](scope-and-refusals.md#missing-outcome-arm-indexed-contract)
+lists each refusal and its order.
+
+| setting | admitted |
+| --- | --- |
+| estimator | `TMLE` or `TMLEMethod` |
+| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome. With K arms, `ey` reports `ey[a]` for each arm, and `ate`, `rr`, and `or` compare each non-reference arm with the reference arm |
+| treatment | two or more arms |
+| outcome | binary, or continuous with a fixed `q_bounds` equal to the known outcome support |
+| folds | package-generated, `stratify_by="none"`, `n_folds` of at least 2, `repeats=1`, and `split_plan=None` |
+| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`, with `targeting_scheme="pooled"` and `fold_evaluation=False` |
+| rows | unweighted iid rows, with no clusters and no baseline strata |
+| inference | pointwise influence-curve Wald intervals, and the default simultaneous band. `n_bootstrap=0` |
+
+`CrossFitting` defaults to `stratify_by="treatment"`, and the default estimand list of a two-arm fit
+includes `att` and `atc`. Every fit must therefore set `stratify_by="none"`, and a two-arm fit
+must name its estimands.
+The [RM17 audit](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+found no result for treatment-stratified folds or for an outcome scale from held-out rows. For
+that reason, the contract uses unstratified folds and a prespecified `q_bounds`.
+
+**The joint vector.** For fold $v$, the fit trains $Q_v$ on the respondents of the training
+complement, and it trains $g_v$ and $\pi_v$ on the whole complement. Each nuisance predicts only
+the held-out rows. One logistic fluctuation has one coefficient for each arm. The clever
+covariate for arm $a$ is
+
+$$
+H_a(O)=\frac{\mathbb 1\{A=a\}\,\Delta}{g_v(a\mid W)\,\pi_v(a,W)}.
+$$
+
+The fluctuation fits on the respondents only. Each row has at most one nonzero column
+(`src/cleverly/fluctuation/submodel.py`). The arm-$a$ counterfactual prediction moves by
+$\epsilon_a/\{g_v(a\mid W)\pi_v(a,W)\}$ on the logit scale. The point and the curve for arm $a$ are
+
+$$
+\widehat\psi_a=P_n Q^\star_v(a,W),
+\qquad
+D_{a,i}=\frac{\mathbb 1\{A_i=a\}\Delta_i}{g_v(a\mid W_i)\pi_v(a,W_i)}
+  \{Y_i-Q^\star_v(a,W_i)\}+Q^\star_v(a,W_i)-\widehat\psi_a.
+$$
+
+For a continuous outcome, $Y$ enters on the scale that `q_bounds` fixes, and the fit reports the
+original units. Each `ate`, `rr`, and `or` is a function of two coordinates of the joint vector.
+Its curve is the delta-method combination of the two same-row arm curves, with ratios on the log
+scale. The gradient and the Hessian separate by arm, but the line search and the stopping rule act
+on the whole vector. The joint fit therefore equals separate per-arm fits to solver tolerance only.
+
+**The centered rule and the band.** Each estimate declares the `"centered"` covariance rule. The
+variance is $\operatorname{var}(D_a)/n$ with the $n-1$ denominator. `covariance()` and
+`contrast()` use the sample covariance of the same-row curves. See
+[covariance rules](inference.md#covariance-rules). The stacked natural-course mean keeps the
+`"second_moment"` rule. The two rules agree to first order.
+
+`Inference(simultaneous=True)` is the default. The band draws Rademacher multipliers on the matrix
+of centered curves. It takes the max-t quantile of those draws, scaled by the pointwise standard
+errors.
+
+The band rests on two results. The first is the joint expansion of Zheng and van der Laan
+(2011), Theorem 2. The second is a conditional multiplier central limit theorem for a fixed number
+of estimands. No reviewed paper states this band. The
+[audit record](../references.md#point-treatment-and-stochastic-interventions) gives the support
+chain for each step.
+
+**The preflight.** After fold generation and before any learner call, the fit checks the minimum
+content below. A failure raises `DataError`.
+
+| scope | minimum content |
+| --- | --- |
+| sample | two respondents, two nonrespondents, and two respondents in each arm |
+| each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm |
+| each training complement, binary outcome | both outcome classes among the respondents |
+| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target. The targets are the outcome among respondents, the response indicator, and the treatment |
+
+A sample failure names the in-sample estimator, because no fold count or `random_state` can
+succeed. A complement failure names the repeat and the fold. It asks for more folds, a different
+`random_state`, or the in-sample estimator. The in-sample estimator is
+`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False` with
+`stratify_folds='treatment'`.
+
+The last row follows from the package `SuperLearner`. For a classification task, its inner split
+stratifies on the learner target (`src/cleverly/learners/super_learner.py`), and the fold resolver
+raises when a class has one member (`src/cleverly/learners/crossfit.py`). With two rows in each
+class, every inner training set holds both classes. A `SuperLearner` with `task=None` counts when
+it infers a classification task from its target. The default learner for a binary role is a
+classification `SuperLearner`, so the rule applies when you pass no learner.
+
+The preflight reads the resolved learner of each role and fits nothing. It cannot see a
+`SuperLearner` nested inside a user pipeline or another wrapper. That learner can still fail
+inside the fit with too few rows in a class.
+
+**Sources and evidence.** Díaz and van der Laan (2017), Section 2.1 and Equation (1), give the
+per-arm curve. Gruber and van der Laan (2012), Section 2.3, give the clever covariate for a
+generic arm, and their Appendix A gives each contrast. Zheng and van der Laan (2011), Section 2
+and Theorem 2, give the vector parameter and the training-complement construction. Levy (2018)
+gives the stacked update and the whole-sample plug-in. The
+[audit record](../references.md#point-treatment-and-stochastic-interventions) gives each locator.
+
+| evidence | what it checks |
+| --- | --- |
+| [stacked arm-indexed missing-outcome CV-TMLE study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | truth tests, paired R `tmle` 2.1.1 comparisons, calibration, band joint coverage, union-model cells, and overfitting controls on two-arm and three-arm laws |
+| `tests/unit/test_arm_indexed_stacked_mar.py` | each refusal and preflight row with zero learner calls, and nonzero witnesses with deliberate mutations for the fluctuation, the mask, both inverse factors, the contrasts, the covariance, the band, the held-out scale, and training-set leakage |
 
 ### Weights, strata, and clusters
 

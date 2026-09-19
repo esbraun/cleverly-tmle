@@ -550,7 +550,7 @@ class TestCombinedWithOtherOptions:
     def test_cross_fitted_missingness_is_refused_before_selection(
         self, stratify_folds: str
     ) -> None:
-        """No audited selection and inference result covers this composition (RM9)."""
+        """No audited selection and inference result covers this composition (arm-indexed contract)."""
         frame, _ = make_missing_outcome(n=300, seed=17)
         estimator = CTMLE(
             **{

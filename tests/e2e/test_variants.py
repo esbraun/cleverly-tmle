@@ -580,7 +580,7 @@ class TestArrayEntryPoint:
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             # In sample: the subject is the keyword names. A cross-fitted continuous
-            # missing-outcome fit needs a known q_bounds (docs/roadmap.md RM9).
+            # missing-outcome fit needs a known q_bounds (docs/technical-reference/point-treatment-tmle.md).
             cross_fit=False,
             estimands=("ate",),
             simultaneous=False,

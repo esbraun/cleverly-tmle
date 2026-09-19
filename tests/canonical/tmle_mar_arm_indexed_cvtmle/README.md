@@ -2,7 +2,10 @@
 
 This directory freezes the registered repeated-sampling study for the one-repeat, pooled,
 whole-sample-evaluated stacked CV-TMLE of arm-indexed means and contrasts under MAR.
-`docs/roadmap.md` RM9 ("Registered study") is the contract.
+The "Registered study" part of the RM9 roadmap item was the contract. RM9 was retired
+after this study was registered; `git show 25ed323:docs/roadmap.md` holds that text.
+`docs/technical-reference/method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md` states the
+studied design.
 
 `tests/studies/mar_arm_indexed_laws.py` declares four laws. Each law has a three-level
 covariate `W`, and every nuisance is a table indexed by `W` and the arm.

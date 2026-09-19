@@ -36,7 +36,7 @@ class TestMissingOutcomes:
     @pytest.fixture(scope="class")
     def fit(self) -> tuple[object, dict[str, float]]:
         frame, truth = make_missing_outcome(n=2500, seed=61)
-        # In sample: the cross-fitted MAR contract (docs/roadmap.md RM9) refuses att and a
+        # In sample: the cross-fitted MAR contract (docs/technical-reference/point-treatment-tmle.md) refuses att and a
         # continuous outcome without a known support, and this class does not test
         # cross-fitting. TestCrossFittedMissingOutcomes covers the admitted contract.
         result = (
@@ -150,7 +150,7 @@ class TestMissingOutcomes:
 
 
 class TestCrossFittedMissingOutcomes:
-    """The admitted stacked CV-TMLE contract for arm-indexed targets (docs/roadmap.md RM9).
+    """The admitted stacked CV-TMLE contract for arm-indexed targets (docs/technical-reference/point-treatment-tmle.md).
 
     A binary outcome, unstratified package-generated folds, and the arm-indexed means and
     contrasts. One sample checks recovery; the registered study owns coverage.

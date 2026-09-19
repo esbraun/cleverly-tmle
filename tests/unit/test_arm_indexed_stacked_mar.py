@@ -1,7 +1,8 @@
 """Stacked CV-TMLE of arm-indexed means and contrasts with missing-at-random outcomes.
 
-``docs/roadmap.md`` RM9 ("Arm-indexed stacked contract") states the contract. This module
-holds its fast checks, grouped by the roadmap's witness list:
+``docs/technical-reference/point-treatment-tmle.md`` ("Stacked CV-TMLE for arm-indexed
+targets") states the contract. This module holds its fast checks, grouped by the witness list
+of the retired RM9 roadmap item:
 
 * W12, refusals: every refusal row, before any learner call, through the engine keywords
   and through the public ``TMLEMethod`` route.

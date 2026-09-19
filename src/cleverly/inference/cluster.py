@@ -244,7 +244,7 @@ def stacked_second_moment_variance(influence_curve: FloatArray) -> float:
 
         \widehat{\mathrm{Var}}(\hat\psi) = \frac{1}{n^2}\sum_{i=1}^{n} \mathrm{IC}_i^2.
 
-    The stacked cross-fitted natural-course mean (the RM9 contract) evaluates its point
+    The stacked cross-fitted natural-course mean (its stacked contract) evaluates its point
     and curve on all held-out rows at once, with one pooled fluctuation.  That fluctuation
     solves the stacked score, and the point is the row mean of the targeted predictions,
     so the curve has empirical mean zero to targeting tolerance.  This rule therefore
@@ -256,7 +256,7 @@ def stacked_second_moment_variance(influence_curve: FloatArray) -> float:
     stacked predictions.  :func:`cross_validated_variance` is the equal-fold-weight
     counterpart, and differs from this whenever the folds are unequal.
 
-    The arithmetic is ``mean(IC**2) / n`` in that association.  The committed RM9 study
+    The arithmetic is ``mean(IC**2) / n`` in that association.  The committed stacked study
     artifacts were generated from it, and a different association moves their last bits.
 
     Parameters

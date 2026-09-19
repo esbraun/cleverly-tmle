@@ -1,9 +1,8 @@
 # Stacked arm-indexed missing-outcome CV-TMLE
 
-This study validates the RM9 stacked CV-TMLE of arm-indexed means and contrasts under MAR. The
-"Arm-indexed stacked contract" part of
-[RM9](../../roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) states the
-contract. The table gives the studied construction. Every fit declares it through the public
+This study validates the stacked CV-TMLE of arm-indexed means and contrasts under MAR.
+[Stacked CV-TMLE for arm-indexed targets](../point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
+states the contract. The table gives the studied construction. Every fit declares it through the public
 `TMLEMethod`, `CrossFitting`, `Targeting`, and `Inference` API.
 
 | component | studied setting |

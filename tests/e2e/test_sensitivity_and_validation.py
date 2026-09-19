@@ -49,7 +49,7 @@ from tests.conftest import fast_tmle
 
 # Every missing-outcome fit in this module runs in sample (cross_fit=False). Each subject is
 # a diagnostic or a sensitivity analysis rather than cross-fitting, and the cross-fitted MAR
-# contract (docs/roadmap.md RM9) refuses att, atc, weights, and treatment-stratified folds.
+# contract (docs/technical-reference/point-treatment-tmle.md) refuses att, atc, weights, and treatment-stratified folds.
 
 
 @pytest.fixture(scope="module")

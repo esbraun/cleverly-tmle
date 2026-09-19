@@ -80,7 +80,7 @@ and
 | `learner_folds=` | model-selection folds inside an outer training set. Default 5. It reaches the Super Learner `cleverly` builds when you pass no learner. An explicitly supplied `SuperLearner` keeps its own `n_folds` | no |
 | `repeats=` | repeats the outer split, runs a complete estimator per draw, and reports the median over draws with split-adjusted variance. The value must be at least 1, and a value above 1 requires `cross_fit=True`. The engine raises `ValueError` and `CrossFitting` raises `MethodConfigurationError`, both at construction | no. It is the same estimator over several draws |
 | `stratify_folds=` | `"treatment"`, or `"treatment+outcome"` for a rare binary outcome | no. Refused on a continuous outcome or dose |
-| `stratify_folds="none"` | draws an unstratified, near-balanced outer partition | no. Supported only for the binary missing-outcome `NaturalCourseMean` contract below |
+| `stratify_folds="none"` | draws an unstratified, near-balanced outer partition | no. Supported only for two stacked contracts with missing outcomes: the binary `NaturalCourseMean` and the [arm-indexed means and contrasts](#missing-outcome-arm-indexed-means-and-contrasts). The arm-indexed contract requires it. Every other fit refuses it, in-sample fits included |
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
 | `targeting_scheme="fold"` | one fluctuation fit inside each validation fold | **yes**. It removes cross-fold coupling through the fluctuation fit. Python `zEpid` 0.9.1 corroborates this construction at two folds |
 | `cv_evaluation=True` | fold plug-in evaluation with cross-validated variance | **yes**. This is fold-evaluated CV-TMLE |
@@ -139,8 +139,7 @@ estimates, the weighting difference is $O(1/n)$. It is first-order negligible, b
 The original pooled, fold-evaluated construction has published support. It remains a separate
 estimator because its fold plug-in and variance law differ. Bounded-continuous stacked outcomes also
 remain refused until their scale transform has an exact contract. The
-[roadmap](../roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) tracks both
-follow-ups.
+[roadmap](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) tracks both follow-ups.
 
 Fold-specific targeting and repeated-split reporting remain separate hard stops. The source audit
 found no direct interval result for either composition. See
@@ -149,9 +148,40 @@ found no direct interval result for either composition. See
 The registered
 [stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
 records the repeated-sampling evidence. It also compares the pooled target against the R `tmle`
-2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions. The registered
+2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions.
+
+### Missing-outcome arm-indexed means and contrasts
+
+Arm-indexed means and contrasts with missing outcomes support one stacked CV-TMLE configuration.
+It uses one generated unstratified V-fold partition, one pooled logistic fluctuation with one
+coefficient for each arm, and whole-sample evaluation. The treatment can have two or more arms.
+A continuous outcome needs a fixed `q_bounds` equal to its known support.
+
+| setting | required value |
+| --- | --- |
+| `stratify_folds` | `"none"`. The default `"treatment"` is refused |
+| `n_folds` | 2 or more |
+| `repeats` | 1 |
+| `targeting_scheme` | `"pooled"` |
+| `cv_evaluation` | `False` |
+| `split_plan` | `None` |
+| `estimands` | from `ey`, `ey0`, `ey1`, `ate`, `rr`, and `or`. The default list of a two-arm fit includes `att` and `atc`, so name the estimands |
+
+The fit refuses every other value before fold generation. The reasons follow the natural-course
+section above. The audited sources draw the partition externally. The
+[RM17 audit](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+found no result for treatment-stratified folds or for an outcome scale from held-out rows. The
+fold-evaluated construction, supplied plans, fold targeting, and repeated splits each need their
+own result.
+
+Unlike the natural-course mean, each arm-indexed estimate declares the centered covariance rule.
+A simultaneous band over the reported estimands is therefore available.
+[Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
+gives the construction, the preflight, and the sources.
+[Missing-outcome arm-indexed contract](scope-and-refusals.md#missing-outcome-arm-indexed-contract)
+lists every refusal in its order. The registered
 [stacked arm-indexed missing-outcome CV-TMLE study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
-records the evidence for arm-indexed means and contrasts.
+records the evidence.
 
 ## Reusable outer split plans
 

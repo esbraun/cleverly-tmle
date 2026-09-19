@@ -78,8 +78,12 @@ analysis weights or evaluation companion.
 
 With `guard=()`, the same array configures a **plain TMLE** at the design mechanism. The result is
 the ordinary estimator bit for bit, which is what a pure randomization-probability analysis wants.
-None of the conditions above then holds, because no extra equation is solved and no theorem is
-claimed.
+The other conditions above then do not apply, because no extra equation is solved and no theorem is
+claimed. `cross_fit=False` still applies. `DRTMLE` refuses `delta=` with `cross_fit=True` at every
+`guard`, including `guard=()`, before any learner is fitted
+(`tests/unit/test_drtmle_missing.py::test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused`).
+Ordinary `TMLE` admits a cross-fitted missing-outcome fit only under its
+[stacked contract](../point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets).
 
 **Why `weights=` transports.** The derivation was read at an unweighted law. Transporting it needs
 two things at once. The reduced regressions must be `P_w`-conditional expectations, which weighted
@@ -112,6 +116,7 @@ caller estimated the weights, and no interval claim here covers that estimation.
 | `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |
 | `treatment_probabilities=` without `delta=` | it replaces the treatment learner outright, and nothing read here states a complete-data construction that reads a known design mechanism differently from a fitted one |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
+| `delta=` with `cross_fit=True`, **whatever `guard=` is** | the published missing-outcome theorem uses Donsker conditions and does not establish a cross-validated extension. With `guard=()`, the fit is a plain TMLE on a surface that only ordinary TMLE's audited stacked contract admits |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`. C-TMLE also scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes that `Q̄` is informative. That is precisely the case this variant insures against. |

@@ -994,10 +994,10 @@ class TestTheSensitivityLayerFollowsTheDraws:
 class TestTheMnarTiltFollowsTheDraws:
     """The tilt combines every draw's tilted estimate by the median, as the fit did.
 
-    The cross-fitted MAR contract for arm-indexed targets (docs/roadmap.md RM9) refuses
+    The cross-fitted MAR contract for arm-indexed targets (docs/technical-reference/point-treatment-tmle.md) refuses
     ``repeats`` above 1, so this fixture uses the one arm-indexed composition that still
     fits repeated draws with missing outcomes: a controlled direct effect
-    (``intermediate=``). RM9 lists that composition as an unexamined sibling gap. The
+    (``intermediate=``). The roadmap's F21 item lists that composition as an unexamined sibling gap. The
     tests here check the median-combination mechanics of the tilt, not a scientific
     claim about the tilt on a controlled direct effect.
     """

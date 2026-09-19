@@ -1,7 +1,7 @@
 # Stacked missing-outcome natural-course CV-TMLE
 
-This study validates the RM9 estimator of the observed outcome mean under MAR. The table gives the
-studied construction. The primary rows declare it through the public `TMLEMethod` and
+This study validates the stacked CV-TMLE of the observed outcome mean under MAR. The table gives
+the studied construction. The primary rows declare it through the public `TMLEMethod` and
 `CrossFitting` API.
 
 | component | studied setting |

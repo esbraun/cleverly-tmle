@@ -233,7 +233,7 @@ def _is_arm_indexed_missing_crossfit(
 ) -> bool:
     """Whether this fit is a cross-fitted arm-indexed fit with missing outcomes.
 
-    The surface of the RM9 arm-indexed stacked contract in ``docs/roadmap.md``. The
+    The surface of the arm-indexed stacked contract in ``point-treatment-tmle.md``. The
     shift, incremental, regime, MSM, and controlled-direct-effect fits are outside it,
     and so is the natural-course mean, which has its own contract.
 
@@ -329,8 +329,8 @@ class TMLE:
         ``q_bounds``, unweighted iid rows without baseline strata, and no bootstrap.
         The fit refuses ``att``, ``atc``, and every other setting before any learner is
         fitted, and it refuses a sample or a fold whose training complement cannot fit
-        the response, treatment, and outcome learners. ``docs/roadmap.md`` RM9 gives the
-        contract and its evidence.
+        the response, treatment, and outcome learners. The point-treatment TMLE reference
+        gives the contract and its evidence.
     targeting_scheme:
         Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
         (default) fits one common ``epsilon`` vector on the stacked out-of-fold rows.
@@ -1249,7 +1249,7 @@ class TMLE:
     ) -> None:
         """Refuse every cross-fitted arm-indexed missing-outcome fit outside the contract.
 
-        The contract is the RM9 arm-indexed stacked contract in ``docs/roadmap.md``. Each
+        The contract is the arm-indexed stacked contract in ``point-treatment-tmle.md``. Each
         refusal runs before fold generation and names the missing result, the engine
         keyword, and the public spelling. The checks run in a fixed order, so a fit that
         breaks several rules receives the first one.
@@ -1428,7 +1428,7 @@ class TMLE:
         return estimands
 
     def _validate_fold_strata_for_data(self, data: CausalData, estimands: tuple[str, ...]) -> None:
-        """Reserve unstratified outer folds for the audited RM9 estimators.
+        """Reserve unstratified outer folds for the two audited stacked MAR estimators.
 
         Only :meth:`_resolve_estimands_for_data` calls this, after
         :meth:`_resolve_natural_course_contract` and
@@ -3153,7 +3153,7 @@ class TMLE:
                 or incremental is not None
                 or msm is not None
             ),
-            # The stacked RM9 estimator declares the raw second moment, so its variance,
+            # The stacked natural-course estimator declares the raw second moment, so its variance,
             # covariance and contrasts all read one rule. ``make_estimate`` owns the map
             # from that rule to the stored variance.
             covariance_rule=(
