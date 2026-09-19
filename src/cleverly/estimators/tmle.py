@@ -298,8 +298,12 @@ class TMLE:
         that the ordinary fluctuation does not target.  Their stacked-validation reports
         remain available with the default ``cv_evaluation=False``.
 
-        The fold-evaluated and stacked reports are both available on
-        ``result.cv_targeting`` when this setting is true.  For unequal folds the stored
+        When this setting is true, ``result.cv_targeting`` holds the fold-evaluated
+        report and the whole-sample plug-in at the same fold-reweighted fluctuation.
+        That plug-in equals the default stacked report only when every fold has equal
+        weight mass, which for unweighted rows means equal fold sizes.  A default
+        stacked fit builds no such object: its ``result.cv_targeting`` is ``None``.
+        For unequal folds the stored
         influence-curve rows are scaled by ``n/(V*n_v)`` so they represent the reported
         equal-fold estimator under the full empirical mean.
 
