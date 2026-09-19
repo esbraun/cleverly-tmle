@@ -52,6 +52,9 @@ criteria separate inside its group.
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 
+Deliver the groups in table order. Inside a group, deliver the items in the stated order. A
+priority number identifies a row. It does not set the delivery order.
+
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
 [F18](#f18-selector-path-c-tmle-inference). The fold-local binary nuisance replacement now has
@@ -654,16 +657,17 @@ estimators. This finding does not establish bias or invalid coverage.
 | outcome scale | the observed range of all rows before the split, widened by 10% of that range at each end | `src/cleverly/utils/bounds.py:230-235`; `src/cleverly/estimators/tmle.py:1134-1141`; `src/cleverly/longitudinal/estimator.py:2197-2202` |
 | `q_bounds` | `None` | `src/cleverly/methods.py:246`; `src/cleverly/estimators/tmle.py:440`; `src/cleverly/longitudinal/estimator.py:1711` |
 
-Several registered studies use these defaults. The table lists the studies that this review read, and what
-it checked in each.
+Several registered studies use these defaults or supply treatment-stratified folds. The table
+lists the studies that this review read, and what it checked in each.
 
 | study | checked fact |
 | --- | --- |
 | `tests/studies/canonical_cvtmle.py:100-101` | records the sample outcome range, and identical treatment-stratified fold assignments supplied to both implementations |
 | `tests/studies/fold_evaluated_cvtmle.py:77` and `tests/studies/repeated_crossfit.py:83` | record the sample outcome range |
-| `tests/studies/canonical_drtmle.py:305-306` and `tests/studies/ctmle_selector_properties.py:112-114` | set `cross_fit=True` and pass no fold-strata argument |
-| `tests/studies/canonical_ltmle_crossfit.py:143`, `canonical_ltmle_survival_crossfit.py:164`, and `canonical_ltmle_competing.py:137` | record `"stratify": True` |
-| `canonical_clustered_tmle.py:119`, `canonical_multi_arm_drtmle.py:184`, and `ctmle_oat_properties.py:159` | set cross-fitting; this review did not check their fold and scale settings |
+| `tests/studies/canonical_drtmle.py:200-215`, `:238-244` and `tests/studies/canonical_multi_arm_drtmle.py:143-162` | override `_folds` in `FixedFoldDRTMLE`, and supply a `StratifiedKFold` assignment on the treatment to both implementations |
+| `tests/studies/ctmle_selector_properties.py:112-115` and `tests/studies/ctmle_oat_properties.py:159-160` | set cross-fitting and pass no fold-strata argument, so the package generates treatment-stratified folds |
+| `tests/studies/canonical_clustered_tmle.py:117-133` | sets `cross_fit=True` and `id=`, with no fold-strata argument; the package generates grouped treatment-stratified folds, which `:179` serializes for the comparator |
+| `tests/studies/canonical_ltmle_crossfit.py:238`, `canonical_ltmle_survival_crossfit.py:270`, `canonical_ltmle_competing_crossfit.py:105`, `categorical_longitudinal_common.py:316`, and `weighted_longitudinal_common.py:157` | serialize the package's first-node-stratified assignment (`src/cleverly/longitudinal/estimator.py:2253-2266`) for the comparator; the `"stratify": True` key is not a fold rule, because the one-fold `canonical_ltmle.py:133` records it too, for R `ltmle(stratify = TRUE)` (`tests/canonical/ltmle/generate_reference.R:48`) |
 
 | source | locator | verdict |
 | --- | --- | --- |
@@ -733,15 +737,43 @@ learner call. Do not redraw the split, because a redraw conditioned on `A` makes
 assignment depend on treatment again. `_preflight_natural_course_folds` (`tmle.py:1247-1279`)
 already applies this check to response support.
 
-Audit the full validation grid before regeneration. The canonical CV-TMLE, fold-evaluated
-CV-TMLE, repeated cross-fitting, C-TMLE selector, C-TMLE property, and longitudinal studies use
-affected paths. The binary and multi-arm canonical DR-TMLE comparisons supply
-treatment-stratified folds explicitly. Replace those assignments before regeneration.
+Audit the full validation grid before regeneration. The table below names each
+[validation grid](technical-reference/method-evidence/validation-grid.md) row whose registered
+studies use an affected path. In the last column, "folds" means treatment-stratified outer,
+selection, or first-node folds. "Scale" means a cross-fitted continuous fit with the sample outcome
+range. The Gaussian-law table below names the scale cells that need a new law.
 
-The C-TMLE selector studies use selection folds even when `cross_fit=False`. Rebuild every
-registered study whose fits or verdicts can move. Update the split-plan reference and tutorial
-when its provenance rule changes. Preserve that provenance when a result exposes a plan or a refit
-reuses it.
+| validation grid row | study modules under `tests/studies/` | what moves |
+| --- | --- | --- |
+| stacked point-treatment CV-TMLE | `canonical_cvtmle.py` and `stacked_cvtmle_properties.py` | folds and scale |
+| clustered point-treatment CV-TMLE | `canonical_clustered_tmle.py` and `clustered_tmle_properties.py` | grouped folds, after the grouped audit, and scale |
+| fold-evaluated point-treatment CV-TMLE | `fold_evaluated_cvtmle.py` and `fold_cvtmle_properties.py` | folds and scale |
+| fold-targeted point-treatment CV-TMLE | `fold_targeted_cvtmle_properties.py`, through `cvtmle_properties.py:79`; the primary study supplies a random equal split for a binary outcome (`fold_targeted_cvtmle.py:100-101`, `:135-142`) and does not move | folds and scale, in the property study only |
+| repeated point-treatment cross-fitted TMLE | `repeated_crossfit.py` and `repeated_crossfit_properties.py` | folds and scale |
+| selector-based point-treatment C-TMLE | `canonical_ctmle_selector.py` (selection folds) and `ctmle_selector_properties.py` (outer and selection folds) | folds, and scale in the property study |
+| selector-based multi-arm C-TMLE | `canonical_multi_arm_ctmle_selector.py` (selection folds) and `multi_arm_ctmle_selector_properties.py:53-56` | folds |
+| outcome-adaptive point-treatment C-TMLE | the `cross_fitted_oat` cell of `ctmle_oat_properties.py:159-160` | folds and scale |
+| outcome-adaptive multi-arm C-TMLE | `multi_arm_ctmle_oat_properties.py:49-50` | folds |
+| DR-TMLE for binary complete data | `canonical_drtmle.py`, and `drtmle_properties.py` through its `fit_cleverly` | folds: replace the supplied `StratifiedKFold` assignment |
+| multi-arm point-treatment DR-TMLE | `canonical_multi_arm_drtmle.py` (supplied `StratifiedKFold` assignment) and `multi_arm_drtmle_properties.py:143-144` (package folds) | folds |
+| cross-fitted end-of-study longitudinal TMLE | `canonical_ltmle_crossfit.py` and `ltmle_crossfit_properties.py` | first-node folds |
+| cross-fitted weighted end-of-study longitudinal TMLE | `canonical_weighted_ltmle_crossfit.py` and `weighted_ltmle_crossfit_properties.py` | first-node folds |
+| cross-fitted categorical longitudinal TMLE | `canonical_categorical_ltmle_crossfit.py` and `categorical_ltmle_crossfit_properties.py` | first-node folds |
+| cross-fitted survival-curve longitudinal TMLE | `canonical_ltmle_survival_crossfit.py` and `ltmle_survival_crossfit_properties.py` | first-node folds |
+| cross-fitted competing-risk longitudinal TMLE | `canonical_ltmle_competing_crossfit.py` and `ltmle_competing_crossfit_properties.py` | first-node folds |
+
+Replace the supplied DR-TMLE assignments before regeneration. The `n_folds=1` longitudinal studies
+need no regeneration. The longitudinal MSM studies also run one fold, because `LTMLE` refuses `msm=`
+with `n_folds > 1` (`src/cleverly/longitudinal/estimator.py:1796-1797`). The stacked
+missing-outcome natural-course CV-TMLE row is unaffected. It generates unstratified folds
+(`tests/studies/canonical_mar_natural_course_cvtmle.py:184`) for a binary outcome.
+
+The C-TMLE selector studies use selection folds even when `cross_fit=False`. The paired R
+comparison reads those selection folds (`tests/studies/canonical_ctmle_selector.py:205`).
+`TMLEConfig.crossfit` records no strata for them when `cross_fit=False`
+(`src/cleverly/estimators/tmle.py:2157-2167`). Rebuild every registered study whose fits or
+verdicts can move. Update the split-plan reference and tutorial when its provenance rule changes.
+Preserve that provenance when a result exposes a plan or a refit reuses it.
 
 The studies in the table below cross-fit an outcome law with unbounded support, with
 `q_bounds=None`. Each law is a `DGP` with the default Gaussian family

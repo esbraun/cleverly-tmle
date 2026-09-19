@@ -224,8 +224,9 @@ previous reader had is not a citation; a page number is.
   folds. The folds "depend only on" an independent uniform draw and the cell size. The estimator is
   a cross-fitted AIPW estimator, not a TMLE. The strata are covariate strata, not outcome strata.
   The paper therefore does not cover the package's treatment-stratified folds for observational
-  data, which [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-  audits.
+  data. The completed
+  [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+  records this gap.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
