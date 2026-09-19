@@ -386,6 +386,11 @@ bootstrap draws are therefore correlated across the pairs.
   arms and two have three. Two have a binary outcome and two a Beta outcome on a known support.
 - It covers one package-generated unstratified ten-fold draw, pooled targeting, whole-sample
   evaluation, fixed `q_bounds`, and bounded nuisance predictions that no bound reaches.
+- Every fit declares `Runtime(random_state=0)`, and an unstratified fold draw depends only on the
+  row count and the seed. Every replication of one size therefore uses the same assignment of rows
+  to ten equal folds. The rows are iid, so that fixed assignment has the distribution of a random
+  partition of each sample. The study does not measure how the estimate varies across fold draws
+  of one sample.
 - The primary and calibration rows use depth-five trees that can fit the saturated, correct model.
   Those rows do not test calibration under nuisance misspecification. The overfitting pairs are the
   data-adaptive evidence, and they use the exact mechanisms. The study does not establish
