@@ -75,13 +75,17 @@ unweighted iid rows, and iterative unweighted logistic targeting.
 lists every refused composition for both configurations. See the
 [missing-outcome construction and evidence](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
 
-`ATE`, `CounterfactualMean`, `RiskRatio`, and `OddsRatio` also accept `missingness=`. A cross-fitted
-fit of these targets needs `CrossFitting(stratify_by="none")`. A continuous outcome also needs
+`ATE`, `CounterfactualMean`, `RiskRatio`, and `OddsRatio` also accept `missingness=`. Under
+cross-fitting with missing outcomes, only `TMLEMethod` fits these targets.
+`CollaborativeTMLEMethod` and `DRTMLEMethod` are refused. A cross-fitted fit needs
+`CrossFitting(stratify_by="none")`. A continuous outcome also needs
 `Targeting(q_bounds=(lower, upper))` equal to its known support. `ATT` and `ATC` are refused under
-cross-fitting with missing outcomes. The
-[arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract)
+cross-fitting with missing outcomes.
+
+The [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract)
 lists every refusal. Without a known finite support, fit in sample with
-`CrossFitting(enabled=False)`.
+`CrossFitting(enabled=False, stratify_by="treatment")`. The in-sample fit refuses
+`stratify_by="none"`.
 
 ## Known regimes
 
