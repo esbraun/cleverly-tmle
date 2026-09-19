@@ -22,8 +22,10 @@ The 2026-09-14 review of the arm-indexed stacked contract exposed RM17. The 2026
 found no result for the shipped data-dependent outer folds or the continuous outcome scale. The
 implemented
 [arm-indexed stacked contract](technical-reference/point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
-already uses generated unstratified folds and prespecified bounds. RM10 applies its
-stitched-nuisance R comparator to the ordinary study. RM17 then changes the global defaults.
+already uses generated unstratified folds and prespecified bounds. RM10 adds an R comparator to
+the ordinary study. It starts from the stitched-nuisance adapter of the stacked natural-course
+study, and it takes its bounded-continuous route from the arm-indexed study. RM17 then changes the
+global defaults.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -31,7 +33,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
+| 0.1 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked natural-course study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
 | 0.2 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
 | 0.3 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.4 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
@@ -45,7 +47,7 @@ criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| cross-fitted evidence | RM10, then the RM17 default changes and study regeneration; the RM17 iid audit is complete | RM10 reuses the stitched-nuisance R comparator of the registered arm-indexed stacked study; the RM17 decision already sets the fold and scale rules of that implemented contract |
+| cross-fitted evidence | RM10, then the RM17 default changes and study regeneration; the RM17 iid audit is complete | RM10 starts from the supplied-prediction R adapter of the stacked natural-course study, and it takes the bounded-continuous scale workaround from the arm-indexed stacked study; the RM17 decision already sets the fold and scale rules of the arm-indexed contract |
 | sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
 | collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
@@ -208,10 +210,17 @@ adapter, and the study was not regenerated after that adapter was added. The
 [R `tmle` audit](references.md#targeted-learning-in-general) records that this path accepts
 supplied outcome and response predictions.
 
-Add a comparison for each primary law. Start from the stacked study's adapter, which passes
-supplied predictions to that path. Line 1120 of `R/tmle.R` sets the scale from the observed range,
-also when `Qbounds` is supplied. Match that transform to the fixed `q_bounds` contract before any
-bounded-continuous parity claim. If the transforms differ, record the continuous comparison as
+Add a comparison for each primary law. The two routes are in the table.
+
+| outcome | start from | what it supplies |
+| --- | --- | --- |
+| binary | `tests/canonical/tmle_mar_natural_course_cvtmle/run_study.R`, the adapter of the stacked natural-course study | supplied outcome and response predictions to the R `tmle` population-mean path, through a constant synthetic treatment |
+| bounded continuous | the planted-row scale workaround of the arm-indexed stacked study, in `tests/canonical/tmle_mar_arm_indexed_cvtmle/probe_scale_workaround.R` and its output `scale-probe.csv` | two nonrespondent rows set to the `q_bounds` limits, so that the R scale equals `q_bounds` |
+
+Line 1120 of `R/tmle.R` sets the scale from the observed range, also when `Qbounds` is supplied.
+The planted rows are the workaround for that line. Its exact-equality probe covers replication 0
+of the arm-indexed study only. Rerun the probe on the ordinary study's continuous fits before any
+bounded-continuous parity claim. If a probe row fails, record the continuous comparison as
 refused and state the reason.
 
 Regenerate the ordinary study after the comparison is added. Do not transfer the stacked study's
