@@ -543,6 +543,22 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
 
+        # The band answers to the two-sided calibration coverage band, and its pointwise
+        # control must establish joint coverage below nominal, so the band does work.
+        joint = published.loc[published["property"] == "simultaneous_coverage"]
+        for row in joint.itertuples():
+            expected = (
+                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                if row.role == "control"
+                else study.margins.calibration_coverage[0]
+                <= row.coverage_ci_lower
+                <= row.coverage_ci_upper
+                <= study.margins.calibration_coverage[1]
+            )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its joint-coverage endpoint"
+            )
+
         corrected = published.loc[published["property"] == "corrected_mar_inference"]
         for row in corrected.itertuples():
             expected = (
@@ -827,6 +843,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "repeat_stability",
         "root_n_and_efficiency",
         "root_n_rate",
+        # Joint coverage of a band over several estimands.  The rows carry a max-t statistic
+        # rather than an estimate, so the family is gated on coverage alone.
+        "simultaneous_coverage",
         "static_reduction",
         "treatment_score_necessity",
         "type_i_error",

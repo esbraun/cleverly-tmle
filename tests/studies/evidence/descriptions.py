@@ -63,6 +63,35 @@ ARMS: dict[str, str] = {
     "tilt": "known stochastic tilt",
     "z0": "controlled direct effect at intermediate level zero",
     "z1": "controlled direct effect at intermediate level one",
+    # The four laws of the stacked arm-indexed missing-outcome study, and each estimand's
+    # calibration label.  L1 and L2 have two arms; L3 and L4 have three, with ``high`` as
+    # the reference arm.  L1 and L3 have a binary outcome; L2 and L4 a bounded continuous one.
+    "l1": "L1, two arms and a binary outcome",
+    "l2": "L2, two arms and a bounded continuous outcome",
+    "l3": "L3, three arms and a binary outcome",
+    "l4": "L4, three arms and a bounded continuous outcome",
+    "l1_ey0": "L1 mean under arm 0",
+    "l1_ey1": "L1 mean under arm 1",
+    "l1_ate": "L1 average treatment effect",
+    "l1_rr": "L1 log risk ratio",
+    "l1_or": "L1 log odds ratio",
+    "l2_ey0": "L2 mean under arm 0",
+    "l2_ey1": "L2 mean under arm 1",
+    "l2_ate": "L2 average treatment effect",
+    "l3_ey_high": "L3 mean under arm high",
+    "l3_ey_low": "L3 mean under arm low",
+    "l3_ey_mid": "L3 mean under arm mid",
+    "l3_ate_low": "L3 difference, low versus high",
+    "l3_ate_mid": "L3 difference, mid versus high",
+    "l3_rr_low": "L3 log risk ratio, low versus high",
+    "l3_rr_mid": "L3 log risk ratio, mid versus high",
+    "l3_or_low": "L3 log odds ratio, low versus high",
+    "l3_or_mid": "L3 log odds ratio, mid versus high",
+    "l4_ey_high": "L4 mean under arm high",
+    "l4_ey_low": "L4 mean under arm low",
+    "l4_ey_mid": "L4 mean under arm mid",
+    "l4_ate_low": "L4 difference, low versus high",
+    "l4_ate_mid": "L4 difference, mid versus high",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -121,6 +150,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-drtmle": "`cleverly` multi-arm DR-TMLE",
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
+    "cleverly-stacked-mar-arm-indexed-cvtmle": (
+        "`cleverly` stacked arm-indexed missing-outcome CV-TMLE"
+    ),
     "cleverly-weighted-tmle": "`cleverly` weighted point-treatment TMLE",
     "cleverly-weighted-ltmle": "`cleverly` ordinary weighted LTMLE",
     "cleverly-cross-fitted-weighted-ltmle": "`cleverly` cross-fitted weighted LTMLE",
@@ -144,6 +176,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
     "tmle-r": "R `tmle`",
     "tmle-r-population-mean": "R `tmle` population-mean path",
+    "tmle-r-stitched-arm-indexed": (
+        "R `tmle` two-arm path, or its population-mean path once per arm"
+    ),
     "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
@@ -190,6 +225,14 @@ SCENARIOS: dict[str, str] = {
         "binary-outcome observational natural-course law with learned MAR nuisances"
     ),
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
+    "binary_mar_two_arm_stacked": "L1: two-arm binary-outcome law with MAR outcomes",
+    "binary_mar_three_arm_stacked": "L3: three-arm binary-outcome law with MAR outcomes",
+    "continuous_mar_two_arm_stacked": (
+        "L2: two-arm bounded continuous-outcome law with MAR outcomes"
+    ),
+    "continuous_mar_three_arm_stacked": (
+        "L4: three-arm bounded continuous-outcome law with MAR outcomes"
+    ),
     "continuous_mar_natural_course": (
         "bounded continuous-outcome observational natural-course law with MAR outcomes"
     ),
@@ -335,6 +378,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "rule_necessity": "the covariate-dependent rule, rather than a static substitute, determines the target",
+    "simultaneous_coverage": (
+        "the multiplier band over a law's reported estimands covers the whole truth vector at "
+        "the nominal joint rate"
+    ),
     "selector_necessity": "the collaborative selector is what produces the result, not the fit around it",
     "competing_risk_recursion_necessity": (
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
@@ -472,6 +519,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "stacked MAR natural-course CV-TMLE with a fully grown outcome tree",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
+    ("crossfit_overfitting", "stacked_arm_indexed_cvtmle"): (
+        "stacked arm-indexed MAR CV-TMLE with a fully grown outcome tree",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
     ("crossfit_overfitting", "in_sample_control"): (
         "the same flexible learner fitted in sample, with no cross-fitting",
         "SE ratio must fall below the overfitting ceiling",
@@ -591,6 +642,22 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "only the treatment mechanism is correct",
         "bias interval must fall entirely outside the margin",
     ),
+    ("mar_robustness", "only_outcome_wrong"): (
+        "only the outcome regression is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "only_treatment_wrong"): (
+        "only the treatment mechanism is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "only_response_wrong"): (
+        "only the observation mechanism is wrong",
+        "bias interval inside the equivalence margin",
+    ),
+    ("mar_robustness", "outcome_and_response_wrong"): (
+        "the outcome regression and the observation mechanism are both wrong",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("missingness_necessity", "declared"): (
         "the observation indicator is declared, so correct mechanisms carry a wrong outcome model",
         "bias interval inside the equivalence margin",
@@ -612,6 +679,11 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the randomized treatment mechanism is correct while the outcome regression omits effect modification",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
+    ("interval_calibration", "learned_nuisances"): (
+        "separate depth-five trees fit the outcome, treatment and observation nuisances out of "
+        "fold; each law has nine or fewer covariate cells, so each tree can fit the saturated model",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
     ("interval_calibration", "shrunken_se_control"): (
         "the reported standard errors are multiplied by a declared factor below one",
         "the SE-ratio interval must fall below the calibration band",
@@ -623,6 +695,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
+    ),
+    ("simultaneous_coverage", "simultaneous_band"): (
+        "the max-t multiplier band over every estimand the law reports, from the same-row "
+        "centered influence curves",
+        "joint coverage interval inside the calibration coverage band",
+    ),
+    ("simultaneous_coverage", "pointwise_joint_control"): (
+        "the pointwise 95% intervals of the same fits, read jointly",
+        "joint coverage upper endpoint must fall below the nominal rate",
     ),
     ("repeat_stability", "three_repeats"): (
         "the median ATE over three fold draws across labelled base seeds",
