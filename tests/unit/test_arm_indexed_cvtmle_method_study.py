@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import itertools
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
-from scipy import stats
+from scipy import optimize, stats
 
 from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_arm_indexed_cvtmle as study
@@ -157,7 +158,12 @@ def test_the_bias_control_limit_moves_every_contrast(law: laws.Law) -> None:
 
 @pytest.mark.parametrize("law", LAWS, ids=IDS)
 def test_pointwise_intervals_read_jointly_undercover_in_the_limit(law: laws.Law) -> None:
-    """The band's control is designed to fail: its limiting joint coverage is below 0.90."""
+    """The pointwise joint control is designed to under-cover: its limit is below 0.90.
+
+    It is a negative control for the coverage cell, not a check on the band. A wrong band
+    that is still wide enough, such as a Sidak band, passes the coverage cell beside it.
+    The critical-value check below is the one that fails such a band.
+    """
     assert laws.pointwise_joint_coverage(law, draws=200_000) < 0.90
 
 
@@ -295,6 +301,136 @@ def test_a_band_at_the_pointwise_critical_value_fails_its_cell() -> None:
     assert not summary.loc[changed, "passed"].any()
     untouched = summary.index.drop(changed)
     assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"])
+
+
+#: The multiplier draws and the level behind each committed band critical value.
+BAND_DRAWS = 1000
+BAND_LEVEL = 0.95
+
+#: How far the mean committed critical value of a law may sit from its limiting target.
+#: Each critical value is ``np.quantile`` of ``BAND_DRAWS`` multiplier max-t draws, so its
+#: Monte Carlo standard deviation is ``sqrt(0.95 * 0.05 / 1000) / f`` for the max-t density
+#: ``f`` at the quantile.  Here ``f`` is 0.125 to 0.131, which gives 0.053 to 0.055, and the
+#: standard error of a mean over 2,000 replications is 0.0012 to 0.0013.  The tolerance is
+#: four of those.  A band that ignores the correlation (Sidak or Bonferroni) sits at least
+#: 0.08 above the target, sixteen tolerances away.
+CRITICAL_VALUE_TOLERANCE = 0.005
+
+
+def _sphere(rank: int, points: int) -> np.ndarray:
+    """A deterministic near-uniform grid on the unit circle or the unit sphere."""
+    index = np.arange(points) + 0.5
+    if rank == 2:
+        angle = 2.0 * np.pi * index / points
+        return np.column_stack([np.cos(angle), np.sin(angle)])
+    height = 1.0 - 2.0 * index / points
+    angle = np.pi * (1.0 + math.sqrt(5.0)) * index
+    radius = np.sqrt(1.0 - height**2)
+    return np.column_stack([radius * np.cos(angle), radius * np.sin(angle), height])
+
+
+def _max_t_cdf(law: laws.Law, points: int = 100_000) -> Any:
+    """``P(max_j |Z_j| <= c)`` for ``Z`` with the law's limiting influence-curve correlation.
+
+    The correlation has rank two (two arms) or three (three arms), because every estimand
+    is a function of the arm means.  Write ``Z = A U`` with ``U`` standard normal in that
+    rank.  Along a direction ``u`` on the unit sphere, ``max_j |Z_j| <= c`` holds out to
+    radius ``c / max_j |a_j . u|``, so the probability is the chi distribution function at
+    that radius, averaged over the sphere.  The grid is converged to 1e-5 in the quantile.
+    """
+    covariance = laws.influence_covariance(law)
+    scale = np.sqrt(np.diag(covariance))
+    values_, vectors = np.linalg.eigh(covariance / np.outer(scale, scale))
+    keep = values_ > 1e-10 * values_.max()
+    factor = vectors[:, keep] * np.sqrt(values_[keep])
+    rank = factor.shape[1]
+    assert rank == law.arms
+    reach = np.abs(_sphere(rank, points) @ factor.T).max(axis=1)
+    return lambda c: float(np.mean(stats.chi.cdf(c / reach, rank)))
+
+
+def _quantile(cdf: Any, level: float) -> float:
+    return float(optimize.brentq(lambda c: cdf(c) - level, 1.0, 5.0, xtol=1e-10))
+
+
+def _band_target(law: laws.Law) -> float:
+    """Where a 1,000-draw ``np.quantile`` of the limiting max-t statistic lands on average.
+
+    ``np.quantile`` interpolates between order statistics at position ``(B - 1) p``, and
+    the ``k``-th of ``B`` uniform order statistics has mean ``k / (B + 1)``.  So the
+    expected probability level is ``((B - 1) p + 1) / (B + 1) = 0.94910``, not 0.95, and
+    the correct band's mean critical value sits 0.007 below the limiting quantile.
+    """
+    cdf = _max_t_cdf(law)
+    level = ((BAND_DRAWS - 1) * BAND_LEVEL + 1) / (BAND_DRAWS + 1)
+    return _quantile(cdf, level)
+
+
+def _band_critical_values(rows: pd.DataFrame, key: str) -> pd.Series:
+    band = (rows["property"] == "simultaneous_coverage") & (
+        rows["cell"] == f"{key}__simultaneous_band"
+    )
+    return rows.loc[band, "std_error"]
+
+
+def _band_misses(rows: pd.DataFrame) -> list[str]:
+    """The laws whose mean critical value is outside the tolerance of its target."""
+    misses = []
+    for key, law in laws.LAWS.items():
+        target = _band_target(law)
+        if abs(_band_critical_values(rows, key).mean() - target) > CRITICAL_VALUE_TOLERANCE:
+            misses.append(key)
+    return misses
+
+
+def test_the_study_bands_use_the_draws_the_target_assumes() -> None:
+    law = laws.LAWS["l1"]
+    configured = study.method(
+        law,
+        outcome_learner=None,
+        treatment_learner=None,
+        missingness_learner=None,
+        simultaneous=True,
+    ).estimator_kwargs()
+    assert configured["n_multiplier"] == BAND_DRAWS
+    assert configured["multiplier_kind"] == "rademacher"
+
+
+@pytest.mark.parametrize("law", LAWS, ids=IDS)
+def test_the_tolerance_is_four_monte_carlo_standard_errors(law: laws.Law) -> None:
+    """The tolerance's justification, recomputed from each law's max-t density."""
+    cdf = _max_t_cdf(law)
+    quantile = _quantile(cdf, BAND_LEVEL)
+    density = (cdf(quantile + 1e-4) - cdf(quantile - 1e-4)) / 2e-4
+    replicates = len(_band_critical_values(_committed_property_rows(), law.key))
+    spread = math.sqrt(BAND_LEVEL * (1 - BAND_LEVEL) / BAND_DRAWS) / density
+    standard_errors = CRITICAL_VALUE_TOLERANCE / (spread / math.sqrt(replicates))
+    assert 3.5 < standard_errors < 4.5
+
+
+def test_the_band_critical_values_match_the_limiting_max_t_quantile() -> None:
+    """The coverage cell cannot see a band that ignores the correlation; this check can.
+
+    A Sidak or Bonferroni band covers at least the nominal rate, so it passes three of the
+    four joint-coverage cells.  Its critical value is what gives it away.
+    """
+    assert _band_misses(_committed_property_rows()) == []
+
+
+@pytest.mark.parametrize("rule", ["sidak", "bonferroni"])
+def test_a_diagonal_covariance_band_fails_the_critical_value_check(rule: str) -> None:
+    """A deliberate mutation: each band critical value replaced by a diagonal-covariance one."""
+    rows = _committed_property_rows().copy()
+    for key in laws.LAWS:
+        count = len(laws.ESTIMANDS[key])
+        tail = 1 - BAND_LEVEL ** (1 / count) if rule == "sidak" else (1 - BAND_LEVEL) / count
+        band = (rows["property"] == "simultaneous_coverage") & (
+            rows["cell"] == f"{key}__simultaneous_band"
+        )
+        rows.loc[band, "std_error"] = float(stats.norm.ppf(1 - tail / 2))
+    assert _band_misses(rows) == list(laws.LAWS)
+    for key, law in laws.LAWS.items():
+        assert _band_critical_values(rows, key).mean() - _band_target(law) > 0.08
 
 
 #: The largest ``|cleverly - R| / |targeting move|`` the parity check admits in any

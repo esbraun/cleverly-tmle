@@ -279,10 +279,24 @@ A ratio row is on the log scale, which is the scale its interval uses. A joint c
 estimand. Its row records the largest standardized deviation over the law's estimands, so the
 table quotes its joint coverage alone.
 
-The band control is designed to fail. In the Gaussian limit, the pointwise intervals of one law
-cover every truth at once in less than 90% of samples
+The pointwise joint control is designed to under-cover. In the Gaussian limit, the pointwise
+intervals of one law cover every truth at once in less than 90% of samples
 (`tests/unit/test_arm_indexed_cvtmle_method_study.py`). The band cell therefore shows that the
 band's wider critical value restores the nominal joint rate.
+
+The control cannot fail a wrong band. A Šidák or Bonferroni band ignores the correlation between
+the estimands. Each one is wider than the max-t band and passes three of the four coverage cells.
+A second check reads the committed critical values of each law.
+
+| check | requirement |
+| --- | --- |
+| target | the limiting max-t quantile, from each law's exact influence-curve correlation, at the level that `np.quantile` of 1,000 multiplier draws reaches on average (0.94910) |
+| mean committed critical value | within `0.005` of the target for each law |
+| mutation: a Šidák or a Bonferroni critical value | at least `0.08` from the target for each law, so the check fails |
+
+Each critical value has a Monte Carlo standard deviation near 0.054 from its 1,000 draws. The
+tolerance is four standard errors of a mean over 2,000 replications.
+`tests/unit/test_arm_indexed_cvtmle_method_study.py` runs the check and both mutations.
 
 A wrong outcome regression is `1 - mu` on the `[0, 1]` scale. Each wrong mechanism is a fixed
 table that `tests/studies/mar_arm_indexed_laws.py` declares. The large-sample limit of each
