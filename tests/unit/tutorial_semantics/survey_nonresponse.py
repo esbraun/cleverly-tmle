@@ -204,8 +204,9 @@ def check(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match=r"does not yet support PointTreatment\(missingness"):
         box_study.identify(PopulationAttributableFraction(reference=0))
 
-    # Step 6: "This Gaussian score has no finite support, so cleverly refuses the cross-fitted
-    # fit". The refusal names q_bounds, and it comes from the arm-indexed contract.
+    # Step 6: "cleverly refuses `q_bounds=None` there. This Gaussian score has no known finite
+    # support to declare". The refusal names q_bounds=None, and it comes from the arm-indexed
+    # contract.
     study = namespace["study"]
     method = namespace["method"]
     box_method = namespace["box_method"]
