@@ -1569,7 +1569,10 @@ class TMLE:
 
         A package :class:`~cleverly.learners.SuperLearner` with a classification task
         stratifies its inner folds on the target it is fitted to. Each role is resolved
-        exactly as the fit resolves it, and nothing is fitted.
+        exactly as the fit resolves it, and nothing is fitted. The outcome target is the
+        scaled outcome the fit trains on, so a Super Learner without a task infers it from
+        the same values the fit shows it: a continuous outcome with two values at its
+        declared ``q_bounds`` scales to 0 and 1, and that learner then classifies.
 
         Parameters
         ----------
@@ -1585,13 +1588,14 @@ class TMLE:
         observed = np.asarray(data.observed, dtype=bool)
         everyone = np.ones(observed.size, dtype=bool)
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        scaler = self._scaler(data)
         roles: list[tuple[str, Learner, BoolArray, FloatArray, Callable[[float], str]]] = [
             (
                 "outcome",
                 self._resolve_learner(self.outcome_learner, task=outcome_task),
                 observed,
-                np.asarray(data.outcome, dtype=float),
-                lambda value: f"respondent(s) with outcome {value:g}",
+                scaler.scale(data.outcome),
+                lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
             (
                 "treatment",

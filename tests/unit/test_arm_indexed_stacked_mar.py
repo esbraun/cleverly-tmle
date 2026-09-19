@@ -660,6 +660,46 @@ def test_the_default_learner_is_a_classification_super_learner() -> None:
     assert NeverFit.calls == 0
 
 
+def _two_valued_continuous_fit(q_bounds: tuple[float, float]) -> Any:
+    """The ``sl-outcome`` frame with its outcome moved from {0, 1} to {2, 5}."""
+    frame = _preflight_frame("sl-outcome")
+    frame["Y"] = 2.0 + 3.0 * frame["Y"]
+    estimator = TMLE(
+        **{
+            **ADMITTED,
+            **never_fit_learners(),
+            "outcome_learner": _never_fit_super_learner(None),
+            "estimands": ("ate",),
+            "random_state": PREFLIGHT_SEED,
+        },
+        family="gaussian",
+        q_bounds=q_bounds,
+    )
+    return estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+
+
+def test_a_task_free_outcome_learner_infers_its_task_from_the_scaled_outcome() -> None:
+    """``q_bounds=(2, 5)`` scales the outcome to {0, 1}, so the Super Learner classifies.
+
+    Before the fix the preflight inferred the task from the raw {2, 5} outcome, skipped
+    the role, and the fit raised a raw ``ValueError`` inside the Super Learner after the
+    treatment and response learners were already fitted.
+    """
+    with pytest.raises(DataError) as caught:
+        _two_valued_continuous_fit((2.0, 5.0))
+    message = str(caught.value)
+    assert f"cannot fit the outcome learner because repeat 0, fold {LAST}'s" in message
+    assert "training complement holds 1 respondent(s) with outcome 5." in message
+    assert NeverFit.calls == 0
+
+
+def test_a_task_free_outcome_learner_on_a_wider_support_regresses() -> None:
+    """The control: ``q_bounds=(1, 6)`` scales {2, 5} away from {0, 1}, so no rule applies."""
+    with pytest.raises(AssertionError, match="must run before any learner is fitted"):
+        _two_valued_continuous_fit((1.0, 6.0))
+    assert NeverFit.calls == 1
+
+
 class _RecordingSuperLearner(SuperLearner):
     """A Super Learner that records the classes in each of its inner training sets."""
 
