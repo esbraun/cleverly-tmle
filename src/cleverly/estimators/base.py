@@ -260,7 +260,17 @@ class CVTargeting:
     sizes -- ``ate``, ``ey1``, ``ey0`` -- and diverge for ``rr``, ``or``, ``att`` and
     ``atc``, where a ratio of means is not a mean of ratios and the pooled conditional
     effects weight by the whole sample's arm share rather than each fold's.  Which one
-    ``result[name]`` carries is set by ``TMLE(cv_evaluation=...)``; both are always here.
+    ``result[name]`` carries is set by ``TMLE(cv_evaluation=...)``.
+
+    The fit builds this object only under ``cv_evaluation=True`` or
+    ``targeting_scheme="fold"``.  A default stacked fit returns ``result.cv_targeting``
+    as ``None``, and ``result[name]`` is then the stacked (Levy) report.  :attr:`pooled`
+    is the whole-sample plug-in at the fitted fluctuation.  Under ``cv_evaluation=True``
+    that fluctuation minimises the fold-reweighted loss, which multiplies each fold's
+    weights by ``n / (V * sum(w_fold))``.  :attr:`pooled` therefore equals the stacked
+    report only when every fold has equal weight mass, which for unweighted rows means
+    equal fold sizes.  Under ``targeting_scheme="fold"`` it is the stitched report of the
+    fold-targeted predictions.
 
     Under ``repeats=R`` the fields divide by what they are.  The three that are
     *estimates* -- :attr:`pooled`, :attr:`canonical` and :attr:`variance` -- follow every

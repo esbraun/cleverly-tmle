@@ -300,6 +300,10 @@ def _measured(row: Any) -> str:
                 f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
             )
         return measured
+    if family == "simultaneous_coverage":
+        # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
+        # is read from.  The bias and SE columns hold a max-t statistic and a critical value.
+        return f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family == "clustered_inference":
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

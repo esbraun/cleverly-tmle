@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from cleverly.data.weighting import REPORTED_DRAW
-from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
+from cleverly.datasets import make_binary_outcome, make_cde, make_linear_ate
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
@@ -992,14 +992,36 @@ class TestTheSensitivityLayerFollowsTheDraws:
 
 
 class TestTheMnarTiltFollowsTheDraws:
+    """The tilt combines every draw's tilted estimate by the median, as the fit did.
+
+    This fixture rides on an unexamined F21 sibling surface. It fits a cross-fitted
+    controlled direct effect (``intermediate=``) with missing outcomes and ``repeats=2``.
+    No audited contract covers that composition. F21 in ``docs/roadmap.md`` lists it as a
+    sibling surface that fits today, and the arm-indexed contract refuses ``repeats``
+    above 1 for the arm-indexed means. No other fast test fits repeated draws on that
+    surface. The tests check the median-combination mechanics of the tilt, not a
+    scientific claim about the tilt on a controlled direct effect. When F21 closes the gap,
+    by a contract or by a refusal, remove this fixture or move it to an admitted
+    composition.
+    """
+
     @pytest.fixture(scope="class")
     def missing_fit(self) -> Any:
-        frame, _ = make_missing_outcome(n=N, seed=13)
-        return (
-            fast_tmle(repeats=2, estimands=["ate", "ey1", "ey0"])
-            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], delta="Delta")
-            .single()
+        frame, _ = make_cde(n=600, seed=13)
+        observed = np.random.default_rng(1).random(len(frame)) < 0.8
+        frame = frame.assign(Delta=observed.astype(float))
+        frame.loc[~observed, "Y"] = np.nan
+        results = fast_tmle(repeats=2, estimands=["ate", "ey1", "ey0"]).fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            intermediate="Z",
+            delta="Delta",
         )
+        result = results[0.0]
+        assert result.n_repeats == 2
+        return result
 
     def test_the_tilt_at_zero_reproduces_the_reported_estimate(self, missing_fit: Any) -> None:
         # gamma = 0 is MAR, so the tilt is the identity and the curve must pass through

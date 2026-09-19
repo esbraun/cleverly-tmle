@@ -162,6 +162,15 @@ treatment-intermediate-observation mechanism half, and includes one nonzero cont
 mechanism. Its pinned R comparison recodes each requested level to `tmle`'s first result; a frozen
 fixture separately records why the native second result is not a valid exact-nuisance comparator.
 
+The stacked CV-TMLE of arm-indexed means and contrasts with missing outcomes is also an estimator
+variant over registered targets. `tests/unit/test_arm_indexed_stacked_mar.py` holds its nonzero
+witnesses. Each witness builds its value by hand, and a deliberate mutation makes it fail. The
+mutations cover the clever covariate, the respondent mask, both inverse factors, the contrast
+pairing, the same-row covariance, the band, and the held-out scale. The registered
+[stacked arm-indexed missing-outcome study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
+adds repeated-sampling evidence. It also compares R `tmle` 2.1.1 with the same stitched nuisance
+predictions.
+
 The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
 registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
 Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps
@@ -184,8 +193,9 @@ Cross-validated, observational, and missing-treatment DR-TMLE compositions are n
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
 the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array
 is row-aligned however few equations are being solved. An unguarded `delta=` fit with known
-probabilities is a plain TMLE and is accepted as one; `_FailIfFit` is the witness that the
-supplied array reaches the fit rather than the refusal merely being gone.
+probabilities and `cross_fit=False` is a plain TMLE and is accepted as one; `_FailIfFit` is the
+witness that the supplied array reaches the fit rather than the refusal merely being gone. With
+`cross_fit=True`, the same fit is refused at every `guard=`, including `guard=()`.
 
 **Bounding the two mechanisms separately is what the scope label had to learn.** `contract`
 measured its truncation witnesses on the treatment mechanism alone. That is blind in exactly the

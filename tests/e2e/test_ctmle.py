@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import SuperLearner, load
+from cleverly import CapabilityError, SuperLearner, load
 from cleverly.datasets import (
     instrument_dgp,
     make_instrument,
@@ -35,6 +35,7 @@ from cleverly.estimators.targeting import build_submodel
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
 from tests.conftest import FAST_KWARGS
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 
@@ -524,6 +525,11 @@ class TestCombinedWithOtherOptions:
             CTMLE(**{**SETTINGS, "targeting_scheme": "fold"})
 
     def test_missingness_is_refit_inside_selection_folds(self) -> None:
+        """In sample, because C-TMLE with cross-fitted missing outcomes is refused below.
+
+        The selection folds are C-TMLE's own, so the missingness refit inside them does
+        not depend on outer cross-fitting.
+        """
         frame, _ = make_missing_outcome(n=300, seed=17)
         result = (
             CTMLE(
@@ -531,7 +537,7 @@ class TestCombinedWithOtherOptions:
                     **SETTINGS,
                     "missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
                     "selection_folds": 2,
-                    "n_folds": 3,
+                    "cross_fit": False,
                 }
             )
             .fit(frame, outcome="Y", treatment="A", delta="Delta")
@@ -539,6 +545,25 @@ class TestCombinedWithOtherOptions:
         )
         assert result.nuisance.missingness is not None
         assert result.diagnostics.score_equations().passed
+
+    @pytest.mark.parametrize("stratify_folds", ["none", "treatment"])
+    def test_cross_fitted_missingness_is_refused_before_selection(
+        self, stratify_folds: str
+    ) -> None:
+        """No audited selection and inference result covers this composition (arm-indexed contract)."""
+        frame, _ = make_missing_outcome(n=300, seed=17)
+        estimator = CTMLE(
+            **{
+                **SETTINGS,
+                **never_fit_learners(),
+                "selection_folds": 2,
+                "n_folds": 3,
+                "stratify_folds": stratify_folds,
+            }
+        )
+        with pytest.raises(CapabilityError, match=r"C-TMLE \(CTMLE, or CollaborativeTMLEMethod\)"):
+            estimator.fit(frame, outcome="Y", treatment="A", delta="Delta")
+        assert NeverFit.calls == 0
 
     def test_the_bootstrap_repeats_the_selection(self, frame_and_truth) -> None:
         # The influence-curve standard error treats the selected propensity model as

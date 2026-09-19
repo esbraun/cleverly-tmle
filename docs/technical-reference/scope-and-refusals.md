@@ -40,7 +40,8 @@ rather than implying the request was ill-posed.
 | refused | where |
 | --- | --- |
 | missing-outcome `NaturalCourseMean` outside its two scalar TMLE contracts | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators |
-| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets) |
+| cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
+| `DRTMLE` with observational missing outcomes, cross-fitted missing outcomes at every `guard` including `guard=()`, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
 | the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
@@ -67,6 +68,11 @@ omitted-variable and MNAR sensitivity analyses. TMLE supports the scalar missing
 natural-course mean with ordinary fitting or one generated split of stacked CV-TMLE.
 [Missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) gives the
 boundaries of each path.
+
+TMLE also cross-fits arm-indexed means and contrasts with missing outcomes under one stacked CV-TMLE
+contract.
+[Missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) gives its
+boundaries.
 
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
@@ -127,11 +133,87 @@ Both messages name the in-sample estimator as `CrossFitting(enabled=False, strat
 or `cross_fit=False` with `stratify_folds='treatment'` on the engine. Disabling cross-fitting is not
 enough by itself.
 
-`stratify_by="none"` is reserved for the stacked contract. A frame that declares `missingness=` but
-has no missing outcome takes the complete-outcome branch. Under `stratify_by="none"`, that fit
-raises `CapabilityError` before any learner is fitted. The message asks for the established fold
-policy. Other point-treatment fits, such as `ATE` under TMLE or DR-TMLE, refuse `stratify_by="none"`
-with the same message.
+`stratify_by="none"` is reserved for two cross-fitted contracts: the stacked natural-course
+contract above and the [arm-indexed contract](#missing-outcome-arm-indexed-contract) below. Every
+other point-treatment fit refuses it with `CapabilityError` before any learner is fitted. The
+message asks for the established fold policy. The table gives the fits that meet this refusal.
+
+| fit | why it is outside both contracts |
+| --- | --- |
+| any in-sample fit, `CrossFitting(enabled=False)` | the reservation covers cross-fitted fits only |
+| a frame that declares `missingness=` but has no missing outcome | the fit takes the complete-outcome branch |
+| a complete-outcome fit, such as `ATE` under TMLE | no audit covers unstratified folds for it |
+| `DRTMLE` with complete outcomes, or with missing outcomes and an arm-indexed target | only ordinary TMLE has an audited stacked contract |
+| a shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes | the arm-indexed contract excludes these targets |
+
+The [RM17 item](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
+of the roadmap proposes to remove this reservation. Until then, an in-sample remedy restores
+`stratify_by='treatment'`.
+
+### Missing-outcome arm-indexed contract
+
+The contract covers the arm-indexed mean group `ey`, `ey0`, `ey1`, `ate`, `rr`, `or`, `att`, and
+`atc` under cross-fitting with at least one missing outcome. It applies to an ordinary TMLE or
+C-TMLE fit under three conditions. The parameters are indexed by the arms of a discrete treatment.
+The design declares no intermediate. The request contains no `NaturalCourseMean`, PAR, or PAF.
+[Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
+defines the estimator, its preflight, and its evidence.
+
+| requirement | admitted | refused |
+| --- | --- | --- |
+| estimator | `TMLE` or `TMLEMethod` | `CTMLE` or `CollaborativeTMLEMethod`. `DRTMLE` raises its own refusal at every `guard`, including `guard=()` |
+| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc`, also when the default list or `"all"` includes them. The message lists the admitted estimands. A continuous `rr` or `or` stays refused, as for every fit |
+| treatment | two or more arms | none |
+| outcome | binary, or continuous with a fixed `q_bounds` equal to the known support | continuous with `q_bounds=None` |
+| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `stratify_by="treatment"`, `stratify_by="treatment+outcome"`, `split_plan=`, and one fold |
+| repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 and `targeting_scheme="fold"` |
+| fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation |
+| rows | unweighted iid rows | observation weights, clusters, and baseline strata |
+| inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` |
+| content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum. A sample below its minimum is refused with a remedy that does not repartition, because no partition can succeed |
+
+Three checks enforce the contract. Each check runs at a different time and raises a different
+error.
+
+| check | error | when it runs |
+| --- | --- | --- |
+| a composition outside the contract | `CapabilityError` | when the fit starts, before fold generation and before any learner is fitted |
+| `DRTMLE` with `delta=` and `cross_fit=True` | `NotImplementedError` | when the fit starts, before any learner is fitted |
+| minimum content | `DataError` | after fold generation, before any learner is fitted |
+
+A `DRTMLE` fit with `stratify_folds="none"` meets a different refusal first. The engine reserves
+unstratified folds for ordinary TMLE, so that fit raises the reservation `CapabilityError` at
+every `guard`, including `guard=()`. It does not reach the `NotImplementedError` in the table.
+`tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
+
+The composition check runs its steps in a fixed order. A fit that breaks several rules receives
+the first one. Each message names the missing result and the setting that the contract admits.
+A setting message gives both the engine keyword and the public spelling. `tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and
+through `TMLEMethod`, with zero learner calls.
+
+| order | the composition check refuses |
+| ---: | --- |
+| 1 | C-TMLE |
+| 2 | `fluctuation="linear"` |
+| 3 | `algorithm="one_step"` |
+| 4 | `target_weights=True` |
+| 5 | `fold_evaluation=True` |
+| 6 | `att` or `atc` |
+| 7 | a continuous outcome with `q_bounds=None` |
+| 8 | `stratify_by` other than `"none"` |
+| 9 | `split_plan=` |
+| 10 | `n_folds` below 2 |
+| 11 | `repeats` above 1 |
+| 12 | `targeting_scheme="fold"` |
+| 13 | observation weights |
+| 14 | clusters |
+| 15 | baseline strata |
+| 16 | `n_bootstrap > 0` |
+
+A refusal that has an in-sample alternative names it as
+`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False` with
+`stratify_folds='treatment'`. The in-sample fit refuses `stratify_by="none"`, as the paragraph
+above states.
 
 ### Replay-only unavailability
 

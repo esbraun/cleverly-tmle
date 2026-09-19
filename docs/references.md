@@ -288,7 +288,7 @@ previous reader had is not a citation; a page number is.
   log-risk and log-odds contrasts. Used as an implementation reference, not as an oracle for the
   estimand derivation or as a moving specification. The simulated-confounding surface reports its
   ratio movement on the same log scale. Levy (2018) is the stable marker for the default stacked
-  construction. It is not an exact RM9 comparator. A generic treatment-specific outcome learner
+  construction. It is not an exact comparator for the stacked missing-outcome contracts. A generic treatment-specific outcome learner
   can use the `Delta = 0` pseudo-outcomes when it predicts under `Delta = 1`, while the package's
   missing-outcome regression trains on respondents only.
 - The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
@@ -336,7 +336,7 @@ previous reader had is not a citation; a page number is.
   Estimation*](https://arxiv.org/abs/1801.09138), arXiv:1801.09138. Read first-hand. Section 3
   treats a mean with randomly missing data. Its doubly robust construction estimates the outcome
   and inverse response regressions on distinct subsamples. It is not the package's
-  complement-trained pooled CV-TMLE, so it does not govern RM9.
+  complement-trained pooled CV-TMLE, so it does not govern the stacked missing-outcome contracts.
 - Missing-outcome natural-course implementation record (2026-09-11): the source above supports
   one scalar missing-at-random mean from iid observations, with its ordinary first-order interval.
   Its stated limits bound the
@@ -346,8 +346,9 @@ previous reader had is not a citation; a page number is.
   attributable fraction.
 - Source audit of stacked CV-TMLE for arm-indexed means with missing outcomes (2026-09-14): it covers
   cross-fitted TMLE means `ψ_a = E_W E(Y | A = a, Delta = 1, W)` and their contrasts.
-  [RM9](roadmap.md#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) holds the contract
-  that the next implementation must satisfy. The support chain has five links.
+  The implemented
+  [arm-indexed stacked contract](technical-reference/point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
+  follows this audit. The support chain has five links.
 
   | link | source | result |
   | --- | --- | --- |
@@ -394,12 +395,13 @@ previous reader had is not a citation; a page number is.
 
   The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:138`).
   It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
-  this centered rule (`src/cleverly/estimators/tmle.py:2784-2786`). The stacked natural-course
+  this centered rule (`src/cleverly/estimators/tmle.py:3213-3215`). The stacked natural-course
   mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:240-278`). A stacked curve
   has empirical mean zero to targeting tolerance, so the two rules agree to first order.
 
-  The table gives the source verdict for each composition in the arm-indexed mean group. RM9 decides
-  how the implementation admits or refuses each one.
+  The table gives the source verdict for each composition in the arm-indexed mean group. The
+  [arm-indexed contract](technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract)
+  admits or refuses each one.
 
   | composition | source verdict | reason |
   | --- | --- | --- |
@@ -413,7 +415,7 @@ previous reader had is not a citation; a page number is.
   | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
   | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |
   | supplied split plan | no source read | the balance and weighting requirements are unaudited |
-  | folds stratified on treatment or outcome | no reviewed result for this fit | the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires generated unstratified folds for RM9 |
+  | folds stratified on treatment or outcome | no reviewed result for this fit | the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires generated unstratified folds for this contract |
   | one fold with cross-fitting | not cross-fitting | one fold trains and evaluates on the same rows |
   | weights, clusters, or baseline strata | no source read | every source treats unweighted iid rows |
   | bootstrap inference | no source read | no source covers a bootstrap of this estimator |
@@ -421,7 +423,7 @@ previous reader had is not a citation; a page number is.
   | C-TMLE with cross-fitted arm-indexed missing outcomes | no source read | the collaborative score and selection risk are not derived |
 
   With `q_bounds=None`, `_scaler` builds the outcome scale from every observed outcome before the
-  split (`src/cleverly/estimators/tmle.py:1134-1141`). The outcome learners train on the scaled
+  split (`src/cleverly/estimators/tmle.py:1212-1219`). The outcome learners train on the scaled
   outcome (`src/cleverly/estimators/_nuisance.py:1202`). A held-out outcome therefore sets the
   scale of the training fit. Gruber and van der Laan (2010) derive only the known-interval case.
   Gruber and van der Laan (2012), Section 3.2, warn about observed-range bounds under missingness.
@@ -434,7 +436,7 @@ previous reader had is not a citation; a page number is.
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds this gap |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. RM9 must check that each split contains every outcome class, because the preflight cannot see it |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. The implemented preflight requires two rows in each class of the role target in every training complement, for each role whose resolved learner is a package `SuperLearner` with a classification task. At that count every inner training set holds both classes. The preflight cannot see a `SuperLearner` nested inside a user pipeline, which can still fail inside the fit |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read

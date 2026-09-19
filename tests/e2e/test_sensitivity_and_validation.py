@@ -47,6 +47,10 @@ from cleverly.validation.refute import (
 )
 from tests.conftest import fast_tmle
 
+# Every missing-outcome fit in this module runs in sample (cross_fit=False). Each subject is
+# a diagnostic or a sensitivity analysis rather than cross-fitting, and the cross-fitted MAR
+# contract (docs/technical-reference/point-treatment-tmle.md) refuses att, atc, weights, and treatment-stratified folds.
+
 
 @pytest.fixture(scope="module")
 def good_overlap() -> object:
@@ -107,7 +111,7 @@ def weighted_missing_fit() -> object:
     frame, _ = make_missing_outcome(n=800, seed=11)
     weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
     return (
-        fast_tmle(estimands=("ate", "att", "atc", "ey1", "ey0"))
+        fast_tmle(cross_fit=False, estimands=("ate", "att", "atc", "ey1", "ey0"))
         .fit(
             weighted,
             outcome="Y",
@@ -279,7 +283,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         frame, _ = make_missing_outcome(n=400, seed=13, strength=1.5)
         weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
         return (
-            fast_tmle(estimands=("ate", "att"))
+            fast_tmle(cross_fit=False, estimands=("ate", "att"))
             .fit(
                 weighted,
                 outcome="Y",
@@ -319,7 +323,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         frame, _ = make_missing_outcome(n=400, seed=13, strength=1.5)
         weighted = frame.assign(obs_weight=_weight_by_covariate_rank(frame["W1"].to_numpy()))
         return (
-            fast_tmle(estimands=("ate", "att"), reference=1)
+            fast_tmle(cross_fit=False, estimands=("ate", "att"), reference=1)
             .fit(
                 weighted,
                 outcome="Y",
@@ -982,7 +986,7 @@ class TestMissingnessTilt:
     def missing_fit(self) -> object:
         frame, _ = make_missing_outcome(n=1500, seed=80)
         return (
-            fast_tmle(estimands=("ate", "ey1"))
+            fast_tmle(cross_fit=False, estimands=("ate", "ey1"))
             .fit(
                 frame,
                 outcome="Y",
@@ -1081,7 +1085,10 @@ class TestMissingnessTilt:
         curve = missing_fit.sensitivity.missingness(
             [tipping], estimands=["ate"], arm_gamma=direction
         )
-        assert float(curve["psi"].iloc[0]) == pytest.approx(null, abs=1e-4)
+        # The root search stops at xtol=1e-4 in gamma. On this in-sample fit the curve
+        # rises about 53 per unit gamma between 0 and the crossing, so psi at the returned
+        # root can sit up to about 5e-3 from the null.
+        assert float(curve["psi"].iloc[0]) == pytest.approx(null, abs=6e-3)
 
     def test_the_tipping_search_must_bracket_mar(self, missing_fit) -> None:
         with pytest.raises(ValueError, match=r"must be a finite, increasing.*contains gamma=0"):
@@ -1574,7 +1581,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
             return (
-                fast_tmle(estimands=("ate",))
+                fast_tmle(cross_fit=False, estimands=("ate",))
                 .fit(
                     frame,
                     outcome="Y",
@@ -1608,13 +1615,13 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         On this fit the propensity overlap is immaculate -- nothing truncated, effective
         sample size near 90% of nominal in both arms -- and yet the largest clever
         covariate is in the hundreds.  Every bit of that comes from ``pi`` reaching
-        0.04, an order of magnitude below the smallest propensity.  Before this the
+        0.05, about half the smallest propensity.  Before this the
         report had nothing to say about it: a reader saw a three-figure covariate next
         to a clean bill of health and no way to connect them.
         """
-        # Measured across seeds 91-95 at this n and strength: pi bottoms out at
-        # 0.019-0.039 against a smallest propensity of 0.105-0.165, the largest clever
-        # covariate runs 53-195, the propensity ESS stays above 0.88 and nothing is
+        # Measured in sample across seeds 91-95 at this n and strength: pi bottoms out at
+        # 0.019-0.051 against a smallest propensity of 0.098-0.160, the largest clever
+        # covariate runs 60-196, the propensity ESS stays above 0.90 and nothing is
         # truncated. The windows below are set to hold across that whole range rather
         # than to the one seed the fixture happens to use.
         report = strained.diagnostics.support()
@@ -1624,7 +1631,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert report.clever_covariate_max["mean"] > 40.0
         # The mechanism is where the leverage lives, and its ESS says so on the same
         # scale the propensity's is reported on.
-        assert mechanism["min"] < 0.5 * float(np.min(strained.nuisance.propensity.values))
+        assert mechanism["min"] < 0.6 * float(np.min(strained.nuisance.propensity.values))
         assert mechanism["ess_ratio"] < 0.90
 
     def test_clipping_the_mechanism_reaches_the_verdict(self) -> None:
@@ -1640,7 +1647,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
             result = (
-                fast_tmle(estimands=("ate",), nuisance_bound=0.35)
+                fast_tmle(cross_fit=False, estimands=("ate",), nuisance_bound=0.35)
                 .fit(
                     frame,
                     outcome="Y",
@@ -1730,7 +1737,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
             result = (
-                fast_tmle(estimands=("att",))
+                fast_tmle(cross_fit=False, estimands=("att",))
                 .fit(
                     frame,
                     outcome="Y",
@@ -1763,7 +1770,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
             result = (
-                fast_tmle(estimands=("ate", "att", "atc"))
+                fast_tmle(cross_fit=False, estimands=("ate", "att", "atc"))
                 .fit(
                     frame,
                     outcome="Y",
@@ -1838,7 +1845,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         """The warning half: a fit that leans on the bound has to say so at fit time."""
         frame, _ = make_missing_outcome(n=1500, seed=92, strength=2.0)
         with pytest.warns(PositivityWarning, match=r"P\(Delta = 1 \| A, W\)"):
-            fast_tmle(estimands=("ate",), nuisance_bound=0.35).fit(
+            fast_tmle(cross_fit=False, estimands=("ate",), nuisance_bound=0.35).fit(
                 frame,
                 outcome="Y",
                 treatment="A",
@@ -1850,7 +1857,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         frame, _ = make_missing_outcome(n=1500, seed=93)
         with warnings.catch_warnings():
             warnings.simplefilter("error", PositivityWarning)
-            fast_tmle(estimands=("ate",)).fit(
+            fast_tmle(cross_fit=False, estimands=("ate",)).fit(
                 frame,
                 outcome="Y",
                 treatment="A",

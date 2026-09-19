@@ -170,7 +170,11 @@ def method(
     missingness_learner: Any,
     cross_fit: bool = True,
 ) -> TMLEMethod:
-    """Build the exact public RM9 method declaration used by every study arm."""
+    """Build the exact public method declaration of the natural-course contract for every arm.
+
+    ``docs/technical-reference/cv-tmle.md`` ("Missing-outcome natural-course mean") states the
+    contract.
+    """
     return TMLEMethod(
         models=ModelSpec(
             outcome_learner=outcome_learner,

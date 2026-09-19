@@ -579,7 +579,9 @@ class TestArrayEntryPoint:
             obsWeights=np.ones(len(frame)),
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-            n_folds=4,
+            # In sample: the subject is the keyword names. A cross-fitted continuous
+            # missing-outcome fit needs a known q_bounds (docs/technical-reference/point-treatment-tmle.md).
+            cross_fit=False,
             estimands=("ate",),
             simultaneous=False,
             random_state=0,

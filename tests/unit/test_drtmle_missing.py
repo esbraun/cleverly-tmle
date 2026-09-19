@@ -24,6 +24,7 @@ from cleverly.sensitivity._simulated_confounding_request import (
 )
 from cleverly.validation.drtmle import MARGIN_ACTIVE
 from tests.unit._confounding_support import forbid_draw_and_refit
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 
 def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
@@ -401,10 +402,46 @@ def test_observational_missing_outcomes_are_refused() -> None:
 
 
 def test_cross_fitted_missing_outcomes_are_refused() -> None:
-    with pytest.raises(NotImplementedError, match="cross-validated extension"):
+    """The message names the remedy in the engine and the public spelling."""
+    with pytest.raises(NotImplementedError, match="cross-validated extension") as caught:
         DRTMLE(randomized=True, estimands=("ate",)).fit(
             _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
+    assert str(caught.value).endswith(
+        "pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)"
+    )
+
+
+@pytest.mark.parametrize("stratify_folds", ["treatment", "none"])
+@pytest.mark.parametrize("randomized", [True, False])
+def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
+    randomized: bool, stratify_folds: str
+) -> None:
+    """``guard=()`` is a plain TMLE, and it met none of the guarded refusals.
+
+    The cross-fit refusal now runs at every guard, before any learner fits. Before the
+    hoist this fit returned a result (RM9 probe C). ``stratify_folds='none'`` is reserved
+    for ordinary TMLE, so that fit meets the fold-policy reservation first.
+    """
+    learners = never_fit_learners()
+    estimator = DRTMLE(
+        guard=(),
+        randomized=randomized,
+        n_folds=3,
+        stratify_folds=stratify_folds,
+        estimands=("ate", "ey1", "ey0"),
+        **learners,
+    )
+    if stratify_folds == "none":
+        error: type[Exception] = CapabilityError
+        message = "stratify_folds='none' is currently reserved"
+    else:
+        error, message = NotImplementedError, "does not establish its cross-validated extension"
+    with pytest.raises(error, match=message):
+        estimator.fit(
+            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+        )
+    assert NeverFit.calls == 0
 
 
 def test_bivariate_missing_outcomes_are_refused_as_a_different_construction() -> None:
