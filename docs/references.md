@@ -395,7 +395,7 @@ previous reader had is not a citation; a page number is.
 
   The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:138`).
   It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
-  this centered rule (`src/cleverly/estimators/tmle.py:3159-3161`). The stacked natural-course
+  this centered rule (`src/cleverly/estimators/tmle.py:3213-3215`). The stacked natural-course
   mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:240-278`). A stacked curve
   has empirical mean zero to targeting tolerance, so the two rules agree to first order.
 

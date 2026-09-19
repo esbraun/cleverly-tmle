@@ -597,7 +597,7 @@ missing-outcome natural-course CV-TMLE row is unaffected. It generates unstratif
 The C-TMLE selector studies use selection folds even when `cross_fit=False`. The paired R
 comparison reads those selection folds (`tests/studies/canonical_ctmle_selector.py:205`).
 `TMLEConfig.crossfit` records no strata for them when `cross_fit=False`
-(`src/cleverly/estimators/tmle.py:2157-2167`). Rebuild every registered study whose fits or
+(`crossfit_plan`, `src/cleverly/estimators/tmle.py:2586-2591`). Rebuild every registered study whose fits or
 verdicts can move. Update the split-plan reference and tutorial when its provenance rule changes.
 Preserve that provenance when a result exposes a plan or a refit reuses it.
 
