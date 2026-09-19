@@ -317,20 +317,33 @@ of estimands. No reviewed paper states this band. The
 chain for each step.
 
 **The preflight.** After fold generation and before any learner call, the fit checks the minimum
-content below. A failure raises `DataError`.
+content below. A failure raises `DataError`, and the message names the remedy in the last column.
+In that column, "in sample" is `CrossFitting(enabled=False, stratify_by='treatment')`. The engine
+form is `cross_fit=False` with `stratify_folds='treatment'`.
 
-| scope | minimum content |
-| --- | --- |
-| sample | two respondents, two nonrespondents, and two respondents in each arm |
-| each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm |
-| each training complement, binary outcome | both outcome classes among the respondents |
-| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target. The targets are the outcome among respondents, the response indicator, and the treatment |
+| scope | minimum content | remedy the message names |
+| --- | --- | --- |
+| sample | two respondents, two nonrespondents, and two respondents in each arm | fit in sample |
+| sample, binary outcome | two respondents with each outcome | fit in sample. With no respondent at one outcome, no remedy: an in-sample fit sees the same single class |
+| sample, each role whose learner is a package `SuperLearner` with a classification task | three rows in each class of the role target | replace that learner. With exactly two rows in the class, the message also names fit in sample |
+| each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm | increase `n_folds`, use a different `random_state`, or fit in sample |
+| each training complement, binary outcome | both outcome classes among the respondents | the same as the row above |
+| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target | the same as the row above |
 
-A sample failure names the in-sample estimator, because no fold count or `random_state` can
-succeed. A complement failure names the repeat and the fold. It asks for more folds, a different
-`random_state`, or the in-sample estimator. The in-sample estimator is
-`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False` with
-`stratify_folds='treatment'`.
+The role targets are the outcome among respondents, the response indicator, and the treatment. The
+outcome target is the scaled outcome that the fit trains on. A complement failure names the repeat
+and the fold.
+
+Each sample row is the least count that some partition can satisfy. A class with $c$ rows puts at
+least one row in some validation fold, so that fold's complement holds at most $c - 1$. With
+`n_folds` equal to $n$, every complement drops exactly one row and holds $c - 1$. A complement
+minimum of $k$ therefore needs $c \ge k + 1$ in the sample, and no fold count or `random_state`
+rescues a smaller sample. The comment above the check in `src/cleverly/estimators/tmle.py` gives
+the same argument.
+
+A `SuperLearner` fitted in sample runs its own stratified split over all $c$ rows. That split
+needs two rows in each class, so the in-sample remedy holds for a Super Learner class only at
+$c = 2$.
 
 The last row follows from the package `SuperLearner`. For a classification task, its inner split
 stratifies on the learner target (`src/cleverly/learners/super_learner.py`), and the fold resolver

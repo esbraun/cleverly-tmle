@@ -170,7 +170,7 @@ defines the estimator, its preflight, and its evidence.
 | fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation |
 | rows | unweighted iid rows | observation weights, clusters, and baseline strata |
 | inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` |
-| content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum |
+| content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum. A sample below its minimum is refused with a remedy that does not repartition, because no partition can succeed |
 
 Three checks enforce the contract. Each check runs at a different time and raises a different
 error.

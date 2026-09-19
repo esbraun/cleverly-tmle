@@ -527,6 +527,23 @@ def _preflight_frame(case: str) -> pd.DataFrame:
         outcome[last[:2]] = [0.0, 1.0]
         arm[rest[1]] = 1.0
         observed[rest[1]] = True
+    elif case == "sample-outcome":
+        outcome[:] = 0.0
+        outcome[1] = 1.0
+    elif case == "sample-outcome-none":
+        outcome[:] = 0.0
+    elif case == "sl-sample-outcome":
+        outcome[:] = 0.0
+        outcome[[1, 2]] = 1.0
+    elif case == "sl-sample-response":
+        observed = np.ones(PREFLIGHT_N, dtype=bool)
+        observed[[0, 1]] = False
+    elif case == "sl-sample-treatment":
+        # One arm-1 respondent inside the last fold and one outside it, so every
+        # complement holds one and only the Super Learner rule can refuse.
+        arm = np.zeros(PREFLIGHT_N)
+        arm[[last[0], rest[0]]] = 1.0
+        observed[[last[0], rest[0]]] = True
     elif case != "base":
         raise ValueError(case)
     return pd.DataFrame(
@@ -579,6 +596,52 @@ def test_a_training_complement_below_the_minimum_refuses_before_any_learner(
     assert f"repeat 0, fold {LAST}'s training complement contains no {absent}." in message
     assert "Increase n_folds, use a different random_state, or fit in sample" in message
     assert NeverFit.calls == 0
+
+
+def test_one_respondent_with_an_outcome_is_a_sample_shortfall() -> None:
+    """One respondent with outcome 1 leaves its fold's complement without it in every partition."""
+    with pytest.raises(DataError) as caught:
+        _preflight_fit(_preflight_frame("sample-outcome"))
+    message = str(caught.value)
+    assert "the sample has 1 respondent(s) with outcome 1." in message
+    assert "no fold count or random_state can fit the outcome regression" in message
+    assert message.endswith("(CrossFitting(enabled=False, stratify_by='treatment'))")
+    assert NeverFit.calls == 0
+
+
+def test_one_outcome_class_offers_no_remedy_that_cannot_succeed() -> None:
+    """With no respondent at outcome 1, neither a new partition nor an in-sample fit helps."""
+    with pytest.raises(DataError) as caught:
+        _preflight_fit(_preflight_frame("sample-outcome-none"))
+    message = str(caught.value)
+    assert "no respondent has outcome 1. No partition can supply it" in message
+    assert "an in-sample fit trains the outcome learner on the same single class." in message
+    assert "Increase n_folds" not in message
+    assert "cross_fit=False" not in message
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+def test_the_in_sample_remedy_fits_one_respondent_with_an_outcome() -> None:
+    """The remedy the sample shortfall names is achievable: the in-sample fit succeeds.
+
+    One outcome-1 row separates the logistic fluctuation, and the fit warns about it. The
+    test asks only that the named remedy returns an estimate.
+    """
+    frame = _preflight_frame("sample-outcome")
+    estimator = TMLE(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        missingness_learner=LogisticRegression(),
+        cross_fit=False,
+        stratify_folds="treatment",
+        estimands=("ate",),
+        simultaneous=False,
+    )
+    result = estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta"
+    ).single()
+    assert np.isfinite(result["ate"].psi)
 
 
 def test_the_preflight_folds_are_the_fitted_folds() -> None:
@@ -644,6 +707,77 @@ def test_the_two_per_class_rule_reads_the_resolved_learner(case: str, keyword: s
     assert NeverFit.calls == 1
 
 
+#: Each Super Learner sample case: its frame, the role under test, and the short class.
+SUPER_LEARNER_SAMPLE_CASES = (
+    ("sl-sample-outcome", "outcome_learner", "outcome", "2 respondent(s) with outcome 1"),
+    ("sl-sample-treatment", "treatment_learner", "treatment", "2 row(s) in arm 1"),
+    ("sl-sample-response", "missingness_learner", "response", "2 nonrespondent(s)"),
+)
+
+
+@pytest.mark.parametrize(
+    ("case", "keyword", "role", "short"),
+    SUPER_LEARNER_SAMPLE_CASES,
+    ids=[case[2] for case in SUPER_LEARNER_SAMPLE_CASES],
+)
+def test_a_super_learner_class_of_two_is_a_sample_shortfall(
+    case: str, keyword: str, role: str, short: str
+) -> None:
+    """Two rows in a class leave some complement with at most one in every partition.
+
+    The complement cases above hold three rows of the short class in the sample, so they
+    reach the per-complement rule instead: three is the sample minimum.
+    """
+    with pytest.raises(DataError) as caught:
+        _preflight_fit(_preflight_frame(case), **{keyword: _never_fit_super_learner()})
+    message = str(caught.value)
+    assert f"cannot fit the {role} learner: the sample holds {short}." in message
+    assert "no fold count or random_state can fit it." in message
+    assert "Increase n_folds" not in message
+    assert message.endswith(
+        f"Replace the {role} learner with one that is not a package classification "
+        "SuperLearner, or "
+        "fit in sample with cross_fit=False and stratify_folds='treatment' on the engine "
+        "(CrossFitting(enabled=False, stratify_by='treatment'))."
+    )
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("case", "keyword"),
+    [(case, keyword) for case, keyword, _, _ in SUPER_LEARNER_SAMPLE_CASES],
+    ids=[case[2] for case in SUPER_LEARNER_SAMPLE_CASES],
+)
+def test_the_sample_rule_reads_the_resolved_learner(case: str, keyword: str) -> None:
+    """The control for the rule above: a learner that is not a Super Learner passes."""
+    with pytest.raises(AssertionError, match="must run before any learner is fitted"):
+        _preflight_fit(_preflight_frame(case))
+    assert NeverFit.calls == 1
+
+
+def test_the_in_sample_remedy_fits_a_super_learner_class_of_two() -> None:
+    """The in-sample remedy is achievable: the Super Learner's own split sees both rows."""
+    estimator = TMLE(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        missingness_learner=SuperLearner(
+            library=[("glm", LogisticRegression())], task="classification", n_folds=2
+        ),
+        cross_fit=False,
+        stratify_folds="treatment",
+        estimands=("ate",),
+        simultaneous=False,
+    )
+    result = estimator.fit(
+        _preflight_frame("sl-sample-response"),
+        outcome="Y",
+        treatment="A",
+        covariates=("W",),
+        delta="Delta",
+    ).single()
+    assert np.isfinite(result["ate"].psi)
+
+
 def test_a_super_learner_without_a_task_on_a_binary_target_counts() -> None:
     """``task=None`` infers classification from a 0/1 target, so its split stratifies."""
     with pytest.raises(DataError, match="cannot fit the response learner"):
@@ -660,9 +794,9 @@ def test_the_default_learner_is_a_classification_super_learner() -> None:
     assert NeverFit.calls == 0
 
 
-def _two_valued_continuous_fit(q_bounds: tuple[float, float]) -> Any:
-    """The ``sl-outcome`` frame with its outcome moved from {0, 1} to {2, 5}."""
-    frame = _preflight_frame("sl-outcome")
+def _two_valued_continuous_fit(q_bounds: tuple[float, float], case: str = "sl-outcome") -> Any:
+    """The ``case`` frame with its outcome moved from {0, 1} to {2, 5}."""
+    frame = _preflight_frame(case)
     frame["Y"] = 2.0 + 3.0 * frame["Y"]
     estimator = TMLE(
         **{
@@ -690,6 +824,20 @@ def test_a_task_free_outcome_learner_infers_its_task_from_the_scaled_outcome() -
     message = str(caught.value)
     assert f"cannot fit the outcome learner because repeat 0, fold {LAST}'s" in message
     assert "training complement holds 1 respondent(s) with outcome 5." in message
+    assert NeverFit.calls == 0
+
+
+def test_a_super_learner_class_of_one_offers_no_in_sample_remedy() -> None:
+    """An in-sample Super Learner cannot split one row either, so only a learner change helps."""
+    with pytest.raises(DataError) as caught:
+        _two_valued_continuous_fit((2.0, 5.0), case="sample-outcome")
+    message = str(caught.value)
+    assert "cannot fit the outcome learner: the sample holds 1 respondent(s) with outcome 5." in (
+        message
+    )
+    assert message.endswith(
+        "Replace the outcome learner with one that is not a package classification SuperLearner."
+    )
     assert NeverFit.calls == 0
 
 

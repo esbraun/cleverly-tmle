@@ -1474,15 +1474,18 @@ class TMLE:
     def _preflight_arm_indexed_folds(self, data: CausalData, folds: Sequence[Folds]) -> None:
         """Check the arm-indexed stacked contract's minimum content before any learner fit.
 
-        The sample needs two respondents, two nonrespondents, and two respondents in
-        each arm. Each training complement needs one respondent, one nonrespondent, one
-        row in each arm, one respondent in each arm, and, for a binary outcome, both
-        outcome classes among its respondents. A role whose resolved learner is a
-        package :class:`~cleverly.learners.SuperLearner` with a classification task
-        needs two rows in each class of its target in each training complement, because
-        that learner's inner split stratifies on the target. This check reads the
-        resolved learner of each role and fits nothing. It cannot see a Super Learner
-        nested inside a user pipeline.
+        The sample needs two respondents, two nonrespondents, two respondents in each
+        arm, and, for a binary outcome, two respondents with each outcome. Each training
+        complement needs one respondent, one nonrespondent, one row in each arm, one
+        respondent in each arm, and, for a binary outcome, both outcome classes among its
+        respondents. A role whose resolved learner is a package
+        :class:`~cleverly.learners.SuperLearner` with a classification task needs three
+        rows in each class of its target in the sample, and two in each training
+        complement, because that learner's inner split stratifies on the target. A
+        sample below its minimum is refused with a remedy that does not repartition,
+        because no partition can succeed. This check reads the resolved learner of each
+        role and fits nothing. It cannot see a Super Learner nested inside a user
+        pipeline.
         """
         subject = "cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes"
         observed = np.asarray(data.observed, dtype=bool)
@@ -1509,6 +1512,54 @@ class TMLE:
                     f"random_state can fit the nuisances; {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
                 )
 
+        # A sample minimum below which no partition can succeed. A class with c rows puts
+        # c_v of them in validation fold v, so fold v's complement holds c - c_v of them,
+        # and some fold holds c_v >= 1: every partition leaves a complement with at most
+        # c - 1. A complement minimum of k therefore needs c >= k + 1 in the sample. That
+        # is also enough: with one row per fold (n_folds = n) every complement drops
+        # exactly one row and keeps c - 1 >= k. So "increase n_folds" is a remedy that
+        # can succeed exactly when every class reaches k + 1: two for the binary outcome
+        # classes (k = 1) and three for a Super Learner classification role (k = 2).
+        binary = data.family == "binomial"
+        if binary:
+            responses = np.asarray(data.outcome, dtype=float)[observed]
+            for value in (0.0, 1.0):
+                count = int(np.count_nonzero(responses == value))
+                if count == 0:
+                    raise DataError(
+                        f"{subject} needs both outcome classes among the respondents, and "
+                        f"no respondent has outcome {value:g}. No partition can supply it: "
+                        "no fold count or random_state can fit the outcome regression by "
+                        "cross-fitting, and an in-sample fit trains the outcome learner on "
+                        "the same single class."
+                    )
+                if count < 2:
+                    raise DataError(
+                        f"{subject} needs at least two respondents with each outcome, and "
+                        f"the sample has {count} respondent(s) with outcome {value:g}. Every "
+                        "partition leaves some training complement without that outcome, "
+                        "so no fold count or random_state can fit the outcome regression; "
+                        f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+                    )
+        inner_roles = self._stratified_inner_split_roles(data)
+        for role, rows, target, label in inner_roles:
+            for value in np.unique(target[rows]):
+                count = int(np.count_nonzero(target[rows] == value))
+                if count <= 2:
+                    # An in-sample Super Learner splits all c rows itself, and its own
+                    # stratified split needs two, so that remedy holds only at c = 2.
+                    in_sample = f", or {_IN_SAMPLE_ARM_INDEXED_REMEDY}" if count == 2 else ""
+                    raise DataError(
+                        f"{subject} cannot fit the {role} learner: the sample holds {count} "
+                        f"{label(float(value))}. The {role} learner is a package "
+                        "SuperLearner with a classification task, and its inner stratified "
+                        "split needs at least two rows in each class of its target in each "
+                        "training complement. Every partition leaves some complement with "
+                        f"at most {count - 1}, so no fold count or random_state can fit it. "
+                        f"Replace the {role} learner with one that is not a package "
+                        f"classification SuperLearner{in_sample}."
+                    )
+
         remedy = (
             f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use a different random_state, or "
             f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
@@ -1519,7 +1570,6 @@ class TMLE:
             ("arm", treatment, arms),
             ("responding arm", responding_arm, arms),
         ]
-        binary = data.family == "binomial"
         if binary:
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
             support.append(("outcome", outcome, np.array([0.0, 1.0])))
@@ -1543,7 +1593,7 @@ class TMLE:
                     f"{describe(name, float(missing[0]))}. {remedy}"
                 )
 
-        for role, rows, target, label in self._stratified_inner_split_roles(data):
+        for role, rows, target, label in inner_roles:
             classes = np.unique(target[rows])
             for repeat, draw in enumerate(folds):
                 for fold, (train, _) in enumerate(draw):
