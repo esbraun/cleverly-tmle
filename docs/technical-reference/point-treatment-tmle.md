@@ -252,7 +252,9 @@ CV-TMLE contract. The contract applies to a fit when all of the conditions below
 The shift, incremental, regime, MSM, and controlled-direct-effect fits are outside this contract.
 The natural-course mean has its own contract above. PAR and PAF keep their own refusal.
 
-The table gives the admitted settings. The fit refuses every other setting before fold generation.
+The table gives the admitted settings. Before fold generation, the fit refuses a departure from
+each row except the band settings in the inference row. The table leaves other settings open, for
+example the learners and `g_bounds`.
 [Missing-outcome arm-indexed contract](scope-and-refusals.md#missing-outcome-arm-indexed-contract)
 lists each refusal and its order.
 
@@ -265,7 +267,7 @@ lists each refusal and its order.
 | folds | package-generated, `stratify_by="none"`, `n_folds` of at least 2, `repeats=1`, and `split_plan=None` |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`, with `targeting_scheme="pooled"` and `fold_evaluation=False` |
 | rows | unweighted iid rows, with no clusters and no baseline strata |
-| inference | pointwise influence-curve Wald intervals, and the default simultaneous band. `n_bootstrap=0` |
+| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind` and a custom `n_multiplier`. The registered study measures only the Rademacher default with 1,000 draws |
 
 `CrossFitting` defaults to `stratify_by="treatment"`, and the default estimand list of a two-arm fit
 includes `att` and `atc`. Every fit must therefore set `stratify_by="none"`, and a two-arm fit
@@ -306,9 +308,9 @@ variance is $\operatorname{var}(D_a)/n$ with the $n-1$ denominator. `covariance(
 [covariance rules](inference.md#covariance-rules). The stacked natural-course mean keeps the
 `"second_moment"` rule. The two rules agree to first order.
 
-`Inference(simultaneous=True)` is the default. The band draws Rademacher multipliers on the matrix
-of centered curves. It takes the max-t quantile of those draws, scaled by the pointwise standard
-errors.
+`Inference(simultaneous=True)` is the default. The band draws multipliers on the matrix of centered
+curves. The default multipliers are Rademacher, and `multiplier_kind="mammen"` or `"normal"` also
+fits. The band takes the max-t quantile of those draws, scaled by the pointwise standard errors.
 
 The band rests on two results. The first is the joint expansion of Zheng and van der Laan
 (2011), Theorem 2. The second is a conditional multiplier central limit theorem for a fixed number
