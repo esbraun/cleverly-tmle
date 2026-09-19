@@ -1541,8 +1541,10 @@ class TMLE:
                         "so no fold count or random_state can fit the outcome regression; "
                         f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
                     )
-        inner_roles = self._stratified_inner_split_roles(data)
-        for role, rows, target, label in inner_roles:
+        inner_roles = self._super_learner_inner_split_roles(data)
+        for role, task, rows, target, label in inner_roles:
+            if (task or infer_task(target[rows])) != "classification":
+                continue
             for value in np.unique(target[rows]):
                 count = int(np.count_nonzero(target[rows] == value))
                 if count <= 2:
@@ -1593,13 +1595,20 @@ class TMLE:
                     f"{describe(name, float(missing[0]))}. {remedy}"
                 )
 
-        for role, rows, target, label in inner_roles:
-            classes = np.unique(target[rows])
+        for role, task, rows, target, label in inner_roles:
+            sample_classes = np.unique(target[rows])
+            sample_classifies = (task or infer_task(target[rows])) == "classification"
             for repeat, draw in enumerate(folds):
                 for fold, (train, _) in enumerate(draw):
                     kept = np.zeros(observed.size, dtype=bool)
                     kept[train] = True
                     values = target[kept & rows]
+                    if (task or infer_task(values)) != "classification":
+                        continue
+                    # A task-free learner can switch from regression on the sample to
+                    # classification on a complement that loses an intermediate level.
+                    # In that case only the complement's classes enter its inner split.
+                    classes = sample_classes if sample_classifies else np.unique(values)
                     for value in classes:
                         count = int(np.count_nonzero(values == value))
                         if count < 2:
@@ -1612,17 +1621,16 @@ class TMLE:
                                 f"in each class of its target. {remedy}"
                             )
 
-    def _stratified_inner_split_roles(
+    def _super_learner_inner_split_roles(
         self, data: CausalData
-    ) -> tuple[tuple[str, BoolArray, FloatArray, Callable[[float], str]], ...]:
-        """The learner roles whose inner split stratifies on the role's target.
+    ) -> tuple[tuple[str, Task | None, BoolArray, FloatArray, Callable[[float], str]], ...]:
+        """The package Super Learner roles and the targets each outer fit trains on.
 
         A package :class:`~cleverly.learners.SuperLearner` with a classification task
         stratifies its inner folds on the target it is fitted to. Each role is resolved
         exactly as the fit resolves it, and nothing is fitted. The outcome target is the
-        scaled outcome the fit trains on, so a Super Learner without a task infers it from
-        the same values the fit shows it: a continuous outcome with two values at its
-        declared ``q_bounds`` scales to 0 and 1, and that learner then classifies.
+        scaled outcome the fit trains on. A Super Learner without a task infers it from
+        each training complement, whose task may differ from the full sample's task.
 
         Parameters
         ----------
@@ -1632,8 +1640,8 @@ class TMLE:
         Returns
         -------
         tuple of tuple
-            ``(role, rows, target, label)`` for each such role: the rows the learner is
-            fitted on, its target on every row, and the description of one class.
+            ``(role, task, rows, target, label)`` for each package Super Learner role:
+            its declared task, fitting rows, target on every row, and class description.
         """
         observed = np.asarray(data.observed, dtype=bool)
         everyone = np.ones(observed.size, dtype=bool)
@@ -1667,10 +1675,9 @@ class TMLE:
             ),
         ]
         return tuple(
-            (role, rows, target, label)
+            (role, learner.task, rows, target, label)
             for role, learner, rows, target, label in roles
             if isinstance(learner, SuperLearner)
-            and (learner.task or infer_task(target[rows])) == "classification"
         )
 
     @staticmethod

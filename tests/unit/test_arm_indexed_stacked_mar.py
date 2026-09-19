@@ -848,6 +848,51 @@ def test_a_task_free_outcome_learner_on_a_wider_support_regresses() -> None:
     assert NeverFit.calls == 1
 
 
+def _fold_dependent_task_frame(*, keep_middle_in_complement: bool) -> pd.DataFrame:
+    """Give the last complement {0, 1}, or retain a middle level for regression."""
+    frame = _preflight_frame("base")
+    last = _preflight_folds().test_index(LAST)
+    outside = frame.index[frame["Delta"].eq(1) & ~frame.index.isin(last)]
+    inside = frame.index[frame["Delta"].eq(1) & frame.index.isin(last)]
+    frame["Y"] = np.where(frame["Delta"].eq(1), 0.0, np.nan)
+    frame.loc[outside[0], "Y"] = 1.0
+    frame.loc[inside[0], "Y"] = 0.5
+    if keep_middle_in_complement:
+        frame.loc[outside[1], "Y"] = 0.5
+    return frame
+
+
+@pytest.mark.parametrize("keep_middle_in_complement", [False, True])
+def test_task_free_super_learner_uses_each_training_complements_task(
+    keep_middle_in_complement: bool,
+) -> None:
+    """A complement can classify even when the full continuous sample regresses."""
+    estimator = TMLE(
+        **{
+            **ADMITTED,
+            **never_fit_learners(),
+            "outcome_learner": _never_fit_super_learner(None),
+            "estimands": ("ate",),
+            "random_state": PREFLIGHT_SEED,
+        },
+        family="gaussian",
+        q_bounds=(0.0, 1.0),
+    )
+    frame = _fold_dependent_task_frame(keep_middle_in_complement=keep_middle_in_complement)
+    if keep_middle_in_complement:
+        with pytest.raises(AssertionError, match="must run before any learner is fitted"):
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        assert NeverFit.calls == 1
+    else:
+        with pytest.raises(DataError) as caught:
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        assert f"cannot fit the outcome learner because repeat 0, fold {LAST}'s" in str(
+            caught.value
+        )
+        assert "holds 1 respondent(s) with outcome 1" in str(caught.value)
+        assert NeverFit.calls == 0
+
+
 class _RecordingSuperLearner(SuperLearner):
     """A Super Learner that records the classes in each of its inner training sets."""
 
