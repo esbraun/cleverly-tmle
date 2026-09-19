@@ -8,9 +8,11 @@ holds its fast checks, grouped by the roadmap's witness list:
 * W12, preflight: every sample and training-complement minimum, a ``DataError`` before any
   learner call, and the two-per-class rule for a package ``SuperLearner`` classification
   role.
-* W1 to W11, numerical witnesses: added in their own section below the refusals. Each one
+* W1 to W11, numerical witnesses, in their own section below the refusals. Each one
   builds the correct value from stored arrays, asserts package equality, and asserts a
   stated gap for a deliberate mutation.
+* W12, unequal folds: the point is the whole-sample mean, not an equal-fold average.
+* W13, Super Learner leakage: a held-out outcome cannot move the inner split.
 
 The refusal tests pin :class:`~tests.unit._natural_course_support.NeverFit` learners, so a
 refusal that ran after a learner call would raise ``AssertionError`` instead.
@@ -19,12 +21,14 @@ refusal that ran after a learner call would raise ``AssertionError`` instead.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LogisticRegression
+from scipy.special import expit, logit
+from sklearn.base import BaseEstimator
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
     ATE,
@@ -42,9 +46,12 @@ from cleverly import (
     Targeting,
     TMLEMethod,
 )
+from cleverly.data import CausalData
 from cleverly.datasets import make_missing_outcome, make_missing_outcome_binary
 from cleverly.estimators import CTMLE, TMLE
+from cleverly.estimators._nuisance import fit_nuisances
 from cleverly.learners import make_folds
+from cleverly.utils.bounds import OutcomeScaler
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 #: The first clause of every contract refusal.
@@ -593,7 +600,9 @@ def test_the_base_preflight_frame_reaches_the_learners() -> None:
     assert NeverFit.calls == 1
 
 
-def _never_fit_super_learner(task: str | None = "classification") -> SuperLearner:
+def _never_fit_super_learner(
+    task: Literal["classification"] | None = "classification",
+) -> SuperLearner:
     return SuperLearner(library=[("never", NeverFit())], task=task, n_folds=2)
 
 
@@ -724,5 +733,803 @@ def test_probe_a_is_refused_before_any_learner_through_the_public_method() -> No
 
 # --------------------------------------------------------------------- W1 to W11
 #
-# Numerical witnesses land here. Each builds the correct value from stored arrays,
-# asserts package equality, and asserts a stated gap for a deliberate mutation.
+# Each witness builds the correct value from stored arrays or from a hand refit, asserts
+# package equality, and asserts a stated gap for a deliberate mutation built from the
+# same arrays. The frames are seeded, so every gap is a fixed number; each margin sits
+# below the measured gap by a factor of at least three.
+
+#: Rows, seed, and covariates of the witness frames. Three unstratified folds of 601
+#: rows hold 201, 200, and 200 rows, so the fold weights are unequal.
+WITNESS_N = 601
+WITNESS_SEED = 11
+WITNESS_COVARIATES = ("W1", "W2")
+#: The prediction bound of the logistic submodel, ``TMLE(alpha=0.9995)``.
+ALPHA = 0.9995
+#: The shift of each arm on the logit of the outcome.
+ARM_SHIFT = (0.0, 0.5, -0.4)
+#: The three-arm estimand request of the contrast witnesses.
+ALL_CONTRASTS = ("ey", "ate", "rr", "or")
+
+
+def _witness_frame(n_arms: int = 3) -> pd.DataFrame:
+    """A seeded MAR frame whose outcome regression a main-terms logistic model misses.
+
+    The outcome logit is nonlinear in ``W1`` and every arm shares it. Its steep linear
+    part makes the plug-in terms of the arm curves move together, so the arm curves have a
+    positive same-row covariance. The response probability depends on ``A`` and on
+    ``W``. ``Y`` is ``NaN`` where ``Delta`` is 0.
+    """
+    rng = np.random.default_rng(WITNESS_SEED)
+    w1 = rng.uniform(-2.0, 2.0, size=WITNESS_N)
+    w2 = rng.normal(size=WITNESS_N)
+    logits = np.column_stack([np.zeros(WITNESS_N), 0.4 * w1 - 0.2, -0.5 * w1 + 0.3 * w2])
+    probability = np.exp(logits[:, :n_arms])
+    probability /= probability.sum(axis=1, keepdims=True)
+    draw = rng.random(WITNESS_N)[:, None]
+    arm = (draw > np.cumsum(probability, axis=1)).sum(axis=1).astype(float)
+    curve = 2.0 * w1 + 0.5 * (1.5 * np.sin(2.0 * w1) + w1**2 - 0.8)
+    outcome_logit = curve + np.asarray(ARM_SHIFT)[arm.astype(int)]
+    outcome = (rng.random(WITNESS_N) < expit(outcome_logit)).astype(float)
+    respond = rng.random(WITNESS_N) < expit(1.5 + 0.6 * w1 - 0.3 * arm + 0.4 * w2)
+    return pd.DataFrame(
+        {
+            "Y": np.where(respond, outcome, np.nan),
+            "A": arm,
+            "W1": w1,
+            "W2": w2,
+            "Delta": respond.astype(float),
+        }
+    )
+
+
+def _logistic() -> LogisticRegression:
+    return LogisticRegression(max_iter=1000)
+
+
+def _witness_fit(
+    frame: pd.DataFrame, *, estimands: tuple[str, ...] = ("ey",), **overrides: Any
+) -> Any:
+    """Fit the admitted composition with main-terms logistic learners for each role."""
+    settings: dict[str, Any] = {
+        **ADMITTED,
+        "estimands": estimands,
+        "outcome_learner": _logistic(),
+        "treatment_learner": _logistic(),
+        "missingness_learner": _logistic(),
+        **overrides,
+    }
+    return (
+        TMLE(**settings)
+        .fit(frame, outcome="Y", treatment="A", covariates=WITNESS_COVARIATES, delta="Delta")
+        .single()
+    )
+
+
+def _newton(offset: np.ndarray, covariate: np.ndarray, outcome: np.ndarray) -> np.ndarray:
+    """The logistic MLE of ``outcome`` on ``covariate`` with a fixed offset and no intercept."""
+    epsilon = np.zeros(covariate.shape[1])
+    for _ in range(50):
+        fitted = expit(offset + covariate @ epsilon)
+        gradient = covariate.T @ (outcome - fitted)
+        hessian = (covariate * (fitted * (1.0 - fitted))[:, None]).T @ covariate
+        step = np.linalg.solve(hessian, gradient)
+        epsilon = epsilon + step
+        if np.max(np.abs(step)) < 1e-14:
+            break
+    return epsilon
+
+
+def _treatment_block(values: np.ndarray, arms: tuple[float, ...]) -> np.ndarray:
+    """One indicator column for each non-reference arm, as the outcome design holds."""
+    return np.column_stack([values == arm for arm in arms[1:]]).astype(float)
+
+
+@dataclass(frozen=True)
+class HandNuisances:
+    """Stitched nuisance predictions refitted by hand, one row per sample row.
+
+    Parameters
+    ----------
+    outcome : dict of float to ndarray
+        ``Q(a, W)`` for each arm.
+    realised : ndarray
+        ``Q(A, W)`` at each row's own arm.
+    propensity : ndarray
+        ``g(a | W)``, one column per arm.
+    response : ndarray
+        ``P(Delta = 1 | A = a, W)``, one column per arm.
+    """
+
+    outcome: dict[float, np.ndarray]
+    realised: np.ndarray
+    propensity: np.ndarray
+    response: np.ndarray
+
+
+def _hand_nuisances(
+    frame: pd.DataFrame, arms: tuple[float, ...], splits: list[tuple[np.ndarray, np.ndarray]]
+) -> HandNuisances:
+    """Refit each role on each training set and predict on its validation rows."""
+    n = len(frame)
+    arm = frame["A"].to_numpy(dtype=float)
+    covariates = frame[list(WITNESS_COVARIATES)].to_numpy(dtype=float)
+    observed = frame["Delta"].to_numpy() == 1.0
+    outcome = frame["Y"].fillna(0.0).to_numpy(dtype=float)
+    design = np.column_stack([_treatment_block(arm, arms), covariates])
+    at = {
+        level: np.column_stack([_treatment_block(np.full(n, level), arms), covariates])
+        for level in arms
+    }
+    predictions = {level: np.empty(n) for level in arms}
+    realised = np.empty(n)
+    propensity = np.empty((n, len(arms)))
+    response = np.empty((n, len(arms)))
+    for train, test in splits:
+        rows = train[observed[train]]
+        outcome_model = _logistic().fit(design[rows], outcome[rows])
+        treatment_model = _logistic().fit(covariates[train], arm[train])
+        response_model = _logistic().fit(design[train], observed[train].astype(float))
+        realised[test] = outcome_model.predict_proba(design[test])[:, 1]
+        propensity[test] = treatment_model.predict_proba(covariates[test])
+        for column, level in enumerate(arms):
+            predictions[level][test] = outcome_model.predict_proba(at[level][test])[:, 1]
+            response[test, column] = response_model.predict_proba(at[level][test])[:, 1]
+    return HandNuisances(predictions, realised, propensity, response)
+
+
+@dataclass(frozen=True)
+class HandTarget:
+    """The hand-built fluctuation, points, and curves on the ``[0, 1]`` scale.
+
+    Parameters
+    ----------
+    epsilon : ndarray
+        One coefficient per arm.
+    targeted : dict of float to ndarray
+        ``Q*(a, W)`` for each arm.
+    psi : dict of float to float
+        The plug-in mean of each arm.
+    curve : dict of float to ndarray
+        The influence curve of each arm mean.
+    """
+
+    epsilon: np.ndarray
+    targeted: dict[float, np.ndarray]
+    psi: dict[float, float]
+    curve: dict[float, np.ndarray]
+
+
+def _inverse(
+    propensity: np.ndarray, response: np.ndarray, g_bounds: tuple[float, float], lower: float
+) -> np.ndarray:
+    """``1 / (g_a pi_a)`` per arm, after the package's truncation of each factor."""
+    return 1.0 / (np.clip(propensity, *g_bounds) * np.clip(response, lower, 1.0))
+
+
+def _hand_target(
+    frame: pd.DataFrame,
+    nuisances: HandNuisances,
+    arms: tuple[float, ...],
+    g_bounds: tuple[float, float],
+    lower: float,
+) -> HandTarget:
+    """Fit the joint fluctuation on the respondent rows and build each arm's curve."""
+    arm = frame["A"].to_numpy(dtype=float)
+    observed = frame["Delta"].to_numpy() == 1.0
+    outcome = frame["Y"].fillna(0.0).to_numpy(dtype=float)
+    inverse = _inverse(nuisances.propensity, nuisances.response, g_bounds, lower)
+    covariate = (arm[:, None] == np.asarray(arms)[None, :]) * inverse
+    epsilon = _newton(logit(nuisances.realised[observed]), covariate[observed], outcome[observed])
+    realised = expit(logit(nuisances.realised) + covariate @ epsilon)
+    residual = np.where(observed, outcome - realised, 0.0)
+    targeted = {
+        level: expit(logit(nuisances.outcome[level]) + epsilon[column] * inverse[:, column])
+        for column, level in enumerate(arms)
+    }
+    psi = {level: float(np.mean(values)) for level, values in targeted.items()}
+    curve = {
+        level: covariate[:, column] * residual + targeted[level] - psi[level]
+        for column, level in enumerate(arms)
+    }
+    return HandTarget(epsilon, targeted, psi, curve)
+
+
+def _stored_inverse(result: Any) -> np.ndarray:
+    """``1 / (g_a pi_a)`` from the stored nuisances, truncated as the fit truncated them."""
+    return _inverse(
+        np.asarray(result.nuisance.propensity.values, dtype=float),
+        np.asarray(result.nuisance.missingness, dtype=float),
+        result.config.g_bounds,
+        result.config.missingness_bound,
+    )
+
+
+def _arm_index(result: Any) -> np.ndarray:
+    """Each row's column in the arm-ordered nuisance arrays."""
+    return np.searchsorted(np.asarray(result.nuisance.arms), result.data.treatment)
+
+
+def _assert_inside_the_logistic_bound(result: Any) -> None:
+    """The submodel clips predictions to ``[1 - alpha, alpha]``; the witnesses need no clip."""
+    fluctuation = result.fluctuations["mean"]
+    for fit in (result.nuisance.outcome, fluctuation.targeted):
+        for values in (fit.observed, *fit.arms.values()):
+            assert np.all((values > 1.0 - ALPHA) & (values < ALPHA))
+
+
+def test_w1_the_stitched_nuisances_fluctuation_points_and_curves_rebuild_by_hand() -> None:
+    frame = _witness_frame(2)
+    result = _witness_fit(frame, estimands=("ey1", "ey0", "ate"))
+    arms = (0.0, 1.0)
+    splits = list(result.nuisance.folds)
+    hand = _hand_nuisances(frame, arms, splits)
+    _assert_inside_the_logistic_bound(result)
+
+    nuisance = result.nuisance
+    np.testing.assert_allclose(nuisance.outcome.observed, hand.realised, rtol=0.0, atol=1e-8)
+    for level in arms:
+        np.testing.assert_allclose(
+            nuisance.outcome.arms[level], hand.outcome[level], rtol=0.0, atol=1e-8
+        )
+    np.testing.assert_allclose(nuisance.propensity.values, hand.propensity, rtol=0.0, atol=1e-8)
+    np.testing.assert_allclose(nuisance.missingness, hand.response, rtol=0.0, atol=1e-8)
+
+    target = _hand_target(
+        frame, hand, arms, result.config.g_bounds, result.config.missingness_bound
+    )
+    fluctuation = result.fluctuations["mean"]
+    np.testing.assert_allclose(fluctuation.epsilon, target.epsilon, rtol=0.0, atol=1e-7)
+    for level, name in ((0.0, "ey0"), (1.0, "ey1")):
+        np.testing.assert_allclose(
+            fluctuation.targeted.arms[level], target.targeted[level], rtol=0.0, atol=1e-8
+        )
+        assert result[name].psi == pytest.approx(target.psi[level], abs=1e-8)
+        np.testing.assert_allclose(
+            result[name].influence_curve, target.curve[level], rtol=0.0, atol=1e-7
+        )
+    np.testing.assert_allclose(
+        result["ate"].influence_curve, target.curve[1.0] - target.curve[0.0], rtol=0.0, atol=1e-7
+    )
+
+    everything = np.arange(len(frame))
+    in_sample = _hand_nuisances(frame, arms, [(everything, everything)])
+    mutant = _hand_target(
+        frame, in_sample, arms, result.config.g_bounds, result.config.missingness_bound
+    )
+    gap = np.max(np.abs(in_sample.realised - hand.realised))
+    assert gap > 0.02, "the in-sample prediction mutation vanished"
+    point_gap = max(abs(mutant.psi[level] - target.psi[level]) for level in arms)
+    assert point_gap > 1e-3, "the in-sample point mutation vanished"
+
+
+def test_w2_the_joint_fluctuation_is_one_scalar_per_arm_fitted_on_that_arm() -> None:
+    frame = _witness_frame(2)
+    result = _witness_fit(frame, estimands=("ey1", "ey0", "ate"))
+    epsilon = np.asarray(result.fluctuations["mean"].epsilon, dtype=float)
+    inverse = _stored_inverse(result)
+    arm = result.data.treatment
+    observed = result.data.observed
+    outcome = result.data.outcome
+    offset = logit(result.nuisance.outcome.observed)
+    assert epsilon.shape == (2,)
+    assert np.min(np.abs(epsilon)) > 1e-3
+
+    for column, level in enumerate(result.nuisance.arms):
+        rows = observed & (arm == level)
+        alone = _newton(offset[rows], inverse[rows, column : column + 1], outcome[rows])
+        assert epsilon[column] == pytest.approx(alone[0], abs=1e-9)
+
+    own = inverse[np.arange(arm.size), _arm_index(result)]
+    shared = _newton(offset[observed], own[observed, None], outcome[observed])[0]
+    gap = float(np.max(np.abs(epsilon - shared)))
+    assert gap > 0.005, "the shared-scalar mutation vanished"
+
+
+def test_w3_each_row_fills_one_clever_column_and_the_fit_reads_respondents_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[tuple[Any, np.ndarray, np.ndarray, Any]] = []
+    real = TMLE._solve_rows
+
+    def spy(
+        self: TMLE,
+        scaled: Any,
+        initial: Any,
+        submodel: Any,
+        weights: Any,
+        observed: Any,
+        **kwargs: Any,
+    ) -> Any:
+        seen.append(
+            (submodel, np.asarray(observed, dtype=bool).copy(), np.asarray(scaled).copy(), initial)
+        )
+        return real(self, scaled, initial, submodel, weights, observed, **kwargs)
+
+    monkeypatch.setattr(TMLE, "_solve_rows", spy)
+    result = _witness_fit(_witness_frame(3))
+    assert len(seen) == 1
+    submodel, mask, scaled, initial = seen[0]
+    covariate = np.asarray(submodel.observed, dtype=float)
+    rows = np.arange(result.n)
+    own = _arm_index(result)
+    inverse = _stored_inverse(result)
+
+    assert covariate.shape == (result.n, 3)
+    assert [submodel.arm_columns[level] for level in result.nuisance.arms] == [0, 1, 2]
+    nonzero = covariate != 0.0
+    assert np.all(nonzero.sum(axis=1) == 1), "a row fills more than one clever column"
+    assert np.all(nonzero[rows, own])
+    np.testing.assert_allclose(covariate[rows, own], inverse[rows, own], rtol=1e-14, atol=0.0)
+    np.testing.assert_array_equal(mask, result.data.observed)
+    assert 0 < mask.sum() < result.n
+
+    offset = logit(np.asarray(initial.observed, dtype=float))
+    epsilon = _newton(offset[mask], covariate[mask], scaled[mask])
+    stored = np.asarray(result.fluctuations["mean"].epsilon, dtype=float)
+    np.testing.assert_allclose(stored, epsilon, rtol=0.0, atol=1e-9)
+
+    second = (own + 1) % 3
+    filled = covariate.copy()
+    filled[rows, second] = inverse[rows, second]
+    mutant = _newton(offset[mask], filled[mask], scaled[mask])
+    assert np.max(np.abs(mutant - epsilon)) > 0.01, "the second-column mutation vanished"
+
+    everyone = _newton(offset, covariate, scaled)
+    assert np.max(np.abs(everyone - epsilon)) > 0.05, "the nonrespondent-row mutation vanished"
+
+
+def test_w4_each_contrast_is_built_from_its_arm_and_the_reference_arm() -> None:
+    result = _witness_fit(_witness_frame(3), estimands=ALL_CONTRASTS)
+    reference = result["ey[0.0]"]
+    for level, other in ((1.0, 2.0), (2.0, 1.0)):
+        mean = result[f"ey[{level}]"]
+        wrong = result[f"ey[{other}]"]
+        label = f"[{level} vs 0.0]"
+
+        ate = result["ate" + label]
+        assert ate.psi == pytest.approx(mean.psi - reference.psi, abs=1e-15)
+        np.testing.assert_allclose(
+            ate.influence_curve,
+            mean.influence_curve - reference.influence_curve,
+            rtol=0.0,
+            atol=1e-15,
+        )
+        wrong_ate = mean.influence_curve - wrong.influence_curve
+        assert np.max(np.abs(ate.influence_curve - wrong_ate)) > 0.5, (
+            "the wrong-arm ate mutation vanished"
+        )
+
+        rr = result["rr" + label]
+        assert rr.log_psi == pytest.approx(np.log(mean.psi) - np.log(reference.psi), abs=1e-14)
+        rr_curve = mean.influence_curve / mean.psi - reference.influence_curve / reference.psi
+        np.testing.assert_allclose(rr.influence_curve, rr_curve, rtol=0.0, atol=1e-13)
+        wrong_rr = mean.influence_curve / mean.psi - wrong.influence_curve / wrong.psi
+        assert np.max(np.abs(rr.influence_curve - wrong_rr)) > 0.5, (
+            "the wrong-arm rr mutation vanished"
+        )
+
+        def odds_scale(estimate: Any) -> np.ndarray:
+            return np.asarray(
+                estimate.influence_curve / (estimate.psi * (1.0 - estimate.psi)), dtype=float
+            )
+
+        odds = result["or" + label]
+        log_odds = logit(mean.psi) - logit(reference.psi)
+        assert odds.log_psi == pytest.approx(log_odds, abs=1e-13)
+        np.testing.assert_allclose(
+            odds.influence_curve, odds_scale(mean) - odds_scale(reference), rtol=0.0, atol=1e-12
+        )
+        wrong_or = odds_scale(mean) - odds_scale(wrong)
+        assert np.max(np.abs(odds.influence_curve - wrong_or)) > 1.0, (
+            "the wrong-arm or mutation vanished"
+        )
+
+
+def _population_mean_tmle(
+    initial: np.ndarray, respond: np.ndarray, probability: np.ndarray, outcome: np.ndarray
+) -> tuple[float, np.ndarray]:
+    """The TMLE of a population mean when ``outcome`` is seen with ``probability``.
+
+    The data are ``(W, U, U Y)`` with ``U`` the indicator ``respond``. The fluctuation
+    fits ``1 / probability`` on the rows with ``U = 1``.
+    """
+    epsilon = _newton(logit(initial[respond]), 1.0 / probability[respond, None], outcome[respond])
+    targeted = expit(logit(initial) + epsilon[0] / probability)
+    psi = float(np.mean(targeted))
+    residual = np.where(respond, outcome - targeted, 0.0)
+    return psi, residual / probability + targeted - psi
+
+
+def test_w5_each_arm_mean_is_the_population_mean_tmle_on_w_t_a_u() -> None:
+    """Arm ``a`` is a population mean with ``U = 1{A = a} Delta`` and ``P(U | W) = g_a pi_a``."""
+    result = _witness_fit(_witness_frame(3))
+    inverse = _stored_inverse(result)
+    arm = result.data.treatment
+    observed = result.data.observed
+    outcome = result.data.outcome
+    response = np.clip(
+        result.nuisance.missingness_at_realised_arm(arm), result.config.missingness_bound, 1.0
+    )
+    natural_psi, _ = _population_mean_tmle(
+        result.nuisance.outcome.observed, observed, response, outcome
+    )
+
+    gaps = []
+    for column, level in enumerate(result.nuisance.arms):
+        estimate = result[f"ey[{level}]"]
+        psi, curve = _population_mean_tmle(
+            result.nuisance.outcome.arms[level],
+            observed & (arm == level),
+            1.0 / inverse[:, column],
+            outcome,
+        )
+        assert estimate.psi == pytest.approx(psi, abs=1e-10)
+        np.testing.assert_allclose(estimate.influence_curve, curve, rtol=0.0, atol=1e-9)
+        gaps.append(abs(natural_psi - psi))
+    # The natural-course mean drops the arm from the response indicator and reads Q at
+    # the realised arm. The measured gaps are 0.015, 0.030, and 0.046.
+    assert max(gaps) > 0.015, "the natural-course identity mutation vanished"
+
+
+def test_w6_counterfactual_rows_move_by_their_own_arm_inverse_under_a_wrong_q() -> None:
+    result = _witness_fit(_witness_frame(3))
+    fluctuation = result.fluctuations["mean"]
+    epsilon = np.asarray(fluctuation.epsilon, dtype=float)
+    inverse = _stored_inverse(result)
+    own = inverse[np.arange(result.n), _arm_index(result)]
+    arm = result.data.treatment
+    _assert_inside_the_logistic_bound(result)
+
+    checked = 0
+    for column, level in enumerate(result.nuisance.arms):
+        if abs(epsilon[column]) <= 1e-3:
+            continue
+        checked += 1
+        others = arm != level
+        initial = logit(result.nuisance.outcome.arms[level])
+        expected = expit(initial + epsilon[column] * inverse[:, column])
+        targeted = np.asarray(fluctuation.targeted.arms[level], dtype=float)
+        np.testing.assert_allclose(targeted[others], expected[others], rtol=0.0, atol=1e-12)
+        mutant = expit(initial + epsilon[column] * own)
+        gap = np.max(np.abs(mutant[others] - targeted[others]))
+        assert gap > 0.01, "the realised-arm inverse mutation vanished"
+    assert checked >= 2
+
+
+class _RowRecorder(BaseEstimator):
+    """A logistic learner that records the ``W1`` value of every row it trains on."""
+
+    rows: ClassVar[dict[str, list[np.ndarray]]] = {}
+
+    def __init__(self, role: str = "outcome", column: int = 0) -> None:
+        self.role = role
+        self.column = column
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _RowRecorder:
+        design = np.asarray(X, dtype=float)
+        type(self).rows.setdefault(self.role, []).append(design[:, self.column].copy())
+        self.model_ = _logistic().fit(design, y, sample_weight=sample_weight)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(X), dtype=float)
+
+
+def _recorded_fit(frame: pd.DataFrame, **overrides: Any) -> tuple[Any, dict[str, list[set[int]]]]:
+    """Fit with a recorder in every role, and map each recorded ``W1`` value to its row."""
+    _RowRecorder.rows = {}
+    result = _witness_fit(
+        frame,
+        outcome_learner=_RowRecorder("outcome", 2),
+        treatment_learner=_RowRecorder("treatment", 0),
+        missingness_learner=_RowRecorder("response", 2),
+        **overrides,
+    )
+    index = {value: row for row, value in enumerate(frame["W1"].to_numpy())}
+    assert len(index) == len(frame)
+    fits = {
+        role: [{index[value] for value in values} for values in recorded]
+        for role, recorded in _RowRecorder.rows.items()
+    }
+    return result, fits
+
+
+def test_w7_no_role_trains_on_a_held_out_row() -> None:
+    frame = _witness_frame(3)
+    result, fits = _recorded_fit(frame)
+    observed = result.data.observed
+    folds = list(result.nuisance.folds)
+    assert {role: len(rows) for role, rows in fits.items()} == {
+        "outcome": 3,
+        "treatment": 3,
+        "response": 3,
+    }
+    for fold, (train, test) in enumerate(folds):
+        assert fits["outcome"][fold] == set(train[observed[train]].tolist())
+        assert fits["treatment"][fold] == set(train.tolist())
+        assert fits["response"][fold] == set(train.tolist())
+        for role in fits:
+            assert not fits[role][fold] & set(test.tolist())
+
+    # An in-sample fit is the leak these checks exist to catch.
+    _, leaked = _recorded_fit(frame, cross_fit=False, stratify_folds="treatment")
+    held_out = set(folds[0][1].tolist())
+    for role in ("outcome", "treatment", "response"):
+        assert leaked[role][0] & held_out, "the in-sample leak mutation vanished"
+
+
+class _TargetRecorder(BaseEstimator):
+    """A linear learner that records the scaled outcome of every training fit."""
+
+    targets: ClassVar[list[np.ndarray]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _TargetRecorder:
+        type(self).targets.append(np.asarray(y, dtype=float).copy())
+        self.model_ = LinearRegression().fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict(X), dtype=float)
+
+
+#: The known support of the continuous witness outcome.
+CONTINUOUS_BOUNDS = (0.0, 10.0)
+
+
+def _continuous_nuisances(
+    frame: pd.DataFrame, bounds: tuple[float, float] | None, folds: Any
+) -> tuple[Any, list[np.ndarray]]:
+    """Fit the nuisances with ``fit_nuisances``, as the estimator does after its scaler."""
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=list(WITNESS_COVARIATES), delta="Delta"
+    )
+    assert data.family == "gaussian"
+    _TargetRecorder.targets = []
+    nuisance = fit_nuisances(
+        data,
+        outcome_learner=_TargetRecorder(),
+        treatment_learner=_logistic(),
+        missingness_learner=_logistic(),
+        intermediate_learner=None,
+        folds=folds,
+        scaler=OutcomeScaler.from_outcome(data.outcome[data.observed], bounds),
+    )
+    return nuisance, list(_TargetRecorder.targets)
+
+
+def test_w8_a_fixed_scale_keeps_held_out_outcomes_out_of_the_training_predictions() -> None:
+    """``TMLE`` refuses ``q_bounds=None`` here, so this reads ``fit_nuisances`` directly."""
+    frame = _witness_frame(2)
+    rng = np.random.default_rng(3)
+    level = 5.0 + 2.0 * np.tanh(frame["W1"]) + 0.5 * frame["A"] + rng.uniform(-1, 1, len(frame))
+    frame["Y"] = np.where(frame["Delta"] == 1.0, level, np.nan)
+    folds = make_folds(len(frame), FOLDS, stratify=None, random_state=WITNESS_SEED)
+    test = folds.test_index(0)
+    row = int(test[frame["Delta"].to_numpy()[test] == 1.0][0])
+    moved = frame.copy()
+    moved.loc[row, "Y"] = 9.9
+    assert moved["Y"].max() > frame["Y"].max()
+
+    fixed, fixed_targets = _continuous_nuisances(frame, CONTINUOUS_BOUNDS, folds)
+    fixed_moved, fixed_moved_targets = _continuous_nuisances(moved, CONTINUOUS_BOUNDS, folds)
+    np.testing.assert_array_equal(fixed_targets[0], fixed_moved_targets[0])
+    for level_code in fixed.arms:
+        np.testing.assert_array_equal(
+            fixed.outcome.arms[level_code][test], fixed_moved.outcome.arms[level_code][test]
+        )
+
+    free, free_targets = _continuous_nuisances(frame, None, folds)
+    free_moved, free_moved_targets = _continuous_nuisances(moved, None, folds)
+    target_gap = np.max(np.abs(free_targets[0] - free_moved_targets[0]))
+    assert target_gap > 0.05, "the data-dependent scale mutation vanished from the targets"
+    for level_code in free.arms:
+        before = free.outcome.arms[level_code][test]
+        after = free_moved.outcome.arms[level_code][test]
+        assert np.max(np.abs(before - after)) > 0.05, (
+            "the data-dependent scale mutation vanished from the predictions"
+        )
+        # LinearRegression is affine-equivariant, so original units hide the change.
+        np.testing.assert_allclose(
+            free.scaler.lower + free.scaler.range * before,
+            free_moved.scaler.lower + free_moved.scaler.range * after,
+            rtol=0.0,
+            atol=1e-9,
+        )
+
+
+def test_w9_the_delta_mask_and_both_inverse_factors_each_move_the_curve() -> None:
+    result = _witness_fit(_witness_frame(3))
+    fluctuation = result.fluctuations["mean"]
+    arm = result.data.treatment
+    observed = result.data.observed
+    outcome = result.data.outcome
+    propensity = np.clip(result.nuisance.propensity.values, *result.config.g_bounds)
+    response = np.clip(result.nuisance.missingness, result.config.missingness_bound, 1.0)
+    residual = outcome - np.asarray(fluctuation.targeted.observed, dtype=float)
+    assert np.all(outcome[~observed] == 0.0)
+
+    for column, level in enumerate(result.nuisance.arms):
+        estimate = result[f"ey[{level}]"]
+        targeted = np.asarray(fluctuation.targeted.arms[level], dtype=float)
+        plug_in = targeted - estimate.psi
+        indicator = (arm == level).astype(float)
+        g, pi = propensity[:, column], response[:, column]
+
+        hand = np.where(observed, indicator * residual / (g * pi), 0.0) + plug_in
+        np.testing.assert_allclose(estimate.influence_curve, hand, rtol=0.0, atol=1e-12)
+
+        mutants = {
+            "Delta mask": indicator * residual / (g * pi) + plug_in,
+            "1 / pi": np.where(observed, indicator * residual / g, 0.0) + plug_in,
+            "1 / g": np.where(observed, indicator * residual / pi, 0.0) + plug_in,
+        }
+        for label, mutant in mutants.items():
+            gap = np.max(np.abs(estimate.influence_curve - mutant))
+            assert gap > 0.1, f"the dropped {label} mutation vanished"
+
+        complete_case = float(np.mean(targeted[observed]))
+        assert abs(complete_case - estimate.psi) > 0.01, "the complete-case mutation vanished"
+
+
+def test_w10_the_ate_variance_keeps_the_same_row_covariance() -> None:
+    result = _witness_fit(_witness_frame(3), estimands=("ey", "ate"))
+    reference = result["ey[0.0]"].influence_curve
+    n = result.n
+    for level in (1.0, 2.0):
+        curve = result[f"ey[{level}]"].influence_curve
+        ate = result[f"ate[{level} vs 0.0]"]
+        joint = float(np.var(curve - reference, ddof=1) / n)
+        assert ate.variance == pytest.approx(joint, rel=1e-12)
+
+        covariance = float(np.cov(curve, reference)[0, 1])
+        assert covariance > 0.0
+        dropped = float((np.var(curve, ddof=1) + np.var(reference, ddof=1)) / n)
+        assert abs(dropped - ate.variance) > 0.05 * ate.variance, (
+            "the dropped-covariance mutation vanished"
+        )
+
+
+def _max_t_quantile(
+    curves: np.ndarray, std_errors: np.ndarray, *, seed: int, draws: int, diagonal: bool = False
+) -> float:
+    """The 0.95 quantile of the Rademacher max-t statistic, drawn as the package draws it.
+
+    ``diagonal=True`` gives each column its own multipliers, which is the band a diagonal
+    covariance implies.
+    """
+    rng = np.random.default_rng(seed)
+    n, columns = curves.shape
+    centred = curves - curves.mean(axis=0, keepdims=True)
+
+    def multipliers() -> np.ndarray:
+        packed = rng.integers(0, 256, size=(draws, (n + 7) // 8), dtype=np.uint8)
+        return np.unpackbits(packed, axis=1, count=n).astype(float) * 2.0 - 1.0
+
+    if diagonal:
+        replicates = np.column_stack(
+            [multipliers() @ centred[:, column] / n for column in range(columns)]
+        )
+    else:
+        replicates = multipliers() @ centred / n
+    statistics = np.max(np.abs(replicates) / std_errors, axis=1)
+    return float(np.quantile(statistics, 0.95))
+
+
+def test_w11_the_band_critical_value_uses_the_joint_same_row_curves() -> None:
+    draws = 1000
+    result = _witness_fit(
+        _witness_frame(3),
+        estimands=ALL_CONTRASTS,
+        simultaneous=True,
+        n_multiplier=draws,
+        multiplier_kind="rademacher",
+    )
+    estimates = list(result.estimates.values())
+    assert len(estimates) == 9
+    curves = np.column_stack([estimate.influence_curve for estimate in estimates])
+    std_errors = np.array([estimate.std_error for estimate in estimates])
+    correlation = np.corrcoef(curves, rowvar=False)
+    assert np.max(np.abs(correlation - np.eye(9))) > 0.9
+
+    seed = ADMITTED["random_state"]
+    joint = _max_t_quantile(curves, std_errors, seed=seed, draws=draws)
+    assert result.simultaneous.critical_value == pytest.approx(joint, abs=1e-12)
+    diagonal = _max_t_quantile(curves, std_errors, seed=seed, draws=draws, diagonal=True)
+    assert diagonal - joint > 0.05, "the diagonal-covariance mutation vanished"
+
+
+class _FoldConstant(BaseEstimator):
+    """An outcome learner that predicts one constant per outer fold, in fitting order."""
+
+    table: ClassVar[tuple[float, ...]] = (0.25, 0.5, 0.75)
+    next_fold: ClassVar[int] = 0
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _FoldConstant:
+        self.fold_ = type(self).next_fold
+        type(self).next_fold += 1
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        probability = np.full(len(X), type(self).table[self.fold_])
+        return np.column_stack([1.0 - probability, probability])
+
+
+def test_unequal_folds_report_the_whole_sample_mean_not_an_equal_fold_average() -> None:
+    _FoldConstant.next_fold = 0
+    result = _witness_fit(_witness_frame(3), outcome_learner=_FoldConstant())
+    folds = [test for _, test in result.nuisance.folds]
+    assert [len(test) for test in folds] == [201, 200, 200]
+    for fold, test in enumerate(folds):
+        assert np.all(result.nuisance.outcome.observed[test] == _FoldConstant.table[fold])
+
+    for level in result.nuisance.arms:
+        targeted = np.asarray(result.fluctuations["mean"].targeted.arms[level], dtype=float)
+        whole_sample = float(np.average(targeted, weights=result.data.weights))
+        equal_fold = float(np.mean([np.mean(targeted[test]) for test in folds]))
+        assert result[f"ey[{level}]"].psi == pytest.approx(whole_sample, abs=1e-15)
+        assert abs(whole_sample - equal_fold) > 1e-4, "the equal-fold-average mutation vanished"
+
+
+class _InnerFoldRecorder(SuperLearner):
+    """A Super Learner that records its inner fold assignment at each outer fold."""
+
+    assignments: ClassVar[list[np.ndarray]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None, groups: Any = None) -> Any:
+        fitted = super().fit(X, y, sample_weight=sample_weight, groups=groups)
+        type(self).assignments.append(np.asarray(self.folds_.assignment).copy())
+        return fitted
+
+
+#: The inner seed and inner folds of the leakage witness.
+INNER_SEED = 5
+INNER_FOLDS = 2
+
+
+def _inner_assignments(frame: pd.DataFrame) -> tuple[Any, list[np.ndarray]]:
+    _InnerFoldRecorder.assignments = []
+    learner = _InnerFoldRecorder(
+        library=[("glm", _logistic())],
+        task="classification",
+        n_folds=INNER_FOLDS,
+        random_state=INNER_SEED,
+    )
+    result = _witness_fit(frame, estimands=("ey1", "ey0", "ate"), outcome_learner=learner)
+    return result, list(_InnerFoldRecorder.assignments)
+
+
+def _all_row_mutant(frame: pd.DataFrame, rows: np.ndarray) -> np.ndarray:
+    """The inner split a leaky learner would draw: stratified on every row's outcome."""
+    labels = frame["Y"].fillna(-1.0).to_numpy()
+    split = make_folds(len(frame), INNER_FOLDS, stratify=labels, random_state=INNER_SEED)
+    return np.asarray(split.assignment)[rows]
+
+
+def test_a_held_out_outcome_leaves_the_inner_super_learner_split_unchanged() -> None:
+    """The inner split stratifies on its training target, so held-out outcomes cannot move it."""
+    frame = _witness_frame(2)
+    result, before = _inner_assignments(frame)
+    folds = list(result.nuisance.folds)
+    observed = result.data.observed
+    assert len(before) == len(folds)
+
+    for fold, (train, test) in enumerate(folds):
+        rows = train[observed[train]]
+        target = frame["Y"].to_numpy()[rows]
+        expected = make_folds(rows.size, INNER_FOLDS, stratify=target, random_state=INNER_SEED)
+        np.testing.assert_array_equal(before[fold], expected.assignment)
+
+        flipped = frame.copy()
+        held_out = int(test[observed[test]][0])
+        flipped.loc[held_out, "Y"] = 1.0 - flipped.loc[held_out, "Y"]
+        moved_result, after = _inner_assignments(flipped)
+        np.testing.assert_array_equal(
+            moved_result.nuisance.folds.assignment, result.nuisance.folds.assignment
+        )
+        np.testing.assert_array_equal(before[fold], after[fold])
+
+        leaky_before = _all_row_mutant(frame, rows)
+        leaky_after = _all_row_mutant(flipped, rows)
+        assert np.any(leaky_before != leaky_after), "the all-row stratification mutation vanished"
