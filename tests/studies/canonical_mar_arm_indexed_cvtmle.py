@@ -1,9 +1,12 @@
 """Registered evidence for stacked CV-TMLE of arm-indexed means and contrasts under MAR.
 
-``docs/roadmap.md`` RM9 ("Registered study") is the contract this module implements.  Four
-finite-covariate laws, declared in :mod:`tests.studies.mar_arm_indexed_laws`, each draw 800
-samples of 2,000 rows.  Every sample is fitted once with ten unstratified folds, and the fit
-reports every estimand the law declares.
+``docs/technical-reference/point-treatment-tmle.md`` ("Stacked CV-TMLE for arm-indexed
+targets") states the contract, and
+``docs/technical-reference/method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md``
+describes the study this module implements.  Four finite-covariate laws, declared in
+:mod:`tests.studies.mar_arm_indexed_laws`, each draw 800 samples of 2,000 rows.  Every sample
+is fitted once with ten unstratified folds, and the fit reports every estimand the law
+declares.
 
 The comparator is R ``tmle`` 2.1.1 with the same stitched out-of-fold predictions.  The
 two-arm laws use its native two-arm path.  The three-arm laws run its population-mean path once
@@ -256,7 +259,7 @@ def method(
     cross_fit: bool = True,
     simultaneous: bool = False,
 ) -> TMLEMethod:
-    """Build the exact public RM9 method declaration used by every study arm."""
+    """Build the exact public method declaration of the arm-indexed contract for every arm."""
     return TMLEMethod(
         models=ModelSpec(
             outcome_learner=outcome_learner,

@@ -1,9 +1,10 @@
 r"""Finite-covariate MAR laws for the arm-indexed stacked CV-TMLE study.
 
-``docs/roadmap.md`` RM9 ("Registered study") names four laws.  Each draws a baseline
-covariate ``W`` with three levels, a treatment ``A``, a response indicator ``Delta`` and,
-when ``Delta = 1``, an outcome ``Y``.  Each nuisance is a table indexed ``[w, a]``, so every
-truth, efficient influence curve, and misspecified-nuisance limit is a finite sum.
+``docs/technical-reference/method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md``
+("Laws") describes the four laws.  Each draws a baseline covariate ``W`` with three levels,
+a treatment ``A``, a response indicator ``Delta`` and, when ``Delta = 1``, an outcome ``Y``.
+Each nuisance is a table indexed ``[w, a]``, so every truth, efficient influence curve, and
+misspecified-nuisance limit is a finite sum.
 
 =====  ====  ========================  ======================================================
 law    arms  outcome                   tables
