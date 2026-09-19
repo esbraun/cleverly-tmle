@@ -1,0 +1,199 @@
+{
+  "schema_version": 2,
+  "study": "stacked arm-indexed missing-outcome CV-TMLE",
+  "slug": "stacked-mar-arm-indexed-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stacked-mar-arm-indexed-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "39b49e8ae8384f0fa53fa1f38d34b093b09db673",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "tmle-r-stitched-arm-indexed",
+      "tmle_version": "2.1.1",
+      "tmle_source_sha256": "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_inference": "native R tmle two-arm results for L1 and L2; for L3 and L4, Wald intervals from the centered n-1 covariance of the per-arm population-mean influence curves"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261301,
+    "resampling_seed": 20261302,
+    "publication_policy": "gated",
+    "scenarios": {
+      "binary_mar_two_arm_stacked": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "continuous_mar_two_arm_stacked": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "binary_mar_three_arm_stacked": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]",
+        "rr[low vs high]",
+        "rr[mid vs high]",
+        "or[low vs high]",
+        "or[mid vs high]"
+      ],
+      "continuous_mar_three_arm_stacked": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]"
+      ]
+    },
+    "construction": "one-repeat stacked CV-TMLE of arm-indexed means and contrasts under MAR",
+    "source": "D\u00edaz and van der Laan (2017); Gruber and van der Laan (2012), Section 2.3; Zheng and van der Laan (2011), Theorem 2; Levy (2018), Section 3.1",
+    "laws": {
+      "binary_mar_two_arm_stacked": {
+        "arms": 2,
+        "outcome": "binary",
+        "q_bounds": null,
+        "requested_estimands": [
+          "ey0",
+          "ey1",
+          "ate",
+          "rr",
+          "or"
+        ]
+      },
+      "continuous_mar_two_arm_stacked": {
+        "arms": 2,
+        "outcome": "bounded continuous",
+        "q_bounds": [
+          -2.0,
+          8.0
+        ],
+        "requested_estimands": [
+          "ey0",
+          "ey1",
+          "ate"
+        ]
+      },
+      "binary_mar_three_arm_stacked": {
+        "arms": 3,
+        "outcome": "binary",
+        "q_bounds": null,
+        "requested_estimands": [
+          "ey",
+          "ate",
+          "rr",
+          "or"
+        ]
+      },
+      "continuous_mar_three_arm_stacked": {
+        "arms": 3,
+        "outcome": "bounded continuous",
+        "q_bounds": [
+          -2.0,
+          8.0
+        ],
+        "requested_estimands": [
+          "ey",
+          "ate"
+        ]
+      }
+    },
+    "continuous_outcome": "Y = -2.0 + 10.0 * Beta(4.0 mu, 4.0 (1 - mu))",
+    "reference_arm": "high",
+    "cross_fit": true,
+    "n_folds": 10,
+    "repeats": 1,
+    "stratify_folds": "none",
+    "targeting_scheme": "pooled",
+    "fold_evaluation": false,
+    "split_plan": null,
+    "fluctuation": "logistic",
+    "targeting": "iterative",
+    "target_weights": false,
+    "max_iter": 100,
+    "tol": 1e-10,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "missingness_bound": 0.01,
+    "simultaneous_intervals": false,
+    "band_cells": "the calibration fits declare Inference(simultaneous=True) with its default multiplier draws, which leaves every pointwise result unchanged and attaches the band",
+    "primary_nuisance_predictions": "separate depth-five trees with minimum leaf size 25 for the outcome regression (classification for a binary outcome, regression for a continuous one), the treatment mechanism, and the response mechanism",
+    "reference_arguments": "cvQinit=FALSE, prescreenW.g=FALSE, target.gwt=FALSE, evalATT=FALSE, B=1, alpha=0.9995, gbound=0.001; binomial for L1 and L3, gaussian with Qbounds equal to q_bounds for L2 and L4",
+    "reference_scale_workaround": "R tmle takes the continuous outcome range from every non-NA Y, so each continuous fit sets Y to the two q_bounds on two rows that the fluctuation and the curves exclude; scale-probe.csv records the exact-equality probe of that workaround",
+    "comparator_search": "Used R tmle 2.1.1 with the same stitched out-of-fold outcome, treatment, and response predictions and one pooled fluctuation: its native two-arm path for L1 and L2, and its population-mean path once per arm for L3 and L4, with the joint covariance built from the per-arm influence curves. Its native var(IC)/n uses a centered n-1 sample variance, as this estimator's centered rule does. Rejected tmle3 at ed72f8a because its generic treatment-specific outcome fit can use the Delta = 0 pseudo-outcomes when it predicts under Delta = 1, while this estimator fits that regression on respondents only; rejected zEpid 0.9.1 because its cross-fit TMLE targets inside each fold rather than with one pooled fluctuation; rejected Newey and Robins (2018) because their construction fits the outcome and inverse response regressions on distinct subsamples, which is a different estimator.",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mar_arm_indexed_cvtmle.py": "b1ce51c040388c667f1f6fbb6bc33b21ceea24d9c0824e152004d3ed99216357",
+    "tests/studies/mar_arm_indexed_cvtmle_properties.py": "fd96e28273a0ec735249cc7ea4b97833c5d1a919f391d20c0a811a93f66e85b1",
+    "tests/studies/mar_arm_indexed_laws.py": "1d1d06e58ba0a01fa2508ffff0bc019fe018f195a5666f049166120419452e51",
+    "tests/studies/point_study_helpers.py": "f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/discrete_law_multi.py": "c26568e17fb252a15db163f8aa4784b03833bd2da4cc91fba9a08e95eb78d4f3",
+    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
+    "tests/studies/evidence/property_verdicts.py": "79735103a47cf01784dc1ece8b50e6f20214258e308cf54a533d7c87023535d1",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle_mar/Dockerfile": "e1ddb86f1ed8ff57960fea5ade5b5429b9e92d4b86ffcaa7d1a3ef199401c18e",
+    "tests/canonical/tmle_mar_arm_indexed_cvtmle/run_study.R": "99d2925d1329cd050b46413bc3897098ffe9a2f6ca5f1c34072196976a51d6a8",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/tmle_point_adapter.R": "4e8bc374a05764bb97e6219b96d05895a38354cb668af83434065ee1e0d9dbce",
+    "tests/canonical/tmle_continuous_point_adapter.R": "2752924254bfcb61be8cd821c9e926cc7ee48115e355e02cd4d32688d1dd6620",
+    "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3",
+    "tests/canonical/tmle_mar_arm_indexed_cvtmle/probe_scale_workaround.R": "e5614b43d30f7d5883312fd1693d8ca40f4495bc1d0b49287d369833ad27571a"
+  },
+  "sha256": {
+    "replicates.csv.gz": "5d407d7c38e5fafa041a6f38af7ff87c67737bfeb6f2b32461f09445c134e7d7",
+    "summary.csv": "fad5f17c3549147bcb5ba0f5dfab35cafc9cce4236aed21e56c0c8b89f503eee",
+    "equivalence.csv": "a411f3f585d86d841387f06529ae24bbc0cc9f54955a4b4a05c0ba4eec99bfa0",
+    "performance-tests.csv": "878fe9a1398fc163af36224e411713637b961cc92c537a758dbe39bebaaa69d4",
+    "property-replicates.csv.gz": "06bb53c94a1f4271f63c949bc03abf34f1f27f19c1191fbf936b79a7ac202ba9",
+    "properties.csv": "cde5f42971bdce73ab5b597f7a4f10714cc83b2faecc2f22c29fee42bed80b21",
+    "scale-probe.csv": "bfd18d70c42ac6f04a49444cdbcfa7255f4e3bd05a9b9e1eeb45b1c1ef6649ce"
+  }
+}

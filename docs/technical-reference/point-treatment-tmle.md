@@ -231,7 +231,9 @@ when the response mechanism is wrong, and errors in the two mechanisms can cance
 
 Arm-indexed and controlled-direct-effect implementation:
 [`estimators/direct_effect.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/direct_effect.py).
-Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction.
+Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction. The registered
+[stacked arm-indexed missing-outcome CV-TMLE study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
+checks the cross-fitted arm-indexed estimator.
 
 ### Weights, strata, and clusters
 
@@ -418,6 +420,7 @@ pins the asymmetry.
 | [implementation validation grid](method-evidence/validation-grid.md) | the registered study row for ordinary point-treatment TMLE |
 | [canonical point-treatment TMLE](method-evidence/canonical-point-treatment-tmle.md) | 34 accuracy tests, 17 paired comparisons against R `tmle3`, and 12 theory-property cells, test by test |
 | [ordinary missing-outcome TMLE](method-evidence/ordinary-missing-outcome-tmle.md) | observational MAR truth tests, paired R `tmle` comparisons, and the three-nuisance robustness contract |
+| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | cross-fitted two-arm and three-arm MAR means and contrasts, paired R `tmle` comparisons, calibration, a simultaneous band, union-model cells, and overfitting controls |
 | [controlled direct-effect TMLE](method-evidence/controlled-direct-effect-tmle.md) | both intermediate levels, paired recoded R `tmle` comparisons, four-nuisance robustness, exact efficiency, and a frozen native-result defect |
 | [deterministic regimes](method-evidence/deterministic-point-treatment-regimes.md) | a dynamic rule and static reduction against pinned R `lmtp`, with rule and targeting mutations |
 | [known stochastic regimes](method-evidence/stochastic-point-treatment-regimes.md) | a comparator-free known-density study with stochastic-density and targeting controls |

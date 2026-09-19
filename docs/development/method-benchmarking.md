@@ -71,6 +71,7 @@ likelihood and the comparator boundary.
 | --- | --- | --- |
 | R `tmle` 2.1.1 | ordinary point-treatment TMLE with MAR outcomes | Used for the observational arm-indexed row. It accepts separate treatment and response nuisance predictions and reports arm means and their contrast. |
 | R `tmle` 2.1.1 population-mean path | missing-outcome natural-course mean | Used for the stacked natural-course row, conditional on supplied stitched outcome and response predictions. It does not compare nuisance training or fold generation. The path also accepts supplied predictions, but the ordinary natural-course study predates the stacked study's R adapter and was not regenerated. That study makes no parity claim, and [RM10](../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks its binary and bounded-continuous comparisons. |
+| R `tmle` 2.1.1 two-arm and population-mean paths | stacked arm-indexed missing-outcome means and contrasts | Used for the stacked arm-indexed row, conditional on supplied stitched outcome, treatment, and response predictions. L1 and L2 use the two-arm path. L3 and L4 run the population-mean path once for each arm, and the runner builds the joint covariance from the per-arm curves. A continuous fit plants the two `q_bounds` on two `Delta = 0` rows, because R takes the scale from every non-`NA` outcome, and a committed probe checks that workaround. |
 | R `drtmle` 1.1.2 at `538a3a2` | corrected randomized point-treatment means with missing outcomes | Used only in the both-correct limit. Its `gn` is the joint treatment-response mechanism, so it cannot witness `cleverly`'s separate five-reduction cycle or either component-specific drift direction. |
 
 The fixed-weight survey is separate because observation weights change the target law and every
@@ -90,7 +91,7 @@ the source before you accept one.
 | candidate | how it aggregates over folds | verdict |
 | --- | --- | --- |
 | R `tmle3` at `ed72f8a` | stacks the validation rows, targets once, and evaluates on the whole sample | Used by the stacked CV-TMLE row. It is not the fold-evaluated construction. |
-| R `tmle` 2.1.1 population-mean path | accepts stitched out-of-fold outcome and response predictions, targets once, and evaluates on the whole sample | Used by the stacked missing-outcome natural-course row. The comparison is conditional on the supplied predictions. |
+| R `tmle` 2.1.1 population-mean path | accepts stitched out-of-fold outcome and response predictions, targets once, and evaluates on the whole sample | Used by the stacked missing-outcome natural-course row and, once for each arm, by the stacked arm-indexed row. Each comparison is conditional on the supplied predictions. |
 | R `drtmle` 1.1.2 | pools the out-of-fold predictions and forms one estimate on the whole sample | Rejected for the fold-evaluated row. |
 | R `lmtp` 1.5.4 | takes `weighted.mean` of the pooled shifted regression column | Rejected for the fold-evaluated row. Used elsewhere for its intervention family. |
 | R `medoutcon` at `nhejazi/medoutcon` | binds the per-fold results, then targets over the pooled validation rows | Rejected. Its estimand is a mediation effect, and its aggregation is pooled. |

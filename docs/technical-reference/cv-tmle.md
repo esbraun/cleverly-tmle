@@ -149,7 +149,9 @@ found no direct interval result for either composition. See
 The registered
 [stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
 records the repeated-sampling evidence. It also compares the pooled target against the R `tmle`
-2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions.
+2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions. The registered
+[stacked arm-indexed missing-outcome CV-TMLE study](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
+records the evidence for arm-indexed means and contrasts.
 
 ## Reusable outer split plans
 
@@ -250,10 +252,10 @@ exactly the direction the cluster role was declared to prevent.
 `tests/unit/test_parallel_invariance.py` pins that, because a fold-parallel implementation that
 reseeds per worker would give a different answer at a different `n_jobs`.
 
-**Seven registered studies, and no study's result stands in for another's.** Ordinary TMLE, stacked
+**Eight registered studies, and no study's result stands in for another's.** Ordinary TMLE, stacked
 CV-TMLE, clustered CV-TMLE, pooled-targeted fold-evaluated CV-TMLE, fold-targeted CV-TMLE,
-repeated stacked CV-TMLE, and stacked missing-outcome natural-course CV-TMLE can share a limit
-while differing in finite samples. Each has its own row.
+repeated stacked CV-TMLE, stacked missing-outcome natural-course CV-TMLE, and stacked arm-indexed
+missing-outcome CV-TMLE can share a limit while differing in finite samples. Each has its own row.
 
 | where to read the evidence | what is there |
 | --- | --- |
@@ -263,6 +265,7 @@ while differing in finite samples. Each has its own row.
 | [fold-targeted point-treatment CV-TMLE](method-evidence/fold-targeted-point-treatment-cv-tmle.md) | paired against Python `zEpid` on identical equal two-fold assignments, where `cleverly`'s equal $1/V$ aggregation equals zEpid's size weighting; all property cells pass, and the report discloses zEpid's `ddof=1` fold variance |
 | [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
 | [stacked missing-outcome natural-course CV-TMLE](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md) | paired against the R `tmle` 2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions, plus flexible-learner cross-fit versus in-sample controls |
+| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | two-arm and three-arm means and contrasts, binary and bounded continuous, paired against R `tmle` 2.1.1 with the same stitched out-of-fold nuisance predictions, plus calibration, band, union-model, and overfitting cells |
 | [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked
