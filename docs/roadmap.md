@@ -632,19 +632,18 @@ drift that its implementation found.
 | arm and class support | a preflight after fold generation checks each training complement, and it asks for two rows in each class for a package `SuperLearner` classification role |
 | drift | `"none"` stays reserved for the two stacked contracts, so it is refused in sample. Every in-sample remedy therefore still names `stratify_by='treatment'`: `_IN_SAMPLE_NATURAL_COURSE_REMEDY`, `_IN_SAMPLE_ARM_INDEXED_REMEDY`, and each message that includes one. RM17 removes the reservation, and then it must rewrite those remedies to `CrossFitting(enabled=False)` alone |
 
-The Super Learner inner split needs a
-risk result before its stratified oracle performance can be claimed. For iid point-treatment
-CV-TMLE, its inner strata do not expose outer-held-out outcomes when the outer split reads no
-outcome. `"treatment+outcome"` outer strata read outcomes
-(`src/cleverly/estimators/tmle.py:2123-2132`). The outer result still requires
-nuisance rates that this audit does not establish.
+The Super Learner inner split needs a risk result before its stratified oracle performance can be
+claimed. For iid point-treatment CV-TMLE, its inner strata do not expose outer-held-out outcomes
+when the outer split reads no outcome. `"treatment+outcome"` outer strata read outcomes
+(`src/cleverly/estimators/tmle.py:2123-2132`). The outer result still requires nuisance rates that
+this audit does not establish.
 
 `estimator_name` labels a complete-outcome cross-fit with `n_folds=1` "stacked CV-TMLE (Levy)".
 The property reads only `cross_fit`, `targeting_scheme`, and `cv_evaluation`
 (`src/cleverly/estimators/base.py:172`). A probe at commit `4811661` on
 `make_linear_ate(n=300, seed=1)` returned that label. The two stacked missing-outcome contracts
-refuse `n_folds=1` only on their own surfaces. RM17 holds the complete-outcome case. Refuse that fit before nuisance
-fitting, or give it a label that does not name CV-TMLE.
+refuse `n_folds=1` only on their own surfaces. RM17 holds the complete-outcome case. Refuse that
+fit before nuisance fitting, or give it a label that does not name CV-TMLE.
 
 The witnesses must fail when a component is wrong:
 
