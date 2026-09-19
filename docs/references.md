@@ -42,10 +42,10 @@ previous reader had is not a citation; a page number is.
   The known-interval result supports a fixed `q_bounds` transform. Sections 3 and 4 state the
   data-derived bounds as a practice, and they give no separate derivation for that choice.
 - Smith et al. (2025), [*Performance of Cross-Validated Targeted Maximum Likelihood
-  Estimation*](https://doi.org/10.1002/sim.70185), *Statistics in Medicine*, DOI
-  10.1002/sim.70185. Read first-hand. Section 2.1 describes a transform based on the observed
+  Estimation*](https://doi.org/10.1002/sim.70185), *Statistics in Medicine* 44(15-17):e70185,
+  DOI 10.1002/sim.70185. Read first-hand. Section 2.1 describes a transform based on the observed
   minimum and maximum. Section 6 states that its simulations used binary outcomes only. The
-  authors leave continuous-outcome performance for further research. This study does not derive
+  authors leave continuous-outcome performance for further research. The paper does not derive
   an interval result for a scale computed from every row before cross-fitting.
 - Gruber & van der Laan (2012),
   [*tmle: An R Package for Targeted Maximum Likelihood Estimation*](https://doi.org/10.18637/jss.v051.i13),

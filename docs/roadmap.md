@@ -698,8 +698,8 @@ conditions.
 | C-TMLE outer, selection, and nested selection folds | the reviewed CV-TMLE and C-TMLE sources do not cover these data-dependent assignments; selector inference has the separate [F18](#f18-selector-path-c-tmle-inference) gap | use external random folds at each layer; refuse explicit treatment or outcome strata without claiming F18 is closed; with declared clusters, the grouped row below also applies to each layer |
 | longitudinal TMLE first-node treatment strata | the reviewed longitudinal theorem defines random near-balanced row folds, but its targeting construction also differs from the shipped estimator | generate unstratified folds for iid rows; audit grouped folds and the fold-local targeting theorem separately |
 | grouped outer, selection, and nested selection folds | this iid audit does not establish a split law for whole-cluster assignments | audit the registered clustered point-treatment studies and the unregistered clustered longitudinal path (`id=`, `StratifiedGroupKFold` on the first node) against a cluster-level result; refuse an unsupported composition before nuisance fitting |
-| continuous outcomes under cross-fitting | a known support interval has support; the all-row observed range has no reviewed cross-fitted result | require a `q_bounds` declaration before nuisance fitting, and document that it must be prespecified from known support |
-| unbounded continuous outcomes under cross-fitting | no finite known support gives the cited logistic transform | refuse this composition; do not turn a realized sample range into a declared bound |
+| continuous outcomes under cross-fitting | a known support interval has support; the padded range of every observed outcome has no reviewed cross-fitted result | require a `q_bounds` declaration before nuisance fitting, and document that it must be prespecified from known support; the package can check only that the interval contains the observed outcomes (`src/cleverly/utils/bounds.py:218-227`) |
+| unbounded continuous outcomes under cross-fitting | no finite known support gives the cited logistic transform | no pre-fit check can detect unbounded support or a bound derived from the sample; document that a caller with no known finite support must not cross-fit this outcome; do not derive `q_bounds` from a realized sample in package or study code |
 | supplied outer plans | `SplitPlan.validate` checks integrity and training support, but neither near-balance nor how a caller generated the labels | refuse them until a plan records a package-generated external random scheme, or a separate contract establishes split provenance and balance; keep RM9's refusal |
 | Super Learner inner classification folds | these folds see only outer-training rows, so they do not read outer held-out outcomes; Polley's oracle result does not cover their target strata | retain them as part of the training algorithm; make no oracle claim for this inner split |
 
@@ -743,10 +743,24 @@ registered study whose fits or verdicts can move. Update the split-plan referenc
 when its provenance rule changes. Preserve that provenance when a result exposes a plan or a refit
 reuses it.
 
-The canonical clustered continuous study uses a Gaussian outcome law with unbounded support.
-It cannot acquire a valid finite `q_bounds` from that law. Retire its cross-fitted continuous
-claim, or replace the law with a bounded one and register fresh evidence. Do not treat the old
-artifact as evidence for the new law.
+The studies in the table below cross-fit an outcome law with unbounded support, with
+`q_bounds=None`. Each law is a `DGP` with the default Gaussian family
+(`src/cleverly/datasets/synthetic.py:113`, `:303`). No finite `q_bounds` is valid for those laws.
+
+| validation grid row | cross-fitted Gaussian cells | module |
+| --- | --- | --- |
+| clustered point-treatment CV-TMLE | every cell, drawn from `clustered_dgp` | `tests/studies/canonical_clustered_tmle.py:94-133` |
+| stacked point-treatment CV-TMLE | the cells inherited from `tests/studies/canonical_properties.py:270-359`, and the `crossfit_overfitting` cell | `tests/studies/stacked_cvtmle_properties.py`, through `tests/studies/cvtmle_properties.py:31-92` |
+| fold-evaluated point-treatment CV-TMLE | the same cells | `tests/studies/fold_cvtmle_properties.py`, through `cvtmle_properties.py` |
+| fold-targeted point-treatment CV-TMLE | the same cells | `tests/studies/fold_targeted_cvtmle_properties.py`, through `cvtmle_properties.py` |
+| repeated point-treatment cross-fitted TMLE | the inherited cells | `tests/studies/repeated_crossfit_properties.py:163-170`, through `cvtmle_properties.py` |
+| outcome-adaptive point-treatment C-TMLE | the robustness, inherited, overfitting, and generated-design cells | `tests/studies/ctmle_oat_properties.py:58-167` |
+| selector-based point-treatment C-TMLE | the robustness, selector-necessity, and inherited cells | `tests/studies/ctmle_selector_properties.py:24-124` |
+
+Retire each cross-fitted continuous claim in this table, or replace the law with a bounded one
+and register fresh evidence. Do not treat an old artifact as evidence for a new law. The primary
+continuous law of the stacked, fold-evaluated, and repeated studies is a Beta draw on (0, 1)
+(`tests/studies/canonical_tmle.py:113-150`). Those studies can declare `q_bounds=(0, 1)`.
 
 [RM9](#rm9-cross-fitted-missing-outcome-tmle-audit-and-evidence) uses generated unstratified folds
 and prespecified `q_bounds` under its own narrow contract. The Super Learner inner split needs a
