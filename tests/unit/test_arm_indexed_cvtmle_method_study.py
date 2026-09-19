@@ -82,6 +82,19 @@ def test_the_three_arm_curves_match_a_complex_step_gateaux_derivative() -> None:
         assert laws.efficiency_sd(law, name) == pytest.approx(deviation, rel=1e-10)
 
 
+def test_the_evidence_page_quotes_the_smallest_mechanism_products() -> None:
+    """The "Laws" section quotes each law's smallest ``g_a pi_a``; the tables must agree."""
+    smallest = {key: float((law.g * law.pi).min()) for key, law in laws.LAWS.items()}
+    assert smallest["l1"] == smallest["l2"]
+    assert smallest["l3"] == smallest["l4"]
+    sentence = (
+        f"The smallest product `g_a pi_a` is {smallest['l1']:g} in L1 and L2, and "
+        f"{smallest['l3']:g} in L3 and L4."
+    )
+    page = ROOT / study.STUDY.document.split("#")[0]
+    assert sentence in " ".join(page.read_text(encoding="utf-8").split())
+
+
 def test_the_continuous_outcome_variance_is_the_scaled_beta_variance() -> None:
     law = laws.LAWS["l2"]
     expected = (laws.UPPER - laws.LOWER) ** 2 * stats.beta.var(

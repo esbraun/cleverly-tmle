@@ -385,7 +385,11 @@ bootstrap draws are therefore correlated across the pairs.
 - The evidence covers four finite laws with one three-level baseline covariate. Two laws have two
   arms and two have three. Two have a binary outcome and two a Beta outcome on a known support.
 - It covers one package-generated unstratified ten-fold draw, pooled targeting, whole-sample
-  evaluation, fixed `q_bounds`, and bounded nuisance predictions that no bound reaches.
+  evaluation, and fixed `q_bounds`.
+- The primary fits refuse a treatment prediction that reaches `g_bounds=(0.01, 0.99)` at either
+  end, and a response prediction below `nuisance_bound=0.01`. The R runner also refuses a product
+  `g_a pi_a` below its `gbound` of 0.001. No check covers the outcome-regression predictions or
+  the property fits. The study does not show that those predictions stay clear of every bound.
 - Every fit declares `Runtime(random_state=0)`, and an unstratified fold draw depends only on the
   row count and the seed. Every replication of one size therefore uses the same assignment of rows
   to ten equal folds. The rows are iid, so that fixed assignment has the distribution of a random
