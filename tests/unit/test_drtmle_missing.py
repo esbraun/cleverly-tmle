@@ -402,10 +402,14 @@ def test_observational_missing_outcomes_are_refused() -> None:
 
 
 def test_cross_fitted_missing_outcomes_are_refused() -> None:
-    with pytest.raises(NotImplementedError, match="cross-validated extension"):
+    """The message names the remedy in the engine and the public spelling."""
+    with pytest.raises(NotImplementedError, match="cross-validated extension") as caught:
         DRTMLE(randomized=True, estimands=("ate",)).fit(
             _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
+    assert str(caught.value).endswith(
+        "pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)"
+    )
 
 
 @pytest.mark.parametrize("stratify_folds", ["treatment", "none"])

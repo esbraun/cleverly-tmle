@@ -983,7 +983,8 @@ class DRTMLE(TMLE):
         if data.has_missing_outcome and self.cross_fit:
             raise NotImplementedError(
                 "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
-                "does not establish its cross-validated extension; pass cross_fit=False"
+                "does not establish its cross-validated extension; pass cross_fit=False "
+                "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
         if data.has_missing_outcome and self.guard:
             if data.is_weighted:
