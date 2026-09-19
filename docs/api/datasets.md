@@ -21,6 +21,7 @@ Three functions serve the navigation program that the [examples](../examples/ind
    cleverly.datasets.available
    cleverly.datasets.make_linear_ate
    cleverly.datasets.make_nonlinear_ate
+   cleverly.datasets.make_nonlinear_bounded
    cleverly.datasets.make_binary_outcome
    cleverly.datasets.make_multi_arm
    cleverly.datasets.make_heterogeneous
