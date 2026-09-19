@@ -855,8 +855,8 @@ class NaturalCourseMean:
     observation indicator that is one on every row leaves nothing missing, so the fit
     takes the complete-outcome branch above and the narrow boundary does not apply to
     it. The two agree there: with no missing outcome the empirical mean *is*
-    ``E[m(A, W)]``. That branch is not the stacked estimator, so it refuses
-    ``stratify_by="none"``.
+    ``E[m(A, W)]``. That branch is not the stacked estimator, so it follows the ordinary
+    cross-fitting rules rather than the contract above.
     """
 
     name: str = field(default="ey_obs", init=False)

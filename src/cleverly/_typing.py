@@ -46,10 +46,11 @@ TargetingScheme = Literal["pooled", "fold"]
 
 #: What the outer cross-fitting folds are balanced on.  ``"treatment"`` is the
 #: long-standing behaviour and the default; ``"treatment+outcome"`` crosses in the
-#: outcome so that a rare event cannot leave a fold with none of them. ``"none"`` is
-#: reserved for estimators whose split law has been audited without stratification: the
-#: cross-fitted binary natural-course mean and the stacked CV-TMLE of arm-indexed means
-#: and contrasts, both with missing outcomes. The second one requires ``"none"``.
+#: outcome so that a rare event cannot leave a fold with none of them. ``"none"`` draws
+#: a split that reads neither, and every fit accepts it. Two estimators whose split law
+#: has been audited without stratification require it: the cross-fitted binary
+#: natural-course mean and the stacked CV-TMLE of arm-indexed means and contrasts, both
+#: with missing outcomes.
 FoldStrata = Literal["none", "treatment", "treatment+outcome"]
 #: Every estimand *name* :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
 #: every key of the target registry.  Which of them a *particular* fit can report depends on

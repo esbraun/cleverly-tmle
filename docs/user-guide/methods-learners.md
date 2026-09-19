@@ -109,16 +109,17 @@ model. `cleverly` validates learner task compatibility and sample-weight support
 - `enabled=False` sets a one-fold analysis with no cross-fitting.
 - `stratify_by="treatment"` balances treatment arms in the outer split. Add the outcome with
   `"treatment+outcome"` for a rare binary outcome.
-- `stratify_by="none"` draws unstratified folds. Two cross-fitted contracts with missing outcomes
-  accept this setting, and every other fit refuses it. The table names both.
+- `stratify_by="none"` draws unstratified folds, so the split reads neither the treatment nor the
+  outcome. Every fit accepts this setting. Two cross-fitted contracts with missing outcomes
+  require it. The table names both.
 
 | missing-outcome fit | what it needs | contract table |
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | `stratify_by="none"` | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
 | arm-indexed means and contrasts, cross-fitted | `stratify_by="none"`, no `ATT` or `ATC` target, and a fixed `q_bounds` for a continuous outcome | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
 
-An in-sample fit refuses `stratify_by="none"`. To fit either target in sample, set
-`CrossFitting(enabled=False, stratify_by="treatment")`.
+To fit either target in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so
+the fold policy makes no difference there.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library
 candidate, before an estimator variant multiplies it again. The examples in this documentation set

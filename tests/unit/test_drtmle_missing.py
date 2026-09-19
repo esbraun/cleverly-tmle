@@ -420,8 +420,8 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
     """``guard=()`` is a plain TMLE, and it met none of the guarded refusals.
 
     The cross-fit refusal now runs at every guard, before any learner fits. Before the
-    hoist this fit returned a result (RM9 probe C). ``stratify_folds='none'`` is reserved
-    for ordinary TMLE, so that fit meets the fold-policy reservation first.
+    hoist this fit returned a result (RM9 probe C). No fold policy is reserved, so both
+    policies reach the same refusal.
     """
     learners = never_fit_learners()
     estimator = DRTMLE(
@@ -432,12 +432,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
         estimands=("ate", "ey1", "ey0"),
         **learners,
     )
-    if stratify_folds == "none":
-        error: type[Exception] = CapabilityError
-        message = "stratify_folds='none' is currently reserved"
-    else:
-        error, message = NotImplementedError, "does not establish its cross-validated extension"
-    with pytest.raises(error, match=message):
+    with pytest.raises(NotImplementedError, match="does not establish its cross-validated"):
         estimator.fit(
             _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )

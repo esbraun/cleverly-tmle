@@ -84,8 +84,8 @@ cross-fitting with missing outcomes.
 
 The [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract)
 lists every refusal. Without a known finite support, fit in sample with
-`CrossFitting(enabled=False, stratify_by="treatment")`. The in-sample fit refuses
-`stratify_by="none"`.
+`CrossFitting(enabled=False)`. The in-sample fit keeps whichever fold policy you declare, because
+one fold balances nothing.
 
 ## Known regimes
 

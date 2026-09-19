@@ -191,12 +191,10 @@ DEFAULT_NUISANCE_BOUND = 0.01
 _TRUNCATION_WARN_FRACTION = 0.05
 
 #: The remedy a stacked natural-course refusal names when the in-sample estimator can run.
-#: Disabling cross-fitting alone is not enough: ``stratify_folds='none'`` is reserved for
-#: the stacked estimator, so the fold stratification must return to a stratified policy.
+#: The in-sample fit reads one fold, and one fold balances nothing, so the fold policy is
+#: not part of the remedy: disabling cross-fitting is the whole of it.
 _IN_SAMPLE_NATURAL_COURSE_REMEDY = (
-    "disable cross-fitting and restore fold stratification "
-    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
-    "stratify_folds='treatment' on the engine)"
+    "disable cross-fitting (CrossFitting(enabled=False), or cross_fit=False on the engine)"
 )
 
 
@@ -277,10 +275,9 @@ _ARM_INDEXED_CONTRACT = (
 )
 
 #: The remedy an arm-indexed missing-outcome refusal names when the in-sample estimator
-#: can run. ``stratify_folds='none'`` stays reserved for cross-fitted fits.
+#: can run. One fold balances nothing, so the fold policy is not part of the remedy.
 _IN_SAMPLE_ARM_INDEXED_REMEDY = (
-    "fit in sample with cross_fit=False and stratify_folds='treatment' on the engine "
-    "(CrossFitting(enabled=False, stratify_by='treatment'))"
+    "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 )
 
 
@@ -447,12 +444,13 @@ class TMLE:
         which splits are conditioned on, not a bias -- and the alternative it is weighed
         against is a fold that cannot fit the regression at all.
 
-        ``"none"`` generates ordinary unstratified V-folds. It is currently reserved for
-        two audited cross-fitted estimators with missing outcomes: the one-repeat, pooled,
-        whole-sample binary :class:`~cleverly.NaturalCourseMean`, and the stacked
-        CV-TMLE of arm-indexed means and contrasts. That second estimator requires
-        ``"none"``, because no result covers folds stratified on the treatment or the
-        outcome (``docs/roadmap.md`` RM17).
+        ``"none"`` generates ordinary unstratified V-folds, so the assignment reads
+        neither the treatment nor the outcome.  Every fit accepts it, and two audited
+        cross-fitted estimators with missing outcomes require it: the one-repeat,
+        pooled, whole-sample binary :class:`~cleverly.NaturalCourseMean`, and the
+        stacked CV-TMLE of arm-indexed means and contrasts.  No result covers those two
+        under folds stratified on the treatment or the outcome (``docs/roadmap.md``
+        RM17).
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
@@ -788,10 +786,10 @@ class TMLE:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
-        # Resolve this boundary here as well, which includes the fold-policy reservation,
-        # so every unsupported intermediate composition fails before any learner is
-        # fitted. The ordinary path resolves in `_fit_single`, after its axis-specific
-        # structural checks have named their own refusals.
+        # Resolve this boundary here as well, so every unsupported intermediate
+        # composition fails before any learner is fitted. The ordinary path resolves in
+        # `_fit_single`, after its axis-specific structural checks have named their own
+        # refusals.
         estimands = self._resolve_estimands_for_data(prepared)
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
@@ -1230,12 +1228,11 @@ class TMLE:
     def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
         """Resolve targets and enforce every data-dependent refusal that precedes fitting.
 
-        The natural-course and arm-indexed missing-outcome contracts run first, so the
-        fold-policy reservation after them can rely on every condition they enforce.
+        The natural-course contract runs first, because it resolves the target list the
+        arm-indexed missing-outcome contract then reads.
         """
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
-        self._validate_fold_strata_for_data(data, estimands)
         return estimands
 
     def _on_arm_indexed_stacked_surface(self, data: CausalData, estimands: tuple[str, ...]) -> bool:
@@ -1435,31 +1432,6 @@ class TMLE:
             if self.q_bounds is None:
                 refuse("continuous outcomes require fixed, analyst-declared q_bounds")
         return estimands
-
-    def _validate_fold_strata_for_data(self, data: CausalData, estimands: tuple[str, ...]) -> None:
-        """Reserve unstratified outer folds for the two audited stacked MAR estimators.
-
-        Only :meth:`_resolve_estimands_for_data` calls this, after
-        :meth:`_resolve_natural_course_contract` and
-        :meth:`_resolve_arm_indexed_missing_contract` have refused every cross-fitted
-        composition outside those contracts. The one remaining condition is therefore
-        that this fit is one of those estimators.
-        """
-        if self.stratify_folds != "none":
-            return
-        if self.cross_fit and _is_natural_course(data, estimands):
-            return
-        if self._assessment_method == "tmle" and self._on_arm_indexed_stacked_surface(
-            data, estimands
-        ):
-            return
-        raise CapabilityError(
-            "stratify_folds='none' is currently reserved for the one-repeat, pooled, "
-            "whole-sample, package-generated cross-fitted binary NaturalCourseMean with "
-            "missing outcomes on iid unweighted data, and for the stacked CV-TMLE of "
-            "arm-indexed means and contrasts with missing outcomes under its audited "
-            "contract; use the established fold policy for every other estimator"
-        )
 
     def _preflight_missing_outcome_folds(
         self,

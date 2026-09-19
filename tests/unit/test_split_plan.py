@@ -211,24 +211,30 @@ def _cluster_codes(frame: Any, *, cluster: str | None) -> IntArray | None:
 def _generated_then_supplied(
     frame: Any, *, cluster: str | None = None, plan_seed: int = SEED, **knobs: Any
 ) -> tuple[Any, Any]:
-    """Fit once on a package draw, then again on the plan that first fit realised.
+    """Fit once on a generated draw, then again on the plan that first fit realised.
 
-    The first fit is supplied rather than generating its own split, because a stratified
-    split records no generator and no fit accepts it back.  What the pair witnesses is
-    unchanged: the second fit reads the plan off the first fit's result, and every
-    result-determining layer has to agree.
+    ``stratify_by="none"`` is the default here, so the first fit draws its own split
+    through the generator a plan has to record.  That is the pair the reuse contract is
+    about: nothing is supplied until the second fit reads ``result.split_plan``.  A
+    caller that declares a stratified policy supplies the first draw instead, because a
+    stratified split records no generator and no fit accepts it back.
     """
+    knobs.setdefault("stratify_by", "none")
     effect = _effect(frame, cluster=cluster)
-    plan = _package_plan(
-        len(frame),
-        n_folds=knobs.get("n_folds", N_FOLDS),
-        repeats=knobs.get("repeats", 1),
-        cluster=_cluster_codes(frame, cluster=cluster),
-        seed=plan_seed,
-    )
-    generated = effect.estimate(method=_method(split_plan=plan, **knobs))
+    if knobs["stratify_by"] == "none":
+        generated = effect.estimate(method=_method(random_state=plan_seed, **knobs))
+        assert generated.split_plan.provenance is not None
+    else:
+        plan = _package_plan(
+            len(frame),
+            n_folds=knobs.get("n_folds", N_FOLDS),
+            repeats=knobs.get("repeats", 1),
+            cluster=_cluster_codes(frame, cluster=cluster),
+            seed=plan_seed,
+        )
+        generated = effect.estimate(method=_method(split_plan=plan, **knobs))
+        assert generated.split_plan.provenance == plan.provenance
     supplied = effect.estimate(method=_method(split_plan=generated.split_plan, **knobs))
-    assert generated.split_plan.provenance == plan.provenance
     return generated, supplied
 
 
@@ -1045,11 +1051,12 @@ def test_generated_and_supplied_repeated_plans_are_exactly_identical() -> None:
 
     _assert_same_fit(generated, supplied)
     assert supplied.split_plan.n_repeats == supplied.n_repeats == 3
+    # The scheme separates the two fits: one generated its own draws, the other reused
+    # them. stratify_by carries what the folds were held to, which is nothing under this
+    # policy, and the supplied fit records the same answer the generated fit did.
+    assert generated.config.crossfit.scheme == "vfold"
     assert supplied.config.crossfit.scheme == "supplied"
-    # The scheme carries "nothing was generated". stratify_by carries what the folds were
-    # held to, which the supplied path checks rather than balances, so it records the same
-    # treatment name the generated fit balanced on.
-    assert supplied.config.crossfit.stratify_by == generated.config.crossfit.stratify_by == ("A",)
+    assert supplied.config.crossfit.stratify_by == generated.config.crossfit.stratify_by == ()
 
 
 def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None:

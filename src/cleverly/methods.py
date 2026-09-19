@@ -140,9 +140,10 @@ class CrossFitting:
         Independent outer-fold assignments to combine by their median. A value above one
         requires ``enabled=True``.
     stratify_by : {"none", "treatment", "treatment+outcome"}, default="treatment"
-        Fold-stratification policy. ``"none"`` is reserved for two audited cross-fitted
-        estimators with missing outcomes: the binary natural-course mean, and the
-        stacked CV-TMLE of arm-indexed means and contrasts. The second one refuses
+        Fold-stratification policy. ``"none"`` draws folds that read neither the
+        treatment nor the outcome, and every fit accepts it. Two audited cross-fitted
+        estimators with missing outcomes require it: the binary natural-course mean, and
+        the stacked CV-TMLE of arm-indexed means and contrasts. The second one refuses
         ``"treatment"`` and ``"treatment+outcome"``, so a cross-fitted missing-outcome
         fit of ``ATE``, a counterfactual mean, a risk ratio, or an odds ratio needs
         ``stratify_by="none"``.

@@ -163,12 +163,11 @@ raises `DataError`.
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
 | one training complement holds no respondent or no nonrespondent | increase `n_folds`, use a different `random_state`, or use the in-sample estimator |
 
-Both messages name the in-sample estimator as
-`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False`
-with `stratify_folds='treatment'`. Change both settings. `stratify_by="none"` is reserved for two
-cross-fitted contracts: this one and the
-[arm-indexed contract](#stacked-cv-tmle-for-arm-indexed-targets). An in-sample fit therefore
-refuses it, and a stacked declaration with only cross-fitting disabled is still refused.
+Both messages name the in-sample estimator as `CrossFitting(enabled=False)`. The engine form is
+`cross_fit=False`. Change that one setting. `stratify_by="none"` is required by two cross-fitted
+contracts, this one and the [arm-indexed contract](#stacked-cv-tmle-for-arm-indexed-targets), and
+it is accepted everywhere else. One fold balances nothing, so an in-sample fit keeps whichever
+policy the declaration carries.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
 response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
@@ -321,8 +320,8 @@ chain for each step.
 
 **The preflight.** After fold generation and before any learner call, the fit checks the minimum
 content below. A failure raises `DataError`, and the message names the remedy in the last column.
-In that column, "in sample" is `CrossFitting(enabled=False, stratify_by='treatment')`. The engine
-form is `cross_fit=False` with `stratify_folds='treatment'`.
+In that column, "in sample" is `CrossFitting(enabled=False)`. The engine form is
+`cross_fit=False`.
 
 | scope | minimum content | remedy the message names |
 | --- | --- | --- |

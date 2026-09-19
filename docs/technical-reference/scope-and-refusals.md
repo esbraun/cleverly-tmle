@@ -130,26 +130,26 @@ Under `enabled=False`, step 4 refuses any plan at construction.
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
 | one training complement holds no respondent or no nonrespondent | the message names the repeat and the fold. Increase `n_folds` so each training complement is larger, use a different `random_state`, or use the in-sample estimator |
 
-Both messages name the in-sample estimator as `CrossFitting(enabled=False, stratify_by='treatment')`,
-or `cross_fit=False` with `stratify_folds='treatment'` on the engine. Disabling cross-fitting is not
-enough by itself.
+Both messages name the in-sample estimator as `CrossFitting(enabled=False)`, or `cross_fit=False`
+on the engine. One fold balances nothing, so no fold policy is part of the remedy.
 
-`stratify_by="none"` is reserved for two cross-fitted contracts: the stacked natural-course
+`stratify_by="none"` is required by two cross-fitted contracts: the stacked natural-course
 contract above and the [arm-indexed contract](#missing-outcome-arm-indexed-contract) below. Every
-other point-treatment fit refuses it with `CapabilityError` before any learner is fitted. The
-message asks for the established fold policy. The table gives the fits that meet this refusal.
+other point-treatment fit may select it as well, in sample and out of sample. The default is
+unchanged, and it is still `"treatment"`. The table gives the fits that may select `"none"`
+without either contract applying to them.
 
 | fit | why it is outside both contracts |
 | --- | --- |
-| any in-sample fit, `CrossFitting(enabled=False)` | the reservation covers cross-fitted fits only |
+| any in-sample fit, `CrossFitting(enabled=False)` | both contracts cover cross-fitted fits only |
 | a frame that declares `missingness=` but has no missing outcome | the fit takes the complete-outcome branch |
-| a complete-outcome fit, such as `ATE` under TMLE | no audit covers unstratified folds for it |
+| a complete-outcome fit, such as `ATE` under TMLE | neither contract covers a complete outcome |
 | `DRTMLE` with complete outcomes, or with missing outcomes and an arm-indexed target | only ordinary TMLE has an audited stacked contract |
 | a shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes | the arm-indexed contract excludes these targets |
 
 The [RM17 item](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-of the roadmap proposes to remove this reservation. Until then, an in-sample remedy restores
-`stratify_by='treatment'`.
+of the roadmap plans the refusals that will govern the other two policies under cross-fitting.
+This version refuses none of them.
 
 ### Missing-outcome arm-indexed contract
 
@@ -182,9 +182,8 @@ error.
 | `DRTMLE` with `delta=` and `cross_fit=True` | `NotImplementedError` | when the fit starts, before any learner is fitted |
 | minimum content | `DataError` | after fold generation, before any learner is fitted |
 
-A `DRTMLE` fit with `stratify_folds="none"` meets a different refusal first. The engine reserves
-unstratified folds for ordinary TMLE, so that fit raises the reservation `CapabilityError` at
-every `guard`, including `guard=()`. It does not reach the `NotImplementedError` in the table.
+A `DRTMLE` fit with missing outcomes and `cross_fit=True` raises the `NotImplementedError` in the
+table at every `guard`, including `guard=()`, and under every fold policy.
 `tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
 
 The composition check runs its steps in a fixed order. A fit that breaks several rules receives
@@ -211,10 +210,9 @@ through `TMLEMethod`, with zero learner calls.
 | 15 | baseline strata |
 | 16 | `n_bootstrap > 0` |
 
-A refusal that has an in-sample alternative names it as
-`CrossFitting(enabled=False, stratify_by='treatment')`. The engine form is `cross_fit=False` with
-`stratify_folds='treatment'`. The in-sample fit refuses `stratify_by="none"`, as the paragraph
-above states.
+A refusal that has an in-sample alternative names it as `CrossFitting(enabled=False)`. The engine
+form is `cross_fit=False`. The in-sample fit keeps whatever fold policy the declaration carries,
+because one fold balances nothing.
 
 ### Replay-only unavailability
 

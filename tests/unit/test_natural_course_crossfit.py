@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.linear_model import LogisticRegression
 
 from cleverly import (
     CapabilityError,
@@ -59,9 +60,7 @@ def _fit(
 
 #: The in-sample remedy every stacked natural-course refusal names, in both spellings.
 IN_SAMPLE_REMEDY = (
-    "disable cross-fitting and restore fold stratification "
-    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
-    "stratify_folds='treatment' on the engine)"
+    "disable cross-fitting (CrossFitting(enabled=False), or cross_fit=False on the engine)"
 )
 
 
@@ -173,30 +172,21 @@ def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits()
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize(
-    ("stratify_folds", "error", "message"),
-    [
-        ("none", CapabilityError, "stratify_folds='none' is currently reserved"),
-        ("treatment", NotImplementedError, "baseline strata currently use one joint pooled"),
-    ],
-    ids=("fold-policy-reservation-wins", "generic-strata-gate-wins"),
-)
+@pytest.mark.parametrize("stratify_folds", ["none", "treatment"])
 @pytest.mark.parametrize(
     "overrides",
     [{"targeting_scheme": "fold"}, {"cv_evaluation": True}],
     ids=("fold-targeting", "fold-evaluation"),
 )
-def test_a_complete_outcome_fit_with_strata_meets_the_fold_policy_before_the_strata_gate(
+def test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate(
     stratify_folds: str,
-    error: type[Exception],
-    message: str,
     overrides: dict[str, Any],
 ) -> None:
     """Pin which refusal a non-natural-course stratified fold-targeted fit receives.
 
-    The natural-course contract does not apply without missing outcomes. The fold-policy
-    reservation runs in the resolver, so it wins under ``stratify_folds='none'``.
-    Otherwise the generic strata gate in ``TMLE.fit`` refuses, before any learner fits.
+    The natural-course contract does not apply without missing outcomes, and no fold
+    policy is reserved, so the generic strata gate in ``TMLE.fit`` refuses under either
+    policy, before any learner fits.
     """
     frame = law.frame().assign(
         Y=lambda value: value["Y"].fillna(0.0), S=(np.arange(law.N) % 2).astype(float)
@@ -208,30 +198,51 @@ def test_a_complete_outcome_fit_with_strata_meets_the_fold_policy_before_the_str
         **overrides,
     )
 
-    with pytest.raises(error, match=message):
+    with pytest.raises(NotImplementedError, match="baseline strata currently use one joint pooled"):
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
     assert NeverFit.calls == 0
 
 
-def test_unstratified_folds_refuse_an_established_complete_outcome_fit() -> None:
+def test_unstratified_folds_are_accepted_by_an_established_complete_outcome_fit() -> None:
+    """A fit outside both audited contracts may draw the unstratified split it asked for.
+
+    The frame observes every outcome, so the natural-course contract does not govern it.
+    The fit reports an estimate, and the recorded scheme shows the policy reached fold
+    generation rather than being ignored.
+    """
     frame = law.frame().assign(Y=lambda value: value["Y"].fillna(0.0), Delta=1.0)
-    with pytest.raises(CapabilityError, match="reserved"):
-        _fit(frame, **never_fit_learners())
-    assert NeverFit.calls == 0
+
+    result = _fit(
+        frame,
+        estimands=("ate",),
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        missingness_learner=LogisticRegression(),
+    )
+
+    assert np.isfinite(result["ate"].psi)
+    assert result.config.crossfit.scheme == "vfold"
+    assert result.config.crossfit.stratify_by == ()
 
 
-def test_unstratified_folds_refuse_an_intermediate_fit_before_its_shared_nuisances() -> None:
+def test_the_resolver_refuses_an_intermediate_fit_before_its_shared_nuisances() -> None:
     """The intermediate path fits shared nuisances before ``_fit_single`` runs.
 
-    The fold-policy reservation must therefore run in the resolver that precedes that
-    shared fit, or this fit trains every learner and only then refuses.
+    The natural-course contract must therefore run in the resolver that precedes that
+    shared fit, or this fit trains every learner and only then refuses ``intermediate=``.
     """
-    frame = law.frame().assign(
-        Y=lambda value: value["Y"].fillna(0.0), Z=(np.arange(law.N) % 2).astype(float)
-    )
-    estimator = stacked_tmle(estimands=("ate",), **never_fit_learners())
-    with pytest.raises(CapabilityError, match="reserved"):
-        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), intermediate="Z")
+    frame = law.frame().assign(Z=(np.arange(law.N) % 2).astype(float))
+    estimator = stacked_tmle(**never_fit_learners())
+
+    with pytest.raises(CapabilityError, match="intermediate= is not implemented"):
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+            intermediate="Z",
+        )
     assert NeverFit.calls == 0
 
 

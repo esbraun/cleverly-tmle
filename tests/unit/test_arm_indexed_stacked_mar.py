@@ -436,14 +436,49 @@ def test_a_supplied_weight_column_is_outside_the_unweighted_contract(offset: flo
     assert NeverFit.calls == 0
 
 
-def test_unstratified_folds_stay_reserved_for_the_in_sample_fit() -> None:
-    """The ``"none"`` widening admits the cross-fitted surface only."""
+def test_unstratified_folds_are_selectable_for_the_in_sample_fit() -> None:
+    """``"none"`` is no longer reserved, so the in-sample fit accepts it and reports.
+
+    The contract governs cross-fitted fits. This one declares the same fold policy with
+    ``cross_fit=False``, reaches the learners, and returns a finite estimate. One fold
+    balances nothing, so the policy changes no assignment here.
+    """
     estimator = TMLE(
-        **{**ADMITTED, **never_fit_learners(), "estimands": ("ate",), "cross_fit": False}
+        **{**ADMITTED, "estimands": ("ate",), "cross_fit": False},
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        missingness_learner=LogisticRegression(),
     )
-    with pytest.raises(CapabilityError, match="stratify_folds='none' is currently reserved"):
-        estimator.fit(_frame(), outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
-    assert NeverFit.calls == 0
+
+    result = estimator.fit(
+        _frame(), outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta"
+    ).single()
+
+    assert np.isfinite(result["ate"].psi)
+    assert result.config.crossfit.scheme == "none"
+
+
+def test_unstratified_folds_are_selectable_for_a_complete_outcome_cross_fit() -> None:
+    """Out of sample too: a complete-outcome fit draws an unstratified partition.
+
+    The plan the result records names the unstratified generator, which is the evidence
+    that the policy reached fold generation rather than being ignored.
+    """
+    frame = _frame().drop(columns=["Delta"]).dropna(subset=["Y"])
+    estimator = TMLE(
+        **{**ADMITTED, "estimands": ("ate",), "n_folds": FOLDS},
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+    )
+
+    result = estimator.fit(frame, outcome="Y", treatment="A", covariates=COVARIATES).single()
+
+    assert np.isfinite(result["ate"].psi)
+    assert result.config.crossfit.scheme == "vfold"
+    assert result.config.crossfit.stratify_by == ()
+    provenance = result.split_plan.provenance
+    assert provenance is not None
+    assert provenance[0].scheme == "vfold"
 
 
 # --------------------------------------------------------------------- W12: preflight
@@ -584,8 +619,7 @@ def test_a_sample_below_the_minimum_refuses_before_any_learner(case: str, fragme
     message = str(caught.value)
     assert fragment in message
     assert message.endswith(
-        "fit in sample with cross_fit=False and stratify_folds='treatment' on the engine "
-        "(CrossFitting(enabled=False, stratify_by='treatment'))"
+        "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
     )
     assert NeverFit.calls == 0
 
@@ -619,7 +653,7 @@ def test_one_respondent_with_an_outcome_is_a_sample_shortfall() -> None:
     message = str(caught.value)
     assert "the sample has 1 respondent(s) with outcome 1." in message
     assert "no fold count or random_state can fit the outcome regression" in message
-    assert message.endswith("(CrossFitting(enabled=False, stratify_by='treatment'))")
+    assert message.endswith("(CrossFitting(enabled=False))")
     assert NeverFit.calls == 0
 
 
@@ -648,7 +682,7 @@ def test_the_in_sample_remedy_fits_one_respondent_with_an_outcome() -> None:
         treatment_learner=LogisticRegression(),
         missingness_learner=LogisticRegression(),
         cross_fit=False,
-        stratify_folds="treatment",
+        stratify_folds="none",
         estimands=("ate",),
         simultaneous=False,
     )
@@ -751,8 +785,7 @@ def test_a_super_learner_class_of_two_is_a_sample_shortfall(
     assert message.endswith(
         f"Replace the {role} learner with one that is not a package classification "
         "SuperLearner, or "
-        "fit in sample with cross_fit=False and stratify_folds='treatment' on the engine "
-        "(CrossFitting(enabled=False, stratify_by='treatment'))."
+        "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))."
     )
     assert NeverFit.calls == 0
 
