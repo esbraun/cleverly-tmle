@@ -381,6 +381,8 @@ class DRTMLE(TMLE):
     * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
       Díaz & van der Laan (2017) covers binary randomized treatment with MAR outcomes;
       the other compositions need their own corrected curve and remainder;
+    * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
+      published missing-outcome theorem does not establish a cross-validated extension;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
@@ -973,11 +975,17 @@ class DRTMLE(TMLE):
                     "Laan's algorithm jointly targets the treatment, observation and "
                     "outcome correction blocks, and no partial-guard theorem is claimed"
                 )
-            if self.cross_fit:
-                raise NotImplementedError(
-                    "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
-                    "does not establish its cross-validated extension; pass cross_fit=False"
-                )
+        # At every guard, including ``guard=()``. That fit is a plain TMLE on the
+        # cross-fitted missing-outcome surface, which only ordinary TMLE's audited
+        # stacked contract admits, so it must not fit here outside that contract. The
+        # guarded checks above keep their order, so a guarded fit meets the same first
+        # refusal as before.
+        if data.has_missing_outcome and self.cross_fit:
+            raise NotImplementedError(
+                "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
+                "does not establish its cross-validated extension; pass cross_fit=False"
+            )
+        if data.has_missing_outcome and self.guard:
             if data.is_weighted:
                 raise NotImplementedError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "

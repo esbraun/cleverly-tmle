@@ -283,7 +283,9 @@ def _study_fit_with_missingness():  # type: ignore[no-untyped-def]
     return study.identify(ATE()).estimate(
         outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        n_folds=3,
+        # In sample: the cross-fitted MAR contract (docs/roadmap.md RM9) refuses baseline
+        # strata, and the subject is the tilt's refusal of a conditional parameter.
+        cross_fit=False,
         learner_folds=2,
         random_state=2,
         simultaneous=False,

@@ -660,8 +660,9 @@ def missing_fit() -> Any:
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             missingness_learner=ArmMissingness(),
-            n_folds=5,
-            learner_folds=3,
+            # In sample: the subject is the tilt and the composed denominator, not
+            # cross-fitting, and the cross-fitted MAR contract refuses att and atc.
+            cross_fit=False,
             estimands=("ey", "ate", "att", "atc"),
             reference=REFERENCE,
             simultaneous=False,
@@ -1015,8 +1016,8 @@ class TestTheTiltFollowsTheDeclaredReference:
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-                n_folds=5,
-                learner_folds=3,
+                # In sample: the subject is the tilt's reference arm, not cross-fitting.
+                cross_fit=False,
                 estimands=("ate", "att", "atc"),
                 reference=1,
                 simultaneous=False,

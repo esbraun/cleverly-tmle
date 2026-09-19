@@ -225,8 +225,10 @@ class TestBackendParity:
             pl.Series("w", np.linspace(0.5, 1.5, len(frame))),
             pl.Series("cl", np.repeat(np.arange(len(frame) // 10), 10).astype(float)),
         )
+        # In sample: the subject is the polars backend with every role. The cross-fitted
+        # MAR contract (docs/roadmap.md RM9) refuses weights and clusters.
         result = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(cross_fit=False, estimands=("ate",))
             .fit(
                 frame,
                 outcome="Y",

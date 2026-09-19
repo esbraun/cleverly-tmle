@@ -2152,7 +2152,10 @@ class TestCapabilityRowsDoNotContradictThemselves:
             .estimate(
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-                n_folds=3,
+                # In sample: a cross-fitted continuous missing-outcome fit needs a known
+                # q_bounds and unstratified folds (docs/roadmap.md RM9), and the subject
+                # here is the capability rows, not cross-fitting.
+                cross_fit=False,
                 learner_folds=2,
                 random_state=4,
                 simultaneous=False,

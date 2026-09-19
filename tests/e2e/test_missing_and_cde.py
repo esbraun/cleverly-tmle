@@ -18,7 +18,13 @@ import pytest
 import sklearn.linear_model
 
 from cleverly import SuperLearner
-from cleverly.datasets import cde_dgp, make_cde, make_missing_outcome, missing_outcome_dgp
+from cleverly.datasets import (
+    cde_dgp,
+    make_cde,
+    make_missing_outcome,
+    make_missing_outcome_binary,
+    missing_outcome_dgp,
+)
 from cleverly.estimators import TMLE
 from cleverly.estimators.base import TMLEResultSet
 from tests.conftest import OracleTreatment, fast_tmle
@@ -30,8 +36,11 @@ class TestMissingOutcomes:
     @pytest.fixture(scope="class")
     def fit(self) -> tuple[object, dict[str, float]]:
         frame, truth = make_missing_outcome(n=2500, seed=61)
+        # In sample: the cross-fitted MAR contract (docs/roadmap.md RM9) refuses att and a
+        # continuous outcome without a known support, and this class does not test
+        # cross-fitting. TestCrossFittedMissingOutcomes covers the admitted contract.
         result = (
-            fast_tmle(estimands=("ate", "att", "ey1", "ey0"))
+            fast_tmle(cross_fit=False, estimands=("ate", "att", "ey1", "ey0"))
             .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
             .single()
         )
@@ -79,7 +88,8 @@ class TestMissingOutcomes:
                     random_state=0,
                 ),
                 "treatment_learner": OracleTreatment(dgp),
-                "n_folds": 4,
+                # In sample, for the reason the class fixture gives.
+                "cross_fit": False,
                 "learner_folds": 3,
                 "estimands": ("ate",),
                 "simultaneous": False,
@@ -137,6 +147,42 @@ class TestMissingOutcomes:
                 folds=Folds.single(data.n),
                 scaler=OutcomeScaler.from_outcome(data.outcome[data.observed]),
             )
+
+
+class TestCrossFittedMissingOutcomes:
+    """The admitted stacked CV-TMLE contract for arm-indexed targets (docs/roadmap.md RM9).
+
+    A binary outcome, unstratified package-generated folds, and the arm-indexed means and
+    contrasts. One sample checks recovery; the registered study owns coverage.
+    """
+
+    ESTIMANDS = ("ate", "ey1", "ey0", "rr", "or")
+
+    @pytest.fixture(scope="class")
+    def fit(self) -> tuple[object, dict[str, float]]:
+        frame, truth = make_missing_outcome_binary(n=2500, seed=61)
+        result = (
+            fast_tmle(estimands=self.ESTIMANDS, stratify_folds="none")
+            .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
+            .single()
+        )
+        return result, truth
+
+    def test_the_fit_is_the_stacked_estimator(self, fit) -> None:
+        result, _ = fit
+        assert result.config.cross_fit is True
+        assert result.config.crossfit.stratify_by == ()
+        assert result.config.estimator_name == "stacked CV-TMLE (Levy)"
+
+    def test_the_estimand_is_recovered(self, fit) -> None:
+        result, truth = fit
+        for name in self.ESTIMANDS:
+            low, high = result[name].ci
+            assert low <= truth[name] <= high, f"{name}: {result.psi(name)} vs {truth[name]}"
+
+    def test_the_score_equation_accounts_for_missingness(self, fit) -> None:
+        result, _ = fit
+        assert result.diagnostics.score_equations().passed
 
 
 class _MeanOnly:
