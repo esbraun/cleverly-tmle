@@ -422,6 +422,19 @@ def test_a_continuous_outcome_with_fixed_q_bounds_reaches_the_learners() -> None
     assert NeverFit.calls == 1
 
 
+@pytest.mark.parametrize("offset", [0.0, 1e-6], ids=("constant", "nearly-constant"))
+def test_a_supplied_weight_column_is_outside_the_unweighted_contract(offset: float) -> None:
+    frame = _frame()
+    frame["wt"] = 1.0 + offset * np.where(np.arange(N) % 2 == 0, -1.0, 1.0)
+    estimator = TMLE(**{**ADMITTED, **never_fit_learners(), "estimands": ("ate",)})
+
+    with pytest.raises(CapabilityError, match="Drop weights= from fit"):
+        estimator.fit(
+            frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta", weights="wt"
+        )
+    assert NeverFit.calls == 0
+
+
 def test_unstratified_folds_stay_reserved_for_the_in_sample_fit() -> None:
     """The ``"none"`` widening admits the cross-fitted surface only."""
     estimator = TMLE(

@@ -1331,7 +1331,7 @@ class TMLE:
                 "no direct interval result covers fold-specific targeting (F21). Set "
                 "targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled'))"
             )
-        if data.is_weighted:
+        if data.weights_name is not None or data.is_weighted:
             refuse(
                 "the contract covers unweighted iid rows. Drop weights= from fit "
                 "(PointTreatment(weights=None))"
