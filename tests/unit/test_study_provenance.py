@@ -115,12 +115,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    "mar-natural-course-tmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
     "mar-drtmle": frozenset(
         {
             "tests/conftest.py",

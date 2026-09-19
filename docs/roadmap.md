@@ -15,17 +15,14 @@ The examples are executable, but their review exposed gaps in the public study r
 post-fit coverage. Deliver the rows in priority order. Complete every row before main-roadmap
 priority 1. A new capability still needs its own contract and evidence, even in this queue.
 
-The "next action" column states the remediation work. It is not a readiness label. The review of
-the stacked natural-course study, not the examples, exposed the RM10 gap.
+The "next action" column states the remediation work. It is not a readiness label.
 
 The 2026-09-14 review of the arm-indexed stacked contract exposed RM17. The 2026-09-18 source audit
 found no result for the shipped data-dependent outer folds or the continuous outcome scale. The
 implemented
 [arm-indexed stacked contract](technical-reference/point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
-already uses generated unstratified folds and prespecified bounds. RM10 adds an R comparator to
-the ordinary study. It starts from the stitched-nuisance adapter of the stacked natural-course
-study, and it takes its bounded-continuous route from the arm-indexed study. RM17 then changes the
-global defaults.
+already uses generated unstratified folds and prespecified bounds. RM17 changes the global
+defaults.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -33,21 +30,20 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Ordinary missing-outcome natural-course comparator | add the R `tmle` 2.1.1 population-mean path to the ordinary study for its binary and bounded-continuous laws, then regenerate the study | the ordinary study has no external comparison, although the stacked natural-course study shows that this R path accepts supplied predictions | [RM10](#rm10-ordinary-missing-outcome-natural-course-comparator) |
-| 0.2 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
-| 0.3 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
-| 0.4 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
-| 0.5 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
-| 0.6 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
-| 0.7 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.8 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.1 | Data-dependent fold strata and outcome scales under cross-fitting | iid audit complete; change the defaults and refusals, audit grouped folds, and regenerate affected studies | the default cross-fitted fit uses treatment-stratified folds and, for a continuous outcome, a scale from every observed outcome, while the reviewed inference results use external folds and known bounds | [RM17](#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) |
+| 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
+| 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
+| 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
+| 0.5 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
+| 0.6 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
+| 0.7 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 
-Use five delivery groups for these eight rows and investigations. Keep each item's acceptance
+Use five delivery groups for these seven rows and investigations. Keep each item's acceptance
 criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| cross-fitted evidence | RM10, then the RM17 default changes and study regeneration; the RM17 iid audit is complete | RM10 starts from the supplied-prediction R adapter of the stacked natural-course study, and it takes the bounded-continuous scale workaround from the arm-indexed stacked study; the RM17 decision already sets the fold and scale rules of the arm-indexed contract |
+| cross-fitted evidence | the RM17 default changes and study regeneration; the RM17 iid audit is complete | the RM17 decision already sets the fold and scale rules of the arm-indexed contract |
 | sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
 | collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
@@ -171,8 +167,7 @@ records completed studies. The ordinary and binary stacked missing-at-random nat
 are implemented and registered there. The stacked arm-indexed missing-outcome means and contrasts
 are also registered there. The ordinary arm-indexed missing-outcome row covers only binary `ey1`,
 `ey0`, and `ate`. The RM17 source audit records the fold and outcome-scale gaps in the default
-cross-fitted fit and several registered studies. RM10 holds the comparator for the ordinary
-estimator.
+cross-fitted fit and several registered studies.
 
 Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
 the remediation rows are complete and that audit supports the planned variance construction.
@@ -201,30 +196,6 @@ therefore moves this item to [F20](#f20-missing-outcome-attributable-effects).
 
 Keep the public pre-fit refusal. Complete-data PAR and PAF remain supported. The iid MAR
 natural-course mean and arm-specific missing-outcome means also remain separate supported results.
-
-### RM10. Ordinary missing-outcome natural-course comparator
-
-The [ordinary missing-outcome natural-course TMLE study](technical-reference/method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
-compares no external implementation. Its artifacts predate the R `tmle` 2.1.1 population-mean
-adapter, and the study was not regenerated after that adapter was added. The
-[R `tmle` audit](references.md#targeted-learning-in-general) records that this path accepts
-supplied outcome and response predictions.
-
-Add a comparison for each primary law. The two routes are in the table.
-
-| outcome | start from | what it supplies |
-| --- | --- | --- |
-| binary | `tests/canonical/tmle_mar_natural_course_cvtmle/run_study.R`, the adapter of the stacked natural-course study | supplied outcome and response predictions to the R `tmle` population-mean path, through a constant synthetic treatment |
-| bounded continuous | the planted-row scale workaround of the arm-indexed stacked study, in `tests/canonical/tmle_mar_arm_indexed_cvtmle/probe_scale_workaround.R` and its output `scale-probe.csv` | two nonrespondent rows set to the `q_bounds` limits, so that the R scale equals `q_bounds` |
-
-Line 1120 of `R/tmle.R` sets the scale from the observed range, also when `Qbounds` is supplied.
-The planted rows are the workaround for that line. Its exact-equality probe covers replication 0
-of the arm-indexed study only. Rerun the probe on the ordinary study's continuous fits before any
-bounded-continuous parity claim. If a probe row fails, record the continuous comparison as
-refused and state the reason.
-
-Regenerate the ordinary study after the comparison is added. Do not transfer the stacked study's
-agreement to the ordinary estimator.
 
 ### RM11. Sensitivity bounds outside their derivation
 
@@ -529,7 +500,7 @@ Expect more refusals from `_check_categorical_fold_support`
 (`src/cleverly/longitudinal/sequential.py:494-548`) at a first node with three or more levels.
 Update its hint at `:540-541`, which recommends folds that preserve treatment support.
 
-After RM10, implement the global RM17 changes. Remove the `"none"` reservation in
+Implement the global RM17 changes. Remove the `"none"` reservation in
 `_validate_fold_strata_for_data` (`src/cleverly/estimators/tmle.py:1430-1453`). Route unsupported
 split policies, supplied plans, and missing bounds to named pre-fit refusals. Keep the ordinary
 one-fold path separate. That path ignores fold strata (`_folds`, `tmle.py:1842-1843`), so the

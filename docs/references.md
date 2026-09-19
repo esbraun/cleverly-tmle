@@ -143,6 +143,12 @@ previous reader had is not a citation; a page number is.
   binary-outcome interval to `[0, 1]`. `cleverly` uses the uncentered second moment
   `mean(IC^2) / n` and an unbounded Wald interval. The registered comparison keeps both native
   rules. Its interior law does not activate the R interval bound.
+
+  The registered ordinary MAR natural-course study uses the same call with the in-sample `Q(A,W)`
+  and `pDelta1(A,W)` predictions of each `cleverly` fit. Its continuous law also plants the two
+  `q_bounds` on two rows with `Delta = 0`, because line 1120 reads those rows. A non-cross-fitted
+  natural-course fit in `cleverly` uses the centered rule, which equals the R `var(IC)/n`. The
+  stacked study's `n/(n-1)` difference therefore does not apply to the ordinary study.
 - Zheng & van der Laan (2011), [*Cross-validated targeted minimum-loss-based
   estimation*](https://doi.org/10.1007/978-1-4419-9782-1_27), DOI
   10.1007/978-1-4419-9782-1_27. Read first-hand in the

@@ -6,14 +6,9 @@ baseline covariates. Its score therefore uses the outcome and response nuisances
 mechanism. Binary and bounded-continuous primary laws share the same conditional means and
 observation process; the continuous outcome is beta distributed and uses fixed bounds `(0, 1)`.
 
-No canonical implementation is compared in this study, so the study makes no parity claim for
-either law. R `tmle` 2.1.1 has a population-mean path that accepts supplied outcome and response
-predictions, as the [R `tmle` audit](../../references.md#targeted-learning-in-general) records.
-The [stacked study](stacked-missing-outcome-natural-course-cvtmle.md) passes its predictions to
-that path through the stacked study's R adapter. This study predates that adapter. The project
-did not regenerate this study after it added the adapter.
-[RM10](../../roadmap.md#rm10-ordinary-missing-outcome-natural-course-comparator) tracks the binary
-and bounded-continuous comparisons.
+The study compares both primary laws with the R `tmle` 2.1.1 population-mean path. The
+comparison conditions on the outcome and response predictions of the `cleverly` fit.
+[Comparator](#comparator) gives the adapter and its checks.
 
 Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5) give the estimator
 construction. `tests/unit/test_influence_gateaux_natural_course_mar.py` pins the target, the
@@ -21,18 +16,109 @@ efficient influence curve, and the targeting score against the exact law.
 `tests/unit/test_remainder_natural_course_mar.py` pins the signed second-order remainder and both
 double-robustness halves. This repeated-sampling study supplies the rest.
 
+## Comparator
+
+The study compares R `tmle` 2.1.1. The adapter `tests/canonical/tmle_mar_natural_course/run_study.R`
+supplies the outcome and response predictions that `cleverly` targets. The
+[R `tmle` audit](../../references.md#targeted-learning-in-general) gives the source lines of
+this path. The table gives the arguments of each call.
+
+| argument | value |
+| --- | --- |
+| `A` | `rep(1, n)`, a constant synthetic treatment that selects the population-mean path |
+| `W` | the original treatment and `W` |
+| `Q` | the realized-arm outcome prediction, in both columns |
+| `g1W` | `rep(1, n)` |
+| `pDelta1` | the response prediction, in both columns |
+| `family` | `binomial` for the binary law, and `gaussian` for the continuous law |
+| `fluctuation` | `logistic` |
+| `Qbounds`, `gbound`, and `alpha` | `c(0, 1)`, `0.01`, and `0.9995` |
+
+The runner stops when R refits a supplied nuisance. It also stops when a response prediction is at
+or below `gbound`, because R would clip that prediction.
+
+R takes a continuous outcome scale from every non-`NA` `Y` (`tmle.R` line 1120). A continuous fit
+therefore sets `Y` to `0` and `1` on the first two rows whose response indicator is zero. The
+indicator removes those rows from the fluctuation and the curve. Before each fit, the runner
+checks that R takes the scale `c(0, 1)`. `probe_scale_workaround.R` checks the workaround on
+every continuous replication, and it writes `scale-probe.csv`.
+
+| probe check | requirement |
+| --- | --- |
+| scale with the planted rows | equal to `c(0, 1)` exactly |
+| scale without the planted rows | different from `c(0, 1)` |
+| planted rows moved to two other eligible rows | point and curve bitwise unchanged |
+| independent rebuild at the `c(0, 1)` scale | point and curve within `1e-12` |
+| `unplanted_point_difference`, the point shift without the workaround | above zero |
+
+The regeneration refuses publication when a probe row fails or a continuous replication has no
+row. `tests/unit/test_mar_natural_course_method_study.py` checks that every committed row passes.
+
+The witness `unplanted_point_difference` is small for this law. The observed range of the Beta
+outcome already lies close to `(0, 1)`. The planted rows therefore move the estimate very little.
+`scale-probe.csv` records the unplanted scale and the witness of each replication.
+
+The probe shows that the workaround sets the R scale exactly. The targeting-ratio check below
+cannot detect a missing workaround. In almost every replication, the witness is below `1e-2` of
+the targeting move, so that check admits it. The source is the witness in `scale-probe.csv` and
+the targeting move in `replicates.csv.gz`.
+
+A separate witness check compares `abs(cleverly - R)` with the witness in each continuous
+replication. An estimate at the unplanted scale sits about one witness from the R point. The
+check requires `abs(cleverly - R)` at or below `1e-2` of the witness in every replication. This
+bound was chosen after the regeneration, from the committed rows. The witness has no lower bound
+for this law, so the check covers the committed replications only.
+
+This comparison conditions on the supplied nuisance predictions. It validates the targeting, the
+plug-in, the influence curve, and the variance. It does not compare nuisance training.
+
+The paired tests alone cannot show that `cleverly` targets. The oracle nuisances leave the initial
+plug-in unbiased, so an estimate without its targeting step still passes every paired test and
+every truth test. Separate checks over the committed replications carry that claim and the
+variance rule.
+
+| check | requirement |
+| --- | --- |
+| targeting move, `estimate - initial_estimate` | nonzero in every replication |
+| `abs(cleverly - R) / abs(targeting move)` | below `1e-2` in every replication |
+| initial estimates of the two implementations | equal to `1e-12` |
+| `abs(SE_cleverly - SE_R) / SE_R` | below `1e-6` in every replication |
+| `abs(cleverly - R) / unplanted_point_difference`, continuous law | at or below `1e-2` in every replication |
+| mutation: `cleverly` reports its initial estimate | the ratio exceeds `0.9` in every row, so the check fails |
+| mutation: the standard error times `sqrt((n - 1) / n)` | the relative difference reaches `1e-6` in every row, so the check fails |
+| mutation: the `cleverly` estimate moves by the witness, in either direction | the witness ratio exceeds `0.9` in every row, so the check fails |
+
+R `tmle` stops its fluctuation `glm` at a relative deviance change of `1e-8`. That stop resolves
+the fluctuation coefficient to about `1e-4` of its scale, and the ratio bound allows a hundredfold
+over that. The second mutation is the uncentered second-moment rule of the stacked study. At
+`n = 2000` it differs from R by a relative `2.5e-4`, and the SE bound sits two orders below that
+gap. Commit `0605650` declared every bound except the witness bound before the regeneration.
+`tests/unit/test_mar_natural_course_method_study.py` runs the checks and the three mutations.
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | binary-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | `cleverly` missing-outcome natural-course TMLE | -0.000474 to 0.0029 | 0.9350 | 0.9468 | pass |
+| binary-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | R `tmle` population-mean path | -0.000474 to 0.0029 | 0.9350 | 0.9468 | pass |
 | bounded continuous-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | `cleverly` missing-outcome natural-course TMLE | -0.000306 to 0.000726 | 0.9375 | 0.9687 | pass |
+| bounded continuous-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | R `tmle` population-mean path | -0.000306 to 0.000726 | 0.9375 | 0.9687 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-This study ran no canonical comparison. The committed `equivalence.csv` is empty and schema-valid.
+<!-- generated: agreement -->
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -4.741e-13 | 1.734e-10 | 1.0000 | 0 | 2.429e-11 vs 0.0500 | equivalent |
+| bounded continuous-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -6.072e-14 | 7.158e-11 | 1.0000 | 0 | 7.497e-12 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+Both implementations use the centered, `n - 1` divisor variance `var(IC) / n`. A non-cross-fitted
+natural-course fit in `cleverly` declares that rule (`covariance_rule` in
+`src/cleverly/estimators/tmle.py`). R bounds a binary-outcome interval to `[0, 1]`, and `cleverly`
+reports an unbounded Wald interval. No committed interval reaches either bound.
 
 ## Theory properties
 
@@ -69,10 +155,10 @@ cases.
 | --- | --- | --- |
 | `replicates` | 800 | primary replications per law |
 | `n` | 2000 | observations per primary replication |
-| `independent_tests_passed` | 2 | truth tests passing |
-| `independent_tests_total` | 2 | truth tests reported |
-| `paired_tests_passed` | 0 | paired comparisons passing |
-| `paired_tests_total` | 0 | paired comparisons reported |
+| `independent_tests_passed` | 4 | truth tests passing |
+| `independent_tests_total` | 4 | truth tests reported |
+| `paired_tests_passed` | 2 | paired comparisons passing |
+| `paired_tests_total` | 2 | paired comparisons reported |
 | `property_cells_passed` | 16 | property cells passing |
 | `property_cells_total` | 16 | property cells reported |
 | `max_standardized_bias` | 0.0653 | largest primary standardized bias |
@@ -119,8 +205,12 @@ cases.
 - The exact efficiency comparison is for the binary property law; the continuous primary law is
   checked for truth recovery, coverage, and reported-SE calibration without claiming the same
   bound.
-- This study ran no external comparison. The stacked study's comparison covers the stacked binary
-  estimator only. It gives no parity result for ordinary fitting or for the bounded-continuous law.
+- The external comparison conditions on the supplied outcome and response predictions. It does
+  not compare nuisance training.
+- The scale probe shows that the planted rows set the R scale exactly. For this law the unplanted
+  fit differs only slightly. Neither the paired tests nor the targeting-ratio check would detect
+  a missing workaround. The witness check carries that claim, with a bound chosen after the
+  regeneration, for the committed replications only.
 - The study uses ordinary pointwise Wald intervals and excludes weights, clusters, missing
   treatment, multinomial treatment, MNAR outcomes, sensitivity analysis, and longitudinal data.
 
@@ -130,5 +220,7 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/manifest.json),
 [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/replicates.csv.gz),
 [performance decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/performance-tests.csv),
+[paired comparisons](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/equivalence.csv),
+[scale probe](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/scale-probe.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/properties.csv)
 carry the protocol, provenance, and every published row.
