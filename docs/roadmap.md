@@ -1194,7 +1194,7 @@ any contract.
 
 | sibling surface | current behavior |
 | --- | --- |
-| the shift, incremental, regime, MSM, and controlled-direct-effect targets under cross-fitting with missing outcomes | they fit today, outside the arm-indexed contract, and tests cover them |
+| the shift, incremental, regime, MSM, and controlled-direct-effect targets under cross-fitting with missing outcomes | they fit today, outside the arm-indexed contract, and tests cover them. `TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` is the only fast test that fits repeated draws on this surface, a controlled direct effect with `repeats=2`. Remove or move that test when this gap closes |
 | ordinary, in-sample C-TMLE with missing outcomes | it fits today; the audit read no source for it. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds cross-fitted C-TMLE |
 
 ### F4. Multi-arm missing-outcome DR-TMLE

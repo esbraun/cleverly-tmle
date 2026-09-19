@@ -994,12 +994,15 @@ class TestTheSensitivityLayerFollowsTheDraws:
 class TestTheMnarTiltFollowsTheDraws:
     """The tilt combines every draw's tilted estimate by the median, as the fit did.
 
-    The cross-fitted MAR contract for arm-indexed targets (docs/technical-reference/point-treatment-tmle.md) refuses
-    ``repeats`` above 1, so this fixture uses the one arm-indexed composition that still
-    fits repeated draws with missing outcomes: a controlled direct effect
-    (``intermediate=``). The roadmap's F21 item lists that composition as an unexamined sibling gap. The
-    tests here check the median-combination mechanics of the tilt, not a scientific
-    claim about the tilt on a controlled direct effect.
+    This fixture rides on an unexamined F21 sibling surface. It fits a cross-fitted
+    controlled direct effect (``intermediate=``) with missing outcomes and ``repeats=2``.
+    No audited contract covers that composition. F21 in ``docs/roadmap.md`` lists it as a
+    sibling surface that fits today, and the arm-indexed contract refuses ``repeats``
+    above 1 for the arm-indexed means. No other fast test fits repeated draws on that
+    surface. The tests check the median-combination mechanics of the tilt, not a
+    scientific claim about the tilt on a controlled direct effect. When F21 closes the gap,
+    by a contract or by a refusal, remove this fixture or move it to an admitted
+    composition.
     """
 
     @pytest.fixture(scope="class")
