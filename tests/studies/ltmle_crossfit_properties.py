@@ -12,7 +12,7 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import make_longitudinal
-from cleverly.learners.crossfit import Folds
+from cleverly.learners.crossfit import Folds, make_folds, resolve_n_folds
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
@@ -239,6 +239,53 @@ def fit(frame: pd.DataFrame, configuration: str = "both_correct") -> Any:
         time_varying=[[], ["L2"]],
         censoring=["C1", "C2"],
     )
+
+
+class FirstNodeStratifiedLTMLE(LTMLE):
+    """Study-only LTMLE that draws its outer split on the first treatment node.
+
+    The seam is :class:`~tests.studies.bounded_cv_laws.FoldPolicyTMLE`'s: override the
+    estimator's own fold draw rather than configure it, because the policy this class draws
+    is one the package no longer offers.  ``LTMLE._folds`` draws an unstratified partition,
+    and it used to stratify on the first treatment node.
+
+    Nothing in a registered run reaches this class, and no committed row was produced by it.
+    It exists so the attribution in ``docs/roadmap.md`` RM18 is reproducible from this
+    repository: the ``crossfit_overfitting/cross_fitted_ltmle`` 2x2 needs the retired arm,
+    and a diagnostic whose second arm came from an uncommitted edit is a number a reader
+    cannot redraw.
+
+    Parameters
+    ----------
+    *args : Any
+        Passed to :class:`~cleverly.longitudinal.LTMLE`.
+    **kwargs : Any
+        Passed to :class:`~cleverly.longitudinal.LTMLE`.
+    """
+
+    def _folds(self, data: Any) -> Folds:
+        """The retired first-node-stratified draw.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared rows.
+
+        Returns
+        -------
+        Folds
+            The realized split, stratified on the first treatment node.
+        """
+        if self.n_folds <= 1:
+            return Folds.single(data.n)
+        first = np.nan_to_num(data.treatment[:, 0])
+        return make_folds(
+            data.n,
+            resolve_n_folds(self.n_folds, data.n, first),
+            stratify=first,
+            cluster=data.cluster,
+            random_state=self.random_state,
+        )
 
 
 def _overfit(frame: pd.DataFrame, *, cross_fit: bool) -> Any:

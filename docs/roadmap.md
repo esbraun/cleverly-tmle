@@ -486,6 +486,14 @@ against a 0.15 floor. Both families are red because their positive arm is.
 A 2x2 diagnostic is a controlled run over a study's own registered seeds. It holds the law, the
 learners, the sample size, the budget and the margins fixed, and it varies one axis at a time.
 
+One of those axes is a policy the package no longer offers, so the diagnostic reaches it through a
+study-only seam rather than through a setting. The point-treatment arms come from
+`tests.studies.bounded_cv_laws.FoldPolicyTMLE`, and the longitudinal arm from
+`tests.studies.ltmle_crossfit_properties.FirstNodeStratifiedLTMLE`. Both are committed, and
+`tests/unit/test_fold_policy_rules.py` witnesses that each draws the split it names and that the
+shipped estimator draws a different one. The longitudinal seam was added after the run it
+reproduces, which used the same override applied by hand.
+
 | finding | diagnostic | what it establishes |
 | --- | --- | --- |
 | `selector_necessity/collaborative` | a law by fold-policy 2x2 at commit `4ca7a15`, over the study's 800 registered seeds | the bounded law carries most of the move. Bounded folds with treatment strata give 0.2211, and bounded folds without give 0.2173, so the fold policy adds about 0.004. The anchor Gaussian design also misses under unstratified folds, at a standardized 0.2562 against 0.25 |

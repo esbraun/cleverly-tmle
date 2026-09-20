@@ -693,16 +693,21 @@ LONGITUDINAL_COLUMNS: dict[str, Any] = {
 }
 
 
+#: The settings every sequential fit in this module shares, so a seam that replaces the
+#: estimator can be built from exactly the same declaration.
+LONGITUDINAL_SETTINGS: dict[str, Any] = {
+    "outcome_learner": LogisticRegression(max_iter=1000),
+    "treatment_learner": LogisticRegression(max_iter=1000),
+    "censoring_learner": LogisticRegression(max_iter=1000),
+    "pseudo_learner": LinearRegression(),
+    "n_folds": 3,
+    "learner_folds": 3,
+    "random_state": 0,
+}
+
+
 def sequential(**overrides: Any) -> LTMLE:
-    settings: dict[str, Any] = {
-        "outcome_learner": LogisticRegression(max_iter=1000),
-        "treatment_learner": LogisticRegression(max_iter=1000),
-        "censoring_learner": LogisticRegression(max_iter=1000),
-        "pseudo_learner": LinearRegression(),
-        "n_folds": 3,
-        "learner_folds": 3,
-        "random_state": 0,
-    }
+    settings: dict[str, Any] = dict(LONGITUDINAL_SETTINGS)
     settings.update(overrides)
     return LTMLE({"always": 1, "never": 0}, **settings)
 
@@ -756,6 +761,47 @@ class TestTheLongitudinalSplitReadsNoTreatment:
         assert not np.array_equal(first, self.assignment(moved)), (
             "the stratified split did not move, so the witness above is not evidence "
             "about what the split reads"
+        )
+
+
+class TestTheCommittedFirstNodeStratifiedSeam:
+    """The retired longitudinal policy, committed so an attribution can be redrawn.
+
+    ``docs/roadmap.md`` RM18 attributes one red cell to the fold policy alone, and the
+    diagnostic behind it needed the retired arm. The arm is
+    ``tests.studies.ltmle_crossfit_properties.FirstNodeStratifiedLTMLE`` rather than an edit
+    to the shipped estimator, so the run is reproducible from this repository.
+    """
+
+    @staticmethod
+    def _assignment(estimator: Any, frame: pd.DataFrame) -> np.ndarray:
+        return np.asarray(estimator.fit(frame, **LONGITUDINAL_COLUMNS).folds.assignment)
+
+    def test_the_seam_draws_a_split_the_first_node_moves_and_the_shipped_one_does_not(
+        self,
+    ) -> None:
+        from tests.studies.ltmle_crossfit_properties import FirstNodeStratifiedLTMLE
+
+        frame = longitudinal_frame()
+        rng = np.random.default_rng(29)
+        moved = frame.copy()
+        moved["A1"] = frame["A1"].to_numpy()[rng.permutation(len(frame))]
+
+        settings = dict(LONGITUDINAL_SETTINGS)
+        seam = FirstNodeStratifiedLTMLE({"always": 1, "never": 0}, **settings)
+        retired = self._assignment(seam, frame)
+        assert not np.array_equal(
+            retired,
+            self._assignment(
+                FirstNodeStratifiedLTMLE({"always": 1, "never": 0}, **settings), moved
+            ),
+        ), "the committed seam does not read the first node, so it is not the retired arm"
+        assert not np.array_equal(retired, self._assignment(sequential(), frame)), (
+            "the seam and the shipped estimator drew the same split, so the 2x2 would "
+            "report one policy twice"
+        )
+        np.testing.assert_array_equal(
+            self._assignment(sequential(), frame), self._assignment(sequential(), moved)
         )
 
 
