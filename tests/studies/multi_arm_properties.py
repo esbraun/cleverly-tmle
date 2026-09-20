@@ -37,6 +37,27 @@ class Sampler:
 
     effect: float = 0.6
 
+    @property
+    def name(self) -> str:
+        """What the wrapped law calls itself, so a finding can name it."""
+        return str(multi_arm_common.law(effect=self.effect).name)
+
+    def truth(self) -> dict[str, float]:
+        """The wrapped law's own integral, for a cell that declares this sampler.
+
+        A cell carries a sampler rather than a ``DGP`` here, and the truth-binding test
+        recomputes every committed truth from the law a cell names.  Exposing it is what
+        lets a multi-arm study declare its cells: without it the test would have no law to
+        integrate, and a row that swapped one could publish a truth belonging to the law it
+        replaced.
+
+        Returns
+        -------
+        dict
+            Arm means, reference-arm differences, risk ratios and odds ratios.
+        """
+        return multi_arm_common.truth_for(multi_arm_common.law(effect=self.effect))
+
     def __call__(self, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
         process = multi_arm_common.law(effect=self.effect)
         frame, _ = process.sample(n, seed=seed, backend="pandas")
@@ -77,6 +98,21 @@ class SelectorSampler:
             arm_logits=arm_logits,
             outcome_mean=outcome_mean,
         )
+
+    @property
+    def name(self) -> str:
+        """What the instrument law calls itself, so a finding can name it."""
+        return str(self.process().name)
+
+    def truth(self) -> dict[str, float]:
+        """The instrument law's own integral, for a cell that declares this sampler.
+
+        Returns
+        -------
+        dict
+            Arm means, reference-arm differences, risk ratios and odds ratios.
+        """
+        return multi_arm_common.truth_for(self.process())
 
     def __call__(self, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
         process = self.process()

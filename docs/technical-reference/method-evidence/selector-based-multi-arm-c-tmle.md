@@ -10,38 +10,45 @@ and odds ratios. The property record runs all three selector paths beside a forc
 identical draws. Each path reports its own root-mean-square error against that control. A path
 that reaches a ratio of one chose the control's mechanism path, so its pair is not a control.
 
+The primary fit is not cross-fitted, and it still draws a split. The selector scores its
+candidate path over five selection folds. That split reads no label here: the fit declares
+`stratify_folds="none"`, and it asserts the realized partition before it reports a row. The
+property cells declare the same split, and there it reaches the outer folds, the selection folds
+and the nested folds of each candidate. No cell declares `q_bounds`, because every law in this
+row has a binary outcome, whose outcome scaler is already the identity.
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| three-arm binary-outcome law, discrete selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0020 to 0.0036 | 0.9375 | 0.9923 | pass |
-| three-arm binary-outcome law, discrete selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0015 to 0.0039 | 0.9400 | 0.9794 | pass |
-| three-arm binary-outcome law, discrete selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.0027 to 0.0012 | 0.9437 | 0.9939 | pass |
-| three-arm binary-outcome law, discrete selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.0020 to 0.0020 | 0.9475 | 0.9863 | pass |
-| three-arm binary-outcome law, discrete selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0016 to 0.0024 | 0.9387 | 0.9661 | pass |
-| three-arm binary-outcome law, discrete selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0069 to 0.0158 | 0.9400 | 0.9921 | pass |
-| three-arm binary-outcome law, discrete selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0044 to 0.0193 | 0.9375 | 0.9776 | pass |
-| three-arm binary-outcome law, discrete selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0036 to 0.0089 | 0.9400 | 0.9922 | pass |
-| three-arm binary-outcome law, discrete selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0022 to 0.0095 | 0.9313 | 0.9842 | pass |
-| three-arm binary-outcome law, greedy selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0043 to 0.0014 | 0.9325 | 0.9587 | pass |
-| three-arm binary-outcome law, greedy selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0040 to 0.0014 | 0.9450 | 0.9903 | pass |
-| three-arm binary-outcome law, greedy selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.0012 to 0.0027 | 0.9487 | 0.9835 | pass |
-| three-arm binary-outcome law, greedy selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.0027 to 0.0013 | 0.9413 | 0.9884 | pass |
-| three-arm binary-outcome law, greedy selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0025 to 0.0014 | 0.9313 | 0.9728 | pass |
-| three-arm binary-outcome law, greedy selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0166 to 0.0068 | 0.9350 | 0.9586 | pass |
-| three-arm binary-outcome law, greedy selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0148 to 0.0083 | 0.9437 | 0.9902 | pass |
-| three-arm binary-outcome law, greedy selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0091 to 0.0038 | 0.9363 | 0.9577 | pass |
-| three-arm binary-outcome law, greedy selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0075 to 0.0040 | 0.9463 | 0.9898 | pass |
-| three-arm binary-outcome law, ordered selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0027 to 0.0029 | 0.9437 | 0.9847 | pass |
-| three-arm binary-outcome law, ordered selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0029 to 0.0024 | 0.9500 | 0.9992 | pass |
-| three-arm binary-outcome law, ordered selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.000962 to 0.0031 | 0.9387 | 0.9665 | pass |
-| three-arm binary-outcome law, ordered selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.000877 to 0.0031 | 0.9487 | 0.9984 | pass |
-| three-arm binary-outcome law, ordered selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0011 to 0.0027 | 0.9437 | 1.0014 | pass |
-| three-arm binary-outcome law, ordered selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0102 to 0.0126 | 0.9463 | 0.9851 | pass |
-| three-arm binary-outcome law, ordered selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0101 to 0.0130 | 0.9513 | 1.0005 | pass |
-| three-arm binary-outcome law, ordered selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0061 to 0.0065 | 0.9463 | 0.9834 | pass |
-| three-arm binary-outcome law, ordered selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0061 to 0.0054 | 0.9500 | 0.9888 | pass |
+| three-arm binary-outcome law, discrete selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0020 to 0.0036 | 0.9400 | 0.9859 | pass |
+| three-arm binary-outcome law, discrete selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0015 to 0.0040 | 0.9400 | 0.9799 | pass |
+| three-arm binary-outcome law, discrete selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.0027 to 0.0012 | 0.9437 | 0.9882 | pass |
+| three-arm binary-outcome law, discrete selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.0020 to 0.0020 | 0.9487 | 0.9856 | pass |
+| three-arm binary-outcome law, discrete selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0015 to 0.0025 | 0.9375 | 0.9591 | pass |
+| three-arm binary-outcome law, discrete selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0071 to 0.0158 | 0.9413 | 0.9855 | pass |
+| three-arm binary-outcome law, discrete selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0041 to 0.0196 | 0.9387 | 0.9780 | pass |
+| three-arm binary-outcome law, discrete selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0037 to 0.0089 | 0.9437 | 0.9854 | pass |
+| three-arm binary-outcome law, discrete selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0021 to 0.0095 | 0.9425 | 0.9845 | pass |
+| three-arm binary-outcome law, greedy selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0044 to 0.0013 | 0.9363 | 0.9580 | pass |
+| three-arm binary-outcome law, greedy selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0041 to 0.0013 | 0.9400 | 0.9877 | pass |
+| three-arm binary-outcome law, greedy selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.0012 to 0.0028 | 0.9513 | 0.9824 | pass |
+| three-arm binary-outcome law, greedy selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.0027 to 0.0013 | 0.9413 | 0.9898 | pass |
+| three-arm binary-outcome law, greedy selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0025 to 0.0014 | 0.9437 | 0.9704 | pass |
+| three-arm binary-outcome law, greedy selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0169 to 0.0066 | 0.9387 | 0.9578 | pass |
+| three-arm binary-outcome law, greedy selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0153 to 0.0080 | 0.9450 | 0.9875 | pass |
+| three-arm binary-outcome law, greedy selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0093 to 0.0037 | 0.9375 | 0.9567 | pass |
+| three-arm binary-outcome law, greedy selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0077 to 0.0038 | 0.9450 | 0.9878 | pass |
+| three-arm binary-outcome law, ordered selector | `ate[low vs high]` | difference in counterfactual means, low versus high | `cleverly` multi-arm selector C-TMLE | -0.0026 to 0.0029 | 0.9450 | 0.9906 | pass |
+| three-arm binary-outcome law, ordered selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | `cleverly` multi-arm selector C-TMLE | -0.0028 to 0.0025 | 0.9463 | 1.0012 | pass |
+| three-arm binary-outcome law, ordered selector | `ey[high]` | counterfactual mean under treatment arm 'high' | `cleverly` multi-arm selector C-TMLE | -0.0011 to 0.0029 | 0.9363 | 0.9664 | pass |
+| three-arm binary-outcome law, ordered selector | `ey[low]` | counterfactual mean under treatment arm 'low' | `cleverly` multi-arm selector C-TMLE | -0.000906 to 0.0031 | 0.9500 | 0.9986 | pass |
+| three-arm binary-outcome law, ordered selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | `cleverly` multi-arm selector C-TMLE | -0.0011 to 0.0027 | 0.9450 | 1.0006 | pass |
+| three-arm binary-outcome law, ordered selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0098 to 0.0130 | 0.9437 | 0.9911 | pass |
+| three-arm binary-outcome law, ordered selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0097 to 0.0134 | 0.9500 | 1.0028 | pass |
+| three-arm binary-outcome law, ordered selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0058 to 0.0067 | 0.9363 | 0.9895 | pass |
+| three-arm binary-outcome law, ordered selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | `cleverly` multi-arm selector C-TMLE | -0.0058 to 0.0057 | 0.9487 | 0.9914 | pass |
 <!-- /generated -->
 
 ## Canonical comparison
@@ -54,18 +61,18 @@ therefore intentionally empty.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9085 to 0.9427, SE ratio 0.8949 to 0.9828 | **fail** |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9119 to 0.9454, SE ratio 0.8987 to 0.9862 | **fail** |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000115, coverage 0.9087 to 0.9702, SE ratio 0.9545 | pass |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.000897, coverage 0.9057 to 0.9683, SE ratio 0.9881 | pass |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000707, coverage 0.9087 to 0.9702, SE ratio 0.9834 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5492 to -0.4578 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5092 to -0.5030 | pass |
-| `selector_necessity` | `discrete` | positive | the discrete selector chooses among a declared candidate ladder | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.1591 to 0.1662, margin 0.0069, RMSE ratio 1 | **fail** |
-| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.1591 to 0.1662, margin 0.0069, RMSE ratio 1 | pass |
-| `selector_necessity` | `greedy` | positive | the greedy selector chooses its own mechanism path | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0286 to 0.0451, margin 0.0160, RMSE ratio 0.4470 | **fail** |
-| `selector_necessity` | `ordered` | positive | the ordered selector chooses how far along a fixed covariate order to go | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0147 to 0.0296, margin 0.0144, RMSE ratio 0.3736 | **fail** |
-| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0700, 0.0412 to 0.1095 | **fail** |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000089, coverage 0.9087 to 0.9702, SE ratio 0.9567 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892 | **fail** |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000647, coverage 0.9057 to 0.9683, SE ratio 0.9815 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5502 to -0.4599 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5123 to -0.5058 | pass |
+| `selector_necessity` | `discrete` | positive | the discrete selector chooses among a declared candidate ladder | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.1589 to 0.1660, margin 0.0069, RMSE ratio 1 | **fail** |
+| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.1589 to 0.1660, margin 0.0069, RMSE ratio 1 | pass |
+| `selector_necessity` | `greedy` | positive | the greedy selector chooses its own mechanism path | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0279 to 0.0443, margin 0.0158, RMSE ratio 0.4415 | **fail** |
+| `selector_necessity` | `ordered` | positive | the ordered selector chooses how far along a fixed covariate order to go | bias interval inside the equivalence margin, and RMSE below the control's by the declared ratio | bias 0.0154 to 0.0304, margin 0.0145, RMSE ratio 0.3781 | **fail** |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0625, 0.0354 to 0.1004 | **fail** |
 <!-- /generated -->
 
 ## Measured values
@@ -79,7 +86,7 @@ therefore intentionally empty.
 | `subject_tests_total` | 27 | selector truth tests |
 | `subject_tests_passed` | 27 | selector truth tests passing |
 | `property_cells_total` | 12 | repeated-sampling property cells |
-| `property_cells_passed` | 6 | property cells passing |
+| `property_cells_passed` | 5 | property cells passing |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -108,7 +115,7 @@ therefore intentionally empty.
 ## Limitations
 
 This row has reporting policy because multi-arm repeated-sampling evidence was absent when the
-study was declared. Five of its cells are red, and each one measures a different thing.
+study was declared. Six of its cells are red, and each one measures a different thing.
 
 The selector-necessity law is a strong instrument. It is the only law in this row that puts units
 outside the declared 0.025 truncation bounds.
@@ -125,6 +132,14 @@ reaches the empty candidate under a correct outcome regression. The reported cov
 selected candidate as fixed and makes no conditional-coverage claim, so this row offers no
 calibrated inference while selection is load-bearing.
 [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) records the missing result.
+
+The n = 500 size cell is red as well. Its exact 99% coverage endpoint falls below the 0.90 floor
+by a few thousandths at 400 replications. Every other declared quantity in that cell is green:
+the bias sits well inside the margin and the SE ratio sits inside the sanity band. The cell was
+green on a treatment-stratified split and is red on the unstratified one this row now declares.
+The budget, the size, the seed and the margins did not move, so the comparison is between two
+splits at one Monte Carlo resolution. The two larger sizes stay green, and both root-n rates
+stay inside their band, so the row records no departure from the rate the theory predicts.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance
