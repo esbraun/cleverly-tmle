@@ -278,11 +278,12 @@ Each row gives the shipped remedy in the message's own words.
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
 | `id=` on a cross-fitted longitudinal fit | `LongitudinalError` | "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), which is clustered and evidenced, or drop id= from fit." |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
-| a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only labels the recorded generator produces, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
+| a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
 | a treatment arm held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that arm and no fold count or seed can fit the treatment mechanism; fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". Under `id=` the message says "clusters" in place of "rows" |
-| a drawn split whose training complement lacks an arm, an observed outcome class, or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
+| an outcome class held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that class and no fold count or seed can fit the outcome regression; collect more observations with outcome 1". Under `id=` the message says "clusters" in place of "rows" |
+| a drawn split whose training complement lacks an arm, a row with an observed outcome, an observed outcome class, or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
 | a drawn longitudinal split that leaves a node level or a regimen unsupported | `LongitudinalError` before the first learner | "The split reads none of the data, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect more observations at the rare level." The tail changes with the shortfall |
-| a generated-outcome refutation on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Run the refutation on a fit that leaves q_bounds=None, which a cross-fitted continuous fit cannot do, so fit with cross_fit=False (CrossFitting(enabled=False)) to refute a continuous outcome" |
+| a generated-outcome refutation on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Leave q_bounds=None on the fit you refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to declare them, so refute a continuous outcome on a fit with cross_fit=False (CrossFitting(enabled=False))" |
 
 `CrossFitting(n_folds=1)` is not the in-sample spelling. That declaration keeps `enabled=True`, so
 it is refused at construction. Write `CrossFitting(enabled=False)`, which the engine receives as
@@ -409,6 +410,13 @@ again from its record and compares the labels one by one. It runs before the fir
 that no recorded draw produces could have been chosen by reading the outcome, the treatment, or a
 covariate, and a fit refuses them. The refusal names the repeat.
 
+The check has one limit, and the limit is the caller's declaration. The record holds the fold count
+and the seed that the caller gave, so `verify` accepts any labels that pair draws. It rules out a
+hand-built assignment, a stratified one, and one edited after the draw. It does not rule out a seed
+the caller chose after reading the data, because the package has nothing local to audit a
+declaration against. Pass `result.split_plan` from an earlier fit, which is the source this
+contract is written for.
+
 | the plan | what it records | a fit |
 | --- | --- | --- |
 | `SplitPlan.from_folds(...)` over `random_partition` draws | one `FoldOrigin` per draw | accepts it |
@@ -458,8 +466,9 @@ Validation checks row count, repeat count, label contiguity, required training a
 stratification, and whole-cluster assignment. The implementation
 rejects a supplied plan rather than repairing an invalid one. The `SplitPlan.validate` method names
 the balancing vector `stratify=`, as `make_folds` does, because `strata` is the survey design role.
-A fit then records the values validation held the folds to, under `config.crossfit.stratify_by`,
-and it records `scheme="supplied"` for the fact that nothing was generated.
+
+A fit records `scheme="supplied"` for the fact that nothing was generated. It records
+`config.crossfit.stratify_by` empty, because this version holds the folds to no balancing vector.
 
 [Scope and refusals](scope-and-refusals.md) indexes what a supplied plan refuses. The refutation
 battery is the entry worth reading here. A refutation refits, and a supplied plan can only label

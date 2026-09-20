@@ -201,9 +201,11 @@ def bounded_frame(n: int = 200, seed: int = 0, **kwargs: Any) -> Any:
 def fast_tmle(**overrides: Any) -> TMLE:
     """A quick, reproducible estimator for tests.
 
-    No cross-fitting default of its own: a caller that is not testing cross-fitting passes
-    ``**IN_SAMPLE``, and one that is passes a bounded or binary law. Choosing here would
-    put every caller's subject on one line neither of them wrote.
+    :data:`FAST_KWARGS` sets no ``cross_fit`` key, so a fit takes :class:`cleverly.TMLE`'s
+    own default of ``True`` at the ``n_folds=5`` declared above. A caller whose subject is
+    not cross-fitting passes ``**IN_SAMPLE``, and one whose subject is it passes a bounded
+    or binary law. Deciding the switch here would put every caller's subject on one line
+    neither of them wrote.
     """
     return TMLE(**{**FAST_KWARGS, **overrides})
 

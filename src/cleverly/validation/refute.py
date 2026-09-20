@@ -1006,9 +1006,10 @@ def _validate_generated_eligibility(
             "process, whose support is the whole real line, and this fit declares "
             f"q_bounds={estimator.q_bounds!r}. The refit would scale the generated "
             "outcome into a range it is not confined to and report the refutation under "
-            "bounds the process does not satisfy. Run the refutation on a fit that leaves "
-            "q_bounds=None, which a cross-fitted continuous fit cannot do, so fit with "
-            "cross_fit=False (CrossFitting(enabled=False)) to refute a continuous outcome"
+            "bounds the process does not satisfy. Leave q_bounds=None on the fit you "
+            "refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to "
+            "declare them, so refute a continuous outcome on a fit with cross_fit=False "
+            "(CrossFitting(enabled=False))"
         )
     outcome_learner = getattr(estimator, "outcome_learner", None)
     incompatible_learner = _classification_only_learner(outcome_learner)

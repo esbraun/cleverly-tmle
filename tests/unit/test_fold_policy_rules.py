@@ -15,6 +15,7 @@ them is the reason the test is named after.
 
 from __future__ import annotations
 
+import re
 import sys
 from typing import Any
 
@@ -438,10 +439,22 @@ class RecordingSuperLearner(SuperLearner):
 
 
 class TestTheInnerSplitDoesNotReadHeldOutRows:
-    """W5. A Super Learner's inner split is a function of its own training rows."""
+    """W5. A Super Learner's inner split is a function of its own training rows.
+
+    The recorded learner is the *treatment* one, and its inner split is stratified on its
+    own target, ``A``. The perturbation is therefore a perturbation of ``A``: flipping
+    ``Y`` cannot move this split under any implementation, so a ``Y`` witness would pass
+    against a mutation that read every row of ``A``, which is the leak being ruled out.
+
+    A one-row flip of ``A`` moves the target of every outer fold that *trains* on that
+    row, so most recorded splits move and must. The claim is about the one fold that
+    holds the row out: its Super Learner never saw the row, so its split has to be the
+    one it drew before. Both halves are asserted, because the unchanged half alone is
+    what a dead perturbation also produces.
+    """
 
     @staticmethod
-    def inner_splits(frame: pd.DataFrame) -> list[tuple[int, ...]]:
+    def inner_splits(frame: pd.DataFrame) -> tuple[np.ndarray, list[tuple[int, ...]]]:
         _RECORDED_INNER_SPLITS.clear()
         estimator = TMLE(
             outcome_learner=LogisticRegression(max_iter=1000),
@@ -456,18 +469,38 @@ class TestTheInnerSplitDoesNotReadHeldOutRows:
             simultaneous=False,
             estimands=["ate"],
         )
-        estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
-        return list(_RECORDED_INNER_SPLITS)
+        result = estimator.fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
+        ).single()
+        outer = np.asarray(result.nuisance.folds.assignment)
+        return outer, list(_RECORDED_INNER_SPLITS)
 
     @staticmethod
-    def with_one_outcome_flipped(frame: pd.DataFrame) -> pd.DataFrame:
+    def with_one_treatment_flipped(frame: pd.DataFrame, row: int = 0) -> pd.DataFrame:
         moved = frame.copy()
-        moved.loc[0, "Y"] = 1.0 - float(frame.loc[0, "Y"])
+        moved.loc[row, "A"] = 1.0 - float(frame.loc[row, "A"])
         return moved
 
-    def test_flipping_a_held_out_outcome_moves_no_inner_split(self) -> None:
+    def test_flipping_a_held_out_treatment_moves_no_inner_split_of_that_fold(self) -> None:
         frame, _ = make_binary_outcome(n=200, seed=5)
-        assert self.inner_splits(frame) == self.inner_splits(self.with_one_outcome_flipped(frame))
+        before_outer, before = self.inner_splits(frame)
+        after_outer, after = self.inner_splits(self.with_one_treatment_flipped(frame))
+
+        # The outer draw reads n, the clusters and the seed, so the fold that holds row
+        # zero out is the same fold in both fits. W1 pins that property on its own.
+        np.testing.assert_array_equal(before_outer, after_outer)
+        held_out = int(before_outer[0])
+        assert len(before) == len(after) == before_outer.max() + 1
+        assert before[held_out] == after[held_out], (
+            "the inner split of the fold that holds the perturbed row out moved, so the "
+            "Super Learner read a row outside its training complement"
+        )
+        moved = [fold for fold in range(len(before)) if before[fold] != after[fold]]
+        assert moved, (
+            "no recorded inner split moved at all, so the perturbation is dead and the "
+            "unchanged fold above is evidence about nothing"
+        )
+        assert held_out not in moved
 
     def test_an_inner_split_that_reads_every_row_does_move(
         self, monkeypatch: pytest.MonkeyPatch
@@ -476,26 +509,30 @@ class TestTheInnerSplitDoesNotReadHeldOutRows:
 
         The mutation is the smallest implementation that reads outside the training rows:
         the inner split is balanced on the first ``n`` entries of the whole sample's
-        outcome rather than on the target the learner was handed.
+        treatment rather than on the target the learner was handed. Under it the fold
+        that holds the perturbed row out moves as well, which is what the witness above
+        forbids.
         """
         import cleverly.learners.super_learner as learners
 
         frame, _ = make_binary_outcome(n=200, seed=5)
-        leaked = {"outcome": frame["Y"].to_numpy(dtype=float)}
+        leaked = {"treatment": frame["A"].to_numpy(dtype=float)}
         original = learners.make_folds
 
         def leaking(n: int, n_folds: int = 10, **kwargs: Any) -> Any:
             if kwargs.get("stratify") is not None:
-                kwargs["stratify"] = leaked["outcome"][:n]
+                kwargs["stratify"] = leaked["treatment"][:n]
             return original(n, n_folds, **kwargs)
 
         monkeypatch.setattr(learners, "make_folds", leaking)
-        first = self.inner_splits(frame)
-        moved = self.with_one_outcome_flipped(frame)
-        leaked["outcome"] = moved["Y"].to_numpy(dtype=float)
-        assert first != self.inner_splits(moved), (
-            "the leaking inner split did not move, so the witness above is not evidence "
-            "about what the inner split reads"
+        before_outer, before = self.inner_splits(frame)
+        moved_frame = self.with_one_treatment_flipped(frame)
+        leaked["treatment"] = moved_frame["A"].to_numpy(dtype=float)
+        _, after = self.inner_splits(moved_frame)
+        held_out = int(before_outer[0])
+        assert before[held_out] != after[held_out], (
+            "the leaking inner split of the holding-out fold did not move, so the witness "
+            "above is not evidence about what the inner split reads"
         )
 
 
@@ -844,3 +881,288 @@ def test_every_registered_fold_seed_stays_inside_the_generators_range() -> None:
         f"{worst_label} would hand random_partition a seed {-worst} above its limit; "
         "reduce the stream modulo 2**31 - 1, as CrossFitPlan.seeds does"
     )
+
+
+# --------------------------------- W9: what a training complement owes beyond the arms
+
+
+def seed_stranding_rows(n: int, n_folds: int, rows: np.ndarray, limit: int = 20_000) -> int:
+    """A seed whose draw puts every row of ``rows`` in one fold.
+
+    The generalisation of :func:`seed_stranding_an_arm`, which asks the same question of
+    the treated rows. Searched over the generator the fit uses, so the property holds of
+    a split the package itself would draw.
+    """
+    for seed in range(limit):
+        folds = random_partition(n, n_folds, seed=seed)
+        if np.unique(np.asarray(folds.assignment)[rows]).size == 1:
+            return seed
+    raise AssertionError("no seed in the search range stranded those rows")
+
+
+def respondents_in_one_fold(n: int = 60, n_folds: int = 6) -> tuple[pd.DataFrame, int]:
+    """A continuous-outcome sample whose four respondents share one fold.
+
+    The fit that reads it declares a regime axis, which keeps it off the arm-indexed
+    stacked surface and that contract's own preflight, so the general complement check is
+    what has to catch the respondentless training complement.
+    """
+    rng = np.random.default_rng(0)
+    respondents = np.array([0, 1, 2, 3])
+    delta = np.zeros(n)
+    delta[respondents] = 1.0
+    frame = pd.DataFrame(
+        {
+            "Y": np.where(delta == 1.0, rng.uniform(0.2, 0.8, size=n), np.nan),
+            "A": rng.binomial(1, 0.5, size=n).astype(float),
+            "W1": rng.normal(size=n),
+            "W2": rng.normal(size=n),
+            "D": delta,
+        }
+    )
+    frame.loc[respondents, "A"] = np.array([0.0, 1.0, 0.0, 1.0])
+    return frame, seed_stranding_rows(n, n_folds, respondents)
+
+
+class TestARespondentlessComplementIsRefusedOnEveryScale:
+    """W9. The outcome regression trains on the respondents, whatever scale they are on.
+
+    The binary case was covered through the outcome classes, which a Gaussian outcome has
+    none of, so a continuous outcome with ``delta=`` reached a learner and failed inside
+    one. The complement check asks for a respondent on every scale.
+    """
+
+    @staticmethod
+    def regime_fit(**overrides: Any) -> TMLE:
+        from cleverly.interventions import Static
+
+        return bounded_fit(interventions={"treat": Static(1)}, estimands=None, **overrides)
+
+    @staticmethod
+    def columns() -> dict[str, Any]:
+        return {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"], "delta": "D"}
+
+    def test_the_fit_is_refused_with_no_learner_fitted(self) -> None:
+        frame, seed = respondents_in_one_fold()
+        reset_counter()
+        estimator = self.regime_fit(
+            outcome_learner=CountingLinear(),
+            treatment_learner=CountingLogistic(max_iter=1000),
+            n_folds=6,
+            random_state=seed,
+        )
+        with pytest.raises(DataError, match="contains no row with an observed outcome"):
+            estimator.fit(frame, **self.columns())
+        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+
+    def test_the_refusal_names_no_redraw(self) -> None:
+        frame, seed = respondents_in_one_fold()
+        with pytest.raises(DataError) as raised:
+            self.regime_fit(n_folds=6, random_state=seed).fit(frame, **self.columns())
+        message = str(raised.value)
+        for forbidden in ("Increase n_folds", "different random_state", "reduce n_folds"):
+            assert forbidden not in message, f"the refusal offers {forbidden!r}"
+
+    def test_disabling_the_preflight_lets_the_same_draw_reach_a_learner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control. Without the check the respondentless complement reaches a fit."""
+        monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
+        frame, seed = respondents_in_one_fold()
+        reset_counter()
+        estimator = self.regime_fit(
+            outcome_learner=CountingLinear(),
+            treatment_learner=CountingLogistic(max_iter=1000),
+            n_folds=6,
+            random_state=seed,
+        )
+        with pytest.raises(Exception):  # noqa: B017 - any downstream failure will do
+            estimator.fit(frame, **self.columns())
+        assert _FIT_COUNTER, "the disabled preflight still fitted no learner"
+
+
+class TestASingleEventOutcomeStatesASampleMinimum:
+    """W10. One unit holding an outcome class is a fact about the sample, not the draw.
+
+    Every partition leaves the complement of that unit's own fold without the class, so
+    the refusal states the minimum rather than describing one drawn split, exactly as the
+    arm minimum beside it does.
+    """
+
+    @staticmethod
+    def single_event_frame(n: int = 60) -> pd.DataFrame:
+        rng = np.random.default_rng(1)
+        frame = pd.DataFrame(
+            {
+                "Y": np.zeros(n),
+                "A": rng.binomial(1, 0.5, size=n).astype(float),
+                "W1": rng.normal(size=n),
+                "W2": rng.normal(size=n),
+            }
+        )
+        frame.loc[0, "Y"] = 1.0
+        return frame
+
+    @staticmethod
+    def binary_fit(**overrides: Any) -> TMLE:
+        settings: dict[str, Any] = {
+            "outcome_learner": LogisticRegression(max_iter=1000),
+            "treatment_learner": LogisticRegression(max_iter=1000),
+            "n_folds": 5,
+            "learner_folds": 3,
+            "random_state": 0,
+            "simultaneous": False,
+            "estimands": ["ate"],
+        }
+        settings.update(overrides)
+        return TMLE(**settings)
+
+    def test_the_refusal_states_the_minimum_and_names_no_split(self) -> None:
+        reset_counter()
+        estimator = self.binary_fit(
+            outcome_learner=CountingLogistic(max_iter=1000),
+            treatment_learner=CountingLogistic(max_iter=1000),
+        )
+        with pytest.raises(DataError) as raised:
+            estimator.fit(
+                self.single_event_frame(), outcome="Y", treatment="A", covariates=["W1", "W2"]
+            )
+        message = str(raised.value)
+        assert "needs each outcome class in at least two independent units" in message
+        assert "outcome 1 appears in 1 row(s)" in message
+        assert "collect more observations with outcome 1" in message
+        for forbidden in ("Increase n_folds", "different random_state", "reduce n_folds"):
+            assert forbidden not in message, f"the refusal offers {forbidden!r}"
+        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+
+    def test_two_events_in_one_cluster_count_as_one_unit(self) -> None:
+        """The unit is the cluster, because a grouped draw moves whole clusters."""
+        frame = self.single_event_frame(n=60)
+        frame["cid"] = np.repeat(np.arange(12), 5)
+        frame.loc[1, "Y"] = 1.0  # the same cluster as row zero
+        with pytest.raises(DataError, match="outcome 1 appears in 1 cluster"):
+            self.binary_fit(n_folds=4).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid"
+            )
+
+    def test_two_events_in_one_fold_get_the_per_draw_message_instead(self) -> None:
+        """The control. Two units clear the minimum, and the draw is then what refuses.
+
+        The same sample with one more event is refused for a different reason and in a
+        different sentence, so the minimum above is what the first message is about.
+        """
+        frame = self.single_event_frame()
+        frame.loc[30, "Y"] = 1.0
+        seed = seed_stranding_rows(len(frame), 5, np.array([0, 30]))
+        with pytest.raises(DataError) as raised:
+            self.binary_fit(random_state=seed).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+            )
+        message = str(raised.value)
+        assert "needs each outcome class in at least two independent units" not in message
+        assert "training complement contains no observed outcome 1" in message
+
+
+# ------------------------------- I2: no post-draw refusal names a repartition, anywhere
+
+
+class TestTheReducedRegressionRefusalNamesNoRedraw:
+    """The third fold loop. Its message used to end "reduce n_folds".
+
+    The reduced regressions are fitted inside the same drawn split as the primary
+    nuisances, so this is a post-draw refusal and may name no redraw either. It is the
+    backstop under the complement preflight, which refuses the same draw first: the
+    preflight is disabled here so that the message below is the one raised, and a
+    treatment learner that tolerates a single class keeps the primary nuisances from
+    failing before it.
+    """
+
+    def test_it_offers_the_pooled_construction_and_no_new_split(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sklearn.dummy import DummyClassifier
+
+        monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
+        n, n_folds = 60, 6
+        rng = np.random.default_rng(0)
+        frame = pd.DataFrame(
+            {
+                "Y": rng.uniform(0.2, 0.8, size=n),
+                "A": np.zeros(n),
+                "W1": rng.normal(size=n),
+                "W2": rng.normal(size=n),
+            }
+        )
+        treated = np.array([0, 1, 2])
+        frame.loc[treated, "A"] = 1.0
+        estimator = DRTMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=DummyClassifier(strategy="prior"),
+            q_bounds=(0.0, 1.0),
+            n_folds=n_folds,
+            learner_folds=3,
+            random_state=seed_stranding_rows(n, n_folds, treated),
+            simultaneous=False,
+            estimands=["ate"],
+            reduced_crossfit="nested",
+        )
+        with pytest.raises(ValueError) as raised:
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        message = str(raised.value)
+        assert "no trainable rows for a reduced regression" in message
+        assert "reduced_crossfit='pooled'" in message
+        for forbidden in ("Increase n_folds", "different random_state", "reduce n_folds"):
+            assert forbidden not in message, f"the refusal offers {forbidden!r}"
+
+
+# ------------------------------------------- M7: the balancing policies reach no split
+
+
+def test_no_fit_reaches_the_strata_decision_under_a_balancing_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal comes first at every setting, so ``_fold_strata`` sees ``"none"`` only.
+
+    This is what lets the two ``"treatment+outcome"`` refusals that stood inside that
+    method be deleted rather than kept for a caller who cannot reach them. The policy is
+    smuggled onto a constructed estimator as well as declared, because a restored result
+    and a copied estimator arrive that way. Under ``cross_fit=False`` the declaration is
+    accepted, and it still reaches no split: the fit trains on every row.
+    """
+    seen: list[str] = []
+    original = TMLE._fold_strata
+
+    def recording(self: TMLE, data: Any) -> Any:
+        seen.append(self.stratify_folds)
+        return original(self, data)
+
+    monkeypatch.setattr(TMLE, "_fold_strata", recording)
+    frame, _ = make_nonlinear_bounded(n=120, seed=1)
+    columns: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": "A",
+        "covariates": BOUNDED_COVARIATES,
+    }
+
+    for policy in ("treatment", "treatment+outcome"):
+        named = re.escape(f"stratify_folds={policy!r}")
+        with pytest.raises(ValueError, match=named):
+            bounded_fit(stratify_folds=policy, n_folds=3)
+        for cross_fit in (True, False):
+            smuggled = bounded_fit(cross_fit=cross_fit, n_folds=3)
+            smuggled.stratify_folds = policy
+            if cross_fit:
+                with pytest.raises(ValueError, match=named):
+                    smuggled.fit(frame, **columns)
+            else:
+                smuggled.fit(frame, **columns)
+        # A collaborative fit draws selection folds at every setting, so it is refused
+        # at both, and the declaration never reaches its own partition either.
+        for cross_fit in (True, False):
+            with pytest.raises(ValueError, match=named):
+                collaborative(stratify_folds=policy, cross_fit=cross_fit)
+    assert seen == [], f"a fit reached _fold_strata under {sorted(set(seen))}"
+
+    # The control: the recorder is installed, and an ordinary cross-fitted fit reaches it.
+    bounded_fit(n_folds=3).fit(frame, **columns)
+    assert seen == ["none"]

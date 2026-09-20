@@ -42,7 +42,10 @@ before any nuisance is fitted, by different routes -- :func:`make_folds` checks 
 built, and :meth:`SplitPlan.validate` checks what it was given against the data it is
 about to label.  A supplied plan must also carry the :class:`FoldOrigin` of every repeat,
 and :meth:`SplitPlan.verify` draws each repeat again from that record: labels that no
-recorded draw produces could have been chosen by looking at the outcome.
+recorded draw produces could have been chosen by looking at the outcome.  The record
+holds the fold count and the seed the caller declared, so that check rules out a
+hand-built, a stratified and an edited assignment, and it cannot audit the declaration
+itself.  ``result.split_plan`` of an earlier fit is the source it is written for.
 
 The unstratified outer splits, row-level and grouped, are the package's own:
 :func:`random_partition` draws them from the seed alone and records how on
@@ -97,12 +100,29 @@ _MAX_SEED = 2**32 - 1
 #: seed that happen to succeed were chosen by looking at the data the split must not read.
 _IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 
+#: What a refusal raised *after* the split was drawn may offer, and why it offers no
+#: redraw. A fold count or a seed that happens to give every complement what it needs was
+#: chosen by looking at the treatment and the outcome, which is the dependence the
+#: unstratified draw exists to remove; searching for one would put it back by hand.
+#: Written here rather than beside one of its callers because four of them raise it:
+#: the engine's preflights, the collaborative fold loop, the nuisance fold loop and the
+#: reduced-regression fold loop, and none of those modules can import another.
+_POST_DRAW_REMEDY = (
+    "The split is drawn from the seed alone and reads no treatment or outcome, so trying "
+    "fold counts or seeds until one fits would choose the partition by the values it must "
+    "not read. Either {remedy}, or collect more observations at the rare level."
+)
+
 #: Why a plan without a generator record is refused, and how to get one that has it.
+#: The record names a fold count and a seed the caller declared, so drawing the labels
+#: again rules out an assignment nothing generated. It does not audit the declaration,
+#: which is why the message names ``result.split_plan`` as the source rather than any
+#: pair of numbers that happens to reproduce the labels.
 _UNRECORDED_PLAN_REASON = (
     "split_plan carries no generator record, so the fit cannot draw its labels again and "
-    "confirm that no treatment, outcome or covariate value chose them. A hand-built "
-    "assignment has no record, and neither has a stratified split. Pass result.split_plan "
-    "from a fit with unstratified folds (stratify_by='none'), or build the plan with "
+    "check that they are the split the record describes. A hand-built assignment has no "
+    "record, and neither has a stratified split. Pass result.split_plan from a fit with "
+    "unstratified folds (stratify_by='none'), or build the plan with "
     "SplitPlan.from_folds over random_partition draws"
 )
 
@@ -698,7 +718,15 @@ class SplitPlan(_DefaultingUnpickle):
         count and seed, and compared label for label. The recorded scheme must be
         ``"grouped"`` when the data declare clusters and ``"vfold"`` when they do not. The
         draw reads ``n`` and the cluster labels only, so a plan that passes holds labels
-        that no treatment, outcome or covariate value chose.
+        the recorded fold count and seed produce.
+
+        What this rules out is an assignment no draw of this package made: a hand-built
+        one, a stratified one, and one edited after the draw. What it cannot rule out is
+        the declaration itself. The fold count and the seed come from the caller, so a
+        caller who searched for a seed gets a plan this method accepts. A fit records
+        that declaration and has nothing local to audit it against.
+        ``result.split_plan`` of an earlier fit is the source this contract is written
+        for.
 
         Parameters
         ----------
@@ -759,9 +787,9 @@ class SplitPlan(_DefaultingUnpickle):
                 raise DataError(
                     f"split-plan repeat {repeat} differs from the split its record draws "
                     f"(seed {origin.seed}, {origin.requested_n_folds} requested folds) at "
-                    f"{differing} row(s). A fit accepts only labels the recorded generator "
-                    "produces, because other labels could have been chosen by reading the "
-                    "outcome"
+                    f"{differing} row(s). A fit accepts only the labels the recorded fold "
+                    "count and seed draw, because other labels could have been chosen by "
+                    "reading the outcome"
                 )
 
     def _policy_refusal(self, *, cross_fit: bool, n_folds: int, repeats: int) -> str | None:
@@ -1033,15 +1061,18 @@ def resolve_n_folds(
         counts = np.unique(np.asarray(stratify), return_counts=True)[1]
         cap = int(counts.min())
     resolved = int(min(n_folds, cap))
+    # Two callers, two caps, and the message has to name the one that bound. An
+    # unstratified draw caps at ``n``, and :func:`random_partition` is now the only outer
+    # path, so "the rarer class" would describe a stratum nobody asked for.
+    binding = "the rarer class has only" if stratify is not None else "the data hold only"
+    counted = "member(s)" if stratify is not None else "row(s)"
     if resolved < 2:
         raise ValueError(
-            "cannot cross-fit: the rarer class has fewer than 2 members, so no "
-            "stratified split exists"
+            f"cannot cross-fit: {binding} {cap} {counted}, so no split into two folds exists"
         )
     if resolved < n_folds:
         warnings.warn(
-            f"reducing n_folds from {n_folds} to {resolved}: the rarer class has only "
-            f"{cap} member(s)",
+            f"reducing n_folds from {n_folds} to {resolved}: {binding} {cap} {counted}",
             UserWarning,
             stacklevel=2,
         )
@@ -1292,15 +1323,15 @@ class CrossFitPlan:
         target -- the treatment for the mechanism, the outcome for the regression.
     scheme : str
         Which family of split the fit used.  ``"supplied"`` means a caller handed over
-        exact assignments and nothing was generated.  Every other value is resolved from
-        what the data declared rather than chosen: ``"grouped"`` whenever ``id=`` named
-        clusters, otherwise ``"stratified"`` or ``"vfold"``.
+        exact assignments and nothing was generated.  ``"none"`` means the fit drew no
+        split.  The other two are resolved from what the data declared rather than
+        chosen: ``"grouped"`` whenever ``id=`` named clusters, and ``"vfold"`` otherwise.
+        A result restored from an earlier version can carry a stratified value, which this
+        version draws no split under.
     stratify_by : tuple of str
-        What the outer folds were checked against, as user-facing names.  Under a
-        generated scheme the split was balanced on these; under ``"supplied"`` the
-        assignments were checked for every one of these values in every training
-        complement, which is the property balancing exists to give.  Empty when there was
-        nothing to balance, as for a continuous dose.
+        What the outer folds were checked against, as user-facing names.  Empty on every
+        fit this version runs, because it draws no split that balances the data it then
+        conditions on.  A result restored from an earlier version can carry names here.
     random_state : int or None
         Seed for generated outer splits and repeat-specific learner state. Under
         ``scheme="supplied"``, the assignments ignore it while learner and collaborative

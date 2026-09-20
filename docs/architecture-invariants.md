@@ -150,8 +150,9 @@ checks only that a declared interval contains the observed outcomes. *Reconsider
 result covers a cross-fitted transform whose endpoints the held-out rows helped choose.
 
 What stratification used to guarantee is now checked on the realized draw, before the first
-learner. Each treatment arm must reach two independent units, and each training complement must
-carry every arm and every class a learner's inner split needs. The independent unit is the row, and
+learner. Each treatment arm, and each class of a binary outcome, must reach two independent units.
+Each training complement must carry every arm, a row whose outcome was observed, and every class a
+learner's inner split needs. The independent unit is the row, and
 it is the cluster where `id=` declares one. A refusal raised after a draw names no redraw, no seed
 and no fold count, because a split that happens to fit was chosen by reading the values the draw
 must not read. *Reconsider when* a split law that reads the treatment acquires a reviewed result.

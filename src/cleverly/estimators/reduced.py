@@ -67,6 +67,7 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit
 from ..learners._fitting import Task, predict_mean
+from ..learners.crossfit import _POST_DRAW_REMEDY
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import bound
 from ..utils.parallel import map_parallel
@@ -919,8 +920,14 @@ def _nested_column(
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
-                "a cross-fitting fold has no trainable rows for a reduced regression; "
-                "reduce n_folds or use reduced_crossfit='pooled'"
+                "a cross-fitting fold has no trainable rows for a reduced regression. "
+                + _POST_DRAW_REMEDY.format(
+                    remedy=(
+                        "use reduced_crossfit='pooled', which fits the reduced "
+                        "regressions on every row of the primary split rather than "
+                        "leaving a second fold out"
+                    )
+                )
             )
         design, target = training[index]
         model = fit_on_rows(

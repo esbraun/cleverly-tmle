@@ -744,20 +744,6 @@ class TestStratifyingOnARareOutcome:
         observed = set(np.unique(codes[data.observed]).tolist())
         assert unobserved.isdisjoint(observed)
 
-    def test_a_continuous_outcome_is_refused_by_name(self) -> None:
-        from cleverly.data import CausalData
-
-        rng = np.random.default_rng(0)
-        data = CausalData.from_arrays(
-            outcome=rng.normal(size=200),
-            treatment=rng.binomial(1, 0.5, 200).astype(float),
-            covariates=rng.normal(size=(200, 1)),
-        )
-        # cross_fit=False: reaches _fold_strata's own refusal rather than the
-        # now-earlier one that a cross-fitted declaration of this policy raises first.
-        with pytest.raises(DataError, match="needs a binary outcome"):
-            fast_tmle(stratify_folds="treatment+outcome", cross_fit=False)._fold_strata(data)
-
     def test_an_unknown_value_is_refused(self) -> None:
         with pytest.raises(ValueError, match="stratify_folds must be"):
             fast_tmle(stratify_folds="outcome")

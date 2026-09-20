@@ -438,8 +438,11 @@ class TestOnlyARecordedDrawIsAccepted:
 
     ``SplitPlan.validate`` reads the labels against the data and cannot see what chose
     them: an assignment that puts every treated unit in one fold passes cluster integrity
-    and training support, and labels chosen by reading the outcome pass both as well. What
-    rules that out is the generator record, and drawing the split again from it.
+    and training support, and labels chosen by reading the outcome pass both as well. The
+    generator record narrows that to the splits one recorded fold count and seed draw,
+    and drawing the split again from the record is how a fit checks it. The record cannot
+    audit the declared fold count and seed, which is why ``result.split_plan`` is the
+    documented source.
     """
 
     @pytest.fixture(autouse=True)

@@ -139,6 +139,7 @@ from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
+    _POST_DRAW_REMEDY,
     CrossFitPlan,
     Folds,
     SplitPlan,
@@ -319,17 +320,6 @@ _SUPER_LEARNER_INNER_SPLIT_RULE = (
     "inner stratified split needs at least two rows in each class of its target in each "
     "training complement."
 )
-
-#: What a refusal raised *after* the split was drawn may offer, and why it offers no
-#: redraw. A fold count or a seed that happens to give every complement what it needs was
-#: chosen by looking at the treatment and the outcome, which is the dependence the
-#: unstratified draw exists to remove; searching for one would put it back by hand.
-_POST_DRAW_REMEDY = (
-    "The split is drawn from the seed alone and reads no treatment or outcome, so trying "
-    "fold counts or seeds until one fits would choose the partition by the values it must "
-    "not read. Either {remedy}, or collect more observations at the rare level."
-)
-
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
 #: is raised twice: cheaply from the requested estimands before the fit, and again at the
@@ -1791,11 +1781,12 @@ class TMLE:
 
         Three questions in one pass, in the order a reader can act on:
 
-        1. the sample minimum, which no partition can repair: each arm has to appear in
-           two independent units, rows when the data are iid and *clusters* when ``id=``
-           declared them, because a cluster is atomic and a split moves whole clusters;
-        2. the support of each training complement, for the arms and for the binary
-           outcome classes among the observed rows;
+        1. the sample minimum, which no partition can repair: each arm, and each class of
+           a binary outcome, has to appear in two independent units, rows when the data
+           are iid and *clusters* when ``id=`` declared them, because a cluster is atomic
+           and a split moves whole clusters;
+        2. the support of each training complement, for the arms, for the rows whose
+           outcome was observed, and for the binary outcome classes among them;
         3. the two-rows-per-class rule of a package classification Super Learner.
 
         The first is a statement about the sample, so its refusal states the minimum. The
@@ -1807,9 +1798,15 @@ class TMLE:
         """
         if data.is_continuous_treatment or any(draw.is_single for draw in folds):
             return
-        # The arm-indexed stacked contract and the natural-course mean run their own,
-        # stricter preflights and name their own contracts; running this one after them
-        # would restate what they already refused in a more general sentence.
+        # The arm-indexed stacked contract and the natural-course mean each run their own
+        # preflight and name their own contract, so this general one does not follow them
+        # with a wider sentence about the same draw. What the two cover differs, and
+        # neither is this check with a different name. The stacked contract asks the arm,
+        # responding-arm, response and outcome-class questions itself, and states its own
+        # sample minimums. The natural-course preflight asks about response support only,
+        # which is what its response and outcome nuisances need from a complement: a
+        # natural-course mean fits no treatment mechanism, so the arm questions below do
+        # not apply to it.
         if _is_natural_course(data, estimands) or self._on_arm_indexed_stacked_surface(
             data, estimands
         ):
@@ -1841,6 +1838,7 @@ class TMLE:
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(data.arm_codes, dtype=float)
+        observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
             count = int(np.unique(unit_of[treatment == arm]).size)
@@ -1852,9 +1850,32 @@ class TMLE:
                     "complement without that arm and no fold count or seed can fit the "
                     f"treatment mechanism; {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
                 )
-        observed = np.asarray(data.observed, dtype=bool)
+        if data.family == "binomial":
+            # The sample minimum the outcome classes owe, stated for the same reason the
+            # arm minimum above is: a split moves whole units, so one unit holding a class
+            # leaves the complement of its own fold without it, whatever the fold count
+            # and whatever the seed. The remedy is the only one that can work. Fitting in
+            # sample is not offered here, because a package classification SuperLearner
+            # splits the same rows again and its inner split needs two of each class too.
+            outcome_values = np.asarray(data.outcome, dtype=float)
+            for value in (0.0, 1.0):
+                count = int(np.unique(unit_of[observed & (outcome_values == value)]).size)
+                if count < 2:
+                    raise DataError(
+                        f"{subject} needs each outcome class in at least two independent "
+                        f"units with an observed outcome, and outcome {value:g} appears in "
+                        f"{count} {unit}(s). A split moves whole {unit}s, so every partition "
+                        "leaves some training complement without that class and no fold "
+                        "count or seed can fit the outcome regression; collect more "
+                        f"observations with outcome {value:g}."
+                    )
         support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
-            ("arm", treatment, arms)
+            ("arm", treatment, arms),
+            # Every family, not the binomial one alone. The outcome regression trains on
+            # the rows whose outcome was observed, on whatever scale they are on, so a
+            # complement holding none of them cannot fit it. Under no missingness this
+            # asks nothing, because every row is then a respondent.
+            ("response", observed, np.array([True])),
         ]
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
@@ -1865,11 +1886,12 @@ class TMLE:
             if gap is not None:
                 fold, name, missing = gap
                 value = float(missing[0])
-                described = (
-                    f"row in arm {data.arm_label(value)}"
-                    if name == "arm"
-                    else f"observed outcome {value:g}"
-                )
+                if name == "arm":
+                    described = f"row in arm {data.arm_label(value)}"
+                elif name == "response":
+                    described = "row with an observed outcome"
+                else:
+                    described = f"observed outcome {value:g}"
                 raise DataError(
                     f"{subject} cannot fit its nuisances because repeat {repeat}, fold "
                     f"{fold}'s training complement contains no {described}. {remedy}"
@@ -2747,33 +2769,16 @@ class TMLE:
         from the training rows of each fold, so they cannot be known here without leaking
         the split into itself.
 
-        With ``stratify_folds="treatment+outcome"`` the code is the treatment crossed with
-        the outcome, and an unobserved outcome is its own level rather than being folded
-        in with ``Y = 0``: a fold with no *observed* outcomes in an arm cannot fit the
-        outcome regression either, which is the failure the option exists to prevent.
-        ``resolve_n_folds`` then caps the fold count at the rarest cell rather than the
-        rarer arm, which is the whole mechanism -- no other code changes.
+        Every fit reaches this method with ``stratify_folds="none"`` and leaves at the
+        first branch below.  :meth:`_cross_fit_policy_reason` refuses the other two
+        policies at construction, and again in :meth:`_resolve_estimands_for_data` for a
+        restored result or a copied estimator, and it refuses them under cross-fitting and
+        at every collaborative setting.  The remaining branches are therefore reachable
+        only by replacing this method, which is what the deliberate-mutation controls in
+        ``tests/unit/test_fold_policy_rules.py`` do to put a stratified split into
+        production.  The two ``"treatment+outcome"`` refusals that used to stand here
+        were deleted for the same reason: no fit could meet them.
         """
-        if self.stratify_folds == "treatment+outcome":
-            # Refused rather than quietly ignored: a caller who asked for this asked
-            # because they have a rare level to protect, and silently not protecting it
-            # is the worst of the three outcomes.
-            if data.is_continuous_treatment:
-                raise DataError(
-                    "stratify_folds='treatment+outcome' needs arms to cross the outcome "
-                    "with, and this fit declared a continuous dose with shifts=. A dose "
-                    "has no strata: every value is its own, which caps the fold count at "
-                    "one row. What a continuous treatment balances on in spirit is the "
-                    "density's bins, and those are chosen inside each training fold."
-                )
-            if data.family != "binomial":
-                raise DataError(
-                    "stratify_folds='treatment+outcome' needs a binary outcome to have a "
-                    f"rare level worth balancing, and this fit's family is "
-                    f"{data.family!r}. Crossing a continuous outcome in would make every "
-                    "distinct value its own stratum and refuse to split at all; leave "
-                    "stratify_folds='treatment'."
-                )
         if self.stratify_folds == "none":
             return None
         if data.is_continuous_treatment:
@@ -2799,12 +2804,14 @@ class TMLE:
         balance at all.  Both decisions are made here and in :meth:`_folds`, which is one
         place too many, so :meth:`_folds` reads them off the plan.
 
-        ``stratify_by`` records what the folds were held to, which under a supplied plan
-        is what :meth:`SplitPlan.validate` checked rather than what a splitter balanced:
-        the plan's assignments have to carry every one of these values into every training
-        complement, which is the property balancing exists to produce.  ``scheme`` already
-        carries the fact that nothing was generated, so recording ``()`` here as well
-        would say the fit was held to nothing.
+        ``stratify_by`` records what the folds were held to.  It is empty on every fit
+        this version runs, because :meth:`_cross_fit_policy_reason` refuses the two
+        balancing policies wherever a split is drawn.  The field stays because a result
+        restored from an earlier version carries the policy that version allowed, and
+        :class:`~cleverly.learners.crossfit.CrossFitPlan` reads it back.  ``scheme`` names
+        only the splits this version draws for the same reason: ``"stratified"`` and
+        ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
+        them, and they were deleted.
         """
         cross_fit = self.cross_fit
         supplied = self.split_plan
@@ -2820,12 +2827,8 @@ class TMLE:
             scheme = "supplied"
         elif not cross_fit:
             scheme = "none"
-        elif clustered and stratify_by:
-            scheme = "stratified-grouped"
         elif clustered:
             scheme = "grouped"
-        elif stratify_by:
-            scheme = "stratified"
         else:
             scheme = "vfold"
         return CrossFitPlan(
