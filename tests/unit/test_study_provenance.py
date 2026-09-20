@@ -69,12 +69,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/conftest.py",
         }
     ),
-    "clustered-tmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
     "mar-tmle": frozenset(
         {
             "tests/conftest.py",

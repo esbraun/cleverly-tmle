@@ -204,8 +204,8 @@ SCENARIOS: dict[str, str] = {
         "two-time-point law with monotone censoring and four projected treatment plans"
     ),
     "continuous": "bounded continuous-outcome law with effect modification",
-    "clustered_continuous": (
-        "continuous-outcome law with ten rows per cluster and shared effect modification"
+    "clustered_binary": (
+        "binary-outcome law with ten rows per cluster and shared effect modification"
     ),
     "bounded_continuous_projection": (
         "bounded continuous-outcome law with an unsaturated working model"

@@ -666,6 +666,18 @@ class TestTheClusteredBinomialLaw:
         assert {"rr", "or"} <= set(truth)
         assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0
 
+    def test_the_declared_truths_are_the_registered_studys_own(self) -> None:
+        """The quadrature truths the clustered evidence row publishes.
+
+        The arm-by-latent coefficient is declared against the influence-curve design
+        effect, so it is a number a later edit can move without breaking anything else
+        here.  These two integrals are what a move would change, and the registered
+        clustered study's committed rows carry them.
+        """
+        truth = clustered_dgp(10, family="binomial").truth()
+        assert float(truth["ate"]) == pytest.approx(0.1040497, abs=1e-6)
+        assert float(truth["rr"]) == pytest.approx(1.2512880, abs=1e-6)
+
     def test_the_shared_effect_correlates_outcomes_within_a_cluster(self) -> None:
         """The same law with the latent not shared is the control.
 
@@ -685,6 +697,27 @@ class TestTheClusteredBinomialLaw:
         independent, _ = dataclasses.replace(law, cluster_size=None).sample(20_000, seed=11)
         assert intraclass(clustered["Y"].to_numpy()) > 0.05
         assert intraclass(independent["Y"].to_numpy()) < 0.02
+
+    def test_the_shared_effect_reaches_the_influence_curve(self) -> None:
+        """The witness the outcome ICC cannot supply, and the reason the ICC is not enough.
+
+        The outcome intraclass correlation on these rows is ``0.135`` at an arm-by-latent
+        coefficient of ``0.9`` and ``0.313`` at the declared ``8.0``, so it passes the rule
+        above at both and says nothing about either.  What the clustered study rests on is the
+        *influence curve's* correlation, which is ``0.014`` at ``0.9`` and ``0.099`` at
+        ``8.0`` -- beside ``0.101`` for the Gaussian law, which the declared coefficient
+        was chosen to match.  The floor sits between the two, so reverting the coefficient
+        fails here.
+        """
+        frame, _ = make_clustered(n=20_000, seed=11, cluster_size=10, family="binomial")
+        result = TMLE(**FAST_KWARGS, estimands=("ate",)).fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+        )
+        curve = np.asarray(result.single()["ate"].influence_curve)
+        groups = curve.reshape(-1, 10)
+        variance = float(np.var(curve, ddof=1))
+        icc = (float(np.var(groups.mean(axis=1), ddof=1)) * 10 - variance) / (9 * variance)
+        assert icc > 0.05
 
     def test_the_shared_latent_stays_out_of_the_propensity(self) -> None:
         law = clustered_dgp(10, family="binomial")

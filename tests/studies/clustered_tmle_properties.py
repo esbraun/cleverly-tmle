@@ -10,6 +10,7 @@ from scipy.stats import norm
 
 from cleverly.inference import influence_variance
 from cleverly.utils.parallel import map_parallel
+from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_clustered_tmle import (
     PRIMARY_N,
@@ -18,8 +19,10 @@ from tests.studies.canonical_clustered_tmle import (
     STUDY,
     draw_from_seed,
     fit_cleverly,
+    law,
+    outcome_learner,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     CLUSTER_ROBUST_CONTROL_SE_CEILING,
     CLUSTERED_COVERAGE_GAIN,
@@ -39,6 +42,41 @@ FAMILY = "clustered_inference"
 POSITIVE = "cluster_robust"
 CONTROL = "iid_control"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Both arms of this study's one property family, as declarations of the law they read.
+
+    The two arms are one fit, not two: :func:`_fit_replication` draws once, fits once, and
+    derives the cluster-robust and the i.i.d. variance from the same influence curve.  The
+    declaration still names both, because the committed rows publish both and the truth
+    each one carries has to be read back against the law that produced it.
+
+    ``seed`` names the per-replication stream :func:`generate_property_rows` draws from
+    rather than a single sample's seed, and nothing here is passed to
+    :func:`~tests.studies.evidence.properties.run_cells`.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The cluster-robust positive arm, then its i.i.d. control.
+    """
+    dgp = law()
+    return tuple(
+        PropertyCell(
+            property=FAMILY,
+            cell=cell,
+            dgp=dgp,
+            outcome_learner=outcome_learner,
+            treatment_learner=lambda: OracleTreatment(law()),
+            n=PRIMARY_N,
+            replicates=PROPERTY_REPLICATES,
+            seed=stream_seed(STUDY, "property_sample", FAMILY, "paired", 0),
+            role=role,
+            estimand=TARGET,
+        )
+        for cell, role in ((POSITIVE, "positive"), (CONTROL, "control"))
+    )
 
 
 def _fit_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:

@@ -1187,10 +1187,34 @@ def clustered_dgp(cluster_size: int = 10, *, family: str = "gaussian") -> DGP:
     ``cluster_size=10``: ``1.96``, against ``1.00`` for the additive form.
 
     ``family="binomial"`` follows :func:`multi_arm_dgp`: the same terms become a linear
-    predictor with smaller coefficients, and the mean is its expit.  The shared latent
-    still enters interacted with the arm and still stays out of the propensity, so the
-    binary law keeps both properties above.  Its effect is not constant on the risk scale,
-    so its ``ate`` is not ``1.0``; the truth also holds ``rr`` and ``or``.
+    predictor and the mean is its expit.  The shared latent still enters interacted with the
+    arm and still stays out of the propensity, so the binary law keeps both properties
+    above.  Its effect is not constant on the risk scale, so its ``ate`` is not ``1.0``; the
+    truth also holds ``rr`` and ``or``.
+
+    The binary law's arm-by-latent coefficient is ``8.0``, and a declared rule sets it.  The
+    rule is the one commit ``8f8ba31`` used to set the Gaussian law's ``2.0``: choose the
+    coefficient that reproduces the influence-curve design effect the clustered study rests
+    on.  That design effect is the squared ratio of the mean cluster-robust standard error to
+    the mean i.i.d. standard error.  One pilot of 800 replications at ``n=2000``, with five
+    unstratified grouped folds and the exact propensity, measures ``1.954`` for the binomial
+    law at ``8.0`` and ``1.949`` for the Gaussian law at ``2.0``.  The committed Gaussian
+    property rows give ``1.950`` for the same quantity, and the earlier measurement recorded
+    above gives ``1.96``.
+
+    The same pilot measures the binary law's i.i.d. standard error at ``0.7059`` empirical
+    standard deviations, with a 99 percent percentile interval of ``0.662`` to ``0.757``.
+    That is the statistic the study's i.i.d. control has to fall below, and it is a control
+    quantity rather than a verdict statistic.  The law's quadrature truths at
+    ``cluster_size=10`` are ``ate = 0.10405`` and ``rr = 1.2513``.
+
+    The outcome intraclass correlation is **not** the design effect, and a reader who treats
+    it as one overstates the dependence by about a factor of two.  At ``cluster_size=10`` the
+    measured outcome ICC is ``0.319`` for the binomial law and ``0.645`` for the Gaussian one
+    (``n=200000``, ``seed=11``), so the naive ``1 + (k - 1) * rho`` would predict ``3.87`` and
+    ``6.80`` against influence-curve design effects near ``1.95``.  The clever covariate
+    annihilates the additive share of the shared latent, and only the arm-selected half
+    reaches the influence curve.
     """
     if family not in {"gaussian", "binomial"}:
         raise ValueError(f"family must be 'gaussian' or 'binomial'; got {family!r}")
@@ -1205,7 +1229,7 @@ def clustered_dgp(cluster_size: int = 10, *, family: str = "gaussian") -> DGP:
     def binomial_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
         del z
         return expit(
-            -0.4 + 0.8 * a + 0.5 * w[:, 0] + 0.3 * w[:, 1] + 0.6 * w[:, 2] + 0.9 * a * w[:, 2]
+            -0.4 + 0.8 * a + 0.5 * w[:, 0] + 0.3 * w[:, 1] + 0.6 * w[:, 2] + 8.0 * a * w[:, 2]
         )
 
     gaussian = family == "gaussian"
