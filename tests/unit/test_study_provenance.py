@@ -75,14 +75,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    "canonical-ctmle-selector": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/canonical_cvtmle.py",
-            "tests/studies/canonical_tmle.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
     # Reaches ``tests/studies/cvtmle_properties.py``, which now samples the bounded
     # cross-fitted laws and declares ``q_bounds`` and ``stratify_folds``.  That is
     # result-determining for this row, so the modules it newly reaches cannot be declared in

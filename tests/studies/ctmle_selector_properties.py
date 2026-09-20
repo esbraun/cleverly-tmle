@@ -1,8 +1,21 @@
-"""Repeated-sampling properties for selector-based C-TMLE."""
+"""Repeated-sampling properties for selector-based C-TMLE.
+
+Every cell here is cross-fitted, so every cell samples from a **bounded** law and declares
+``q_bounds=(0, 1)``.  :mod:`tests.studies.bounded_cv_laws` says why at length: without a
+declared outcome support the estimator reads the scale off every observed outcome, and each
+fold's training predictions then depend on the rows it is predicting.  The split is declared
+too, through ``stratify_folds="none"``, and it reaches the outer folds, the selection folds
+and the nested folds of each candidate alike.
+
+The cells are stated on their Gaussian originals and transformed rather than retyped.  The
+inherited canonical block comes through
+:func:`~tests.studies.bounded_cv_laws.bounded_cells` and the two families this study
+declares itself through :func:`~tests.studies.bounded_cv_laws.bounded_twin`, so each one
+keeps the budget, seed, role and size it always declared.
+"""
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -13,8 +26,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.datasets import instrument_dgp, linear_dgp
 from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
-from tests.studies import canonical_properties
-from tests.studies.canonical_ctmle_selector import G_BOUNDS, STUDY
+from tests.studies import bounded_cv_laws, canonical_properties
+from tests.studies.canonical_ctmle_selector import G_BOUNDS, STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
@@ -23,7 +36,7 @@ SELECTOR_RMSE_RATIO = 0.50
 
 def cells() -> tuple[PropertyCell, ...]:
     linear = linear_dgp()
-    robustness = (
+    gaussian_robustness = (
         PropertyCell(
             "double_robustness",
             "both_correct",
@@ -50,10 +63,15 @@ def cells() -> tuple[PropertyCell, ...]:
             linear,
             DummyRegressor,
             lambda: LogisticRegression(max_iter=1000),
-            # This is the slower leg of double robustness: at n=700 its O(n^-1)
-            # remainder is still about 0.28 empirical SD.  At n=2,000 the same
-            # fixed 0.25-SD equivalence margin can distinguish that remainder from
-            # first-order bias without weakening the claim after observing it.
+            # This is the slower leg of double robustness: it leans on inverse
+            # weighting, so its O(n^-1) remainder is the largest of the four arms.
+            # The size was declared on the Gaussian linear law, where 700 left that
+            # remainder too close to the fixed 0.25-SD equivalence margin to be told
+            # apart from first-order bias, and 2,000 separated the two.  It carries
+            # over to the bounded twin with the budget and the seed through
+            # ``bounded_twin``, unremeasured: this is a positive cell, and remeasuring
+            # its own verdict statistic to choose its size is what the margin exists
+            # to prevent.
             2000,
             canonical_properties.DOUBLE_ROBUST_REPLICATES,
             12_102,
@@ -71,7 +89,7 @@ def cells() -> tuple[PropertyCell, ...]:
         ),
     )
     forced = instrument_dgp()
-    selector_necessity = (
+    gaussian_necessity = (
         PropertyCell(
             "selector_necessity",
             "collaborative",
@@ -94,12 +112,24 @@ def cells() -> tuple[PropertyCell, ...]:
             role="control",
         ),
     )
-    inherited = tuple(
-        replace(cell, seed=cell.seed + 4_000)
-        for cell in canonical_properties.cells()
-        if cell.property != "double_robustness"
+    robustness = tuple(bounded_cv_laws.bounded_twin(cell) for cell in gaussian_robustness)
+    selector_necessity = tuple(bounded_cv_laws.bounded_twin(cell) for cell in gaussian_necessity)
+    inherited = bounded_cv_laws.bounded_cells(
+        "ctmle_selector_properties", exclude=("double_robustness",)
     )
     return (*robustness, *selector_necessity, *inherited)
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every cell this study runs, so each committed truth is read back against its law.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The bounded double-robustness arms, the selector-necessity pair, and the inherited
+        canonical block, in the order they run.
+    """
+    return cells()
 
 
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
@@ -117,6 +147,10 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         ctmle_estimand="ate",
         simultaneous=False,
         g_bounds=G_BOUNDS,
+        # Every cell here samples from a beta law, so every cell declares the support, and
+        # every split -- outer, selection and nested -- is drawn without reading a label.
+        q_bounds=bounded_cv_laws.Q_BOUNDS,
+        stratify_folds=STRATIFY_FOLDS,
         max_iter=100,
         tol=1e-10,
         random_state=0,
