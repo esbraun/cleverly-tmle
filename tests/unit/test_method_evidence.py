@@ -1062,6 +1062,126 @@ class TestNegativeControls:
         )
 
 
+#: The tolerance a committed truth is read back at.
+#:
+#: The truth a replication row carries and the truth :meth:`~cleverly.datasets.DGP.truth`
+#: returns are the same quasi-Monte Carlo integral of the same law, so the only difference
+#: either is entitled to is the decimal round trip through the committed CSV.
+TRUTH_BINDING_TOLERANCE = 1e-12
+
+#: How a study says which law each of its property cells samples from.
+#:
+#: A property module that defines this returns its declared
+#: :class:`~tests.studies.evidence.properties.PropertyCell` objects, and the test below
+#: recomputes every committed truth from the law each one names.
+DECLARED_CELLS = "declared_cells"
+
+#: Studies whose declared cells the truth-binding test reads.  Built by attribute rather
+#: than listed, and ratcheted by
+#: ``test_every_bounded_law_study_declares_the_cells_it_ran``: a study that moved onto the
+#: bounded cross-fitted laws has to expose its cells, so a regeneration cannot publish a
+#: truth belonging to the law it replaced.
+TRUTH_BOUND = tuple(study for study in STUDIES if hasattr(study.properties(), DECLARED_CELLS))
+TRUTH_BOUND_IDS = [study.slug for study in TRUTH_BOUND]
+
+#: The module whose presence in a study's manifest means its property cells are bounded.
+BOUNDED_LAW_MODULE = "tests/studies/bounded_cv_laws.py"
+
+
+def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
+    """Every committed property truth that is not its declared law's own.
+
+    Returned rather than asserted, so the deliberate-mutation control below can perturb one
+    truth and require the same function to find it.
+    """
+    declared = {
+        (cell.property, cell.cell): cell for cell in getattr(study.properties(), DECLARED_CELLS)()
+    }
+    published = {tuple(key) for key in rows.groupby(["property", "cell"]).groups}
+    if published != set(declared):
+        return [f"{sorted(published ^ set(declared))} appear in one of the row file and the cells"]
+    findings: list[str] = []
+    for key, cell in declared.items():
+        expected = float(cell.dgp.truth()[cell.estimand])
+        observed = rows.loc[
+            (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
+        ].to_numpy(dtype=float)
+        if not np.allclose(observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=0.0):
+            findings.append(
+                f"{key[0]}/{key[1]} publishes truth {observed[0]!r} for {cell.estimand!r}, "
+                f"and {cell.dgp.name} integrates to {expected!r}"
+            )
+    return findings
+
+
+class TestPropertyTruthsAreTheDeclaredLawsOwn:
+    """A committed truth is the law's integral, not a number left over from another law."""
+
+    def test_every_bounded_law_study_declares_the_cells_it_ran(self, study: StudyRecord) -> None:
+        """The ratchet, so the check below cannot go quiet by covering nothing.
+
+        A cross-fitted row that swaps its Gaussian law for a bounded twin changes every
+        truth it publishes. Nothing else here would notice: the coverage flag is rebuilt
+        from the same joined truth, and a summary recomputed from the rows agrees with
+        itself whatever the truth column holds.
+        """
+        if BOUNDED_LAW_MODULE not in study.modules:
+            return
+        assert hasattr(study.properties(), DECLARED_CELLS), (
+            f"{study.slug} records {BOUNDED_LAW_MODULE}, so its property cells name bounded "
+            f"laws. Give {study.properties_module} a {DECLARED_CELLS}() function returning "
+            f"them, so its committed truths are read back against the laws that produced them"
+        )
+
+    @pytest.mark.parametrize("study", TRUTH_BOUND, ids=TRUTH_BOUND_IDS)
+    def test_each_committed_truth_is_the_declared_laws_integral(self, study: StudyRecord) -> None:
+        assert TRUTH_BOUND, "no study exposes its declared cells, so this test checks nothing"
+        findings = _truth_findings(study, _property_rows(study.slug))
+        assert findings == [], "\n".join(findings)
+
+    @staticmethod
+    def _rows_from(study: StudyRecord) -> pd.DataFrame:
+        """One row per declared cell, carrying that cell's own law's truth.
+
+        Built here rather than read from the committed file, so the control states what the
+        checker does and not what a particular study last published.
+        """
+        cells = getattr(study.properties(), DECLARED_CELLS)()
+        return pd.DataFrame(
+            {
+                "property": [cell.property for cell in cells],
+                "cell": [cell.cell for cell in cells],
+                "truth": [float(cell.dgp.truth()[cell.estimand]) for cell in cells],
+            }
+        )
+
+    def test_a_truth_displaced_below_the_tolerance_is_reported(self) -> None:
+        """Deliberate mutation: shift one family's truth, and require the shift to be found.
+
+        ``1e-9`` relative is three orders above the tolerance and far below anything a
+        reader would see in a printed table, so the control shows the check resolves a
+        wrong law rather than only a grossly wrong number.
+        """
+        study = TRUTH_BOUND[0]
+        clean = self._rows_from(study)
+        assert _truth_findings(study, clean) == []
+        mutated = clean.copy()
+        target = mutated["property"] == "double_robustness"
+        assert target.any()
+        mutated.loc[target, "truth"] *= 1.0 + 1e-9
+        findings = _truth_findings(study, mutated)
+        assert len(findings) == int(target.sum())
+        assert all("double_robustness" in finding for finding in findings)
+
+    def test_a_cell_missing_from_the_rows_is_reported(self) -> None:
+        """The other half: a declared cell the row file never published."""
+        study = TRUTH_BOUND[0]
+        clean = self._rows_from(study)
+        findings = _truth_findings(study, clean.iloc[1:])
+        assert len(findings) == 1
+        assert str(clean["cell"].iloc[0]) in findings[0]
+
+
 class TestTheStudyStillMeasuresTheCode:
     """The study declarations remain reproducible inputs to selective regeneration."""
 
@@ -1503,6 +1623,20 @@ def _agreement_result(row: Any) -> str:
     return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
 
 
+def _committed_property_result(row: Any) -> str:
+    """How one committed property verdict must read in the published table.
+
+    Two states and one non-state.  A gated row reads ``pass`` when it met its declared
+    margin and ``**fail**`` when it did not.  A row of a reported family declares no margin,
+    so it reads ``reported``: spelling it ``pass`` would use the word every gated row beside
+    it uses to mean something this row never established.  Written here rather than imported
+    from the renderer, for the reason :func:`_agreement_result` gives.
+    """
+    if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+        return "reported"
+    return "pass" if bool(row.passed) else "**fail**"
+
+
 class TestThePublishedTestTables:
     """One documentation row per committed test, against the results it was rendered from.
 
@@ -1593,11 +1727,12 @@ class TestThePublishedTestTables:
             f"committed tests"
         )
         published = [row["result"] for row in rows]
-        expected = (
-            [_agreement_result(row) for row in frame.itertuples()]
-            if name == "agreement"
-            else ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
-        )
+        if name == "agreement":
+            expected = [_agreement_result(row) for row in frame.itertuples()]
+        elif name == "properties":
+            expected = [_committed_property_result(row) for row in frame.itertuples()]
+        else:
+            expected = ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
         assert sorted(published) == sorted(expected), (
             f"{study.slug}'s {name} results are not the committed ones"
         )

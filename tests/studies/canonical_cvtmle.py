@@ -4,6 +4,16 @@ The ordinary-TMLE study supplies the laws and exact truths.  This study changes 
 estimator construction: both implementations use the same ten outer folds, out-of-fold
 GLM nuisance predictions, one common update over the stacked validation rows, and a
 whole-sample plug-in evaluation.
+
+The outer split reads neither the treatment nor the outcome, and the continuous law's
+outcome scale is declared rather than derived.  Both are properties of the *fit* and not
+of the reader's trust in it, so :func:`cv_fit` passes ``stratify_folds="none"`` and
+``q_bounds`` explicitly and :func:`assert_unstratified_scheme` reads the realized plan
+back off every result.  The continuous law draws ``Y ~ Beta(24 m, 24 (1 - m))`` with ``m``
+strictly inside ``(0, 1)`` (``canonical_tmle.sample_continuous``), so ``(0, 1)`` is the
+law's own support and the scaler is the identity.  The binary law is passed no
+``q_bounds`` at all, because a binary outcome already has that scaler and
+:meth:`~cleverly.estimators.TMLE._scaler` refuses a second declaration of it.
 """
 
 from __future__ import annotations
@@ -36,6 +46,18 @@ SEED = 20240820
 N_FOLDS = 10
 G_BOUNDS = (0.025, 0.975)
 
+#: The continuous law's declared outcome support.  Its conditional mean is an ``expit``,
+#: so every beta draw lands strictly inside ``(0, 1)`` and the support is the law's rather
+#: than the sample's.  Declared here rather than imported from
+#: :mod:`tests.studies.bounded_cv_laws`, which reaches this module through
+#: :mod:`tests.studies.canonical_properties` and cannot be imported back.
+Q_BOUNDS = (0.0, 1.0)
+
+#: What every cross-fitted fit here holds its outer split to.  ``"none"`` is passed
+#: explicitly rather than left to the estimator's default, so this study's declaration
+#: does not move when that default does.
+STRATIFY_FOLDS = "none"
+
 PROPERTY_CELLS = {
     "double_robustness": (
         "both_correct",
@@ -49,6 +71,13 @@ PROPERTY_CELLS = {
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
     "crossfit_overfitting": ("stacked_cvtmle", "in_sample_control"),
+    # Reported, not gated.  Two of the three policies read the treatment or the outcome,
+    # which the package refuses, so no cell here establishes that a policy is valid.  The
+    # names are spelled out for the same reason every other family's are: this mapping is
+    # the study's declaration of what its committed summary must contain.
+    # ``tests/unit/test_bounded_cv_laws.py`` checks them against
+    # ``bounded_cv_laws.FOLD_POLICIES``, which this module cannot import without a cycle.
+    "fold_policy": ("unstratified", "treatment_stratified", "treatment_outcome_stratified"),
 }
 
 STUDY = StudyRecord(
@@ -69,8 +98,12 @@ STUDY = StudyRecord(
         "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_tmle.py",
         "tests/studies/canonical_properties.py",
+        "tests/studies/bounded_cv_laws.py",
         "tests/studies/cvtmle_properties.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_study_helpers.py",
         "tests/studies/stacked_cvtmle_properties.py",
+        "tests/conftest.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -97,8 +130,12 @@ CONFIGURATION = {
     "cv_evaluation": False,
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
-    "q_bounds": "sample outcome range",
-    "folds": "identical treatment-stratified assignments supplied to both implementations",
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        f"declared {list(Q_BOUNDS)} on the continuous law, whose outcome is a proportion; "
+        "none on the binary law, whose scaler is already the identity"
+    ),
+    "folds": "identical unstratified ten-fold assignments supplied to both implementations",
 }
 
 
@@ -143,13 +180,20 @@ def cv_fit(
     across the callers and disagree in value: ``N_FOLDS`` is 10 in this module and 5 in
     ``repeated_crossfit``, and the estimand lists differ between ``SCENARIO_ESTIMANDS``
     and ``SUPPORTED``.  Resolving either by import would silently move a published row.
+
+    ``binary`` decides the outcome scale as well as the outcome learner, and the two
+    answers are the same fact.  A binary outcome is already on ``[0, 1]``, so the scaler is
+    the identity and :meth:`~cleverly.estimators.TMLE._scaler` refuses a ``q_bounds`` that
+    could only restate it.  A proportion needs the declaration, because without one the
+    scale is read off every observed outcome and each fold's training predictions then
+    depend on the rows they are predicting.
     """
     outcome = (
         LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs") if binary else LinearRegression()
     )
     treatment = LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
     covariates = [column for column in frame.columns if column.startswith("W")]
-    return (
+    result = (
         estimator_factory(
             outcome_learner=outcome,
             treatment_learner=treatment,
@@ -161,6 +205,8 @@ def cv_fit(
             estimands=estimands,
             simultaneous=False,
             g_bounds=G_BOUNDS,
+            q_bounds=None if binary else Q_BOUNDS,
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=random_state,
@@ -168,6 +214,37 @@ def cv_fit(
         .fit(frame, outcome="Y", treatment="A", covariates=covariates)
         .single()
     )
+    assert_unstratified_scheme(result)
+    return result
+
+
+def assert_unstratified_scheme(result: Any) -> None:
+    """Refuse a fit whose realized outer split was not the declared unstratified one.
+
+    ``stratify_folds="none"`` is a keyword the caller passes, and the realized scheme is
+    what the fit did with it.  The two can disagree -- a clustered design resolves to
+    ``"grouped"``, a supplied plan to ``"supplied"`` -- and this study's rows are evidence
+    about a plain v-fold split of iid rows.  Reading the plan back off the result is what
+    makes the published ``folds`` line in ``CONFIGURATION`` a checked statement rather than
+    a description.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted single-parameter result.
+
+    Raises
+    ------
+    RuntimeError
+        When the realized scheme is not ``"vfold"``, or when the split was balanced on
+        anything at all.
+    """
+    plan = result.config.crossfit
+    if plan.scheme != "vfold" or plan.stratify_by != ():
+        raise RuntimeError(
+            f"the cross-fitted studies draw an unstratified v-fold split, and this fit "
+            f"realized scheme={plan.scheme!r} balanced on {plan.stratify_by!r}"
+        )
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:

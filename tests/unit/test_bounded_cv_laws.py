@@ -490,6 +490,18 @@ class TestTheFoldPolicySeam:
                         f"would report one policy three times"
                     )
 
+    def test_the_stacked_record_declares_exactly_these_three_cells(self) -> None:
+        """The record spells the policies out, because it cannot import them.
+
+        ``canonical_cvtmle`` is imported *by* ``canonical_properties``, which this module
+        imports, so the study record cannot read :data:`FOLD_POLICIES` without a cycle. It
+        therefore carries the three names as literals, and a literal that drifted from the
+        cells the study runs would declare a summary the study never writes.
+        """
+        assert CANONICAL_CVTMLE.property_cells[property_verdicts.FOLD_POLICY_FAMILY] == tuple(
+            bounded_cv_laws.FOLD_POLICIES
+        )
+
     def test_an_unknown_policy_is_refused(self) -> None:
         with pytest.raises(ValueError, match="policy must be one of"):
             bounded_cv_laws.FoldPolicyTMLE(
