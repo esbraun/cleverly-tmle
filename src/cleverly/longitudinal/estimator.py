@@ -114,6 +114,7 @@ from .sequential import (
     RegimenFit,
     fit_mechanism,
     fit_regimen,
+    preflight_mechanism_support,
     preflight_terminal_outcomes,
 )
 
@@ -1926,6 +1927,7 @@ class LTMLE:
         )
 
         horizons = self._horizons(prepared)
+        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
         preflight_terminal_outcomes(prepared, plans, horizons, folds, scaler)
         mechanism = fit_mechanism(
             prepared,
