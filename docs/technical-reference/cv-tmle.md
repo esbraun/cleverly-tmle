@@ -212,7 +212,7 @@ locators in the *verdict* column refer to the audit commit `4811661`.
 | Smith et al. (2025) | Sections 2.1 and 6 | describes sample-range scaling. It studies binary outcomes only, and it calls for continuous-outcome research |
 | Polley (2010) | Section 1.1.2, PDF page 16 (printed page 4), and Section 2.2, Theorem 1, PDF pages 24-25 (printed pages 12-13) | the Super Learner oracle result uses folds independent of its learning sample |
 | Ju et al. (2019), read in the 2017 author preprint | Algorithm 1, PDF page 6; Section 5.5, PDF pages 10-11 | selects by cross-validated loss. It defines no treatment or outcome strata, and it does not describe the shipped inner selection-training folds |
-| Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation, and sketches CV-C-TMLE. Neither passage covers treatment-stratified outer folds or the shipped stratified nested selector |
+| Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation, and sketches CV-C-TMLE. Neither passage covers the shipped nested selection split, which the package draws inside each selection fold's training rows |
 | Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal page 852, and Theorem 3, page 853 | defines a random near-balanced row partition for a longitudinal TMLE. Its pooled all-row fluctuation differs from the shipped fold-local recursion, which the authors' `lmtp` 1.5.4 also uses |
 
 Every source draws its partition from outside the data. No source in the table stratifies a

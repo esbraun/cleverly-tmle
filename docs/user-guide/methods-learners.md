@@ -56,6 +56,9 @@ result = effect.estimate(method=method)
 Keyword shortcuts such as `n_folds=`, `alpha=`, and `random_state=` normalize into these same
 groups. A method object makes the normalized configuration serializable and reviewable.
 
+This example fits a binary outcome, so its `Targeting` declares no `q_bounds`. Read [Two fold layers](#two-fold-layers) below before you copy the shape onto a continuous
+outcome, which needs its support declared there.
+
 ## Learner choices
 
 Every nuisance slot takes an sklearn-compatible estimator object. Strings such as `"glm"` and

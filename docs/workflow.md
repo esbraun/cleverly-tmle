@@ -125,6 +125,15 @@ result = effect.estimate(method=method)
 Common keyword shortcuts normalize into the same objects. Unknown or inapplicable options raise
 `MethodConfigurationError` before an engine is constructed.
 
+The example above fits a binary outcome. A cross-fitted fit of a *continuous* outcome also needs
+`Targeting(q_bounds=(lower, upper))`, holding the outcome's known support. Without it the fit
+would read its scale off every observed outcome, held-out rows included, and `cleverly` refuses it
+before any learner runs. The narrated transition score is bounded by its own maximum, so declare
+that range. An unbounded outcome has no such range, so fit it in sample with
+`CrossFitting(enabled=False)` instead.
+[Fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+gives the messages.
+
 ## 6. Assess estimation quality
 
 Inspect support, nuisance performance, targeting scores, and sensitivity in the context of the

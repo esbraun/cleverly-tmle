@@ -53,9 +53,14 @@ FRAMEWORK_FILES = frozenset({"tests/parallel.py"})
 #: refactor opens goes in the ledger, because the study's committed rows still describe what the
 #: code computes.  A gap that a *result-determining* change to a shared module opens cannot: the
 #: ledger's judgement column must say ``result-neutral:`` and that would be false.  Such a gap is
-#: listed here instead, with the regeneration that closes it named, and the entry leaves when the
-#: study is regenerated.  Selective regeneration is the policy that makes this legal; an entry
-#: that names no regeneration is the state this list exists to prevent.
+#: listed here instead, and the entry leaves when the study is regenerated.  Selective
+#: regeneration is the policy that makes this legal.
+#:
+#: The entries below predate that rule.  Each records a module a study reaches whose hash the
+#: run never wrote, and none of them names the regeneration that would close it, because the
+#: studies they belong to have not been regenerated since the rule was written.  A *new* entry
+#: must name one.  The list can only shrink, because the test fails on a listed gap that is no
+#: longer a gap.
 KNOWN_GAPS: Mapping[str, frozenset[str]] = {
     "canonical-tmle": frozenset(
         {

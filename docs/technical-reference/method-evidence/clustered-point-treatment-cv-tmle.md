@@ -9,7 +9,9 @@ The law's arm-by-latent coefficient is declared against a measurement, not chose
 rule matches the influence-curve design effect of the Gaussian clustered law this row replaces.
 A pilot measures 1.954 for the binary law and 1.949 for the Gaussian one. `clustered_dgp` records
 the rule, the pilot, and the seeds. The outcome intraclass correlation is a different quantity,
-and it is larger: 0.319 for this law, against a design effect near two.
+and it is larger. It is a sample statistic rather than a population one, so it needs its
+condition: 0.319 at n = 200,000 and 0.313 at n = 20,000, both at seed 11, against a design
+effect near two. `tests/unit/test_datasets.py` reads the smaller figure.
 
 ## What was compared
 

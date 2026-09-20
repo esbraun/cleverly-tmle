@@ -442,8 +442,11 @@ at its node. A truncated fit labels a `score load` that differs from its `ratio 
 
 ### RM18. Red property cells after the fold, scale and law changes
 
-Sixteen registered studies moved to unstratified folds. Eight of them also moved to a bounded
-outcome law with a declared support, and one moved to a binary clustered law. Six property cells go
+Sixteen registered studies moved to unstratified folds. Six of them also moved to a bounded
+outcome law with a declared support, and one moved to a binary clustered law. The six are the
+manifests that record `tests/studies/bounded_cv_laws.py`. The multi-arm selector row, the
+multi-arm outcome-adaptive row and both DR-TMLE rows stay on a binary outcome and declare no
+`q_bounds`. Six property cells go
 red for the first time after that move, across five of those studies. Every cell that was already
 red stays red, and two cells turn green.
 
@@ -506,6 +509,8 @@ The fold policy has no general direction on the overfitting statistic. `crossfit
 shares one family, one statistic and one ceiling across the four cross-fitted longitudinal studies.
 The same fold-policy change moved its 99% upper endpoint in both directions: by +0.005037 on
 end-of-study, -0.005036 on categorical, +0.003560 on survival, and -0.001343 on competing risks.
+Each of those four is the difference of the two published six-decimal endpoints, not of the raw
+ones. The end-of-study move is +0.005036 before rounding.
 Nothing here establishes that unstratified folds inflate this statistic. What the end-of-study 2x2
 establishes is that the fold policy is the whole cause of the end-of-study move, on that law.
 
@@ -568,7 +573,7 @@ update with its own registered evidence. It is not a larger budget.
 | every published verdict is recomputed from the committed replication rows | `tests/unit/test_method_evidence.py::test_paper_property_verdicts_are_recomputed_from_the_replication_rows` |
 | the shipped fold and scale rules have mutation-controlled witnesses | `tests/unit/test_fold_policy_rules.py` |
 | the end-of-study fold-policy 2x2 | a controlled run at commit `eeaa1ce` over the study's own 8,000 registered seeds, with the law, learners, size, budget and margins held fixed. The attribution table above gives both arms |
-| no committed artifact would be refused by the shipped package | a sweep at commit `5f32c14` over every registered primary and property seed of the eleven point-treatment studies regenerated before it. 115,400 seeds reached the first nuisance fit, with zero refusals |
+| no committed artifact would be refused by the shipped package | a sweep at commit `6c91a48` over every registered primary and property replicate of all sixteen cross-fitted studies, the eleven point-treatment rows and the five longitudinal ones. 340,600 replicates reached the first nuisance fit, with zero refusals. A replicate is one cell and one replication index, so a pair of cells that share a replication index draws one sample and counts twice, once for each cell's own preflight. An earlier sweep at commit `5f32c14` covered the eleven point-treatment rows alone and counted 115,400 |
 | the shipped package reproduces every committed row | a replay at commit `5f32c14` of the first three replicates of every primary and every property cell of those studies. The worst relative difference is 1.5e-13, against a 1e-12 tolerance |
 
 The last three rows record acceptance runs made outside the repository, and this branch commits no
@@ -586,7 +591,7 @@ passes `type_i_error/sharp_null` at 0.0712, with a 99% upper endpoint of 0.0980,
 
 | finding | why this pull request does not carry it | what it needs |
 | --- | --- | --- |
-| `tests/canonical/lmtp_crossfit_adapter.R` screens a supplied density-ratio matrix with `abs(mean(supplied) - 1) > 0.5` on the cumulative product. A unit whose follow-up ends at the first node has structurally zero later columns, so that mean estimates the probability of reaching the later node rather than one. `tests/canonical/lmtp_competing_adapter.R` carries the corrected form, which screens the first column | eight study manifests record the adapter's bytes, and three of those studies sit outside the ones regenerated here. Correcting the anchor invalidates every one of them | one task that corrects the anchor and regenerates all eight rows together. The fixture README's own count of four manifests is also wrong |
+| `tests/canonical/lmtp_crossfit_adapter.R` screens a supplied density-ratio matrix with `abs(mean(supplied) - 1) > 0.5` on the cumulative product. A unit whose follow-up ends at the first node has structurally zero later columns, so that mean estimates the probability of reaching the later node rather than one. `tests/canonical/lmtp_competing_adapter.R` carries the corrected form, which screens the first column | eight study manifests record the adapter's bytes, and two of those studies sit outside the ones regenerated here. Correcting the anchor invalidates every one of them | one task that corrects the anchor and regenerates all eight rows together. Two fixture READMEs carry the deferral, `tests/canonical/lmtp_ltmle/README.md` and `tests/canonical/lmtp_ltmle_survival/README.md`. Both counted four manifests and both now name the eight |
 | Two property cells of `selector-based point-treatment C-TMLE` share a sample. `double_robustness/both_correct` and `root_n_and_efficiency/n_500` sit on one law at seed `12_100`, so their covariates are identical row for row, and the two cells are published side by side as separate evidence. The seed-offset table in `tests/studies/bounded_cv_laws.py` separates a consumer from the block it inherits and cannot reach a collision inside one consumer. `test_the_registered_studies_do_not_share_their_samples` iterates primary scenarios alone, so nothing refuses it | the collision predates this branch, and moving either seed redraws a cell of a registered study, so the fix is a regeneration rather than an edit. Widening the test first would fail on the committed rows | one task that widens the sample-sharing check to declared property cells, with an allowance for the families whose two arms are paired on one seed by design, then moves the colliding seed and regenerates the study |
 | `simulated_confounding` cannot perturb an outcome on a fit that declares `q_bounds`. `_gaussian_outcome` subtracts the strength times a standard normal latent value from the outcome, so every nonzero outcome strength sends the perturbed outcome outside the declared support and the refit refuses it | a cross-fitted continuous fit must declare `q_bounds`, so the outcome axis of the surface is unavailable to every such fit. No perturbation on the declared scale exists to put in its place | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
 

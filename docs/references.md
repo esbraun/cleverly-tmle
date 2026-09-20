@@ -229,8 +229,8 @@ previous reader had is not a citation; a page number is.
   proportions set by design. Assumption 4.2, page 20, splits each treatment-by-stratum cell into
   folds. The folds "depend only on" an independent uniform draw and the cell size. The estimator is
   a cross-fitted AIPW estimator, not a TMLE. The strata are covariate strata, not outcome strata.
-  The paper therefore does not cover the package's treatment-stratified folds for observational
-  data. The
+  The paper therefore does not cover an observational cross-fitted fit, which is what the package
+  draws its folds for. The
   [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
   record this gap.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit

@@ -128,7 +128,8 @@ packages expose a vector intervention API, and this row measures their armwise e
 not claim a new multi-arm theorem.
 
 The contraction ladder explains most of the red cells above. The `treatment_correct` level cell
-misses its equivalence margin at n = 2,000 by less than the interval's own last printed digit.
+misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cent of the margin.
+The two figures print four units of the last digit apart in the generated table above.
 The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
 margin at every one, so the level cell records Monte Carlo error rather than a remainder.
 
@@ -138,8 +139,9 @@ contraction. Read the ladder through its coverage rungs instead. Those rungs hol
 nominal rate in both one-correct regimes, while the both-wrong control's coverage collapses as
 the sample grows and its bias does not move.
 
-Three cells are red on their own terms, and each misses by less than the width of its own last
-printed digit. The `interval_calibration` SE-ratio interval reaches `0.9258` against a band that
+The three remaining red cells are red on their own terms, and each misses by less than the width
+of its own last printed digit. Six property rows are red in all: these three, the
+`treatment_correct` level cell above, and the two contraction slopes. The `interval_calibration` SE-ratio interval reaches `0.9258` against a band that
 opens at `0.93`. The `outcome_correct` rung at n = 4,000 has a coverage lower bound of `0.8988`
 against a floor of `0.90`. The `n_500` size cell has a lower bound of `0.8965` against the same
 floor.

@@ -63,8 +63,11 @@ def _revisions() -> dict[tuple[str, str], str]:
 
     Keyed on the *recorded* hash rather than on the source alone, so one source may be judged
     more than once as different studies are regenerated at different times.  The shared
-    ``drtmle`` context is the case: one study records the edited Dockerfile because it was
-    regenerated after the edit, and the other still records the Dockerfile that built its image.
+    ``drtmle`` Dockerfile used to be the worked example: two studies shared it and recorded
+    different hashes of it.  Regenerating the second one closed that split, and its ledger row
+    was deleted at commit ``99d238c``, so all three sharers now record one hash.  The key is
+    still the pair, because the next shared source to be regenerated one study at a time will
+    split the same way.
     """
     table: dict[tuple[str, str], str] = {}
     for row in pipe_table(REVISIONS, REVISION_COLUMNS):
