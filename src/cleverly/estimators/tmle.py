@@ -1642,7 +1642,7 @@ class TMLE:
             )
 
     def _super_learner_inner_split_roles(
-        self, data: CausalData
+        self, data: CausalData, *, fits_treatment: bool = True
     ) -> tuple[tuple[str, Task | None, BoolArray, FloatArray, Callable[[float], str]], ...]:
         """The package Super Learner roles and the targets each outer fit trains on.
 
@@ -1675,13 +1675,18 @@ class TMLE:
                 scaler.scale(data.outcome),
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
-            (
-                "treatment",
-                self._resolve_learner(self.treatment_learner, task="classification"),
-                everyone,
-                np.asarray(data.treatment, dtype=float),
-                lambda value: f"row(s) in arm {data.arm_label(value)}",
-            ),
+        ]
+        if fits_treatment and not data.is_continuous_treatment:
+            roles.append(
+                (
+                    "treatment",
+                    self._resolve_learner(self.treatment_learner, task="classification"),
+                    everyone,
+                    np.asarray(data.treatment, dtype=float),
+                    lambda value: f"row(s) in arm {data.arm_label(value)}",
+                )
+            )
+        roles.append(
             (
                 "response",
                 self._resolve_learner(
@@ -1692,15 +1697,17 @@ class TMLE:
                 everyone,
                 observed.astype(float),
                 lambda value: "respondent(s)" if value else "nonrespondent(s)",
-            ),
-        ]
+            )
+        )
         return tuple(
             (role, learner.task, rows, target, label)
             for role, learner, rows, target, label in roles
             if isinstance(learner, SuperLearner)
         )
 
-    def _super_learner_sample_shortfall(self, data: CausalData) -> tuple[str, str, int] | None:
+    def _super_learner_sample_shortfall(
+        self, data: CausalData, *, fits_treatment: bool = True
+    ) -> tuple[str, str, int] | None:
         """The first Super Learner class the whole sample holds too few rows of.
 
         A class with ``c`` rows leaves at most ``c - 1`` in some training complement,
@@ -1719,7 +1726,9 @@ class TMLE:
             ``(role, described class, count)`` for the first shortfall in role order, or
             ``None``.
         """
-        for role, task, rows, target, label in self._super_learner_inner_split_roles(data):
+        for role, task, rows, target, label in self._super_learner_inner_split_roles(
+            data, fits_treatment=fits_treatment
+        ):
             if (task or infer_task(target[rows])) != "classification":
                 continue
             for value in np.unique(target[rows]):
@@ -1729,7 +1738,7 @@ class TMLE:
         return None
 
     def _super_learner_complement_shortfall(
-        self, data: CausalData, folds: Sequence[Folds]
+        self, data: CausalData, folds: Sequence[Folds], *, fits_treatment: bool = True
     ) -> tuple[str, int, int, str, int] | None:
         """The first training complement too thin for a Super Learner's inner split.
 
@@ -1747,7 +1756,9 @@ class TMLE:
             ``None`` when every complement carries two rows of every class.
         """
         size = int(np.asarray(data.observed, dtype=bool).size)
-        for role, task, rows, target, label in self._super_learner_inner_split_roles(data):
+        for role, task, rows, target, label in self._super_learner_inner_split_roles(
+            data, fits_treatment=fits_treatment
+        ):
             sample_classes = np.unique(target[rows])
             sample_classifies = (task or infer_task(target[rows])) == "classification"
             for repeat, draw in enumerate(folds):
@@ -1796,21 +1807,20 @@ class TMLE:
         The first is a statement about the sample, so its refusal states the minimum. The
         other two are statements about one drawn split, so they name no redraw.
 
-        Continuous treatments are skipped: a dose has no arms, and what a density fit
-        needs from a fold is chosen inside the fold. A single-fold draw is skipped because
-        it trains on every row.
+        A continuous dose has no arms, so its check still covers outcome and response
+        support but omits treatment-arm support. What a density fit needs from a fold is
+        chosen inside that fold. A single-fold draw is skipped because it trains on every
+        row.
         """
-        if data.is_continuous_treatment or any(draw.is_single for draw in folds):
+        if any(draw.is_single for draw in folds):
             return
         # The arm-indexed stacked contract and the natural-course mean each run their own
         # preflight and name their own contract, so this general one does not follow them
         # with a wider sentence about the same draw. What the two cover differs, and
         # neither is this check with a different name. The stacked contract asks the arm,
         # responding-arm, response and outcome-class questions itself, and states its own
-        # sample minimums. The natural-course preflight asks about response support only,
-        # which is what its response and outcome nuisances need from a complement: a
-        # natural-course mean fits no treatment mechanism, so the arm questions below do
-        # not apply to it.
+        # sample minimums. The natural-course preflight asks about response and outcome
+        # support without treatment-arm questions: that mean fits no treatment mechanism.
         if _is_natural_course(data, estimands) or self._on_arm_indexed_stacked_surface(
             data, estimands
         ):
@@ -1874,13 +1884,14 @@ class TMLE:
                         f"observations with outcome {value:g}."
                     )
         support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
-            ("arm", treatment, arms),
             # Every family, not the binomial one alone. The outcome regression trains on
             # the rows whose outcome was observed, on whatever scale they are on, so a
             # complement holding none of them cannot fit it. Under no missingness this
             # asks nothing, because every row is then a respondent.
             ("response", observed, np.array([True])),
         ]
+        if not data.is_continuous_treatment:
+            support.insert(0, ("arm", treatment, arms))
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
             support.append(("outcome", outcome, np.array([0.0, 1.0])))

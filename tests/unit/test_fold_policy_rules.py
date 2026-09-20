@@ -27,6 +27,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.datasets import make_binary_outcome, make_longitudinal, make_nonlinear_bounded
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
+from cleverly.interventions import Shift
 from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
@@ -714,6 +715,36 @@ class TestTheCollaborativeRefusals:
             for method in CausalStudy(frame, design=design).identify(ATE()).available_methods()
         }
         assert catalog["collaborative_tmle"].available
+
+
+class TestContinuousDoseOutcomeSupport:
+    """A dose has no arms, but its binary outcome still needs training support."""
+
+    def test_a_stranded_outcome_class_is_refused_before_fitting(self) -> None:
+        reset_counter()
+        n = 90
+        rng = np.random.default_rng(7)
+        assignment = random_partition(n, 3, seed=0).assignment
+        rare_rows = np.flatnonzero(assignment == 0)[:2]
+        outcome = np.zeros(n)
+        outcome[rare_rows] = 1.0
+        frame = pd.DataFrame({"W": rng.normal(size=n), "A": rng.normal(size=n), "Y": outcome})
+        estimator = TMLE(
+            outcome_learner=CountingLogistic(max_iter=1000),
+            shifts=[Shift(0.0, cap=None), Shift(0.5, cap=4.0)],
+            n_folds=3,
+            random_state=0,
+            simultaneous=False,
+        )
+        with pytest.raises(DataError, match="training complement contains no observed outcome 1"):
+            estimator.fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                treatment_kind="continuous",
+            )
+        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
 
 
 # ------------------------------------------------------------ the longitudinal rules
