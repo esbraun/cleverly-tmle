@@ -35,10 +35,12 @@ entry therefore describes the subject's setting and not a shared one.
 The primary fit draws no split at all. It is not cross-fitted, and the outcome-adaptive strategy
 scores no candidate path, so it needs no selection folds.
 
-The property cells are a different setting. Eleven of the twelve are cross-fitted, so each of them
-samples a proportion and declares an outcome support of 0 to 1. Each of them also declares
-`stratify_folds="none"`, which reaches its outer folds and the Super Learner's inner folds. The
-twelfth is the in-sample overfitting control. It draws no split and declares the same support,
+The property cells are a different setting. Twelve cells draw a sample, and the table below
+publishes fourteen rows, because the two root-n rate rows are derived from three of the twelve
+rather than fitted. Eleven of the twelve are cross-fitted, so each of them samples a proportion and
+declares an outcome support of 0 to 1. Each of them also declares `stratify_folds="none"`, which
+reaches its outer folds and the Super Learner's inner folds. The twelfth is the in-sample
+overfitting control. It draws no split and declares the same support,
 because the two arms of that claim must differ in whether the tree saw the rows it predicts and in
 nothing else.
 
@@ -78,8 +80,8 @@ nothing else.
 | --- | --- | --- | --- | --- | --- | --- |
 | `crossfit_overfitting` | `cross_fitted_oat` | positive | outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.8966 to 1.0630 | pass |
 | `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4184 to 0.5031 | pass |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9325 to 1.0037 | pass |
-| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9636 to 1.0392 | pass |
+| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9381 to 0.9904 | pass |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9632 to 1.0153 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9269 to 0.9522, SE ratio 0.9328 to 1.0042 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.000516 to 0.0010, margin 0.0026, SE ratio 0.9834 | pass |
@@ -107,6 +109,7 @@ the committed results and checked at the precision printed.
 | `paired_tests_passed` | 5 | of those, passing |
 | `property_cells_total` | 14 | independent property cells |
 | `property_cells_passed` | 14 | of those, passing |
+| `properties[generated_design/oracle_design]:replicates` | 4800 | replications behind the generated-design pair, which the rule in `tests/studies/bounded_cv_laws.py` sizes from the control's paired deficit |
 | `max_standardized_bias` | 0.0513 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9425 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9179 | lowest exact 99% coverage endpoint |
@@ -136,14 +139,14 @@ the committed results and checked at the precision printed.
 | `properties[crossfit_overfitting/cross_fitted_oat]:se_ratio` | 0.9699 | SE ratio with cross-fitting |
 | `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4563 | SE ratio without cross-fitting |
 | `properties[crossfit_overfitting/cross_fitted_oat]:coverage_gain_ci_lower` | 0.3400 | paired 99% lower bound for coverage gained by cross-fitting |
-| `properties[generated_design/oracle_design]:se_ratio` | 0.9998 | SE ratio with the design pinned at the truth |
-| `properties[generated_design/oracle_design]:se_ratio_ci_lower` | 0.9636 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[generated_design/oracle_design]:se_ratio_ci_upper` | 1.0392 | its 99% upper endpoint |
-| `properties[generated_design/estimated]:se_ratio` | 0.9662 | the same ratio with the design estimated |
-| `properties[generated_design/estimated]:se_ratio_ci_lower` | 0.9325 | its 99% lower endpoint |
-| `properties[generated_design/estimated]:se_ratio_ci_upper` | 1.0037 | its 99% upper endpoint |
-| `properties[generated_design/estimated]:se_ratio_deficit_lower` | -0.0471 | paired 99% lower endpoint for estimated minus pinned |
-| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0209 | its upper endpoint, which must clear the floor below |
+| `properties[generated_design/oracle_design]:se_ratio` | 0.9889 | SE ratio with the design pinned at the truth |
+| `properties[generated_design/oracle_design]:se_ratio_ci_lower` | 0.9632 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[generated_design/oracle_design]:se_ratio_ci_upper` | 1.0153 | its 99% upper endpoint |
+| `properties[generated_design/estimated]:se_ratio` | 0.9635 | the same ratio with the design estimated |
+| `properties[generated_design/estimated]:se_ratio_ci_lower` | 0.9381 | its 99% lower endpoint |
+| `properties[generated_design/estimated]:se_ratio_ci_upper` | 0.9904 | its 99% upper endpoint |
+| `properties[generated_design/estimated]:se_ratio_deficit_lower` | -0.0346 | paired 99% lower endpoint for estimated minus pinned |
+| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0164 | its upper endpoint, which must clear the floor below |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -179,7 +182,7 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | This is reporting evidence, and every cell is green | Fourteen of fourteen property cells pass, and the `reporting` policy means no test asserts that. On the confounded sharp-null law, the rejection rate is `properties[type_i_error/sharp_null]:rejection_rate`; its 99% upper endpoint is `properties[type_i_error/sharp_null]:rejection_ci_upper`, under the predeclared `margin:type_i_ceiling`, and its coverage lower endpoint is `properties[type_i_error/sharp_null]:coverage_ci_lower`, above the `margin:coverage_floor`. That cell was red on the Gaussian law this row sampled before, at the same budget of 800 and against the same two thresholds. Neither threshold moved |
-| The property cells need a known outcome support | Eleven of the twelve cells are cross-fitted, so each draws a proportion and declares `q_bounds` of 0 to 1. The in-sample control declares the same support without cross-fitting, so the pair differs in one thing. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
+| The property cells need a known outcome support | Eleven of the twelve cells that draw a sample are cross-fitted, so each draws a proportion and declares `q_bounds` of 0 to 1. The in-sample control declares the same support without cross-fitting, so the pair differs in one thing. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
 | One unstratified split does the cross-fitting | The outer folds read neither the treatment nor the outcome. The row does not establish a stratified split, a grouped split, or a supplied plan. The primary fit draws no split at all, so the parity claim below says nothing about any of them |
 | OAT has a narrower robustness contract than selector C-TMLE | With the outcome regression correct, the bias interval must fit inside the equivalence margin. With it wrong, the control must be discriminated outside it. No treatment-correct-only claim is made, because OAT's mechanism is a projection on the generated outcome-regression design rather than a fit of treatment on the original covariates |
 | The reported interval uses ordinary EIF plug-in covariance | OAT fits the treatment mechanism on estimated `Qbar` columns. Benkeser, Cai and van der Laan (2020) prove one binary treatment-specific-mean curve under six explicit conditions, and the implementation now follows their fold-local nuisance nesting. The package's two-column joint fluctuation and means, ATE, RR, and OR vector are a finite-dimensional extension rather than literally that theorem. The package does not diagnose the paper's rate, smoothness, remainder, and empirical-process conditions, whose setting is iid, complete-outcome, and unweighted. The `generated_design` cells compare finite-sample behaviour: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio`. [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the remaining exact-fit and multi-arm boundary |

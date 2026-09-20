@@ -230,6 +230,68 @@ class TestTheNullLaw:
         )
 
 
+class TestTheGeneratedDesignRule:
+    """The rule that sizes the generated-design law, executed rather than only written.
+
+    The rule at ``bounded_cv_laws.GENERATED_DESIGN_EFFECT`` has two clauses.  The floor is a
+    design quantity of two laws and is deterministic, so it is checked here.  The
+    control-discrimination clause is a Monte Carlo measurement and is recorded in the module
+    docstring; the registered run publishes the deficit it produced.
+    """
+
+    #: The 0.05 grid the rule declares.
+    GRID = 0.05
+
+    @staticmethod
+    def _standardized(law: Any) -> float:
+        """A law's ATE over the square root of its mean conditional outcome variance."""
+        latent = law.quadrature()
+        propensity = np.asarray(law.propensity(latent), dtype=float)
+        variance = 0.0
+        for arm, weight in ((1.0, propensity), (0.0, 1.0 - propensity)):
+            mean = np.asarray(law.outcome_mean(latent, arm, None), dtype=float)
+            if law.family == "beta":
+                within = mean * (1.0 - mean) / (1.0 + float(law.concentration))
+            else:
+                within = np.full_like(mean, law.noise_scale**2)
+            variance += float(np.mean(weight * within))
+        return float(law.truth()["ate"] / np.sqrt(variance))
+
+    def _target(self) -> float:
+        return self._standardized(
+            canonical_properties.null_dgp(bounded_cv_laws.GAUSSIAN_GENERATED_DESIGN_EFFECT)
+        )
+
+    def test_the_declared_effect_is_the_smallest_grid_point_above_the_design_floor(self) -> None:
+        """The floor clause, and the clause that says the rule took the smallest value.
+
+        The second half is what separates a rule from a search for headroom. Without it any
+        coefficient above the floor would pass, and the largest would pass most comfortably.
+        """
+        target = self._target()
+        effect = bounded_cv_laws.GENERATED_DESIGN_EFFECT
+        assert self._standardized(bounded_cv_laws.null_dgp(effect)) >= target
+        below = round(effect - self.GRID, 10)
+        assert below > 0.0
+        assert self._standardized(bounded_cv_laws.null_dgp(below)) < target
+
+    def test_the_retired_coefficient_sits_far_above_that_floor(self) -> None:
+        """Why the re-derivation moved the number, stated as a measurement.
+
+        The coefficient this law carried before was the Gaussian law's own 0.3, which is a
+        shift of an unbounded mean rather than of a logit. On the standardized scale the two
+        are not the same statement: 0.3 here is more than twice the Gaussian law's signal.
+        """
+        retired = self._standardized(bounded_cv_laws.null_dgp(0.3))
+        assert retired > 2.0 * self._target()
+
+    def test_the_budget_is_a_doubling_of_the_gaussian_studys(self) -> None:
+        """The ladder clause. The budget is a rung, not an arbitrary count."""
+        budget = bounded_cv_laws.GENERATED_DESIGN_REPLICATES
+        base = canonical_properties.DOUBLE_ROBUST_REPLICATES
+        assert budget in {base, 2 * base, 4 * base}
+
+
 class TestTheInstrumentLaw:
     """``W2`` is the instrument, and the selector-necessity control depends on its absence."""
 

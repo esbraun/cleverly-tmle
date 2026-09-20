@@ -21,9 +21,16 @@ Declared before the run
 
 Every constant below was chosen from a **disposable pilot** run outside the repository, on
 a separately labelled ``stream_seed(record, "pilot", ...)`` stream rather than on any
-registered seed, and the pilots measured design quantities and *control* discrimination
-only.  No positive cell's verdict statistic was measured before the run.  The measurements
-are recorded here so a reader can see what each threshold was set against.
+registered seed.  The measurements are recorded here so a reader can see what each
+threshold was set against.
+
+Most of the figures below are design quantities of a law, or a *control* cell's own
+discrimination.  Two are not, and this section used to claim that none of them were.
+The generated-design figures are the **control**'s paired SE-ratio deficit, which is the
+statistic the rule at :data:`GENERATED_DESIGN_EFFECT` is allowed to read, and that rule
+states which quantities it refuses to read.  The selector-necessity RMSE ratio enters the
+joint verdict of a family that also contains a positive cell.  It is reported here as a
+property of the law, and no constant in this module was selected against it.
 
 **Bounded double-robustness law** (:func:`double_robustness_dgp`), ``kappa = 0.7``,
 ``centre = 2.8``, ``phi = 12``:
@@ -61,24 +68,23 @@ rejection rate here is evidence about the estimator rather than about a randomiz
 experiment.  The power control rejects ``1.0000`` of 400 replications at
 :data:`ALTERNATIVE_EFFECT`.
 
-At :data:`GENERATED_DESIGN_EFFECT` the outcome-adaptive cells reach the following over
-:data:`GENERATED_DESIGN_REPLICATES` replications at ``n = 1,000``.
+:data:`GENERATED_DESIGN_EFFECT` and :data:`GENERATED_DESIGN_REPLICATES` follow the rule
+stated at those two constants.  The rule reads the two laws' quadrature and the control's
+paired SE-ratio deficit, and it names what it refuses to read.  The design floor selects
+the coefficient ``0.15``, and the pilot measured the deficit there over the declared budget
+ladder at ``n = 1,000``.
 
-==================================================  ========================
-quantity                                            pilot measurement
-==================================================  ========================
-oracle-design SE ratio                              ``0.9878``
-oracle-design SE-ratio interval                     ``[0.9521, 1.0261]``
-oracle-design coverage                              ``0.9487``
-estimated-design SE ratio                           ``0.9574``
-paired SE-ratio deficit                             ``[-0.0428, -0.0179]``
-==================================================  ========================
+=========  ===========================  ============  ============  ==========
+budget     paired SE-ratio deficit      half-width    clearance     resolved
+=========  ===========================  ============  ============  ==========
+1,200      ``[-0.055974, -0.015935]``   ``0.020020``  ``0.005935``  no
+2,400      ``[-0.043563, -0.015273]``   ``0.014145``  ``0.005273``  no
+4,800      ``[-0.043227, -0.024355]``   ``0.009436``  ``0.014355``  yes
+=========  ===========================  ============  ============  ==========
 
-The budget is what moved, and the margin is not.  At the Gaussian study's 1,200 the same
-law reached ``[-0.0458, -0.0105]``, five per cent clear of the ``0.01`` threshold, which
-is inside the interval's own Monte Carlo error.  Doubling contracts the interval around
-the deficit actually observed and leaves ``1.8`` times the threshold, and it contracts the
-oracle arm's SE-ratio interval inside the calibration band at the same time.  Raising the
+The clearance is the distance from the interval's upper endpoint to the ``0.01``
+threshold.  A budget resolves the deficit when the clearance exceeds the interval's own
+half-width, so 4,800 is the first budget on the ladder the rule accepts.  Raising the
 budget cannot buy a pass for a design with no deficit: the interval contracts on zero.
 
 **Bounded nonlinear law** (:func:`nonlinear_dgp`) is the shipped
@@ -234,25 +240,44 @@ NULL_CONFOUNDING_DISPLACEMENT = 3.0
 #: at ``n = 1,000``; the shared floor is 0.80.
 ALTERNATIVE_EFFECT = 0.2
 
-#: The outcome-adaptive generated-design cells' effect, on the logit.  Larger than
-#: :data:`ALTERNATIVE_EFFECT` because the *oracle* arm is the one that constrains it: at
-#: 0.2 the pilot's oracle SE ratio reached 1.0506, whose resampling interval leaves the
-#: calibration band the positive cell answers to, and at 0.3 it reached 0.9878 inside it.
-#: It coincides with the Gaussian law's 0.3 by arithmetic accident, not by construction:
-#: that one is an additive shift of an unbounded mean and this one is a shift of a logit.
-GENERATED_DESIGN_EFFECT = 0.3
+#: The outcome-adaptive generated-design cells' effect, on the logit, and the rule that
+#: sets it.
+#:
+#: The rule reads two kinds of quantity and no others: a design quantity of the two laws,
+#: and the *control*'s discrimination.  The control is ``generated_design/estimated`` and
+#: its statistic is the paired SE-ratio deficit against the oracle arm.  The rule does not
+#: read the oracle arm's own SE ratio, its resampling interval, or the calibration band
+#: those answer to, because that cell is ``role="positive"`` and the band is its verdict.
+#:
+#: The floor is the design quantity.  The coefficient is at least the value at which this
+#: law's standardized treatment effect -- its ATE over the square root of the population
+#: mean conditional outcome variance -- equals the retired Gaussian generated-design law's.
+#: The Gaussian law reaches ``0.3000000`` at its own declared 0.3, and this law matches it
+#: at ``0.1359433``, so the floor on the declared 0.05 grid is 0.15.  The coefficient is
+#: not the Gaussian law's own number: that one is an additive shift of an unbounded mean
+#: and this one is a shift of a logit, which is why the two need a common currency at all.
+#:
+#: The choice is the smallest coefficient on that grid, at the smallest budget on the
+#: ladder :data:`GENERATED_DESIGN_REPLICATES` declares, whose control resolves the deficit.
+#: Smallest rather than largest: a larger coefficient moves the law further from the null
+#: and makes every cell in the family easier, so the rule states the weakest law whose
+#: control still works.  The floor itself qualifies, at 4,800 replications.
+GENERATED_DESIGN_EFFECT = 0.15
 
 #: What the generated-design cells' replication budget has to be, and it is not the
 #: Gaussian study's 1,200.
 #:
+#: The ladder is 1,200, then its doublings 2,400 and 4,800.  The budget is the smallest
+#: rung at which the control's 99% deficit interval lies below the ``0.01`` threshold *and*
+#: clears it by more than the interval's own half-width.  The second clause is what says
+#: the pilot resolved the deficit instead of meeting the threshold at its own resolution.
 #: The deficit is a *paired* difference of two SE ratios, and a bounded outcome's estimates
 #: are an order of magnitude less spread than the Gaussian law's, so the same design
-#: produces a smaller number against the same Monte Carlo error.  The pilot measured
-#: ``[-0.0458, -0.0105]`` at 1,200 -- five per cent clear of the 0.01 threshold, which is
-#: less than the interval's own half-width -- and ``[-0.0428, -0.0179]`` at 2,400.  The
-#: margin does not move; the budget does.  Both cells of the family carry it, because the
-#: deficit is resampled on the two arms' shared replication indices.
-GENERATED_DESIGN_REPLICATES = 2_400
+#: produces a smaller number against the same Monte Carlo error.  A rung's replication
+#: seeds are a prefix of the next rung's, so one pilot run measured all three.  The margin
+#: does not move; the budget does.  Both cells of the family carry it, because the deficit
+#: is resampled on the two arms' shared replication indices.
+GENERATED_DESIGN_REPLICATES = 4_800
 
 #: The Gaussian generated-design effect, which names the law
 #: :func:`~tests.studies.canonical_properties.null_dgp` builds for that family.  Mirrored
