@@ -127,11 +127,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/ltmle_properties.py",
         }
     ),
-    "weighted-ltmle-crossfit": frozenset(
-        {
-            "tests/studies/canonical_ltmle_crossfit.py",
-        }
-    ),
     "canonical-categorical-ltmle-crossfit": frozenset(
         {
             "tests/studies/canonical_ltmle.py",

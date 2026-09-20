@@ -46,6 +46,8 @@ STUDY = StudyRecord(
         "tests/studies/weighted_longitudinal_properties_common.py",
         "tests/discrete_law_longitudinal.py",
         "tests/studies/canonical_ltmle.py",
+        "tests/studies/canonical_ltmle_crossfit.py",
+        "tests/studies/fractional_glm.py",
         "tests/studies/ltmle_crossfit_properties.py",
         "tests/studies/ltmle_properties.py",
         "tests/studies/evidence/comparison.py",
