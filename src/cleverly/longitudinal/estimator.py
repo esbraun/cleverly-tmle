@@ -109,7 +109,13 @@ from .regimen import (
     resolve_plans,
     resolve_regimens,
 )
-from .sequential import Mechanism, RegimenFit, fit_mechanism, fit_regimen
+from .sequential import (
+    Mechanism,
+    RegimenFit,
+    fit_mechanism,
+    fit_regimen,
+    preflight_terminal_outcomes,
+)
 
 __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
 
@@ -1919,6 +1925,8 @@ class LTMLE:
             n_jobs=self.n_jobs,
         )
 
+        horizons = self._horizons(prepared)
+        preflight_terminal_outcomes(prepared, plans, horizons, folds, scaler)
         mechanism = fit_mechanism(
             prepared,
             plans,
@@ -1939,7 +1947,6 @@ class LTMLE:
             n_jobs=self.n_jobs,
         )
 
-        horizons = self._horizons(prepared)
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
         # Evaluated here because the design is a closure and the driver below takes arrays.

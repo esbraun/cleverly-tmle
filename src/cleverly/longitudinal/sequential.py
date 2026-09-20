@@ -140,6 +140,7 @@ __all__ = [
     "fit_mechanism",
     "fit_regimen",
     "preflight_mechanism_support",
+    "preflight_terminal_outcomes",
     "prepare_node",
     "seed_carried",
 ]
@@ -772,6 +773,97 @@ def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
     return np.clip(scaled, 0.0, 1.0)
 
 
+def preflight_terminal_outcomes(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    horizons: Sequence[int],
+    folds: Folds,
+    scaler: OutcomeScaler,
+) -> None:
+    """Check terminal classification regressions before any mechanism learner fits.
+
+    The target at a reported horizon is the observed outcome or event indicator. It does
+    not depend on a fitted nuisance or an earlier targeting step, so its support can be
+    checked for every regimen, cause, horizon, and outer training complement now. The
+    masks and target are the same ones :func:`prepare_node` uses at that horizon.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        Resolved regimen assignments.
+    horizons : sequence of int
+        Reported outcome or event times.
+    folds : Folds
+        The realized outer split.
+    scaler : OutcomeScaler
+        The outcome transformation used by the recursion.
+    """
+    if data.family != "binomial":
+        return
+    carried = seed_carried(data, scaler)
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    for plan in plans:
+        masks = data.regimen_masks(plan.values)
+        for horizon in horizons:
+            at_risk = masks.at_risk(horizon)
+            followers = masks.following(horizon)
+            for cause in causes:
+                target = _pseudo_outcome(data, carried, horizon, cause)
+                for fold, (train, _) in enumerate(folds):
+                    outer_fold = None if folds.is_single else fold
+                    fitted_on = followers.copy()
+                    if not folds.is_single:
+                        train_rows = np.zeros(data.n, dtype=bool)
+                        train_rows[train] = True
+                        fitted_on &= train_rows
+                    _require_regimen_followers(
+                        data, plan, horizon, at_risk, fitted_on, outer_fold=outer_fold
+                    )
+                    _check_outcome_varies(
+                        data,
+                        target,
+                        fitted_on,
+                        plan,
+                        horizon,
+                        horizon,
+                        cause,
+                        outer_fold=outer_fold,
+                    )
+
+
+def _require_regimen_followers(
+    data: LongitudinalData,
+    plan: Plan,
+    time: int,
+    at_risk: BoolArray,
+    fitted_on: BoolArray,
+    *,
+    outer_fold: int | None,
+) -> None:
+    """Refuse an empty regimen training set with the recursion's diagnostic."""
+    if fitted_on.any():
+        return
+    where = (
+        "while remaining in the study"
+        if outer_fold is None
+        else f"in outer training fold {outer_fold + 1}"
+    )
+    raise LongitudinalError(
+        f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
+        "the sequential regression there has nothing to fit. The regimen is not "
+        "supported by this sample."
+        + (
+            ""
+            if outer_fold is None
+            else " " + _CROSS_FIT_NODE_REMEDY.format(alternative="choose a supported regimen")
+        )
+        + _risk_set_hint(data, plan, time)
+        + _rule_hint(plan, data, at_risk, time)
+    )
+
+
 def prepare_node(
     data: LongitudinalData,
     plan: Plan,
@@ -825,24 +917,7 @@ def prepare_node(
     at_risk = masks.at_risk(time)
     trained_on = masks.following(time)
     fitted_on = trained_on if fit_rows is None else trained_on & fit_rows
-    if not fitted_on.any():
-        where = (
-            "while remaining in the study"
-            if outer_fold is None
-            else f"in outer training fold {outer_fold + 1}"
-        )
-        raise LongitudinalError(
-            f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
-            "the sequential regression there has nothing to fit. The regimen is not "
-            "supported by this sample."
-            + (
-                ""
-                if outer_fold is None
-                else " " + _CROSS_FIT_NODE_REMEDY.format(alternative="choose a supported regimen")
-            )
-            + _risk_set_hint(data, plan, time)
-            + _rule_hint(plan, data, at_risk, time)
-        )
+    _require_regimen_followers(data, plan, time, at_risk, fitted_on, outer_fold=outer_fold)
     with phase("pseudo_outcome"):
         next_outcome = _pseudo_outcome(data, carried, time, cause)
     design = data.covariate_history(time)
