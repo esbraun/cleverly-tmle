@@ -75,21 +75,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    # Reaches ``tests/studies/cvtmle_properties.py``, which now samples the bounded
-    # cross-fitted laws and declares ``q_bounds`` and ``stratify_folds``.  That is
-    # result-determining for this row, so the modules it newly reaches cannot be declared in
-    # the ledger.  The entry closes at this study's own regeneration onto the bounded laws.
-    "canonical-ctmle-oat": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/bounded_cv_laws.py",
-            "tests/studies/canonical_cvtmle.py",
-            "tests/studies/canonical_tmle.py",
-            "tests/studies/cvtmle_properties.py",
-            "tests/studies/fractional_glm.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
     "mar-tmle": frozenset(
         {
             "tests/conftest.py",

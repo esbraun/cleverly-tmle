@@ -223,7 +223,12 @@ def test_the_double_robustness_bound_envelope_covers_every_consumer_of_the_law()
     for record in registered():
         if "tests/studies/canonical_properties.py" not in record.modules:
             continue
-        if "tests/studies/cvtmle_properties.py" in record.modules:
+        # ``VARIANT`` is what a CV-TMLE variant module declares, and it is the thing that
+        # says this study's cells *are* ``cvtmle_properties``'.  Recording the module says
+        # less: the outcome-adaptive row imports it for the overfitting cell's size and
+        # budget alone, and reading CV-TMLE's four arms off that import would file a
+        # study's bounds under a family it does not declare.
+        if getattr(record.properties(), "VARIANT", None) is not None:
             declared = cvtmle_properties.cells(variant, include_overfitting=False)
             build = cvtmle_properties.estimator(variant)
         elif record.properties_module == canonical_properties.__name__:

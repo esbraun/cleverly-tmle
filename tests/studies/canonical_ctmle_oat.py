@@ -1,4 +1,10 @@
-"""Outcome-adaptive C-TMLE evidence against archived tlverse ``ctmle3``."""
+"""Outcome-adaptive C-TMLE evidence against archived tlverse ``ctmle3``.
+
+The primary fit is not cross-fitted and ``strategy="oat"`` draws no selection folds, so no
+split is drawn here at all.  ``stratify_folds="none"`` is still passed, because a
+declaration the study makes is what a reader can check against the manifest, and because
+the property cells reach the same keyword through a cross-fitted fit.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +19,7 @@ from cleverly._typing import EstimandName
 from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.canonical_cvtmle import Q_BOUNDS, STRATIFY_FOLDS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -62,6 +69,13 @@ STUDY = StudyRecord(
         "tests/studies/canonical_ctmle_oat.py",
         "tests/studies/ctmle_oat_properties.py",
         "tests/studies/canonical_properties.py",
+        "tests/studies/bounded_cv_laws.py",
+        "tests/studies/canonical_cvtmle.py",
+        "tests/studies/canonical_tmle.py",
+        "tests/studies/cvtmle_properties.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/conftest.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -86,6 +100,17 @@ CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        "none on the binary primary law, whose scaler is already the identity; "
+        f"declared {list(Q_BOUNDS)} on the bounded property laws, whose outcome is a "
+        "proportion"
+    ),
+    "folds": (
+        "none on the primary: it is not cross-fitted and the outcome-adaptive strategy "
+        "draws no selection folds. The property cells draw unstratified five-fold outer "
+        "assignments, except the in-sample control, which draws none"
+    ),
     "comparison_scope": "binary two-arm treatment-specific means and derived contrasts",
 }
 
@@ -118,6 +143,11 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             estimands=SCENARIO_ESTIMANDS[scenario],
             simultaneous=False,
             g_bounds=G_BOUNDS,
+            # The outcome is binary here, so no ``q_bounds``: the scaler is already the
+            # identity and ``TMLE._scaler`` refuses a second declaration of it.  The
+            # split keyword is inert on this fit, which draws none, and is passed so the
+            # study declares one rule rather than two.
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
