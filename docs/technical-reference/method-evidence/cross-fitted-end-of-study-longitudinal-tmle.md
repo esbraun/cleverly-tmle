@@ -48,15 +48,15 @@ The leakage tests also require held-out outcome predictions at both recursion no
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0019 to 0.0022 | 0.9431 | 0.9839 | pass |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `lmtp` | -0.0018 to 0.0023 | 0.9406 | 0.9831 | pass |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0028 | 0.9525 | 0.9986 | pass |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `lmtp` | -0.0015 to 0.0026 | 0.9506 | 1.0001 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` cross-fitted LTMLE | -0.000844 to 0.0016 | 0.9531 | 1.0156 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `lmtp` | -0.000873 to 0.0015 | 0.9519 | 1.0171 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0018 | 0.9506 | 0.9998 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `lmtp` | -0.0015 to 0.0017 | 0.9469 | 1.0012 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` cross-fitted LTMLE | -0.000445 to 0.0022 | 0.9531 | 1.0028 | pass |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `lmtp` | -0.000648 to 0.0019 | 0.9506 | 1.0048 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `lmtp` | -0.0018 to 0.0023 | 0.9437 | 0.9832 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0028 | 0.9519 | 0.9982 | pass |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | R `lmtp` | -0.0015 to 0.0026 | 0.9506 | 0.9999 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` cross-fitted LTMLE | -0.000849 to 0.0016 | 0.9531 | 1.0164 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `lmtp` | -0.000871 to 0.0015 | 0.9525 | 1.0169 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` cross-fitted LTMLE | -0.0014 to 0.0019 | 0.9487 | 0.9991 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `lmtp` | -0.0015 to 0.0017 | 0.9463 | 1.0009 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | `cleverly` cross-fitted LTMLE | -0.000419 to 0.0022 | 0.9531 | 1.0035 | pass |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | R `lmtp` | -0.000644 to 0.0019 | 0.9506 | 1.0044 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
@@ -64,11 +64,11 @@ The leakage tests also require held-out outcome predictions at both recursion no
 <!-- generated: agreement -->
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000063 | 0.0132 | 1.0064 | 0.0025 | 0.0044 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000120 | 0.0248 | 1.0131 | 0.0019 | 0.0049 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000034 | 0.0122 | 1.0092 | 0.0012 | 0.0059 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000097 | 0.0256 | 1.0091 | 0.0037 | 0.0059 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000217 | 0.0718 | 1.0199 | 0.0025 | 0.0100 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000088 | 0.0183 | 1.0066 | -0.000625 | 0.0042 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000124 | 0.0258 | 1.0135 | 0.0012 | 0.0048 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000026 | 0.0094 | 1.0082 | 0.000625 | 0.0049 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 0.000114 | 0.0300 | 1.0095 | 0.0025 | 0.0053 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000239 | 0.0788 | 1.0190 | 0.0025 | 0.0087 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -76,36 +76,36 @@ The leakage tests also require held-out outcome predictions at both recursion no
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `cross_fitted_ltmle` | positive | five-fold end-of-study LTMLE with a fully grown outcome tree | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1486 to 1.1965 | pass |
-| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.3463 to 0.3603 | pass |
-| `double_robustness` | `dynamic__both_correct` | positive | dynamic plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0022 to 0.0015, margin 0.0063, SE ratio 1.0020 | pass |
-| `double_robustness` | `dynamic__both_wrong` | control | dynamic plan: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0165 to 0.0206, margin 0.0069, SE ratio 1.0012 | pass |
-| `double_robustness` | `dynamic__mechanism_correct` | positive | dynamic plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0018 to 0.0022, margin 0.0067, SE ratio 0.9937 | pass |
-| `double_robustness` | `dynamic__outcome_correct` | positive | dynamic plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0021 to 0.0017, margin 0.0063, SE ratio 1.0257 | pass |
-| `double_robustness` | `static__both_correct` | positive | static plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0060 to 0.0026, margin 0.0144, SE ratio 1.0179 | pass |
-| `double_robustness` | `static__both_wrong` | control | static plan: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0247 to -0.0162, margin 0.0143, SE ratio 0.6892 | pass |
-| `double_robustness` | `static__mechanism_correct` | positive | static plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0028 to 0.0058, margin 0.0145, SE ratio 1.0357 | pass |
-| `double_robustness` | `static__outcome_correct` | positive | static plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0062 to 0.0029, margin 0.0153, SE ratio 0.6182 | pass |
-| `interval_calibration` | `dynamic__correctly_specified` | positive | dynamic plan: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9388 to 0.9619, SE ratio 0.9832 to 1.0640, empirical efficiency ratio 0.9530 to 1.0304, reported efficiency ratio 1.0106 to 1.0163 | pass |
-| `interval_calibration` | `dynamic__noise_control` | control | dynamic plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8098 to 0.8497, SE ratio 0.6952 to 0.7478, empirical efficiency ratio 1.3560 to 1.4571, reported efficiency ratio 1.0106 to 1.0163 | pass |
-| `interval_calibration` | `dynamic__shrunken_se_control` | control | dynamic plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8129 to 0.8525, SE ratio 0.6888 to 0.7445, empirical efficiency ratio 0.9533 to 1.0294, reported efficiency ratio 0.7074 to 0.7114 | pass |
-| `interval_calibration` | `static__correctly_specified` | positive | static plan: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9305 to 0.9552, SE ratio 0.9714 to 1.0481, empirical efficiency ratio 0.9740 to 1.0501, reported efficiency ratio 1.0177 to 1.0235 | pass |
-| `interval_calibration` | `static__noise_control` | control | static plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8111 to 0.8509, SE ratio 0.6903 to 0.7437, empirical efficiency ratio 1.3730 to 1.4783, reported efficiency ratio 1.0177 to 1.0234 | pass |
-| `interval_calibration` | `static__shrunken_se_control` | control | static plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8076 to 0.8477, SE ratio 0.6801 to 0.7337, empirical efficiency ratio 0.9741 to 1.0504, reported efficiency ratio 0.7124 to 0.7164 | pass |
-| `power` | `static__alternative` | positive | static plan: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9650, 0.9447 to 0.9796 | pass |
-| `root_n_and_efficiency` | `dynamic__n_1000` | control | dynamic plan: bias, coverage and SE calibration at n = 1,000 | coverage interval lies below nominal or clears the declared floor | bias -0.0015, coverage 0.9208 to 0.9637, SE ratio 0.9979 | pass |
-| `root_n_and_efficiency` | `dynamic__n_2000` | positive | dynamic plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000376, coverage 0.9223 to 0.9647, SE ratio 0.9995 | pass |
-| `root_n_and_efficiency` | `dynamic__n_8000` | positive | dynamic plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000036, coverage 0.9386 to 0.9757, SE ratio 1.0355 | pass |
-| `root_n_and_efficiency` | `static__n_1000` | control | static plan: bias, coverage and SE calibration at n = 1,000 | coverage interval lies below nominal or clears the declared floor | bias -0.0037, coverage 0.9121 to 0.9575, SE ratio 1.0067 | pass |
-| `root_n_and_efficiency` | `static__n_2000` | positive | static plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0038, coverage 0.9371 to 0.9747, SE ratio 1.0306 | pass |
-| `root_n_and_efficiency` | `static__n_8000` | positive | static plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000677, coverage 0.9267 to 0.9677, SE ratio 1.0022 | pass |
-| `root_n_rate` | `dynamic__empirical_sd` | positive | dynamic plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5730 to -0.4862 | pass |
-| `root_n_rate` | `dynamic__reported_se` | positive | dynamic plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5140 to -0.5074 | pass |
-| `root_n_rate` | `static__empirical_sd` | positive | static plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5582 to -0.4697 | pass |
-| `root_n_rate` | `static__reported_se` | positive | static plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5211 to -0.5144 | pass |
+| `crossfit_overfitting` | `cross_fitted_ltmle` | positive | five-fold end-of-study LTMLE with a fully grown outcome tree | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1533 to 1.2016 | **fail** |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.3463 to 0.3602 | pass |
+| `double_robustness` | `dynamic__both_correct` | positive | dynamic plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0022 to 0.0015, margin 0.0063, SE ratio 1.0025 | pass |
+| `double_robustness` | `dynamic__both_wrong` | control | dynamic plan: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0165 to 0.0206, margin 0.0069, SE ratio 1.0020 | pass |
+| `double_robustness` | `dynamic__mechanism_correct` | positive | dynamic plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0018 to 0.0022, margin 0.0067, SE ratio 0.9935 | pass |
+| `double_robustness` | `dynamic__outcome_correct` | positive | dynamic plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0021 to 0.0017, margin 0.0063, SE ratio 1.0243 | pass |
+| `double_robustness` | `static__both_correct` | positive | static plan: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0059 to 0.0027, margin 0.0144, SE ratio 1.0168 | pass |
+| `double_robustness` | `static__both_wrong` | control | static plan: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0247 to -0.0162, margin 0.0143, SE ratio 0.6897 | pass |
+| `double_robustness` | `static__mechanism_correct` | positive | static plan: only the treatment and censoring mechanisms are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0029 to 0.0057, margin 0.0145, SE ratio 1.0360 | pass |
+| `double_robustness` | `static__outcome_correct` | positive | static plan: only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0062 to 0.0030, margin 0.0154, SE ratio 0.6180 | pass |
+| `interval_calibration` | `dynamic__correctly_specified` | positive | dynamic plan: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9406 to 0.9634, SE ratio 0.9850 to 1.0657, empirical efficiency ratio 0.9526 to 1.0298, reported efficiency ratio 1.0118 to 1.0175 | pass |
+| `interval_calibration` | `dynamic__noise_control` | control | dynamic plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8159 to 0.8552, SE ratio 0.6962 to 0.7490, empirical efficiency ratio 1.3550 to 1.4564, reported efficiency ratio 1.0117 to 1.0174 | pass |
+| `interval_calibration` | `dynamic__shrunken_se_control` | control | dynamic plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8133 to 0.8529, SE ratio 0.6897 to 0.7457, empirical efficiency ratio 0.9528 to 1.0293, reported efficiency ratio 0.7082 to 0.7123 | pass |
+| `interval_calibration` | `static__correctly_specified` | positive | static plan: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9314 to 0.9559, SE ratio 0.9722 to 1.0488, empirical efficiency ratio 0.9736 to 1.0500, reported efficiency ratio 1.0185 to 1.0242 | pass |
+| `interval_calibration` | `static__noise_control` | control | static plan: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8129 to 0.8525, SE ratio 0.6909 to 0.7443, empirical efficiency ratio 1.3725 to 1.4777, reported efficiency ratio 1.0185 to 1.0241 | pass |
+| `interval_calibration` | `static__shrunken_se_control` | control | static plan: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8059 to 0.8461, SE ratio 0.6811 to 0.7344, empirical efficiency ratio 0.9741 to 1.0500, reported efficiency ratio 0.7130 to 0.7169 | pass |
+| `power` | `static__alternative` | positive | static plan: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9625, 0.9416 to 0.9776 | pass |
+| `root_n_and_efficiency` | `dynamic__n_1000` | control | dynamic plan: bias, coverage and SE calibration at n = 1,000 | coverage interval lies below nominal or clears the declared floor | bias -0.0016, coverage 0.9136 to 0.9585, SE ratio 0.9998 | pass |
+| `root_n_and_efficiency` | `dynamic__n_2000` | positive | dynamic plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000389, coverage 0.9179 to 0.9616, SE ratio 0.9987 | pass |
+| `root_n_and_efficiency` | `dynamic__n_8000` | positive | dynamic plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000035, coverage 0.9371 to 0.9747, SE ratio 1.0351 | pass |
+| `root_n_and_efficiency` | `static__n_1000` | control | static plan: bias, coverage and SE calibration at n = 1,000 | coverage interval lies below nominal or clears the declared floor | bias -0.0032, coverage 0.9165 to 0.9606, SE ratio 1.0049 | pass |
+| `root_n_and_efficiency` | `static__n_2000` | positive | static plan: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.0038, coverage 0.9416 to 0.9776, SE ratio 1.0320 | pass |
+| `root_n_and_efficiency` | `static__n_8000` | positive | static plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000695, coverage 0.9252 to 0.9667, SE ratio 1.0013 | pass |
+| `root_n_rate` | `dynamic__empirical_sd` | positive | dynamic plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5716 to -0.4853 | pass |
+| `root_n_rate` | `dynamic__reported_se` | positive | dynamic plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5138 to -0.5073 | pass |
+| `root_n_rate` | `static__empirical_sd` | positive | static plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5566 to -0.4686 | pass |
+| `root_n_rate` | `static__reported_se` | positive | static plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5198 to -0.5131 | pass |
 | `targeting_necessity` | `dynamic__targeted` | positive | dynamic plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0020 to 0.0018, margin 0.0065 | pass |
 | `targeting_necessity` | `dynamic__untargeted` | control | dynamic plan: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias 0.0232 to 0.0274, margin 0.0070 | pass |
-| `targeting_necessity` | `static__targeted` | positive | static plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0042 to 0.0050, margin 0.0153 | pass |
+| `targeting_necessity` | `static__targeted` | positive | static plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0041 to 0.0050, margin 0.0153 | pass |
 | `targeting_necessity` | `static__untargeted` | control | static plan: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias -0.0263 to -0.0173, margin 0.0151 | pass |
 | `type_i_error` | `static__sharp_null` | positive | static plan: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0425, 0.0263 to 0.0644 | pass |
 <!-- /generated -->
@@ -119,17 +119,21 @@ SE ratio inside the declared band and a predeclared coverage gain over the contr
 
 Read the direction of that ratio, not only the verdict. In-sample fitting understates the standard
 error by a factor near three, at 0.3532. Cross-fitting removes the understatement and overshoots
-it, at 1.1725. A noisy outcome model inflates the residual term of the influence curve, so a
+it, at 1.1767. A noisy outcome model inflates the residual term of the influence curve, so a
 conservative ratio is the expected direction here rather than an anomaly. The cell establishes
 that cross-fitting restores honest inference. It does not establish calibration under a fully
 grown tree, and the `interval_calibration` family, which does make a calibration claim, uses
 correctly specified nuisances instead.
 
-The gate is close. The 99% interval reaches 1.1965 against a ceiling of 1.2000, so a change of
-learner, sample size, or fold count could move this cell across it. The replication budget is
-8,000 rather than the shared 400 because the shared budget leaves the interval wider than the
-remaining margin. That is legitimate for an equivalence-shaped gate, which more replications make
-easier rather than harder, and it is recorded here so the margin cannot be read as comfortable.
+The gate no longer holds. The 99% interval reaches 1.201555 against a ceiling of 1.2000, so the
+cell misses by 0.001555. The earlier row measured 1.196518 on a treatment-stratified first-node
+split and recorded the margin as uncomfortable. The limitations table gives the attribution and
+the direction.
+
+The replication budget stays at 8,000 rather than the shared 400, because the
+shared budget leaves the interval wider than the remaining margin. That budget was sized before
+the first run of this study. Raising it now would buy a pass on an equivalence-shaped gate, which
+more replications make easier rather than harder, so this study publishes the red cell instead.
 
 ## Measured values
 
@@ -145,15 +149,16 @@ the committed results and checked at the precision printed.
 | `paired_tests_total` | 5 | paired estimand comparisons |
 | `paired_tests_passed` | 5 | paired comparisons passing |
 | `property_cells_total` | 32 | independent property cells |
-| `property_cells_passed` | 32 | property cells passing |
-| `max_standardized_bias` | 0.0425 | largest primary standardized bias |
-| `min_coverage` | 0.9406 | lowest primary coverage |
-| `min_coverage_ci_lower` | 0.9237 | lowest primary coverage lower endpoint |
-| `min_se_ratio_ci_lower` | 0.9421 | lowest primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0650 | highest primary SE-ratio endpoint |
-| `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage` | 0.9754 | cross-fitted tree coverage |
+| `property_cells_passed` | 30 | property cells passing |
+| `max_standardized_bias` | 0.0438 | largest primary standardized bias |
+| `min_coverage` | 0.9431 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9265 | lowest primary coverage lower endpoint |
+| `min_se_ratio_ci_lower` | 0.9422 | lowest primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0649 | highest primary SE-ratio endpoint |
+| `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage` | 0.9760 | cross-fitted tree coverage |
 | `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5081 | in-sample tree coverage |
-| `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage_gain_ci_lower` | 0.4526 | lower bound for the paired coverage gain |
+| `properties[crossfit_overfitting/cross_fitted_ltmle]:se_ratio_ci_upper` | 1.201555 | cross-fitted tree SE-ratio upper endpoint |
+| `properties[crossfit_overfitting/cross_fitted_ltmle]:coverage_gain_ci_lower` | 0.4534 | lower bound for the paired coverage gain |
 | `properties[crossfit_overfitting/cross_fitted_ltmle]:replicates` | 8000 | paired overfitting replications |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
@@ -194,7 +199,7 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | Agreement with `lmtp` is distributional, not numerical | The paired claim is that the mean difference sits inside the similarity margin and that `cleverly` is no worse. The two ordinary rows agree with R `ltmle` to solver precision because both run the identical regression; here the sequential regressions are still fitted differently, so per-replication estimates differ at statistical scale |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
-| The cross-fit overfitting cell passes near its ceiling | Its 99% SE-ratio interval reaches 1.1965 against a ceiling of 1.2000. The cell shows that cross-fitting restores honest inference under a fully grown tree. It does not show calibration under one |
+| The cross-fit overfitting cell misses its ceiling | This row publishes under the `reporting` policy, which was declared before the run that measured this cell. The 99% SE-ratio interval reaches 1.201555 against a ceiling of 1.2000, so the cell misses by 0.001555. A controlled 2x2 over the same 8,000 registered seeds attributes the whole move to the first-node fold policy. The stratified arm gives 1.172543 and an upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control gives 0.353193 under both policies, because it has no outer split for a policy to change. The breach is in the conservative direction. Coverage rose from 0.975375 to 0.976000. The cell still shows that cross-fitting restores honest inference under a fully grown tree. It does not show calibration under one. The [roadmap](../../roadmap.md) carries the open question this residual belongs to. Its fold-policy audit records that the reviewed longitudinal theorem defines random near-balanced row folds, and that the theorem's targeting construction differs from the shipped fold-local recursion |
 | Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair validates held-out prediction behavior, not parity for learner-library selection |
 | The row reports one terminal mean per plan | Survival curves, competing risks, and longitudinal MSM projections have different parameters |
 | Inference is pointwise | The row does not validate simultaneous bands, bootstrap intervals, weights, or clustering |

@@ -67,6 +67,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_ltmle_crossfit.py",
         "tests/studies/canonical_ltmle.py",
+        "tests/studies/fractional_glm.py",
         "tests/studies/ltmle_crossfit_properties.py",
         "tests/discrete_law_longitudinal.py",
         "tests/studies/evidence/comparison.py",
@@ -118,6 +119,18 @@ STUDY = StudyRecord(
         ),
         "crossfit_overfitting": ("cross_fitted_ltmle", "in_sample_control"),
     },
+    # The breach the limitations table records is 0.001555 wide, and four decimals round both
+    # the measured endpoint and the ceiling to numbers a reader cannot subtract.  The claim
+    # here is a distance between two rows, which is what ``quoted_decimals`` exists for.
+    quoted_decimals={
+        "properties[crossfit_overfitting/cross_fitted_ltmle]:se_ratio_ci_upper": 6,
+    },
+    # The package now draws the first-node folds without stratifying on treatment, and that
+    # alone moves ``crossfit_overfitting/cross_fitted_ltmle`` past the shared SE-ratio ceiling
+    # by 0.001555.  Every route back to green either buys the pass (more replications against
+    # an interval-shaped gate, a wider margin) or re-declares a positive cell's own verdict
+    # statistic.  The study publishes the red cell and its interval instead.
+    publication_policy="reporting",
 )
 
 #: Provenance of the comparator, for the manifest's ``generated_with.reference`` block.
