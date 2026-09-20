@@ -33,7 +33,12 @@ import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
-from cleverly.datasets import make_linear_ate, make_longitudinal, make_longitudinal_weighted
+from cleverly.datasets import (
+    make_linear_ate,
+    make_longitudinal,
+    make_longitudinal_weighted,
+    make_nonlinear_bounded,
+)
 from cleverly.utils.frames import available_backends
 
 OTHER = {"pandas": "polars", "polars": "pandas"}
@@ -61,8 +66,10 @@ def main() -> None:
     frame, _ = make_linear_ate(n=400, seed=0, backend=backend)
     check(isinstance(frame, frame_type), f"make_linear_ate returns a {backend} frame")
 
+    # Keep the fit cross-fitted while using a scale declared by the data-generating law.
+    bounded_frame, _ = make_nonlinear_bounded(n=400, seed=0, backend=backend)
     result = CausalStudy(
-        frame,
+        bounded_frame,
         design=PointTreatment(
             outcome="Y",
             treatment="A",
@@ -74,6 +81,7 @@ def main() -> None:
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=4,
         learner_folds=3,
+        q_bounds=(0.0, 1.0),
         random_state=0,
     )
     check(np.isfinite(result.psi("ate")), "the fit produced a finite estimate")
