@@ -132,6 +132,43 @@ class TestTheDoubleRobustnessDesign:
         with pytest.raises(RuntimeError):
             bounded_cv_laws.bounded_cells("cvtmle_properties")
 
+    def test_the_bounded_thresholds_accept_a_flattened_gaussian_law(self) -> None:
+        """The other half of the claim above, which nothing used to check.
+
+        The claim is that one shared pair of thresholds cannot read both laws. Half of it is
+        that the Gaussian pair rejects the bounded law, which the test above shows. This is
+        the other half: a Gaussian law flattened until its own design refuses it still clears
+        the bounded pair, so the looser pair would stop rejecting the law it was written for.
+        """
+        gaussian = canonical_properties.double_robustness_dgp()
+        base = gaussian.outcome_mean
+
+        def flattened(w: Any, a: float, z: Any) -> Any:
+            reference = np.asarray(base(w, 0.0, z), dtype=float)
+            return reference + 0.2 * (np.asarray(base(w, a, z), dtype=float) - reference)
+
+        flat = replace(gaussian, outcome_mean=flattened)
+        cells = tuple(
+            replace(cell, dgp=flat) if cell.property == "double_robustness" else cell
+            for cell in canonical_properties.cells()
+        )
+
+        # The witness is the law's own, and this law is no longer the one it witnesses, so
+        # both designs carry the bounded module's witness and differ in their thresholds
+        # alone.  That is the comparison the claim is about.
+        def witness(dgp: Any) -> None:
+            return None
+
+        strict = replace(canonical_properties.GAUSSIAN_DESIGN, witness=witness)
+        loose = replace(
+            strict,
+            contrast_spread=bounded_cv_laws.DOUBLE_ROBUST_CONTRAST_SPREAD,
+            wrong_q_error=bounded_cv_laws.DOUBLE_ROBUST_WRONG_Q_ERROR,
+        )
+        with pytest.raises(RuntimeError, match="contrast witness"):
+            canonical_properties.assert_double_robustness_design(cells, design=strict)
+        canonical_properties.assert_double_robustness_design(cells, design=loose)
+
     def test_a_recentred_law_fails_the_contrast_witness(self, monkeypatch: Any) -> None:
         """A second mutation, which the range clause alone would not catch.
 
@@ -217,6 +254,29 @@ class TestTheNullLaw:
         bounded_cv_laws.assert_bounded_law_design.cache_clear()
         with pytest.raises(RuntimeError, match="identically equal"):
             bounded_cv_laws.assert_bounded_law_design()
+
+    def test_the_sharp_null_is_confounded_by_quadrature(self) -> None:
+        """The declared displacement, read against the law rather than against a pilot note.
+
+        ``NULL_CONFOUNDING_DISPLACEMENT`` was read by nothing at all. A calibrated rejection
+        rate on a law with no confounding is evidence about a randomized experiment rather
+        than about the estimator, which is exactly what the constant refuses.
+        """
+        measured = bounded_cv_laws.null_confounding_displacement()
+        assert measured >= bounded_cv_laws.NULL_CONFOUNDING_DISPLACEMENT, (
+            f"the bounded sharp null displaces an unadjusted contrast by {measured} standard "
+            f"errors at n = {bounded_cv_laws.NULL_CONFOUNDING_N}, below the declared floor"
+        )
+
+    def test_an_unconfounded_null_loses_that_displacement(self, monkeypatch: Any) -> None:
+        """The partner mutation: drop the confounders and the displacement goes to zero."""
+        monkeypatch.setattr(bounded_cv_laws, "NULL_WEIGHTS", (0.0, 0.0, 0.0))
+        bounded_cv_laws.null_confounding_displacement.cache_clear()
+        try:
+            measured = bounded_cv_laws.null_confounding_displacement()
+        finally:
+            bounded_cv_laws.null_confounding_displacement.cache_clear()
+        assert measured < bounded_cv_laws.NULL_CONFOUNDING_DISPLACEMENT
 
     def test_the_two_declared_effects_move_the_contrast_upward(self) -> None:
         for effect in (bounded_cv_laws.ALTERNATIVE_EFFECT, bounded_cv_laws.GENERATED_DESIGN_EFFECT):
@@ -500,15 +560,42 @@ class TestTheFoldPolicySeam:
     """Three policies, one law, and a partition that actually differs between them."""
 
     def test_every_cell_is_diagnostic_and_shares_one_seed(self) -> None:
-        cells = bounded_cv_laws.fold_policy_cells()
+        cells = bounded_cv_laws.fold_policy_cells(CANONICAL_CVTMLE)
         assert [cell.cell for cell in cells] == list(bounded_cv_laws.FOLD_POLICIES)
         assert {cell.role for cell in cells} == {"diagnostic"}
-        assert {cell.seed for cell in cells} == {bounded_cv_laws.FOLD_POLICY_SEED}
+        assert {cell.seed for cell in cells} == {bounded_cv_laws.fold_policy_seed(CANONICAL_CVTMLE)}
         assert {cell.dgp.family for cell in cells} == {"binomial"}
+
+    def test_the_family_draws_from_its_own_stream(self) -> None:
+        """The literal this seed replaced collided with another study's inherited cell.
+
+        ``ctmle_oat_properties`` inherits ``type_i_error/sharp_null`` at seed ``9_100`` under
+        an offset of ``5_000``, which is the ``14_100`` this family used to write out. The
+        two cells then drew bit-identical covariates. An offset table cannot separate them,
+        because a study-specific family sits outside every offset, so the seed is hashed from
+        the registering record instead.
+        """
+        inherited = {
+            cell.seed
+            for cell in bounded_cv_laws.bounded_cells(
+                "ctmle_oat_properties", exclude=("double_robustness",)
+            )
+        }
+        sharp_null = next(
+            cell.seed
+            for cell in bounded_cv_laws.bounded_cells(
+                "ctmle_oat_properties", exclude=("double_robustness",)
+            )
+            if cell.property == "type_i_error"
+        )
+        assert sharp_null == 14_100
+        seed = bounded_cv_laws.fold_policy_seed(CANONICAL_CVTMLE)
+        assert seed != sharp_null
+        assert seed not in inherited
 
     def test_the_estimator_passes_no_q_bounds_on_the_binary_law(self) -> None:
         """A binary outcome already has the identity scaler, and ``q_bounds`` is refused."""
-        cell = bounded_cv_laws.fold_policy_cells()[0]
+        cell = bounded_cv_laws.fold_policy_cells(CANONICAL_CVTMLE)[0]
         estimator = bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS)(cell)()
         assert estimator.q_bounds is None
 
@@ -516,7 +603,11 @@ class TestTheFoldPolicySeam:
     def test_each_policy_draws_the_split_it_names(self, policy: str) -> None:
         law = bounded_cv_laws.fold_policy_dgp()
         frame, _ = law.sample(300, seed=2)
-        cell = next(cell for cell in bounded_cv_laws.fold_policy_cells() if cell.cell == policy)
+        cell = next(
+            cell
+            for cell in bounded_cv_laws.fold_policy_cells(CANONICAL_CVTMLE)
+            if cell.cell == policy
+        )
         estimator = bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS)(cell)()
         result = estimator.fit(frame, outcome="Y", treatment="A").single()
         folds = result.nuisance.folds
@@ -540,7 +631,7 @@ class TestTheFoldPolicySeam:
         law = bounded_cv_laws.fold_policy_dgp()
         frame, _ = law.sample(300, seed=2)
         assignments = {}
-        for cell in bounded_cv_laws.fold_policy_cells():
+        for cell in bounded_cv_laws.fold_policy_cells(CANONICAL_CVTMLE):
             estimator = bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS)(cell)()
             result = estimator.fit(frame, outcome="Y", treatment="A").single()
             assignments[cell.cell] = result.nuisance.folds.assignment.copy()

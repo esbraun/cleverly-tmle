@@ -137,9 +137,9 @@ policies being right and with both being wrong in the same direction.
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0358 to -0.0335, margin 0.0040, SE ratio 1.0108 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000840 to 0.000725, margin 0.0026, SE ratio 1.0523 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000825 to 0.000659, margin 0.0025, SE ratio 0.9717 | pass |
-| `fold_policy` | `treatment_outcome_stratified` | diagnostic | the outer split is balanced on the treatment crossed with the outcome, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9238 to 0.9657, paired coverage difference -0.0050 to 0.0112 | reported |
-| `fold_policy` | `treatment_stratified` | diagnostic | the outer split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9267 to 0.9677, paired coverage difference -0.0037 to 0.0150 | reported |
-| `fold_policy` | `unstratified` | diagnostic | the outer split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9208 to 0.9637 | reported |
+| `fold_policy` | `treatment_outcome_stratified` | diagnostic | the outer split is balanced on the treatment crossed with the outcome, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9252 to 0.9667, paired coverage difference -0.0025 to 0.0163 | reported |
+| `fold_policy` | `treatment_stratified` | diagnostic | the outer split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9179 to 0.9616, paired coverage difference -0.0063 to 0.0063 | reported |
+| `fold_policy` | `unstratified` | diagnostic | the outer split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9179 to 0.9616 | reported |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9346 to 0.9585, SE ratio 0.9671 to 1.0400 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000046, coverage 0.9121 to 0.9575, SE ratio 0.9709 | pass |
@@ -194,13 +194,13 @@ the committed results and checked at the precision printed.
 | `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.4875 | coverage with the deliberately in-sample tree |
 | `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4874 | SE calibration of that control |
 | `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.3800 | paired 99% lower bound for coverage gained over the control |
-| `properties[fold_policy/unstratified]:coverage` | 0.9450 | reported coverage of the split the package generates |
-| `properties[fold_policy/treatment_stratified]:coverage` | 0.9500 | reported coverage of the treatment-stratified split |
-| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0037 | its paired 99% lower bound against the unstratified arm |
-| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_upper` | 0.0150 | its paired 99% upper bound against the unstratified arm |
-| `properties[fold_policy/treatment_outcome_stratified]:coverage` | 0.9475 | reported coverage of the treatment-outcome-stratified split |
-| `properties[fold_policy/treatment_outcome_stratified]:coverage_gain_ci_lower` | -0.0050 | its paired 99% lower bound against the unstratified arm |
-| `properties[fold_policy/treatment_outcome_stratified]:coverage_gain_ci_upper` | 0.0112 | its paired 99% upper bound against the unstratified arm |
+| `properties[fold_policy/unstratified]:coverage` | 0.9425 | reported coverage of the split the package generates |
+| `properties[fold_policy/treatment_stratified]:coverage` | 0.9425 | reported coverage of the treatment-stratified split |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0063 | its paired 99% lower bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_upper` | 0.0063 | its paired 99% upper bound against the unstratified arm |
+| `properties[fold_policy/treatment_outcome_stratified]:coverage` | 0.9487 | reported coverage of the treatment-outcome-stratified split |
+| `properties[fold_policy/treatment_outcome_stratified]:coverage_gain_ci_lower` | -0.0025 | its paired 99% lower bound against the unstratified arm |
+| `properties[fold_policy/treatment_outcome_stratified]:coverage_gain_ci_upper` | 0.0163 | its paired 99% upper bound against the unstratified arm |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
 | `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |

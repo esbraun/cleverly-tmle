@@ -48,6 +48,11 @@ both-wrong bias at n = 700, 400 replications         ``-0.0358``, ``2.296`` SD
 both-wrong bias by quadrature                        ``-0.0344``
 ===================================================  ==========================
 
+The sampled rows above were measured at ``n = 700``, which is the size the four
+double-robustness cells run at.  ``run_double_robustness_preflight`` draws ``n = 400`` by
+default, because it reads a fitted oracle and a stored scaler rather than a sampling
+distribution, so its figures are not these.
+
 The last two rows are the same quantity by two routes.  The sampled figure is the control
 the study runs; the quadrature figure is the population one-step bias against the
 population projections the two misspecified learners converge to.  They agree to four per
@@ -98,10 +103,13 @@ of ``0.892`` inside the union-model band.
 **Bounded instrument law** (:func:`instrument_dgp`), ``phi = 12``: mean range
 ``(0.1043, 0.9233)``, smallest beta shape ``0.920``, ATE ``0.0826``.  The collaborative
 arm's RMSE is ``0.2016`` of the empty-candidate control's over 400 replications, against
-the ``0.25`` the selector-necessity design asks for, and the control sits ``5.610``
-standard deviations from the truth.  On the bounded linear law the selector's both-Dummy
-control sits ``0.621`` standard deviations from the truth at ``n = 700``, above the
-``2 x 0.25`` the equivalence margin needs.
+the ``0.50`` of ``ctmle_selector_properties.SELECTOR_RMSE_RATIO``, and the control sits
+``5.610`` standard deviations from the truth.  An earlier draft of this paragraph named
+``0.25``, which is not a threshold any module declares.  The registered run measured
+``0.2410``, which clears the real ceiling and would have missed the one the draft named.
+On the bounded linear law the selector's both-Dummy control sits ``0.621`` standard
+deviations from the truth at ``n = 700``, above the ``2 x 0.25`` the equivalence margin
+needs.
 
 Where the checks run
 --------------------
@@ -145,6 +153,8 @@ from tests.studies.evidence.property_verdicts import (
     FOLD_POLICY_FAMILY,
     FOLD_POLICY_REFERENCE_CELL,
 )
+from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.seeds import stream_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 #: The outcome bounds every cell here declares.  A proportion's support is the law's, not
@@ -232,9 +242,16 @@ LINEAR_RECOVERY_TOLERANCE = 1e-3
 #: the ATE exactly zero rather than zero to quadrature error.
 NULL_WEIGHTS = (0.50, 0.26, -0.16)
 
-#: How far from the truth the unadjusted arm difference has to sit, in its own empirical
-#: standard deviations, for the sharp null to be a confounded one.  Pilot: 3.59.
+#: How far from the truth the unadjusted arm difference has to sit, in its own standard
+#: errors, for the sharp null to be a confounded one.  Pilot: 3.59 empirical standard
+#: deviations at ``n = 1,000``; :func:`null_confounding_displacement` reaches the same
+#: statement by quadrature, and :mod:`tests.unit.test_bounded_cv_laws` reads this constant
+#: against it.  The constant used to be read by nothing at all.
 NULL_CONFOUNDING_DISPLACEMENT = 3.0
+
+#: The size the displacement above is stated at.  A confounding bias is fixed and a standard
+#: error shrinks, so the ratio is a statement about one sample size and not about the law.
+NULL_CONFOUNDING_N = 1_000
 
 #: The power control's effect, on the logit.  Pilot rejection 1.0000 of 400 replications
 #: at ``n = 1,000``; the shared floor is 0.80.
@@ -308,6 +325,14 @@ MINIMUM_BETA_SHAPE = 0.70
 #: inherits.  Declared here rather than spelled in each module, because
 #: :func:`bounded_cells` is what reproduces them and a bounded twin that lost an offset
 #: would silently share a sample stream with the study it inherited from.
+#:
+#: The table separates a consumer from the canonical block, and from the other consumers of
+#: that block.  It does **not** separate two cells inside one consumer, and two are known to
+#: collide: ``ctmle_selector_properties`` gives ``double_robustness/both_correct`` and
+#: ``root_n_and_efficiency/n_500`` the same law and the same seed ``12_100``, so the two
+#: publish bit-identical covariates.  That collision predates this module and no offset here
+#: can reach it.  ``test_the_registered_studies_do_not_share_their_samples`` iterates primary
+#: scenarios alone, so nothing refuses it either.  ``docs/roadmap.md`` RM18 records the gap.
 INHERITED_SEED_OFFSETS: Mapping[str, int] = {
     "cvtmle_properties": 0,
     "ctmle_selector_properties": 4_000,
@@ -337,7 +362,6 @@ FOLD_POLICIES = (
 FOLD_POLICY_N = 500
 FOLD_POLICY_REPLICATES = 800
 FOLD_POLICY_FOLDS = 10
-FOLD_POLICY_SEED = 14_100
 
 
 # --------------------------------------------------------------------------- laws
@@ -902,6 +926,47 @@ def _population_logistic(covariates: np.ndarray, target: np.ndarray) -> np.ndarr
     raise RuntimeError("the population logistic limit did not converge")
 
 
+@lru_cache(maxsize=1)
+def null_confounding_displacement(n: int = NULL_CONFOUNDING_N) -> float:
+    """How confounded the bounded sharp null is, in standard errors of an unadjusted contrast.
+
+    The sharp null's ATE is exactly zero, so the unadjusted arm difference is entirely
+    confounding bias.  Both the bias and the contrast's variance are population quantities of
+    the law, so this needs no replication budget: it divides the population arm difference by
+    the standard error an unadjusted difference of means has at ``n``.
+
+    The type-I cell exists to show that the estimator removes this bias.  A law that had
+    little of it would give a calibrated rejection rate for a reason that is not the
+    estimator's, which is what :data:`NULL_CONFOUNDING_DISPLACEMENT` refuses.
+
+    Parameters
+    ----------
+    n : int
+        The sample size the displacement is stated at.  Defaults to
+        :data:`NULL_CONFOUNDING_N`.
+
+    Returns
+    -------
+    float
+        The unadjusted arm difference over its own standard error at ``n``.
+    """
+    law = null_dgp()
+    latent = law.quadrature()
+    g = np.asarray(law.propensity(latent), dtype=float)
+    mean = np.asarray(law.outcome_mean(latent, 1.0, None), dtype=float)
+    phi = float(law.concentration or 0.0)
+    within = mean * (1.0 - mean) / (1.0 + phi)
+    moments = []
+    for weight in (g, 1.0 - g):
+        share = float(np.mean(weight))
+        arm_mean = float(np.mean(weight * mean) / share)
+        arm_second = float(np.mean(weight * (within + mean**2)) / share)
+        moments.append((share, arm_mean, arm_second - arm_mean**2))
+    (treated_share, treated_mean, treated_var), (control_share, control_mean, control_var) = moments
+    variance = treated_var / (n * treated_share) + control_var / (n * control_share)
+    return float(abs(treated_mean - control_mean) / np.sqrt(variance))
+
+
 @lru_cache(maxsize=4)
 def both_wrong_limit_bias(g_bounds: tuple[float, float]) -> float:
     """The population bias of the both-wrong arm on the bounded double-robustness law.
@@ -1007,18 +1072,47 @@ class FoldPolicyTMLE(TMLE):
         )
 
 
-def fold_policy_cells() -> tuple[PropertyCell, ...]:
+def fold_policy_seed(record: StudyRecord) -> int:
+    """The seed the three fold-policy cells draw their shared samples with.
+
+    Hashed from the registering study's own record rather than written as a literal.  The
+    literal it replaces, ``14_100``, was the sum of another study's inherited offset and an
+    inherited cell's seed: ``ctmle_oat_properties`` inherits ``type_i_error/sharp_null`` at
+    ``9_100`` under an offset of ``5_000``, so the two cells drew bit-identical covariates.
+    An offset table cannot prevent that, because it only separates a consumer from the
+    canonical block it inherits, and a study-specific family sits outside every offset.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study registering the family.
+
+    Returns
+    -------
+    int
+        The shared sample seed.
+    """
+    return stream_seed(record, FOLD_POLICY_FAMILY, "sample")
+
+
+def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
     """The three fold-policy cells, on one binary law and one set of draws.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study registering the family, which supplies the seed stream.
 
     Returns
     -------
     tuple of PropertyCell
         One cell per policy in :data:`FOLD_POLICIES`, all with role ``"diagnostic"`` and
-        all on :data:`FOLD_POLICY_SEED`.  The shared seed is what makes the reported
+        all on :func:`fold_policy_seed`.  The shared seed is what makes the reported
         coverage difference a *paired* one: the three cells see identical samples and
         differ only in how the outer split was drawn.
     """
     law = fold_policy_dgp()
+    seed = fold_policy_seed(record)
     return tuple(
         PropertyCell(
             property=FOLD_POLICY_FAMILY,
@@ -1028,7 +1122,7 @@ def fold_policy_cells() -> tuple[PropertyCell, ...]:
             treatment_learner=lambda: LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             n=FOLD_POLICY_N,
             replicates=FOLD_POLICY_REPLICATES,
-            seed=FOLD_POLICY_SEED,
+            seed=seed,
             role=DIAGNOSTIC_ROLE,
         )
         for policy in FOLD_POLICIES

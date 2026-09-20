@@ -574,11 +574,12 @@ passes `type_i_error/sharp_null` at 0.0712, with a 99% upper endpoint of 0.0980,
 800-replication budget. Outcome-adaptive multi-arm C-TMLE passes `root_n_and_efficiency/n_500` at
 0.9057, which its page records as one Monte Carlo resolution at 400 replications.
 
-#### Two findings this work deferred
+#### Three findings this work deferred
 
 | finding | why this pull request does not carry it | what it needs |
 | --- | --- | --- |
 | `tests/canonical/lmtp_crossfit_adapter.R` screens a supplied density-ratio matrix with `abs(mean(supplied) - 1) > 0.5` on the cumulative product. A unit whose follow-up ends at the first node has structurally zero later columns, so that mean estimates the probability of reaching the later node rather than one. `tests/canonical/lmtp_competing_adapter.R` carries the corrected form, which screens the first column | eight study manifests record the adapter's bytes, and three of those studies sit outside the ones regenerated here. Correcting the anchor invalidates every one of them | one task that corrects the anchor and regenerates all eight rows together. The fixture README's own count of four manifests is also wrong |
+| Two property cells of `selector-based point-treatment C-TMLE` share a sample. `double_robustness/both_correct` and `root_n_and_efficiency/n_500` sit on one law at seed `12_100`, so their covariates are identical row for row, and the two cells are published side by side as separate evidence. The seed-offset table in `tests/studies/bounded_cv_laws.py` separates a consumer from the block it inherits and cannot reach a collision inside one consumer. `test_the_registered_studies_do_not_share_their_samples` iterates primary scenarios alone, so nothing refuses it | the collision predates this branch, and moving either seed redraws a cell of a registered study, so the fix is a regeneration rather than an edit. Widening the test first would fail on the committed rows | one task that widens the sample-sharing check to declared property cells, with an allowance for the families whose two arms are paired on one seed by design, then moves the colliding seed and regenerates the study |
 | `simulated_confounding` cannot perturb an outcome on a fit that declares `q_bounds`. `_gaussian_outcome` subtracts the strength times a standard normal latent value from the outcome, so every nonzero outcome strength sends the perturbed outcome outside the declared support and the refit refuses it | a cross-fitted continuous fit must declare `q_bounds`, so the outcome axis of the surface is unavailable to every such fit. No perturbation on the declared scale exists to put in its place | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
 
 ### P1. EP learner

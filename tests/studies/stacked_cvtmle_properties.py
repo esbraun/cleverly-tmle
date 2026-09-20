@@ -32,7 +32,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         The cross-fitted families from :func:`tests.studies.cvtmle_properties.cells`,
         followed by the three fold-policy arms.
     """
-    return (*cells(VARIANT), *bounded_cv_laws.fold_policy_cells())
+    return (*cells(VARIANT), *bounded_cv_laws.fold_policy_cells(STUDY))
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -47,7 +47,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         [
             generate(VARIANT, n_jobs=n_jobs),
             run_cells(
-                bounded_cv_laws.fold_policy_cells(),
+                bounded_cv_laws.fold_policy_cells(STUDY),
                 bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS),
                 n_jobs=n_jobs,
             ),

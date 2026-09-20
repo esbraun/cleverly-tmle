@@ -282,6 +282,12 @@ def assert_double_robustness_design(
         raise RuntimeError("the treatment law no longer attains its analytic limiting range")
 
     true_contrast, wrong_contrast = main_effects_contrast(dgp)
+    # The two clauses are not the same kind of statement, and only the first reads the law.
+    # A main-effects fit has no treatment interaction, so its contrast is constant for *every*
+    # law and the second clause measures exactly 0.0 whatever is declared: it checks
+    # ``main_effects_contrast``'s own design matrix rather than the law's shape.  It is kept
+    # because a helper that started fitting an interaction would make the "wrong" learner right
+    # and the family's control vacuous, and nothing else would notice.
     if np.ptp(true_contrast) <= design.contrast_spread or np.ptp(wrong_contrast) > 1e-12:
         raise RuntimeError("the main-effects wrong-Q contrast witness no longer discriminates")
     design.witness(dgp)
