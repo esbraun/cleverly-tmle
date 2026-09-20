@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import re
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -1334,10 +1335,72 @@ HEADLINE = {
     "lowest coverage": "min_coverage",
 }
 
+#: Number words the limitations cell may count with, and what each one counts to.  The cell is
+#: prose, so it spells its count rather than writing a numeral.
+LIMIT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+}
+
+DECLARED_LIMITS = re.compile(r"(\w+) declared limit")
+
+LIMIT_HEADING = re.compile(r"^##\s+Limit")
+
 MEASURED_COLUMNS = ("quantity", "value", "source")
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 COUNT = re.compile(r"(\d+)/(\d+)")
+
+
+def _declared_limits(path: Path) -> int:
+    """How many limits a study's page declares, counting only what a reader can count.
+
+    A section written as a list declares one limit per top-level bullet, and one written as a
+    table declares one per data row.  A section written as paragraphs declares a number nobody
+    can count the same way twice, and this returns zero for it.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = next((index for index, line in enumerate(lines) if LIMIT_HEADING.match(line)), None)
+    if start is None:
+        return 0
+    body: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        body.append(line)
+    bullets = sum(1 for line in body if line.startswith("- "))
+    if bullets:
+        return bullets
+    rows, inside = 0, False
+    for line in body:
+        if not line.startswith("|"):
+            inside = False
+            continue
+        cells = line.strip().strip("|").split("|")
+        if all(cell.strip() and set(cell.strip()) <= set("-: ") for cell in cells):
+            inside = True
+            continue
+        if inside:
+            rows += 1
+    return rows
 
 
 def _grid() -> dict[str, dict[str, str]]:
@@ -1403,6 +1466,60 @@ class TestTheMethodEvidenceGrid:
             f"{column!r} claims {passed} passed; {passed_name} is "
             f"{int(value(study, passed_name, data))}"
         )
+
+    def test_the_limitations_cell_counts_what_the_page_declares(self, study: StudyRecord) -> None:
+        """The limitations column is the one the grid exists for, so its count is gated.
+
+        Five rows carried a count that no longer matched the page: a sibling was corrected by
+        hand at commit ``38a5998`` and the rest drifted on.  The rule is conditional, because
+        five pages state their limits as paragraphs rather than as a list.  A page a reader can
+        count must carry the count, and a page nobody can count the same way twice must not.
+        """
+        cell = _grid()[study.name]["limitations"]
+        declared = _declared_limits(study.document_path)
+        found = DECLARED_LIMITS.search(cell)
+        if not declared:
+            assert found is None, (
+                f"{study.slug}'s row claims {found.group(0)!r} while its page states its "
+                f"limits as prose, so the claim counts nothing a reader can check"
+            )
+            return
+        assert found is not None, (
+            f"{study.slug}'s page declares {declared} countable limits and its row states no "
+            f"count. Write '{declared} declared limits' into the cell"
+        )
+        claimed = LIMIT_WORDS.get(found.group(1).casefold())
+        assert claimed is not None, (
+            f"{study.slug}'s row counts its limits with {found.group(1)!r}, which is not a "
+            f"number word this gate reads"
+        )
+        assert claimed == declared, (
+            f"{study.slug}'s row claims {claimed} declared limits; its page declares {declared}"
+        )
+
+    def test_the_limit_counter_reads_a_list_a_table_and_a_paragraph(self, tmp_path: Path) -> None:
+        """The counter itself, on the three shapes a page uses.
+
+        Without this the conditional rule above passes on a counter that returned zero for
+        everything: every row would then be required to carry no count, and the five corrected
+        counts would be deleted rather than kept right.
+        """
+        listed = tmp_path / "listed.md"
+        listed.write_text(
+            "## Limits\n\n- first\n- second\n  - not a top-level limit\n- third\n",
+            encoding="utf-8",
+        )
+        tabled = tmp_path / "tabled.md"
+        tabled.write_text(
+            "## Limitations\n\n| limitation | what it means |\n| --- | --- |\n"
+            "| a | b |\n| c | d |\n\nA closing paragraph.\n",
+            encoding="utf-8",
+        )
+        prose = tmp_path / "prose.md"
+        prose.write_text("## Limitations\n\nOne paragraph, then another.\n", encoding="utf-8")
+        assert _declared_limits(listed) == 3
+        assert _declared_limits(tabled) == 2
+        assert _declared_limits(prose) == 0
 
     def test_confidence_level_is_described_as_a_bound_not_a_pass_rate(
         self, study: StudyRecord
