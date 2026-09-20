@@ -1,4 +1,12 @@
-"""Registered multi-arm DR-TMLE comparison against pinned R ``drtmle``."""
+"""Registered multi-arm DR-TMLE comparison against pinned R ``drtmle``.
+
+The fold vector both implementations receive is drawn by
+:func:`~cleverly.learners.random_partition` from the sample's own seed and nothing else.  It
+used to be a ``StratifiedKFold`` draw balanced on the arm labels, which reads the column the
+mechanism is about to be fitted to.  The outcome is binary, so the study declares no
+``q_bounds``: :meth:`~cleverly.estimators.TMLE._scaler` refuses a second declaration of a
+scaler the outcome already has.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +16,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.model_selection import StratifiedKFold
 
 from cleverly.data import CausalData
 from cleverly.estimators import DRTMLE
-from cleverly.learners.crossfit import Folds, check_integrity
+from cleverly.learners.crossfit import Folds, check_integrity, random_partition
 from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
@@ -28,6 +35,11 @@ PRIMARY_REPLICATES = 800
 PRIMARY_N = 2000
 SEED = 20260830
 N_FOLDS = 5
+#: The outer fold policy, declared rather than defaulted.  ``"none"`` is what makes the
+#: recorded :class:`~cleverly.learners.CrossFitPlan` agree with the supplied vector: the
+#: vector is a :func:`~cleverly.learners.random_partition` draw, so the plan must not claim
+#: the split was balanced on the arm labels.
+STRATIFY_FOLDS = "none"
 MAX_OUTER = 100
 SCENARIO = "multi_arm_binary_drtmle"
 
@@ -134,6 +146,12 @@ CONFIGURATION = {
     "qsteps": 2,
     "max_outer": MAX_OUTER,
     "g_bounds": list(multi_arm_common.G_BOUNDS),
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": "none: the law is binary, so the outcome scaler is already the identity",
+    "folds": (
+        "identical unstratified five-fold assignments supplied to both implementations, drawn "
+        "by cleverly.random_partition from the sample's seed alone"
+    ),
     "comparison_scope": (
         "armwise extension supported by both implementations; the source theorem is binary"
     ),
@@ -154,17 +172,56 @@ class FixedFoldDRTMLE(DRTMLE):
         return folds
 
 
-def fixed_folds(treatment: np.ndarray, seed: int) -> np.ndarray:
-    splitter = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed)
-    assignment = np.empty(len(treatment), dtype=np.int64)
-    for fold, (_, test) in enumerate(splitter.split(np.zeros(len(treatment)), treatment)):
-        assignment[test] = fold
-    return assignment
+def fixed_folds(n: int, seed: int) -> Folds:
+    """The exact zero-based fold vector shared with R.
+
+    The draw reads ``n`` and ``seed`` and no column of the sample.  It used to read the arm
+    labels, through ``StratifiedKFold``.
+
+    Parameters
+    ----------
+    n : int
+        Rows in the replication.
+    seed : int
+        Seed of the draw, one per replication.
+
+    Returns
+    -------
+    Folds
+        The five-fold split, carrying the generator and seed that produced it.
+    """
+    return random_partition(n, N_FOLDS, seed=seed)
+
+
+def assert_unstratified_scheme(result: Any) -> None:
+    """Refuse a fit whose declared fold policy was not the unstratified one.
+
+    The split itself is supplied, so what this reads back is the *policy* the fit recorded
+    beside it.  A stratified policy on a supplied unstratified vector would publish a
+    ``folds`` line the recorded plan contradicts.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted single-parameter result.
+
+    Raises
+    ------
+    RuntimeError
+        When the recorded scheme is not ``"vfold"``, or the plan was balanced on anything
+        at all.
+    """
+    plan = result.config.crossfit
+    if plan.scheme != "vfold" or plan.stratify_by != ():
+        raise RuntimeError(
+            f"this study supplies an unstratified v-fold split, and this fit recorded "
+            f"scheme={plan.scheme!r} balanced on {plan.stratify_by!r}"
+        )
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
     frame, truth = multi_arm_common.draw_from_seed(scenario, n, seed)
-    frame["fold"] = fixed_folds(frame["A"].to_numpy(), seed + 1)
+    frame["fold"] = fixed_folds(len(frame), seed + 1).assignment
     return frame, truth
 
 
@@ -183,6 +240,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs"),
             cross_fit=True,
             n_folds=N_FOLDS,
+            stratify_folds=STRATIFY_FOLDS,
             estimands=("ey", "ate", "rr", "or"),
             reference=multi_arm_common.REFERENCE,
             simultaneous=False,
@@ -199,6 +257,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
+    assert_unstratified_scheme(result)
     score = result.diagnostics.score_equations()
     if not np.isfinite([float(row.score) for row in score.rows]).all():
         raise RuntimeError("DR-TMLE empirical score audit is non-finite")
