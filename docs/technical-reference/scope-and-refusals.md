@@ -25,12 +25,15 @@ one node. Those are statements about the sample.
 
 Cross-fitting narrows what the sample supports. Each outer fold fits on its training rows alone, so
 every fold must carry enough events for each declared cause. A rare cause therefore needs more data
-under cross-fitting than under one fold.
+under cross-fitting than under one fold. The split reads no treatment and no outcome, so it cannot
+protect a rare level. The package checks the realized draw instead, before the first learner, and
+the refusal names no redraw. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give every such message.
 
 `make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
 refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
-regimen's followers. Pass `n_folds=1`, use more folds so each training set is larger, or collect
-more data.
+regimen's followers. The message names the in-sample fit, or an estimand this fold count
+supports.
 
 ### Not written yet
 
@@ -47,6 +50,10 @@ rather than implying the request was ill-posed.
 | the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
+| `stratify_by="treatment"` and `stratify_by="treatment+outcome"` on any fit that draws a split, and on a collaborative fit at every setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No shipped result covers a partition read off the data the fit then conditions on |
+| a cross-fitted continuous outcome with `q_bounds=None`, for `TMLE`, `DRTMLE`, `CTMLE`, and `LTMLE` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The sample outcome range would take the scale from held-out rows |
+| `CTMLE` with `id=`, at every `cross_fit` setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No result covers a grouped draw of the selection and nested folds, or the cluster-robust variance of the candidate the search stops at |
+| `LTMLE` with `id=` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The cluster-robust variance of the targeted sequential recursion under a grouped draw is not established |
 | the `subset` and `bootstrap_measurement_error` refutations on a fit that declared `split_plan=` | [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans). Each one refits on rows the fit never ran, and no rule here says which fold labels those rows inherit. `refute()` raises `CapabilityError` before it refits anything |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one |
@@ -120,6 +127,8 @@ give the same reason.
 | 4 | a plan that the declared fold policy cannot use. A plan requires cross-fitting with at least two folds, and its fold and repeat counts must fit the declaration |
 | 5 | a plan together with `n_bootstrap` above 0. `TMLEMethod` runs this step, because it holds both settings |
 | 6 | `repeats` above 1 with cross-fitting disabled |
+| 7 | cross-fitting declared with fewer than two folds |
+| 8 | a fold-stratification policy this package draws no split under. `stratify_by` other than `"none"` is refused whenever the fit draws a split, and at every setting for a collaborative fit |
 
 A `split_plan` can pass the declaration check and still fail the natural-course contract. Under
 `enabled=True`, a valid plan constructs, and the stacked contract refuses it when the fit starts.
@@ -128,28 +137,19 @@ Under `enabled=False`, step 4 refuses any plan at construction.
 | response-support failure | what the message tells you to do |
 | --- | --- |
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
-| one training complement holds no respondent or no nonrespondent | the message names the repeat and the fold. Increase `n_folds` so each training complement is larger, use a different `random_state`, or use the in-sample estimator |
+| one training complement holds no respondent or no nonrespondent | the message names the repeat and the fold. Use the in-sample estimator, or collect more observations at the rare level |
 
 Both messages name the in-sample estimator as `CrossFitting(enabled=False)`, or `cross_fit=False`
-on the engine. One fold balances nothing, so no fold policy is part of the remedy.
+on the engine. One fold balances nothing, so no fold policy is part of the remedy. Neither message
+names a redraw, because the split reads neither the response indicator nor the outcome.
 
-`stratify_by="none"` is required by two cross-fitted contracts: the stacked natural-course
-contract above and the [arm-indexed contract](#missing-outcome-arm-indexed-contract) below. Every
-other point-treatment fit may select it as well, in sample and out of sample. The default is
-unchanged, and it is still `"treatment"`. The table gives the fits that may select `"none"`
-without either contract applying to them.
-
-| fit | why it is outside both contracts |
-| --- | --- |
-| any in-sample fit, `CrossFitting(enabled=False)` | both contracts cover cross-fitted fits only |
-| a frame that declares `missingness=` but has no missing outcome | the fit takes the complete-outcome branch |
-| a complete-outcome fit, such as `ATE` under TMLE | neither contract covers a complete outcome |
-| `DRTMLE` with complete outcomes, or with missing outcomes and an arm-indexed target | only ordinary TMLE has an audited stacked contract |
-| a shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes | the arm-indexed contract excludes these targets |
-
-The [RM17 item](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-of the roadmap plans the refusals that will govern the other two policies under cross-fitting.
-This version refuses none of them.
+`stratify_by="none"` is the default, and it is the only policy any fit that draws a split accepts.
+It is not special to these two contracts. `"treatment"` and `"treatment+outcome"` are refused when
+the fit draws a split, and at every setting for a collaborative fit, whose search draws selection
+folds without cross-fitting. A non-collaborative in-sample fit draws no split, so it accepts the
+declaration and applies none of it. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit behind the
+refusal and the message each layer raises.
 
 ### Missing-outcome arm-indexed contract
 
@@ -166,7 +166,7 @@ defines the estimator, its preflight, and its evidence.
 | targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc`, also when the default list or `"all"` includes them. The message lists the admitted estimands. A continuous `rr` or `or` stays refused, as for every fit |
 | treatment | two or more arms | none |
 | outcome | binary, or continuous with a fixed `q_bounds` equal to the known support | continuous with `q_bounds=None` |
-| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `stratify_by="treatment"`, `stratify_by="treatment+outcome"`, `split_plan=`, and one fold |
+| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `split_plan=`. A stratified policy and one fold are refused earlier, by the declaration check |
 | repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 and `targeting_scheme="fold"` |
 | fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation |
 | rows | unweighted iid rows | observation weights, clusters, and baseline strata |
@@ -200,19 +200,22 @@ through `TMLEMethod`, with zero learner calls.
 | 5 | `fold_evaluation=True` |
 | 6 | `att` or `atc` |
 | 7 | a continuous outcome with `q_bounds=None` |
-| 8 | `stratify_by` other than `"none"` |
-| 9 | `split_plan=` |
-| 10 | `n_folds` below 2 |
-| 11 | `repeats` above 1 |
-| 12 | `targeting_scheme="fold"` |
-| 13 | observation weights |
-| 14 | clusters |
-| 15 | baseline strata |
-| 16 | `n_bootstrap > 0` |
+| 8 | `split_plan=` |
+| 9 | `repeats` above 1 |
+| 10 | `targeting_scheme="fold"` |
+| 11 | observation weights |
+| 12 | clusters |
+| 13 | baseline strata |
+| 14 | `n_bootstrap > 0` |
+
+The list once held a stratified fold policy and a fold count below two. The declaration check
+refuses both, so neither step can run. A restored result or a copied estimator can still carry the
+old policy, and the fit then raises `ValueError` from the declaration check's own reason.
 
 A refusal that has an in-sample alternative names it as `CrossFitting(enabled=False)`. The engine
-form is `cross_fit=False`. The in-sample fit keeps whatever fold policy the declaration carries,
-because one fold balances nothing.
+form is `cross_fit=False`. A non-collaborative in-sample fit draws no split, so it keeps whatever
+fold policy the declaration carries and applies none of it. A collaborative fit draws selection
+folds at every setting, so it refuses a stratified policy in sample as well.
 
 ### Replay-only unavailability
 
@@ -261,7 +264,7 @@ one into the other.
 | `eliminate=` on a competing-risks fit | the incidence of a cause if the competing events were *removed*. That intervenes on them rather than conditioning on the history. It needs a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions for the competing event. What is reported instead is the incidence with the competing causes left alone |
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would put two of them under one heading |
-| the per-arm propensity table on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `shifts=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
+| the per-arm propensity table on a continuous fit | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `shifts=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
 | `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, nuisance loss, and the descriptive full-recursion truncation grid are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
 | a non-empty `assess(arguments=...)` block for `score_equations` | the validation battery owns that name and runs it argument-free. The battery presents one row per name, and it presents the validation row. A caller's tolerance would be computed and then hidden, so a check that failed at that tolerance would never reach `attention`. Call `res.diagnostics.run_all(arguments=...)`, or the operation itself. The battery also owns `support` and `nuisance_models`, which accept no argument, so an argument for either is a `TypeError` from the signature |
 

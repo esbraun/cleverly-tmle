@@ -32,9 +32,11 @@ That choice is what makes the comparison a comparison. An earlier version let ea
 the mechanism its own way, and the result measured two unrelated pipelines. `lmtp` fits its ratio
 with `SL.glm`, whose linear logit cannot represent the exact classifier log-odds `-log g` for a
 deterministic regime, so the ratio came out shrunken. A shrunken clever covariate under-targets
-and understates the influence curve: coverage ran from 0.75 to 0.91 and the SE ratio from 0.60 to
-0.86, against 0.949 to 0.957 and 1.00 to 1.02 for `cleverly` on the same panels. The sequential
-regressions stay misspecified on both sides, so targeting still has work to do.
+and understates the influence curve: that earlier probe measured coverage from 0.75 to 0.91 and an
+SE ratio from 0.60 to 0.86. No committed artifact holds its rows, because supplying the mechanism
+retired it. This row's own committed rows give `cleverly` coverage from 0.9456 to 0.9531 and an SE
+ratio from 0.9854 to 1.0131. The sequential regressions stay misspecified on both sides, so
+targeting still has work to do.
 
 The retained R runner uses the one-node binary mean at horizon one because `lmtp` requires two
 event nodes for its survival path. At horizon two, it converts event-free survival to cumulative

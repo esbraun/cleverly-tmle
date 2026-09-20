@@ -86,9 +86,15 @@ $$
 The independent unit is then the cluster and not the row. `cluster=` changes the unit for the
 covariance and for fold construction. It does not change the estimand.
 
-A cluster stays intact in every split. Splitting a cluster across folds to buy more folds is
+A cluster stays intact in every split. `random_partition` permutes the distinct cluster labels and
+cuts them into near-equal parts. Splitting a cluster across folds to buy more folds is
 refused: the out-of-fold predictions stop being independent of the rows they are used on, and the
 standard error shrinks in the exact direction the cluster role was declared to prevent.
+
+Two estimators refuse `cluster=` rather than draw that split. Collaborative TMLE refuses it at
+every setting, and longitudinal TMLE refuses it above one fold. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and both
+messages.
 
 ## Transformed parameters
 

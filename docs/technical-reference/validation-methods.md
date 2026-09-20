@@ -284,10 +284,12 @@ for bit. Every stitched cell is therefore a cell the fold that held that row out
 Counting the stitched pair alone reports the held-out copy of each scored row and no other copy. It
 misses the truncation that only a fold's own training rows carry.
 
-`tests/unit/test_longitudinal_truncation_refit.py` pins the consumed counts on a two-fold fixture.
-At the bound 0.12 it reports 2 truncated cells of 224 for `ey_regimen[always]`, beside a movement of
-+0.057 in that estimate. Its `CROSSFIT_CELL_CENSUS` comment records the 0 of 112 that the stitched
-pair alone reported.
+`tests/unit/test_longitudinal_truncation_refit.py` pins the consumed counts on a two-fold fixture,
+measured under the package's drawn unstratified folds. At the bound 0.12 it reports 5 truncated
+cells of 224 for `ey_regimen[always]`, and 42 of 224 at the bound 0.3. The same module pins the
+movement of that estimate at the bound 0.3: the replayed value rises 0.0035 above the fitted
+0.80024. A census of the stitched pair alone reports fewer truncated cells, and no test pins that
+count.
 
 An MSM coefficient reads every regimen and horizon cell for its cause, and each cell is its own
 backward pass. Its count adds one pass per cell to the same total. On a survival MSM that total can
@@ -964,9 +966,9 @@ repeat draws and reports their coordinatewise median. Additive displacement comp
 median estimate with the original median estimate. Ratio displacement compares their median log
 estimates. The result records `n_repeats` and `repeat_aggregation="coordinatewise_median"`.
 
-The root seed gives every non-anchor cell the same repeat seed sequence. It does not preserve
-realised folds after the perturbation changes a stratification variable. Treatment-stratified or
-outcome-stratified splitting can therefore assign different rows to folds under the same seed.
+The root seed gives every non-anchor cell the same repeat seed sequence. The perturbation cannot
+move a fold. The draw reads the row count, the cluster labels and the seed, and it balances
+neither the treatment nor the outcome, so the realized partition is the same under the same seed.
 
 The root seed reproduces the folds of the original fit only when it equals that fit's seed. The
 helper `resolve_assessment_seed` returns an explicit `random_state` first, the fit's own seed

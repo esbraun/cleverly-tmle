@@ -34,9 +34,11 @@ That choice is what makes the comparison a comparison. An earlier version let ea
 the mechanism its own way, and the result measured two unrelated pipelines. `lmtp` fits its ratio
 with `SL.glm`, whose linear logit cannot represent the exact classifier log-odds `-log g` for a
 deterministic regime, so the ratio came out shrunken. A shrunken clever covariate under-targets
-and understates the influence curve: coverage ran from 0.75 to 0.91 and the SE ratio from 0.60 to
-0.86, against 0.949 to 0.957 and 1.00 to 1.02 for `cleverly` on the same panels. The sequential
-regressions stay misspecified on both sides, so targeting still has work to do.
+and understates the influence curve: that earlier probe measured coverage from 0.75 to 0.91 and an
+SE ratio from 0.60 to 0.86. No committed artifact holds its rows, because supplying the mechanism
+retired it. This row's own committed rows give `cleverly` coverage from 0.9431 to 0.9531 and an SE
+ratio from 0.9839 to 1.0164. The sequential regressions stay misspecified on both sides, so
+targeting still has work to do.
 
 The exact-law structural test fixes the fold assignment and repeats every support point in each
 fold. It checks every regimen mean and correlated contrast against the functional and Gateaux EIF.
@@ -199,7 +201,7 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | Agreement with `lmtp` is distributional, not numerical | The paired claim is that the mean difference sits inside the similarity margin and that `cleverly` is no worse. The two ordinary rows agree with R `ltmle` to solver precision because both run the identical regression; here the sequential regressions are still fitted differently, so per-replication estimates differ at statistical scale |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
-| The cross-fit overfitting cell misses its ceiling | This row publishes under the `reporting` policy, which was declared before the run that measured this cell. The 99% SE-ratio interval reaches 1.201555 against a ceiling of 1.2000, so the cell misses by 0.001555. A controlled 2x2 over the same 8,000 registered seeds attributes the whole move to the first-node fold policy. The stratified arm gives 1.172543 and an upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control gives 0.353193 under both policies, because it has no outer split for a policy to change. The breach is in the conservative direction. Coverage rose from 0.975375 to 0.976000. The cell still shows that cross-fitting restores honest inference under a fully grown tree. It does not show calibration under one. The [roadmap](../../roadmap.md) carries the open question this residual belongs to. Its fold-policy audit records that the reviewed longitudinal theorem defines random near-balanced row folds, and that the theorem's targeting construction differs from the shipped fold-local recursion |
+| The cross-fit overfitting cell misses its ceiling | This row publishes under the `reporting` policy, which was declared before the run that measured this cell. The 99% SE-ratio interval reaches 1.201555 against a ceiling of 1.2000, so the cell misses by 0.001555. A controlled 2x2 over the same 8,000 registered seeds attributes the whole move to the first-node fold policy. The stratified arm gives 1.172543 and an upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control gives 0.353193 under both policies, because it has no outer split for a policy to change. The breach is in the conservative direction. Coverage rose from 0.975375 to 0.976000. The cell still shows that cross-fitting restores honest inference under a fully grown tree. It does not show calibration under one. The [fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) record that the reviewed longitudinal theorem defines random near-balanced row folds, and that the theorem's targeting construction differs from the shipped fold-local recursion. The roadmap's Remediation section carries the open question this residual belongs to |
 | Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair validates held-out prediction behavior, not parity for learner-library selection |
 | The row reports one terminal mean per plan | Survival curves, competing risks, and longitudinal MSM projections have different parameters |
 | Inference is pointwise | The row does not validate simultaneous bands, bootstrap intervals, weights, or clustering |

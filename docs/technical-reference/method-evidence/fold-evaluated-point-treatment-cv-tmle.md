@@ -33,9 +33,10 @@ fold's training rows a function of the rows it predicts. The fit asserts the rea
 rather than trusting the keyword it was given.
 
 The continuous law draws a proportion, so 0 to 1 is the law's own support and the study declares
-it. Left to infer the scale, the estimator takes it from every observed outcome, and each fold's
-training predictions then depend on the rows they are predicting. The binary law needs no
-declaration, because a binary outcome already sits on the unit interval.
+it. Inferring the scale from every observed outcome would make each fold's training predictions
+depend on the rows they are predicting, so the package refuses a cross-fitted continuous outcome
+that declares none. The binary law needs no declaration, because a binary outcome already sits on
+the unit interval.
 
 ## Accuracy against known truth
 

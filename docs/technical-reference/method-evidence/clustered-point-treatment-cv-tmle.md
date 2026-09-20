@@ -48,8 +48,10 @@ extra variability that adds.
 One reviewed source covers the **partition** and nothing else. Wang, Park, Small and Li (2024),
 *Journal of the American Statistical Association* 119(548):2959-2971, partition the clusters at
 random into parts of roughly equal size, and prove a cross-fitted result under that partition.
-Section 4.2 and Theorem 4(b) carry it. Those two locators come from the author manuscript
-(PMC11795269) and still need checking against the published article.
+Section 4.2 and Theorem 4(b) carry it. Both locators are a section number and a theorem number,
+read in the NIHMS author manuscript (PMC11795269), which carries the published volume, issue, pages
+and DOI. [References](../../references.md#grouped-folds-and-clustered-cross-fitting) gives the
+entry in full.
 
 Their estimator is an AIPW-type estimator with cluster-level treatment, not this package's TMLE
 with row-level treatment. The source supports the split law. It does not prove the estimator here.

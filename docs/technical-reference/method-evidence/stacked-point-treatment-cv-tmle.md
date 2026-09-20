@@ -28,9 +28,9 @@ fold's training rows a function of the rows it predicts. The fit asserts the rea
 rather than trusting the keyword it was given.
 
 Both implementations also declare the continuous outcome scale. The continuous law draws a
-proportion, so 0 to 1 is the law's own support. Left to infer it, each implementation would take
-the scale from its realized outcomes, and the pair would compare two scales rather than two
-targeting steps. The binary law needs no declaration, because both implementations already hold a
+proportion, so 0 to 1 is the law's own support. `cleverly` refuses a cross-fitted continuous
+outcome that declares no support. `tmle3` would take the scale from its realized outcomes, and the
+pair would then compare two scales rather than two targeting steps. The binary law needs no declaration, because both implementations already hold a
 binary outcome on the unit interval.
 
 ## Accuracy against known truth

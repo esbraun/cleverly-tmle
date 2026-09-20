@@ -161,13 +161,17 @@ raises `DataError`.
 | failure | what the message tells you to do |
 | --- | --- |
 | the sample holds fewer than two respondents or fewer than two nonrespondents | use the in-sample estimator. No fold count or `random_state` can succeed |
-| one training complement holds no respondent or no nonrespondent | increase `n_folds`, use a different `random_state`, or use the in-sample estimator |
+| one training complement holds no respondent or no nonrespondent | use the in-sample estimator, or collect more observations at the rare level |
 
 Both messages name the in-sample estimator as `CrossFitting(enabled=False)`. The engine form is
-`cross_fit=False`. Change that one setting. `stratify_by="none"` is required by two cross-fitted
-contracts, this one and the [arm-indexed contract](#stacked-cv-tmle-for-arm-indexed-targets), and
-it is accepted everywhere else. One fold balances nothing, so an in-sample fit keeps whichever
-policy the declaration carries.
+`cross_fit=False`. Change that one setting. The complement message names no redraw. The split is
+drawn from the seed alone, so a fold count or a seed that happens to fit was chosen by reading the
+values the split must not read.
+
+`stratify_by="none"` is the default, and it is the only policy any fit that draws a split accepts.
+A non-collaborative in-sample fit draws no split, so it keeps whichever policy the declaration
+carries and applies none of it. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the refusals in full.
 
 Cross-fitting removes the Donsker condition on the initial nuisance classes. It does not remove
 response positivity, $L_2(P_0)$ convergence of the estimated curve, or the second-order condition.
@@ -201,9 +205,10 @@ binary treatment, unweighted iid rows, and iterative unweighted logistic targeti
 | ordinary | binary, or continuous with fixed `q_bounds` | `CrossFitting(enabled=False)` |
 | stacked | binary | `CrossFitting(enabled=True, n_folds=10, repeats=1, stratify_by="none", targeting_scheme="pooled", fold_evaluation=False, split_plan=None)`. `n_folds` must be 2 or more. The registered study uses 10 |
 
-The stacked fit refuses one fold with `CapabilityError` before any learner is fitted. One fold is
-the in-sample estimator. The refusal stops that estimate from being reported under the stacked
-contract and its second-moment covariance rule.
+One fold is the in-sample estimator. `CrossFitting(enabled=True, n_folds=1)` is therefore refused
+when the declaration is constructed, with `MethodConfigurationError`. The engine raises
+`ValueError` for the same input. The refusal stops that estimate from being reported under the
+stacked contract and its second-moment covariance rule.
 
 [Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
 lists every refusal for both fits. The source for the ordinary fit is
@@ -269,12 +274,12 @@ lists each refusal and its order.
 | rows | unweighted iid rows, with no clusters and no baseline strata |
 | inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind` and a custom `n_multiplier`. The registered study measures only the Rademacher default with 1,000 draws |
 
-`CrossFitting` defaults to `stratify_by="treatment"`, and the default estimand list of a two-arm fit
-includes `att` and `atc`. Every fit must therefore set `stratify_by="none"`, and a two-arm fit
-must name its estimands.
-The [RM17 audit](../roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-found no result for treatment-stratified folds or for an outcome scale from held-out rows. For
-that reason, the contract uses unstratified folds and a prespecified `q_bounds`.
+`CrossFitting` defaults to `stratify_by="none"`, so this contract's fold policy needs no setting.
+The default estimand list of a two-arm fit includes `att` and `atc`, so a two-arm fit must name its
+estimands. Unstratified folds and a prespecified `q_bounds` are not special to this contract. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) apply them to every
+cross-fitted fit, because the audit found no result for treatment-stratified folds and none for an
+outcome scale taken from held-out rows.
 
 **The joint vector.** For fold $v$, the fit trains $Q_v$ on the respondents of the training
 complement, and it trains $g_v$ and $\pi_v$ on the whole complement. Each nuisance predicts only
@@ -328,13 +333,21 @@ In that column, "in sample" is `CrossFitting(enabled=False)`. The engine form is
 | sample | two respondents, two nonrespondents, and two respondents in each arm | fit in sample |
 | sample, binary outcome | two respondents with each outcome | fit in sample. With no respondent at one outcome, no remedy: an in-sample fit sees the same single class |
 | sample, each role whose learner is a package `SuperLearner` with a classification task | three rows in each class of the role target | replace that learner. With exactly two rows in the class, the message also names fit in sample |
-| each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm | increase `n_folds`, use a different `random_state`, or fit in sample |
+| each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm | fit in sample, or collect more observations at the rare level |
 | each training complement, binary outcome | both outcome classes among the respondents | the same as the row above |
 | each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target | the same as the row above |
 
 The role targets are the outcome among respondents, the response indicator, and the treatment. The
 outcome target is the scaled outcome that the fit trains on. A complement failure names the repeat
-and the fold.
+and the fold. It names no redraw, because the split reads no treatment and no outcome, and a fold
+count or a seed that happens to fit was chosen by reading them.
+
+A cross-fitted fit outside this contract runs the same three questions under
+`_preflight_training_support`. It asks that each arm appear in at least two independent units,
+that each training complement hold every arm and both observed outcome classes of a binary
+outcome, and that a package classification `SuperLearner` hold two rows of each class in each
+complement. The independent unit is the row, and it is the *cluster* when `id=` declares one. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give every message.
 
 Each sample row is the least count that some partition can satisfy. A class with $c$ rows puts at
 least one row in some validation fold, so that fold's complement holds at most $c - 1$. With
@@ -382,8 +395,13 @@ also fits both nuisance regressions with those weights. Its learner-only control
 target and selected plug-ins, while weighted targeting repairs the control under a correct
 treatment mechanism.
 `strata=` produces stratum-specific parameters. `cluster=` changes the independent unit for
-covariance and fold construction, and it does not change the estimand. See
-[how every method reports uncertainty](inference.md#clusters).
+covariance and fold construction, and it does not change the estimand.
+
+A grouped fold draw permutes the distinct cluster labels and cuts them into near-equal parts, so
+every row of a cluster lands in one fold. The cluster is then the independent unit the preflight
+counts, so each arm must appear in two distinct clusters. See
+[how every method reports uncertainty](inference.md#clusters) and the
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules).
 
 ## Variations
 
@@ -395,9 +413,9 @@ covariance and fold construction, and it does not change the estimand. See
 | `algorithm="iterative"` or `"one_step"` | Newton iteration, or the universal least-favorable submodel of van der Laan and Gruber (2016) | no. The two are pinned to agree by an exact identity |
 | `target_weights=` | whether the fluctuation carries the covariate as a weight or as a regressor | no. The weighted and clever-covariate forms solve the same equation |
 | `g_bounds=` | the treatment-mechanism truncation. `"auto"` is target-aware | it changes the finite-sample procedure. Report it with the support diagnostics |
-| `q_bounds=`, `submodel_alpha=` | the outcome scaling, and the logistic submodel bound | no |
+| `q_bounds=`, `submodel_alpha=` | the outcome scaling, and the logistic submodel bound | no. A cross-fitted fit of a continuous outcome refuses `q_bounds=None` |
 | `screen_treatment=`, `screen_threshold=`, `min_retain=` | covariate screening for the treatment mechanism | no |
-| `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md) |
+| `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
 
 `submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level. The
 two are separate keywords because they once shared a name and a fit read one as the other.
