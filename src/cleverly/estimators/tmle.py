@@ -478,8 +478,9 @@ class TMLE:
         rare level is a reason to fit in sample or
         to collect more of it rather than to let the outcome choose the folds.  A fit
         with ``cross_fit=False`` draws no split, so it accepts any value and uses none
-        of them.  :class:`~cleverly.CTMLE` draws selection folds at every setting and
-        so refuses the two everywhere.
+        of them. Selector-based :class:`~cleverly.CTMLE` draws selection folds at every
+        setting and refuses the two everywhere. Outcome-adaptive C-TMLE draws no
+        selection folds, so its in-sample fit accepts an unused policy.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
@@ -754,7 +755,10 @@ class TMLE:
             split_plan=self.split_plan,
             n_bootstrap=self.n_bootstrap,
             stratify_folds=self.stratify_folds,
-            collaborative=self._assessment_method == "collaborative_tmle",
+            collaborative=(
+                self._assessment_method == "collaborative_tmle"
+                and getattr(self, "strategy", None) != "oat"
+            ),
             option_name="cross_fit",
         )
 
@@ -2773,8 +2777,8 @@ class TMLE:
         first branch below.  :meth:`_cross_fit_policy_reason` refuses the other two
         policies at construction, and again in :meth:`_resolve_estimands_for_data` for a
         restored result or a copied estimator, and it refuses them under cross-fitting and
-        at every collaborative setting.  The remaining branches are therefore reachable
-        only by replacing this method, which is what the deliberate-mutation controls in
+        at every selector-based collaborative setting. The remaining branches are therefore
+        reachable only by replacing this method, which is what the deliberate-mutation controls in
         ``tests/unit/test_fold_policy_rules.py`` do to put a stratified split into
         production.  The two ``"treatment+outcome"`` refusals that used to stand here
         were deleted for the same reason: no fit could meet them.

@@ -47,10 +47,10 @@ TargetingScheme = Literal["pooled", "fold"]
 #: What the outer cross-fitting folds are balanced on.  ``"none"`` draws a split that
 #: reads neither the treatment nor the outcome, it is the default, and it is the only
 #: value a fit that draws a split accepts.  ``"treatment"`` and ``"treatment+outcome"``
-#: are refused under cross-fitting, and refused at every setting by a collaborative fit,
-#: whose search draws selection folds without cross-fitting.  No shipped result covers a
-#: partition read off the data the fit then conditions on.  The alias keeps all three
-#: names because a restored result carries the policy its version allowed.
+#: are refused under cross-fitting, and refused at every setting by a selector-based
+#: collaborative fit, whose search draws selection folds without cross-fitting.  No shipped
+#: result covers a partition read off the data the fit then conditions on.  The alias keeps all
+#: three names because a restored result carries the policy its version allowed.
 FoldStrata = Literal["none", "treatment", "treatment+outcome"]
 #: Every estimand *name* :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
 #: every key of the target registry.  Which of them a *particular* fit can report depends on

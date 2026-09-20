@@ -633,6 +633,36 @@ class TestTheCollaborativeRefusals:
         with pytest.raises(ValueError, match="draws those folds whether or not cross_fit"):
             collaborative(cross_fit=False, stratify_folds="treatment")
 
+    @pytest.mark.parametrize("policy", ["treatment", "treatment+outcome"])
+    def test_in_sample_oat_accepts_an_unused_fold_policy(self, policy: str) -> None:
+        from cleverly import CollaborativeTMLEMethod, CrossFitting
+
+        method = CollaborativeTMLEMethod(
+            strategy="oat", cross_fitting=CrossFitting(enabled=False, stratify_by=policy)
+        )
+        assert method.cross_fitting.stratify_by == policy
+
+        frame = instrument_frame()
+        result = (
+            collaborative(strategy="oat", cross_fit=False, stratify_folds=policy, selection_folds=5)
+            .fit(frame, outcome="Y", treatment="A", covariates=BOUNDED_COVARIATES)
+            .single()
+        )
+        assert result.nuisance.folds.is_single
+        assert result.extra["ctmle"].strategy == "oat"
+
+    @pytest.mark.parametrize("policy", ["treatment", "treatment+outcome"])
+    def test_cross_fitted_oat_still_refuses_stratification(self, policy: str) -> None:
+        from cleverly import CollaborativeTMLEMethod, CrossFitting
+        from cleverly.exceptions import MethodConfigurationError
+
+        with pytest.raises(MethodConfigurationError, match="No shipped result covers that split"):
+            CollaborativeTMLEMethod(
+                strategy="oat", cross_fitting=CrossFitting(enabled=True, stratify_by=policy)
+            )
+        with pytest.raises(ValueError, match="No shipped result covers that split"):
+            collaborative(strategy="oat", cross_fit=True, stratify_folds=policy)
+
     def test_clusters_are_refused_before_a_learner_runs(self) -> None:
         reset_counter()
         frame = clustered_frame(n_clusters=20, size=5)
@@ -643,6 +673,16 @@ class TestTheCollaborativeRefusals:
         with pytest.raises(CapabilityError, match="C-TMLE has no clustered result"):
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid")
         assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+
+    def test_oat_cluster_refusal_names_its_own_missing_result(self) -> None:
+        frame = clustered_frame(n_clusters=20, size=5)
+        with pytest.raises(
+            CapabilityError, match="clustered inference for the outcome-adaptive"
+        ) as exc:
+            collaborative(strategy="oat", selection_folds=5, cross_fit=False).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid"
+            )
+        assert "selection folds" not in str(exc.value)
 
     def test_the_method_catalog_says_so_before_anyone_fits(self) -> None:
         """A refusal a caller can read off the design, rather than meet at the fit.
@@ -1167,13 +1207,13 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
 def test_no_fit_reaches_the_strata_decision_under_a_balancing_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The refusal comes first at every setting, so ``_fold_strata`` sees ``"none"`` only.
+    """The refusal precedes every split, so ``_fold_strata`` sees ``"none"`` only.
 
     This is what lets the two ``"treatment+outcome"`` refusals that stood inside that
     method be deleted rather than kept for a caller who cannot reach them. The policy is
     smuggled onto a constructed estimator as well as declared, because a restored result
-    and a copied estimator arrive that way. Under ``cross_fit=False`` the declaration is
-    accepted, and it still reaches no split: the fit trains on every row.
+    and a copied estimator arrive that way. An in-sample fit accepts the declaration and
+    reaches no split: the fit trains on every row.
     """
     seen: list[str] = []
     original = TMLE._fold_strata
@@ -1202,8 +1242,8 @@ def test_no_fit_reaches_the_strata_decision_under_a_balancing_policy(
                     smuggled.fit(frame, **columns)
             else:
                 smuggled.fit(frame, **columns)
-        # A collaborative fit draws selection folds at every setting, so it is refused
-        # at both, and the declaration never reaches its own partition either.
+        # Selector-based collaborative fits draw selection folds at every setting, so
+        # they are refused at both, before the declaration reaches a partition.
         for cross_fit in (True, False):
             with pytest.raises(ValueError, match=named):
                 collaborative(stratify_folds=policy, cross_fit=cross_fit)

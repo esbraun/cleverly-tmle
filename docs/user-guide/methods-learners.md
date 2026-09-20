@@ -111,8 +111,10 @@ model. `cleverly` validates learner task compatibility and sample-weight support
 - `enabled=False` sets a one-fold analysis with no cross-fitting.
 - `stratify_by="none"` draws unstratified folds, so the split reads neither the treatment nor the
   outcome. This is the default, and it is the only policy a fit that draws a split accepts.
-- `stratify_by="treatment"` and `stratify_by="treatment+outcome"` are refused. A collaborative fit
-  refuses them at every setting, because its search draws selection folds without cross-fitting.
+- `stratify_by="treatment"` and `stratify_by="treatment+outcome"` are refused when the fit draws
+  folds. A selector-based collaborative fit refuses them at every setting, because its search draws
+  selection folds without cross-fitting. In-sample outcome-adaptive C-TMLE draws no selection folds
+  and accepts an unused policy.
 
 `CrossFitting` raises `MethodConfigurationError` when you construct a declaration its own checks
 refuse. Four inputs earn one: `repeats` below 1, `repeats` above 1 with `enabled=False`,

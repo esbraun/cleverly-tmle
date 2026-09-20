@@ -28,8 +28,8 @@ from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
-#: A collaborative fit draws its selection and nested folds whether or not cross_fit is
-#: set, so turning the outer cross-fitting off leaves that machinery untouched.
+#: Selector-based collaborative fits draw selection and nested folds whether or not
+#: cross_fit is set. Outcome-adaptive fits select nothing and draw neither split.
 TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",), "cross_fit": False}
 
 #: Three selection folds rather than the default five: the searches below are the

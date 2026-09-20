@@ -50,9 +50,9 @@ rather than implying the request was ill-posed.
 | the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
 | blocked-temporal and rolling-origin splits | [two fold layers](../user-guide/methods-learners.md#two-fold-layers) |
-| `stratify_by="treatment"` and `stratify_by="treatment+outcome"` on any fit that draws a split, and on a collaborative fit at every setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No shipped result covers a partition read off the data the fit then conditions on |
+| `stratify_by="treatment"` and `stratify_by="treatment+outcome"` on any fit that draws a split, including selector-based C-TMLE at every setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No shipped result covers a partition read off the data the fit then conditions on |
 | a cross-fitted continuous outcome with `q_bounds=None`, for `TMLE`, `DRTMLE`, `CTMLE`, and `LTMLE` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The sample outcome range would take the scale from held-out rows |
-| `CTMLE` with `id=`, at every `cross_fit` setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No result covers a grouped draw of the selection and nested folds, or the cluster-robust variance of the candidate the search stops at |
+| `CTMLE` with `id=`, at every `cross_fit` setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No clustered result covers the outcome-adaptive mechanism. Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection variance |
 | `LTMLE` with `id=` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The cluster-robust variance of the targeted sequential recursion under a grouped draw is not established |
 | the `subset` and `bootstrap_measurement_error` refutations on a fit that declared `split_plan=` | [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans). Each one refits on rows the fit never ran, and no rule here says which fold labels those rows inherit. `refute()` raises `CapabilityError` before it refits anything |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
@@ -128,7 +128,7 @@ give the same reason.
 | 5 | a plan together with `n_bootstrap` above 0. `TMLEMethod` runs this step, because it holds both settings |
 | 6 | `repeats` above 1 with cross-fitting disabled |
 | 7 | cross-fitting declared with fewer than two folds |
-| 8 | a fold-stratification policy this package draws no split under. `stratify_by` other than `"none"` is refused whenever the fit draws a split, and at every setting for a collaborative fit |
+| 8 | a fold-stratification policy this package draws no split under. `stratify_by` other than `"none"` is refused whenever the fit draws a split, including selector-based C-TMLE at every setting |
 
 A `split_plan` can pass the declaration check and still fail the natural-course contract. Under
 `enabled=True`, a valid plan constructs, and the stacked contract refuses it when the fit starts.
@@ -145,8 +145,8 @@ names a redraw, because the split reads neither the response indicator nor the o
 
 `stratify_by="none"` is the default, and it is the only policy any fit that draws a split accepts.
 It is not special to these two contracts. `"treatment"` and `"treatment+outcome"` are refused when
-the fit draws a split, and at every setting for a collaborative fit, whose search draws selection
-folds without cross-fitting. A non-collaborative in-sample fit draws no split, so it accepts the
+the fit draws a split, and at every setting for selector-based C-TMLE, whose search draws selection
+folds without cross-fitting. An in-sample outcome-adaptive fit draws no split. It accepts the
 declaration and applies none of it. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit behind the
 refusal and the message each layer raises.
@@ -213,9 +213,9 @@ refuses both, so neither step can run. A restored result or a copied estimator c
 old policy, and the fit then raises `ValueError` from the declaration check's own reason.
 
 A refusal that has an in-sample alternative names it as `CrossFitting(enabled=False)`. The engine
-form is `cross_fit=False`. A non-collaborative in-sample fit draws no split, so it keeps whatever
-fold policy the declaration carries and applies none of it. A collaborative fit draws selection
-folds at every setting, so it refuses a stratified policy in sample as well.
+form is `cross_fit=False`. An in-sample fit that draws no split keeps whatever fold policy the
+declaration carries and applies none of it. Selector-based C-TMLE draws selection folds at every
+setting, so it refuses a stratified policy in sample as well.
 
 ### Replay-only unavailability
 

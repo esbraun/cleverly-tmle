@@ -52,13 +52,14 @@ nuisance fit used to score it, and no training row contributes to the model that
 The outcome support transform is fixed from the outer fit, so every fold's loss and influence curve
 stay in the same unit.
 
-**The search draws its folds at every setting, so the fold rules bind in sample.** Both the
+**Selector-based searches draw folds at every setting, so the fold rules bind in sample.** Both the
 selection split and the nested split come from `random_partition`, which reads the row count and
 the seed and no column. `cross_fit=False` removes the outer split, and it leaves these two. A
-collaborative fit therefore refuses `stratify_by="treatment"` and `stratify_by="treatment+outcome"`
+selector-based fit therefore refuses `stratify_by="treatment"` and `stratify_by="treatment+outcome"`
 at every `cross_fit` setting. The message says so: "A collaborative fit draws those folds whether
 or not cross_fit is set, so cross_fit=False does not make this policy available." This is the one
-fit whose fold policy is refused in sample. The
+fit whose fold policy is refused in sample. Outcome-adaptive C-TMLE selects nothing and draws no
+selection folds. Its in-sample fit accepts an unused policy. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit behind it.
 
 **The selection split gets its own preflight.** `CTMLE._preflight_selection_folds` asks the
@@ -100,13 +101,13 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 `cv_evaluation=True` are refused. Composing collaborative model selection with fold-targeted or
 canonical CV-TMLE changes the estimator and needs a separate derivation.
 
-**Three further refusals reach every collaborative fit.** The fold policy above is the first.
-`id=` is the second: C-TMLE has no clustered result, because no reviewed source covers a grouped
-draw of the selection and nested folds, or the cluster-robust variance of the candidate the search
-stops at. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
+**Two other refusals reach every collaborative fit.** The first is `id=`: C-TMLE has no clustered
+result. No reviewed result covers clustered inference for the outcome-adaptive mechanism.
+Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection
+variance. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
 the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `available_methods` reports
 `collaborative_tmle` as unavailable with the same reason when the design declares `cluster=`, so a
-study reader sees it before anyone fits. The third is inherited from ordinary TMLE: a cross-fitted
+study reader sees it before anyone fits. The second is inherited from ordinary TMLE: a cross-fitted
 continuous outcome needs a declared `q_bounds`.
 
 **Retargeting holds the selection fixed.** A sensitivity analysis begins each perturbed targeting

@@ -139,8 +139,9 @@ An outer split reads the row count, the cluster labels and a seed, and it reads 
 outcome or covariate value. No fit draws a partition that balances the data it then conditions on.
 The declaration layer refuses a balancing policy before any split exists, and the fit layer refuses
 it again, because a restored result or a copied estimator can carry a policy this version does not
-draw under. A collaborative fit draws selection folds without cross-fitting, so the refusal reaches
-it at every setting. *Reconsider when* a reviewed result covers a partition read off the analysed
+draw under. A selector-based collaborative fit draws selection folds without cross-fitting, so the
+refusal reaches it at every setting. Outcome-adaptive C-TMLE draws no selection folds, so its
+in-sample fit accepts an unused policy. *Reconsider when* a reviewed result covers a partition read off the analysed
 data for a shipped estimator.
 
 A cross-fitted fit of a continuous outcome works on a scale the caller declared, and never on one

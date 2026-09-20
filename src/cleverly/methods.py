@@ -143,10 +143,11 @@ class CrossFitting:
         Fold-stratification policy. ``"none"`` draws folds that read neither the
         treatment nor the outcome, and it is the only value a fit that draws a split
         accepts. ``"treatment"`` and ``"treatment+outcome"`` are refused with
-        ``enabled=True``, and refused at every setting by
-        :class:`CollaborativeTMLEMethod`, whose search draws selection folds without
-        cross-fitting. No shipped result covers a partition read off the data the fit
-        then conditions on.
+        ``enabled=True``, and refused at every setting by selector-based
+        :class:`CollaborativeTMLEMethod` fits, whose search draws selection folds without
+        cross-fitting. In-sample outcome-adaptive fits draw no such split and accept the
+        unused declaration. No shipped result covers a partition read off the data the
+        fit then conditions on.
     targeting_scheme : {"pooled", "fold"}, default="pooled"
         Pooled or fold-specific targeting scheme.
     fold_evaluation : bool, default=False
@@ -560,9 +561,8 @@ class TMLEMethod:
     True
     """
 
-    #: Whether this method draws collaborative selection folds, which it does at every
-    #: cross-fitting setting. Read by the fold-policy refusal, and a class attribute
-    #: rather than a field so a caller cannot declare it away.
+    #: Whether this method can draw collaborative selection folds. The fold-policy
+    #: refusal also checks the strategy: OAT selects nothing and draws none of them.
     _collaborative: ClassVar[bool] = False
 
     models: ModelSpec = ModelSpec()
@@ -592,7 +592,7 @@ class TMLEMethod:
             split_plan=cross.split_plan,
             n_bootstrap=self.inference.n_bootstrap,
             stratify_folds=cross.stratify_by,
-            collaborative=self._collaborative,
+            collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
             option_name="enabled",
         )
         if reason is not None:

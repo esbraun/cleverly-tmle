@@ -137,17 +137,16 @@ def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | No
     (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules).
 
     The caller says whether the fit draws a split at all. An ordinary point-treatment fit
-    draws one only under cross-fitting, so ``cross_fit=False`` leaves nothing for a policy
-    to apply to and the declaration is accepted. A collaborative fit draws its selection
-    and nested folds at every setting, so it has no such case.
+    and an outcome-adaptive C-TMLE fit draw one only under cross-fitting, so
+    ``cross_fit=False`` leaves nothing for a policy to apply to. Selector-based C-TMLE
+    draws selection and nested folds at every setting.
 
     Parameters
     ----------
     stratify_folds : str
         The declared policy.
     collaborative : bool
-        Whether the fit is a collaborative one, which draws selection folds even without
-        cross-fitting.
+        Whether the fit draws collaborative selection folds even without cross-fitting.
 
     Returns
     -------
@@ -229,7 +228,7 @@ def _cross_fit_policy_refusal(
     stratify_folds : str, default="none"
         The declared fold-stratification policy.
     collaborative : bool, default=False
-        Whether the fit is a collaborative one.
+        Whether the fit draws collaborative selection folds.
     option_name : str
         The caller's spelling of the cross-fitting switch, ``"enabled"`` on
         :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.

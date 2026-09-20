@@ -593,8 +593,10 @@ class CTMLE(TMLE):
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation."
             )
-        super().__init__(**kwargs)
+        # The base constructor validates the fold policy. OAT has no selector folds,
+        # so it must know the strategy before that validation runs.
         self.strategy = strategy
+        super().__init__(**kwargs)
         self.preorder = preorder
         self.ordering = ordering
         self.candidates = candidates
@@ -818,7 +820,7 @@ class CTMLE(TMLE):
         """Check the search's own splits before the first nuisance fit.
 
         The outer preflight in :meth:`~cleverly.estimators.TMLE._repeat_draws` covers the
-        cross-fitting split, and a collaborative fit draws two more that it does not see:
+        cross-fitting split, and a selector-based collaborative fit draws two more:
         the selection split the candidate risk is scored over, and the inner split each
         selection fold's training predictions are made out of. Both are drawn here rather
         than deep inside the search, so a partition that cannot carry the search is
@@ -1059,11 +1061,17 @@ class CTMLE(TMLE):
                 "it minimises would have no fixed target. Use a plain TMLE."
             )
         if data.cluster is not None:
+            reason = (
+                "No reviewed result covers clustered inference for the outcome-adaptive mechanism"
+                if self.strategy == "oat"
+                else (
+                    "The search draws selection folds and, inside each of them, nested folds, "
+                    "and no reviewed result covers a grouped draw of those splits or the "
+                    "cluster-robust variance of the candidate the search then stops at"
+                )
+            )
             raise CapabilityError(
-                "C-TMLE has no clustered result. The search draws selection folds and, "
-                "inside each of them, nested folds, and no reviewed result covers a "
-                "grouped draw of those splits or the cluster-robust variance of the "
-                "candidate the search then stops at; docs/roadmap.md F22 tracks this "
+                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
                 "stop. Drop id= from fit "
                 "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
                 "TMLEMethod), which has a clustered result."
