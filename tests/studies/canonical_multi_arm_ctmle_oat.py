@@ -1,4 +1,10 @@
-"""Registered multi-arm outcome-adaptive C-TMLE comparison against R ``ctmle3``."""
+"""Registered multi-arm outcome-adaptive C-TMLE comparison against R ``ctmle3``.
+
+The primary fit is not cross-fitted and ``strategy="oat"`` draws no selection folds, so no
+split is drawn here at all.  ``stratify_folds="none"`` is still passed, because a
+declaration the study makes is what a reader can check against the manifest, and because
+the property cells reach the same keyword through a cross-fitted fit.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +30,11 @@ PRIMARY_REPLICATES = 800
 PRIMARY_N = 1500
 SEED = 20260828
 SCENARIO = "multi_arm_binary_oat"
+
+#: What every split this study draws is held to.  ``"none"`` is passed explicitly rather
+#: than left to the estimator's default, so this study's declaration does not move when that
+#: default does.
+STRATIFY_FOLDS = "none"
 
 STUDY = StudyRecord(
     name="outcome-adaptive multi-arm C-TMLE",
@@ -79,6 +90,16 @@ CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
     "g_bounds": list(multi_arm_common.G_BOUNDS),
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        "none anywhere in this row; the outcome is binary on the primary law and on every "
+        "property law, so the scaler is already the identity"
+    ),
+    "folds": (
+        "none on the primary: it is not cross-fitted and the outcome-adaptive strategy "
+        "draws no selection folds. The property cells draw unstratified five-fold outer "
+        "assignments"
+    ),
     "initial_treatment_model": "empirical arm probabilities (matched to sl3 Lrnr_mean)",
 }
 
@@ -103,6 +124,11 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             reference=multi_arm_common.REFERENCE,
             simultaneous=False,
             g_bounds=multi_arm_common.G_BOUNDS,
+            # The outcome is binary here, so no ``q_bounds``: the scaler is already the
+            # identity and ``TMLE._scaler`` refuses a second declaration of it.  The
+            # split keyword is inert on this fit, which draws none, and is passed so the
+            # study declares one rule rather than two.
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
