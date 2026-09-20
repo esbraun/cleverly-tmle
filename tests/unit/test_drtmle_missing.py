@@ -451,7 +451,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
 
     ``stratify_folds='treatment'`` no longer reaches that refusal at all: the engine
     itself refuses that fold policy under ``cross_fit=True``, at construction, for every
-    estimator (docs/roadmap.md RM17). Only ``stratify_folds='none'`` -- the only policy a
+    estimator (the fold and outcome-scale rules). Only ``stratify_folds='none'`` -- the only policy a
     cross-fitted fit may still declare -- reaches the construction-specific refusal below,
     which is why the two policies are no longer asserted to agree. ``Y`` is binary, as in
     :func:`test_cross_fitted_missing_outcomes_are_refused`, so the generic scale refusal

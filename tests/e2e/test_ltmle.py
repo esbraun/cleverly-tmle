@@ -99,7 +99,7 @@ def test_the_contrast_is_the_difference_of_the_means(family: str) -> None:
     then says that map is linear on differences -- which is the claim worth making.
     """
     frame, _ = make_longitudinal(n=1000, seed=31)
-    # A cross-fitted continuous outcome needs a declared q_bounds (RM17). This test's
+    # A cross-fitted continuous outcome needs a declared q_bounds (the fold and outcome-scale rules). This test's
     # subject is the scaler identity, not cross-fitting, so the Gaussian branch fits in
     # sample instead: n_folds=1 (LTMLE's spelling of cross_fit=False). The binomial branch
     # is unaffected and stays cross-fitted, so its pinned numbers do not move.
@@ -386,7 +386,7 @@ def test_a_continuous_outcome_is_estimated_on_its_own_scale() -> None:
     frame, _ = make_longitudinal(n=1000, seed=13)
     rescaled = frame.copy()
     rescaled["Y"] = 10.0 * frame["Y"] + 2.0
-    # A cross-fitted continuous outcome needs a declared q_bounds (RM17). This test's
+    # A cross-fitted continuous outcome needs a declared q_bounds (the fold and outcome-scale rules). This test's
     # subject is scale equivariance, not cross-fitting, so it fits in sample: n_folds=1
     # (LTMLE's spelling of cross_fit=False).
     plain = run(frame, family="gaussian", n_folds=1)
@@ -683,7 +683,7 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
     Over i.i.d. rows carrying an ``id`` column the two variances agree by construction,
     which is why counting the clusters is not a test of anything.
     """
-    # Cross-fitted longitudinal TMLE has no clustered result (RM17): keeping a cluster
+    # Cross-fitted longitudinal TMLE has no clustered result (the fold and outcome-scale rules): keeping a cluster
     # whole inside a fold is not established for the sequential recursion's cluster-robust
     # variance. This test's subject is that variance, not cross-fitting, so both fits are
     # in sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
@@ -1672,7 +1672,7 @@ class TestCompetingRisks:
         )
 
     def test_the_incidence_total_uses_the_cluster_joint_influence_covariance(self) -> None:
-        # Cross-fitted longitudinal TMLE has no clustered result (RM17). This test's
+        # Cross-fitted longitudinal TMLE has no clustered result (the fold and outcome-scale rules). This test's
         # subject is the cluster-robust variance formula, not cross-fitting, so it fits in
         # sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
         clustered = LTMLE(
@@ -1793,7 +1793,7 @@ class TestCompetingRisks:
             )
         # Matched on the clause that survives a reworded sentence: the fold is named, and
         # the reader is told to fit in sample rather than to search for a fold count that
-        # happens to work (RM17: no refusal drawn after a split names a repartition
+        # happens to work (the fold and outcome-scale rules: no refusal drawn after a split names a repartition
         # remedy, since the split reads none of the data a remedy could legitimately
         # react to).
         message = str(caught.value)
@@ -1802,9 +1802,10 @@ class TestCompetingRisks:
             "trying fold counts or seeds until one fits would choose the partition by the "
             "values it must not read" in message
         )
-        assert "Fit in sample with n_folds=1, or choose an estimand this fold count supports" in (
-            message
-        )
+        assert (
+            "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or "
+            "choose an estimand this fold count supports"
+        ) in message
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.

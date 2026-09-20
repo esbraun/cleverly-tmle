@@ -2270,8 +2270,9 @@ class LTMLE:
                 "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
                 "keeps each cluster whole, and what has not been established for the "
                 "sequential recursion is the cluster-robust variance of its targeted "
-                "estimate under one. Pass n_folds=1 for the in-sample longitudinal fit, "
-                "which is clustered and evidenced, or drop id= from fit."
+                "estimate under one. Fit in sample (CrossFitting(enabled=False), or "
+                "n_folds=1 on the engine), which is clustered and evidenced, or drop id= "
+                "from fit."
             )
         if data.family != "binomial" and self.q_bounds is None:
             raise LongitudinalError(
@@ -2280,8 +2281,10 @@ class LTMLE:
                 "the outcome scale is taken from every observed outcome, held-out rows "
                 "included, so each fold's recursion is fitted on a scale the rows it "
                 "predicts helped set, and no shipped result covers that scale "
-                "(docs/roadmap.md RM17). Declare the known outcome support "
-                "(Targeting(q_bounds=(lower, upper))), or pass n_folds=1 to fit in sample."
+                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
+                "rules). Declare the known outcome support "
+                "(Targeting(q_bounds=(lower, upper))), or fit in sample "
+                "(CrossFitting(enabled=False), or n_folds=1 on the engine)."
             )
 
     def _folds(self, data: LongitudinalData) -> Folds:

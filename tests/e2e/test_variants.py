@@ -28,7 +28,7 @@ from tests.conftest import BOUNDED, fast_tmle
 
 @pytest.fixture(scope="module")
 def frame_and_truth() -> tuple[object, dict[str, float]]:
-    """A bounded law, not the module's Gaussian one (RM17).
+    """A bounded law, not the module's Gaussian one (the fold and outcome-scale rules).
 
     :class:`TestVariantsAgree` and :class:`TestReproducibility` below fit some of their
     variants cross-fitted -- ``targeting_scheme="fold"`` needs it, and the
@@ -416,7 +416,7 @@ class TestWeightsAndClusters:
 
         frame, _ = make_clustered(n=1500, seed=39, cluster_size=15)
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
-        # In sample (RM17: this test's subject is clustering, not cross-fitting), so
+        # In sample (the fold and outcome-scale rules: this test's subject is clustering, not cross-fitting), so
         # id= has no fold split to keep a cluster whole inside, and the two nuisance
         # fits read exactly the same rows either way.
         ignoring = fast_tmle(estimands=("ate",), cross_fit=False).fit(frame, **columns).single()
@@ -589,7 +589,7 @@ class TestArrayEntryPoint:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             # In sample: the subject is the array entry point, not cross-fitting. A
-            # cross-fitted continuous outcome needs a known q_bounds (RM17).
+            # cross-fitted continuous outcome needs a known q_bounds (the fold and outcome-scale rules).
             cross_fit=False,
             estimands=("ate",),
             simultaneous=False,

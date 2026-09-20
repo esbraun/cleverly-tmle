@@ -852,7 +852,7 @@ class TestReporting:
 
     def test_the_footer_reports_only_the_quantity_the_selector_observed(self, selection) -> None:
         """The omitted candidates have different causal roles under the instrument law."""
-        # Re-measured for the in-sample fit CTMLE_KWARGS now runs (RM17): the correctly
+        # Re-measured for the in-sample fit CTMLE_KWARGS now runs (the fold and outcome-scale rules): the correctly
         # specified outcome model makes the empty propensity optimal in sample too, so
         # all three covariates, not two, are left out. See TestSelection's
         # test_the_right_outcome_model_makes_the_empty_propensity_optimal for why an

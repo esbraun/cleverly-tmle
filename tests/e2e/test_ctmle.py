@@ -244,7 +244,7 @@ class TestDownstreamMachineryStillWorks:
         this report state, three times, that a model nobody fitted is poorly calibrated.
         """
         # A binary outcome, not the Gaussian default: a cross-fitted fit of a continuous
-        # outcome now needs a declared q_bounds (docs/roadmap.md RM17), and
+        # outcome now needs a declared q_bounds (the fold and scale rules), and
         # make_multi_arm's Gaussian outcome has none to declare truthfully. The switch
         # leaves the propensity fold structure -- and so the calibration slopes this test
         # reads -- unchanged.
@@ -494,17 +494,23 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     At this seed the search cuts at the intercept-only candidate, so the working
     mechanism is a constant: AUC lands on chance and the calibration slope near ``-2``.
     Those are the two values that would each raise a finding under the ordinary role, and
-    pinning them together with a ``completed`` status is the claim
-    ``docs/examples/collaborative-tmle.ipynb`` illustrates; the mutated-role report below
-    is the control that shows the numbers are extreme enough for the suppression to be
-    doing the work.
+    pinning them together with a ``completed`` status is the claim this test makes. The
+    mutated-role report below is the control that shows the numbers are extreme enough
+    for the suppression to be doing the work.
 
-    The fit here is on a binary outcome rather than the notebook's Gaussian one: a
+    ``docs/examples/collaborative-tmle.ipynb`` makes the *same* claim on a different fit.
+    Its search stops at ``social_support`` rather than at the intercept, so its selected
+    mechanism reports an AUC of ``0.516`` and a calibration slope near ``1``, and the
+    suppression is what keeps those two numbers from raising a finding there. The extreme
+    end of that behaviour is pinned here and not there.
+
+    The fit here is on a binary outcome rather than the notebook's continuous one: a
     cross-fitted fit of a continuous outcome now needs a declared ``q_bounds``
-    (docs/roadmap.md RM17), which ``instrument_dgp``'s unbounded outcome cannot state
-    truthfully. The propensity fold structure -- and so its AUC and calibration slope --
-    is unchanged by that switch; only the exact figures below were re-measured against it,
-    and the notebook's own numbers now need the same accommodation this test made.
+    (the fold and scale rules), which ``instrument_dgp``'s unbounded outcome cannot state
+    truthfully. This test keeps cross-fitting, because its subject is a cross-validated
+    calibration slope, which an in-sample fit does not have. The notebook needs a
+    continuous outcome for its own closing step, so it fits in sample instead. Each is the
+    honest choice for its own subject, and the two therefore describe different fits.
     """
     frame, _ = _make_binary_instrument(n=2_000, seed=44)
     result = (
@@ -664,7 +670,7 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
     against 0.695 for a selector restricted to the empty candidate, a factor of nineteen.
     The fits below are in sample (``cross_fit=False``): this class is about the selection's
     bias under confounding, not about cross-fitting, and ``instrument_dgp``'s Gaussian
-    outcome has no ``q_bounds`` a cross-fitted fit could declare (docs/roadmap.md RM17).
+    outcome has no ``q_bounds`` a cross-fitted fit could declare (the fold and scale rules).
     """
 
     SEEDS = (0, 1, 2)

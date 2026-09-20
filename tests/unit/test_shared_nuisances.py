@@ -31,7 +31,7 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 #: lies in the open interval (0, 1) instead of on the whole line. A cross-fitted fit of
 #: this test's subject -- nuisance sharing across CDE levels -- needs a declared
 #: ``q_bounds``, and ``GENERATORS["cde"]`` draws a Gaussian outcome, so declaring one for
-#: it would state a support the law does not have (RM17).
+#: it would state a support the law does not have (the fold and outcome-scale rules).
 _BOUNDED_CDE = DGP(
     name="bounded_controlled_direct_effect",
     n_latent=3,
@@ -147,7 +147,7 @@ class TestAtLevel:
 
         A binary outcome, not ``GENERATORS["linear_ate"]``'s Gaussian one: this fit
         cross-fits with ``n_folds=4``, and a cross-fitted continuous outcome needs a
-        declared ``q_bounds`` that a binary outcome does not (RM17).
+        declared ``q_bounds`` that a binary outcome does not (the fold and outcome-scale rules).
         """
         frame, _ = GENERATORS["binary_outcome"](n=200, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]

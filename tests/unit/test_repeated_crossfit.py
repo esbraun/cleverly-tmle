@@ -617,7 +617,7 @@ class TestEveryStageOfTheSplitIsRedrawn:
         )
         estimator = fast_tmle(repeats=REPEATS, estimands=["ate"])
         result = estimator.fit(frame, **COLUMNS).single()
-        # The generic point-treatment preflight (docs/roadmap.md RM17) resolves each
+        # The generic point-treatment preflight (the fold and outcome-scale rules) resolves each
         # package Super Learner role once, at the estimator's own random_state, to read
         # its task -- before any split-specific draw and outside the per-repeat loop.
         # Every per-repeat resolution still lands on that repeat's own seed; the

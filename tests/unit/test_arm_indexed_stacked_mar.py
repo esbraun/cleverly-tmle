@@ -329,7 +329,7 @@ def test_crossed_folds_are_refused_before_the_contract_is_reached() -> None:
         _engine_fit(None, estimands=("ate",), stratify="treatment+outcome")
     message = str(caught.value)
     assert "on the treatment and the outcome" in message
-    assert "(docs/roadmap.md RM17)" in message
+    assert "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules)" in message
     assert NeverFit.calls == 0
 
 
@@ -422,7 +422,7 @@ def test_the_public_att_request_is_refused_by_name() -> None:
 def test_the_public_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
     """Declaring ``stratify_by='treatment'`` is refused engine-wide, not by the contract.
 
-    ``CrossFitting()`` now defaults to ``stratify_by='none'`` (the RM17 default flip), so
+    ``CrossFitting()`` now defaults to ``stratify_by='none'``, so
     this declares the policy explicitly rather than relying on a default the contract
     used to catch.
     """

@@ -83,7 +83,7 @@ def _fit_continuous(
     # This module is about the MSM replay and sensitivity surface, not about
     # cross-fitting, so a continuous (Gaussian) outcome fits in sample: a cross-fitted fit
     # of an unbounded outcome needs a declared q_bounds, which this synthetic Y, perturbed
-    # by additive Gaussian noise, does not have (docs/roadmap.md RM17). A binary outcome
+    # by additive Gaussian noise, does not have (the fold and outcome-scale rules). A binary outcome
     # has no such gap and stays cross-fitted, which the repeated-fold cache tests below
     # need: ``repeats`` above one is itself a cross-fitting policy and has no in-sample
     # counterpart.

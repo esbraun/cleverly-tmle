@@ -208,7 +208,7 @@ class TestControlledDirectEffect:
         # This class is about the controlled-direct-effect estimand, not about
         # cross-fitting, and its outcome is Gaussian with unbounded support, so a
         # cross-fitted fit would need a declared q_bounds it cannot truthfully state
-        # (docs/roadmap.md RM17). Fit in sample instead.
+        # (the fold and outcome-scale rules). Fit in sample instead.
         frame, _ = make_cde(n=2500, seed=63)
         return fast_tmle(estimands=("ate",), **IN_SAMPLE).fit(
             frame,

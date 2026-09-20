@@ -944,7 +944,8 @@ class FoldPolicyTMLE(TMLE):
     :meth:`~cleverly.estimators.TMLE._folds` and build the partition directly, rather than
     configure the shipped estimator.  Two of the three policies this diagnostic reports are
     no longer reachable through ``stratify_folds=``, because a split that reads the
-    treatment or the outcome is what RM17 refuses.  A diagnostic restricted to the policies
+    treatment or the outcome is what the package refuses.  A diagnostic restricted to the
+    policies
     the package still permits could report nothing about the ones it refuses, which is the
     one thing it exists to report.
 

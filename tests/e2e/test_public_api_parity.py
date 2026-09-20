@@ -190,7 +190,7 @@ def test_incremental_targets_are_bit_for_bit_unchanged(target: str, estimand: An
 )
 def test_shift_targets_are_bit_for_bit_unchanged(target: str, estimand: Any) -> None:
     # In sample, not cross-fitted: make_shift_dose's Y is Gaussian and unbounded, and a
-    # cross-fitted continuous outcome needs a declared q_bounds (RM17).
+    # cross-fitted continuous outcome needs a declared q_bounds (the fold and outcome-scale rules).
     settings = {**POINT_SETTINGS, **IN_SAMPLE}
     frame, _ = make_shift_dose(n=180, seed=24)
     columns = ("W1", "W2", "W3")

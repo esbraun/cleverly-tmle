@@ -45,7 +45,7 @@ CANONICAL = (*LINEAR, "att", "atc")
 def cv_fit() -> object:
     # A binary outcome, not a Gaussian one: this fit cross-fits at FAST_KWARGS's
     # n_folds=5, and a cross-fitted continuous outcome needs a declared q_bounds that a
-    # binary outcome does not (RM17).
+    # binary outcome does not (the fold and outcome-scale rules).
     frame, _ = make_binary_outcome(n=600, seed=17)
     return (
         TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")})

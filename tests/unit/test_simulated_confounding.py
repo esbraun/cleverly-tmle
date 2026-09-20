@@ -528,7 +528,7 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
 ) -> None:
     # repeats > 1 takes the median over independent cross-fitting draws, so this fit stays
     # cross-fitted. A cross-fitted continuous outcome needs a declared q_bounds
-    # (docs/roadmap.md RM17), so the subject moves to the binary law that is exempt, at
+    # (the fold and outcome-scale rules), so the subject moves to the binary law that is exempt, at
     # n=400 rather than the file's usual 120: the flip below has to clear fold noise, and
     # fold noise falls with the sample size a binary outcome needs it to.
     result = _fit(method=method, family="binomial", n=400, repeats=3)
@@ -588,7 +588,7 @@ def _manual_repeated_refit(result: Any, surface: Any, *, treatment: float, outco
 
 def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(family="binomial", repeats=3)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
     surface = simulated_confounding(result, grid=grid, random_state=31)
@@ -627,7 +627,7 @@ def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
         manual.estimator.crossfit_plan(manual.data).seeds()
         == second_manual.estimator.crossfit_plan(second_manual.data).seeds()
     )
-    # stratify_folds defaults to "none" (docs/roadmap.md RM17): the split is drawn from the
+    # stratify_folds defaults to "none" (the fold and outcome-scale rules): the split is drawn from the
     # seed alone and reads neither the perturbed treatment nor the outcome, so two refits
     # that share their seeds but differ in treatment strength draw the identical partition.
     assert all(
@@ -654,7 +654,7 @@ def test_binary_ratio_repeat_surface_equals_the_estimator_log_median() -> None:
 
 def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit_continuous(family="binomial", repeats=3)
     alias = _shift_alias(result)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
@@ -673,7 +673,7 @@ def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
 
 def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(family="binomial", repeats=3)
     kwargs = {
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
@@ -694,7 +694,7 @@ def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
 
 def test_fixed_weight_surface_repeats_cache_and_serialization_round_trip() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(family="binomial", repeats=3, weight_scale=4.0)
     kwargs = {
         # A nonzero outcome strength runs the weighted outcome replacement under repeats,
@@ -1062,7 +1062,7 @@ def test_fixed_weight_drtmle_preserves_weight_provenance_on_every_replacement(
 
 def test_fixed_weight_drtmle_repeat_median_cache_and_serialization_round_trip() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(method="drtmle", family="binomial", repeats=3, weight_scale=4.0)
     kwargs = {
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
@@ -1898,7 +1898,7 @@ def test_fixed_weight_ctmle_preserves_provenance_repeat_cache_and_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(
         method="collaborative_tmle",
         family="binomial",
@@ -2013,7 +2013,7 @@ def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
     """The outcome-adaptive treatment model must read the row mass.
 
     The gate is relative for the same reason the selector control's gate is. In sample
-    (this fit's fixture, docs/roadmap.md RM17), the movement at treatment=0.2,
+    (this fit's fixture, the fold and outcome-scale rules), the movement at treatment=0.2,
     outcome=0.3 falls to 0.015 percent, under the gate rather than over it, so the probe
     strengths move to 0.4 and 0.4. The measured movement there is 0.000174 on a psi of
     0.08398, which is 0.21 percent.
@@ -2459,7 +2459,7 @@ def test_repeated_surface_retains_a_complete_refit_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     repeated = _fit(family="binomial", repeats=3)
     calls = _record_refits(repeated, monkeypatch, fail_call=1)
     surface = simulated_confounding(
@@ -2489,7 +2489,7 @@ def test_a_median_dropped_estimand_reports_the_median_rule_and_not_a_missing_req
 ) -> None:
     """``median_estimates`` omits a name absent from one draw, and the cell says so."""
     # repeats=3 needs cross-fitting, and a cross-fitted continuous outcome needs a declared
-    # q_bounds (docs/roadmap.md RM17); the binary law is exempt at both parametrizations.
+    # q_bounds (the fold and outcome-scale rules); the binary law is exempt at both parametrizations.
     result = _fit(family="binomial", repeats=repeats)
 
     def refit(data: Any, **kwargs: Any) -> Any:
@@ -2524,7 +2524,7 @@ def test_repeat_provenance_checks_each_count_before_the_latent_draw(
     layer: str,
 ) -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
-    # declared q_bounds (docs/roadmap.md RM17); the binary law is exempt.
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(family="binomial", repeats=3)
     if layer == "stored":
         result = replace(result, repeats=result.repeats[:1])
@@ -2582,8 +2582,9 @@ def test_each_ratio_runs_a_real_log_movement_surface(
 
     # cells[2] is the pure treatment-strength=0.1 cell. cells[1] (outcome-strength=0.2
     # alone) moves the rr-tmle combination by too little to separate the log and linear
-    # scales past the 1e-3 gate below (a 0.00045 gap on this fixture, docs/roadmap.md
-    # RM17), which would make that combination blind to a mutation that dropped the log.
+    # scales past the 1e-3 gate below (a 0.00045 gap on the bounded fixture the fold
+    # and scale rules require), which would make that combination blind to a mutation
+    # that dropped the log.
     # cells[2] clears the gate by at least 24x on every method and ratio this test covers.
     witness = surface.cells[2]
     assert witness.estimate is not None

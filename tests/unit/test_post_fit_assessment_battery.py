@@ -957,7 +957,7 @@ def test_gaussian_differences_use_the_documented_nonzero_conversion(target, type
     # This test is about the E-value's Gaussian-to-risk-ratio conversion, not about
     # cross-fitting, and ``make_linear_ate``'s outcome is Gaussian with unbounded
     # support, so a cross-fitted fit needs a declared q_bounds it cannot truthfully
-    # state (docs/roadmap.md RM17). Fit in sample instead.
+    # state (the fold and outcome-scale rules). Fit in sample instead.
     options = _learners(cross_fit=False)
     if typed:
         result = (
@@ -999,7 +999,7 @@ def test_a_weighted_gaussian_conversion_standardises_by_the_weighted_sd():
     frame, _ = make_linear_ate(n=200, seed=3)
     frame = frame.assign(obs_weight=np.where(frame["W1"] > 0, 4.0, 0.25))
     # This test is about the weighted standardising sd, not about cross-fitting, and
-    # the outcome is Gaussian with unbounded support (docs/roadmap.md RM17).
+    # the outcome is Gaussian with unbounded support (the fold and outcome-scale rules).
     result = (
         _raw(estimands=("ate",), cross_fit=False)
         .fit(
@@ -1040,7 +1040,7 @@ def test_an_unweighted_gaussian_conversion_keeps_the_plain_sample_deviation():
 
     frame, _ = make_linear_ate(n=180, seed=3)
     # This test is about the unweighted standardising sd, not about cross-fitting, and
-    # the outcome is Gaussian with unbounded support (docs/roadmap.md RM17).
+    # the outcome is Gaussian with unbounded support (the fold and outcome-scale rules).
     result = (
         _raw(estimands=("ate",), cross_fit=False).fit(frame, outcome="Y", treatment="A").single()
     )

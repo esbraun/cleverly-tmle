@@ -106,7 +106,7 @@ def source_cv_fit() -> Any:
     average and the cross-validated variance are different numbers, so the alternatives are
     nonzero mutations rather than descriptions that happen to coincide on balanced folds.
 
-    The outcome is binary (RM17): a cross-fitted continuous outcome needs a declared
+    The outcome is binary (the fold and outcome-scale rules): a cross-fitted continuous outcome needs a declared
     ``q_bounds``, and this fit's subject is the CV contract itself, not a scale choice, so
     it moves to a law whose family the scaler never asks a bound of.
     """

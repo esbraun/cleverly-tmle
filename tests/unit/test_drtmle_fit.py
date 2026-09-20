@@ -59,7 +59,7 @@ def _bounded_nonlinear_dgp() -> DGP:
     this module exercises (``reduced_crossfit='nested'``, and every ``n_folds<3``), so
     this module's fits cannot turn cross-fitting off. A cross-fitted continuous outcome
     needs a declared ``q_bounds``, and ``nonlinear_dgp``'s Gaussian outcome has no finite
-    one (RM17). The nonlinear, heterogeneous, interacted shape is what several tests here
+    one (the fold and outcome-scale rules). The nonlinear, heterogeneous, interacted shape is what several tests here
     need a GLM to misspecify, so it is kept and only the scale changes: ``expit`` maps the
     same baseline-plus-effect combination into the open interval a beta law needs.
     """
@@ -843,7 +843,7 @@ class TestTheAlternationCanBeIllConditioned:
         # The bounded restatement of nonlinear_dgp, not make_nonlinear_ate's Gaussian
         # one: the numerical property under test (equation (10)'s conditioning) is a
         # structural fact about the alternation, asserted below law-agnostically, and
-        # this fit stays cross-fitted (RM17).
+        # this fit stays cross-fitted (the fold and outcome-scale rules).
         sample, _ = _bounded_nonlinear_dgp().sample(600, seed=0)
         return (
             DRTMLE(**{**SETTINGS, "estimands": ("ate",)})
@@ -1258,7 +1258,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         """A higher-concentration draw of this module's bounded law, on the same seed.
 
         The module-level ``repeated`` fixture (``concentration=20``) never sits the tilted
-        mechanism against the bound at ``n=600, seed=3`` under the RM17-bounded law (see
+        mechanism against the bound at ``n=600, seed=3`` under the bounded law (see
         ``frame()``), so the margin witness this class needs does not occur there.
         ``concentration=80`` tightens the beta noise until it does, on the same seed and
         the same structural shape, and reproduces one draw comfortably clear of the bound

@@ -36,7 +36,7 @@ _TILTS = (
 )
 
 #: In sample, not cross-fitted: ``confounding_study``'s Gaussian law (``binary=False``) is
-#: unbounded, and a cross-fitted continuous outcome needs a declared ``q_bounds`` (RM17).
+#: unbounded, and a cross-fitted continuous outcome needs a declared ``q_bounds`` (the fold and outcome-scale rules).
 #: ``confounding_estimate`` has no ``cross_fit=`` passthrough, so this is threaded through
 #: its ``method=`` parameter instead, which accepts a full method object as well as a
 #: preset name.
@@ -74,7 +74,7 @@ def _fit(
         (False, False, False, False, 1, "pandas", False),
         # binary=True, not False: repeats=3 needs cross-fitting enabled to have a split
         # to repeat, and this file's Gaussian law has no declared q_bounds, so a
-        # cross-fitted continuous outcome is refused (RM17). A binary outcome needs
+        # cross-fitted continuous outcome is refused (the fold and outcome-scale rules). A binary outcome needs
         # neither.
         (True, True, True, False, 3, "polars", True),
         (False, True, True, False, 1, "pandas", True),

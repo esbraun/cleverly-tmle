@@ -600,8 +600,10 @@ MSM_CONTRIBUTING_CELLS = {
 #: ``(pair, estimand)`` to the ``(truncated, evaluated)`` cell counts a two-fold fit owes.
 #: Every denominator is twice the single-fold one below, because each of the two folds runs
 #: its own complete backward pass on its own slab.  The numerators count truncations in those
-#: two slabs: reading the stitched out-of-fold pair instead reported ``0/112``, ``7/80`` and
-#: ``7/192`` at ``0.12``, a zero beside a ``+0.057`` movement of the estimate.
+#: two slabs.  A census of the retained stitched out-of-fold pair alone reports fewer, because
+#: it holds one of the two copies of each scored row and misses the truncation only a fold's
+#: own training rows carry.  ``test_crossfit_score_cell_counts_census_every_fold_slab_the_
+#: recursion_read`` states that claim, and nothing pins the stitched count itself.
 #:
 #: Every pair here keeps the upper endpoint at ``1.0``, so every truncated cell was *raised*.
 #: ``UPPER_BOUND_CELL_CENSUS`` and ``TWO_SIDED_CELL_CENSUS`` carry the other direction.

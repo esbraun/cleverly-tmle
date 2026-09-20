@@ -156,8 +156,8 @@ _FILLER = 0.5
 #: not read.  ``n_folds=1`` is the in-sample fit, which draws no split at all.
 _CROSS_FIT_NODE_REMEDY = (
     "The split reads none of the data, so trying fold counts or seeds until one fits "
-    "would choose the partition by the values it must not read. Fit in sample with "
-    "n_folds=1, or {alternative}."
+    "would choose the partition by the values it must not read. Fit in sample "
+    "(CrossFitting(enabled=False), or n_folds=1 on the engine), or {alternative}."
 )
 
 #: The key under which a node's single counterfactual prediction is filed on its

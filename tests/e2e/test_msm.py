@@ -159,7 +159,7 @@ def projection(means: dict[str, float]) -> np.ndarray:
 #: the propensity is fitted one-vs-rest.  Nothing here turns on the fold count.
 SETTINGS: dict[str, object] = {**FAST_KWARGS, "random_state": SEED}
 
-#: ``SETTINGS`` for the Gaussian branch only (RM17): a cross-fitted continuous outcome
+#: ``SETTINGS`` for the Gaussian branch only (the fold and outcome-scale rules): a cross-fitted continuous outcome
 #: needs a declared ``q_bounds``, and ``make_multi_arm``'s default law is Gaussian with
 #: unbounded support, so a fit on it that is not itself about cross-fitting fits in
 #: sample. The binary-outcome fits below keep ``SETTINGS`` unchanged and stay

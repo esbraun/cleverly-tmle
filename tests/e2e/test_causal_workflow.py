@@ -26,7 +26,7 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, t
     # This test is about bit-for-bit parity between the legacy and the CausalStudy path,
     # not about cross-fitting, and the outcome is Gaussian with unbounded support, so a
     # cross-fitted fit needs a declared q_bounds it cannot truthfully state
-    # (docs/roadmap.md RM17). Fit in sample instead.
+    # (the fold and outcome-scale rules). Fit in sample instead.
     legacy = (
         TMLE(estimands=("ate",), **FAST_KWARGS, **IN_SAMPLE)
         .fit(frame, outcome="Y", treatment="A", covariates=adjustment)
@@ -74,7 +74,7 @@ def test_structured_keys_are_composed_from_multi_arm_labels() -> None:
         .identify(ATE(reference="medium"))
         # This test is about how structured parameter keys compose from multi-arm
         # labels, not about cross-fitting, and the outcome is Gaussian with unbounded
-        # support (docs/roadmap.md RM17). Fit in sample instead.
+        # support (the fold and outcome-scale rules). Fit in sample instead.
         .estimate(**FAST_KWARGS, **IN_SAMPLE)
     )
 

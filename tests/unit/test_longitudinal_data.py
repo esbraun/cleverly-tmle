@@ -354,7 +354,10 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
         "The split reads none of the data, so trying fold counts or seeds until one "
         "fits would choose the partition by the values it must not read." in message
     )
-    assert "Fit in sample with n_folds=1, or collect more observations at the rare level" in message
+    assert (
+        "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect "
+        "more observations at the rare level"
+    ) in message
 
 
 def test_single_fold_categorical_support_advice_starts_a_sentence() -> None:
@@ -419,7 +422,10 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
         "The split reads none of the data, so trying fold counts or seeds until one "
         "fits would choose the partition by the values it must not read." in message
     )
-    assert "Fit in sample with n_folds=1, or choose a supported regimen" in message
+    assert (
+        "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or choose a "
+        "supported regimen"
+    ) in message
 
 
 def test_the_refusal_names_the_arms_a_rule_wanted() -> None:

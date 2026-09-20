@@ -132,7 +132,7 @@ def _method(
     which add fields to the same five groups rather than replacing them.
 
     ``stratify_by`` defaults to ``"none"``, the only value a cross-fitted fit accepts
-    (RM17); ``q_bounds`` defaults to ``(0.0, 1.0)``, this module's frames now being drawn
+    (the fold and outcome-scale rules); ``q_bounds`` defaults to ``(0.0, 1.0)``, this module's frames now being drawn
     from :func:`~cleverly.datasets.make_nonlinear_bounded`, whose proportion outcome has
     that support. Both default to what a cross-fitted fit needs, since ``enabled=True``
     is this helper's own default.
@@ -1420,7 +1420,7 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
     balancing code crosses the treatment with the outcome, on a sample engineered so a
     placebo permutation's re-count left the rarest crossed cell with two members -- one
     fewer than a *generated* three-fold split would need, while the plan's own labels
-    still carried every cell into every training complement.  RM17 refuses
+    still carried every cell into every training complement.  The package refuses
     ``stratify_by="treatment+outcome"`` under cross-fitting outright now (both under
     ``CrossFitting`` and from the engine), so that scenario cannot be built any more:
     the refusal fires at declaration, before any plan is drawn and before the permutation

@@ -69,7 +69,7 @@ from tests.unit._confounding_support import (
 def _estimate_gaussian_population(study: Any, target: Any, *, repeats: int, method: Any) -> Any:
     """Mirror :func:`confounding_estimate`'s Gaussian branch, fitted in sample.
 
-    A cross-fitted continuous outcome needs a declared ``q_bounds`` (RM17), and this
+    A cross-fitted continuous outcome needs a declared ``q_bounds`` (the fold and outcome-scale rules), and this
     module's subject is the simulated-confounding population contract, not
     cross-fitting, so this fits in sample (``cross_fit=False``) rather than declare a
     bound the Gaussian law here does not have. Written out instead of reached through
@@ -191,7 +191,7 @@ def _fit_string_arms(target: str) -> tuple[Any, np.ndarray]:
             learner_folds=2,
             random_state=12,
             simultaneous=False,
-            # In sample (RM17): the subject is string-labelled arms, not cross-fitting,
+            # In sample (the fold and outcome-scale rules): the subject is string-labelled arms, not cross-fitting,
             # and a cross-fitted continuous outcome needs a declared q_bounds this
             # Gaussian law does not have.
             cross_fit=False,
@@ -422,7 +422,7 @@ def test_weighted_repeated_population_surface_cache_and_persistence() -> None:
         "estimand": alias,
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.22), outcome=(0.0,)),
         "benchmark_covariates": ("W",),
-        # Not 32: on the binary population law this fit now draws (RM17: repeats>1
+        # Not 32: on the binary population law this fit now draws (the fold and outcome-scale rules: repeats>1
         # needs cross_fit=True, which needs a binary or bounded outcome rather than a
         # q_bounds this Gaussian law does not have), seed 32 puts the first repeat
         # exactly at the three draws' median, which is the value this test's last

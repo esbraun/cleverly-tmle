@@ -52,7 +52,7 @@ from tests.unit._confounding_support import (
 
 #: This module's subject is the fixed-policy replay contract, not cross-fitting, so
 #: every fit here runs in sample. A cross-fitted fit of a continuous outcome now needs a
-#: declared q_bounds (RM17), and this module's Gaussian law does not have one.
+#: declared q_bounds (the fold and outcome-scale rules), and this module's Gaussian law does not have one.
 _IN_SAMPLE_METHOD = TMLEMethod(cross_fitting=CrossFitting(enabled=False))
 
 
@@ -62,7 +62,7 @@ def _estimate(*args: Any, **kwargs: Any) -> Any:
     ``repeats`` needs cross-fitting to draw independent splits from at all, so a caller
     asking for more than one keeps the default cross-fitted method and must declare
     ``binary=True`` itself: a cross-fitted continuous outcome needs a declared
-    ``q_bounds`` (RM17), and this module's Gaussian law does not have one to declare
+    ``q_bounds`` (the fold and outcome-scale rules), and this module's Gaussian law does not have one to declare
     honestly.
     """
     if kwargs.get("repeats", 1) <= 1:

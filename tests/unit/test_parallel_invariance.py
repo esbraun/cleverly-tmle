@@ -81,7 +81,7 @@ def _fit(n_jobs: int) -> Any:
             n_jobs=n_jobs,
             # This module is about the parallel scheduler, not about the outcome law, and
             # a cross-fitted fit needs a declared q_bounds: a Beta-drawn outcome has one
-            # (docs/roadmap.md RM17), while the Gaussian law this used to fit does not.
+            # (the fold and outcome-scale rules), while the Gaussian law this used to fit does not.
             q_bounds=(0.0, 1.0),
         )
         .fit(FRAME, outcome="Y", treatment="A")

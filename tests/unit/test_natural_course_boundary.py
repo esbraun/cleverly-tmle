@@ -98,7 +98,7 @@ def test_cross_fitting_with_stratified_folds_refuses_before_the_natural_course_c
 
     ``stratify_folds != 'none'`` used to be one of this contract's own clauses, reached
     because the package default for it was ``'treatment'``. The default flipped to
-    ``'none'`` (docs/roadmap.md RM17), and the check itself moved to the engine-wide
+    ``'none'`` (the fold and outcome-scale rules), and the check itself moved to the engine-wide
     fold-strata refusal that now fires at construction, before ``fit`` -- and this
     contract -- are ever reached, so ``cross_fit=True`` alone no longer breaks anything
     here. This declares the old default explicitly to still exercise the boundary.

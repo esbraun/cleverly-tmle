@@ -484,7 +484,8 @@ class TMLE:
         ``"treatment"`` and ``"treatment+outcome"`` balance the arms, and the arms
         crossed with the outcome, across folds.  Both are refused under cross-fitting.
         No shipped result covers a partition read off the data the fit then conditions
-        on (``docs/roadmap.md`` RM17), and a rare level is a reason to fit in sample or
+        on (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules), and a
+        rare level is a reason to fit in sample or
         to collect more of it rather than to let the outcome choose the folds.  A fit
         with ``cross_fit=False`` draws no split, so it accepts any value and uses none
         of them.  :class:`~cleverly.CTMLE` draws selection folds at every setting and
@@ -1319,7 +1320,8 @@ class TMLE:
             f"family={data.family!r}) needs a declared q_bounds. With q_bounds=None the "
             "outcome scale is taken from every observed outcome, held-out rows included, "
             "so each fold's nuisance is fitted on a scale the rows it predicts helped set, "
-            "and no shipped result covers that scale (docs/roadmap.md RM17). Declare the "
+            "and no shipped result covers that scale "
+            "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). Declare the "
             "known outcome support (Targeting(q_bounds=(lower, upper))). Without a known "
             f"finite support, {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
         )
@@ -1397,7 +1399,8 @@ class TMLE:
             refuse(
                 "a continuous outcome with q_bounds=None takes its scale from every observed "
                 "outcome, held-out rows included, and no reviewed result covers that scale "
-                "(RM17). Declare q_bounds equal to the known outcome support "
+                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
+                "rules). Declare q_bounds equal to the known outcome support "
                 "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
             )

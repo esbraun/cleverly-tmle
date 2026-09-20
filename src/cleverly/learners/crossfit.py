@@ -114,7 +114,7 @@ def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | No
     ``"treatment+outcome"`` make the assignment a function of the treatment, and of the
     outcome as well, while the cross-fitting argument conditions on the split. No shipped
     result covers a partition read off the data it is then used to analyse
-    (``docs/roadmap.md`` RM17).
+    (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules).
 
     The caller says whether the fit draws a split at all. An ordinary point-treatment fit
     draws one only under cross-fitting, so ``cross_fit=False`` leaves nothing for a policy
@@ -155,7 +155,9 @@ def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | No
     return (
         f"stratify_folds={stratify_folds!r} balances {where} on {reads}, which makes the "
         "partition a function of the data the fit then conditions on. No shipped result "
-        "covers that split (docs/roadmap.md RM17). Set stratify_folds='none' "
+        "covers that split "
+        "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). "
+        "Set stratify_folds='none' "
         f"(CrossFitting(stratify_by='none')), which is the default. {tail}"
     )
 
