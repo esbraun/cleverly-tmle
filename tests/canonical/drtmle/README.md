@@ -4,8 +4,10 @@ This registered protocol compares Cleverly with `benkeser/drtmle` 1.1.2. The sou
 pinned at commit `538a3a264c1ca984b6d88978ca7f96165f43152c`.
 
 Both implementations use the same paper-law sample, initial out-of-fold nuisance arrays,
-and ten-fold assignment. The R package fits its own reduced regressions and runs its own
-targeting loop. The study reports arm means and the ATE for complete binary data.
+and ten-fold assignment. That assignment comes from `cleverly.random_partition`, which reads
+the row count and the sample's seed and no column. The R package fits its own reduced
+regressions and runs its own targeting loop. The study reports arm means and the ATE for
+complete binary data.
 
 Two settings are declared on both sides and one diagnostic is not comparable.
 
