@@ -26,10 +26,10 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
 
 UNPRINTED_DECIMALS = {
-    "65.0": "the registered stacked CV-TMLE study's in-sample control coverage, 0.65 in "
-    "tests/canonical/tmle3_cvtmle/properties.csv and 0.6500 on its linked evidence page",
-    "89.5": "the registered stacked CV-TMLE study's cross-fitted coverage, 0.895 in "
-    "tests/canonical/tmle3_cvtmle/properties.csv and 0.8950 on its linked evidence page",
+    "48.8": "the registered stacked CV-TMLE study's in-sample control coverage, 0.4875 in "
+    "tests/canonical/tmle3_cvtmle/properties.csv and 0.4875 on its linked evidence page",
+    "93.3": "the registered stacked CV-TMLE study's cross-fitted coverage, 0.9325 in "
+    "tests/canonical/tmle3_cvtmle/properties.csv and 0.9325 on its linked evidence page",
 }
 
 
@@ -45,7 +45,7 @@ def check(namespace: dict[str, Any]) -> None:
     cross_fitted = first["ate"]
     in_sample = namespace["in_sample"]["ate"]
     truth = namespace["truth"]["ate"]
-    assert np.isclose(truth, 1.75, atol=1e-6)
+    assert np.isclose(truth, 0.1629, atol=1e-4)
 
     # The data come from the shared helper under the program's names.
     assert list(namespace["frame"].columns) == [
@@ -70,22 +70,26 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert covers(cross_fitted, truth)
 
-    # Step 6: "close" points, "less than a third" (0.28), and a miss of 2.6 standard errors.
+    # Step 6: "close" points, "less than a third" (0.27), and a miss of 2.5 standard errors.
+    # The point-distance margin is the retired Gaussian law's, scaled by the ratio of the two
+    # ATEs (0.1629 against 1.750); the miss window brackets the narrated single decimal.
     assert "in-sample nuisances" in namespace["in_sample"].summary()
-    assert abs(in_sample.psi - cross_fitted.psi) < 0.1
+    assert abs(in_sample.psi - cross_fitted.psi) < 0.01
     assert in_sample.std_error < cross_fitted.std_error / 3
     assert not covers(in_sample, truth)
-    assert 2.5 < abs(truth - in_sample.psi) / in_sample.std_error < 2.7
+    assert 2.45 <= abs(truth - in_sample.psi) / in_sample.std_error < 2.55
 
-    # Step 7: "nearly identical" points that differ because the folds regroup; "1.68 times larger".
+    # Step 7: "nearly identical" points that differ because the folds regroup; "1.54 times larger".
+    # The law is the binary clustered one: a binary outcome needs no declared support, so the
+    # team fits keep cross-fitting and Step 8 still has a split to read.
     ignoring = namespace["ignoring"]
     clustered = namespace["clustered"]
     team_truth = namespace["team_truth"]["ate"]
-    assert np.isclose(team_truth, 1.0, atol=1e-12)
-    assert abs(ignoring["ate"].psi - clustered["ate"].psi) < 0.02
+    assert np.isclose(team_truth, 0.104, atol=1e-3)
+    assert abs(ignoring["ate"].psi - clustered["ate"].psi) < 0.005
     assert ignoring["ate"].psi != clustered["ate"].psi
     assert ignoring.provenance.fold_fingerprint != clustered.provenance.fold_fingerprint
-    assert 1.5 < clustered["ate"].std_error / ignoring["ate"].std_error < 1.9
+    assert 1.4 < clustered["ate"].std_error / ignoring["ate"].std_error < 1.7
     assert covers(ignoring["ate"], team_truth) and covers(clustered["ate"], team_truth)
     assert clustered.data.n_clusters == 200
 
@@ -125,11 +129,13 @@ def check(namespace: dict[str, Any]) -> None:
     assert set(np.unique(plan.assignments[0], return_counts=True)[1]) == {600}
     assert abs(evaluated.psi - cross_fitted.psi) < 1e-10
     assert tuple(evaluated.ci) != tuple(cross_fitted.ci)
-    assert abs(targeted.psi - cross_fitted.psi) > 0.01
-    assert abs(targeted.std_error - cross_fitted.std_error) > 0.01
+    # "Its estimate moves in the fourth decimal, and its standard error is smaller."
+    assert targeted.psi != cross_fitted.psi
+    assert 1e-5 < abs(targeted.psi - cross_fitted.psi) < 1e-3
+    assert targeted.std_error < cross_fitted.std_error - 1e-4
 
-    # Step 11: "one warning, nuisance_models"; slope 0.49 below 1; small g(W); 30 units (1.00%)
-    # truncated; the treated arm has the 25.2% ratio; the in-sample ratio is 91.6%.
+    # Step 11: "one warning, nuisance_models"; slope 0.49 below 1; small g(W); 16 units (0.53%)
+    # truncated; the treated arm has the 22.9% ratio; the in-sample ratio is 91.6%.
     assessment = namespace["assessment"]
     warned = [item.name for item in assessment.attention if item.status.value == "warning"]
     assert warned == ["nuisance_models"]
@@ -141,7 +147,7 @@ def check(namespace: dict[str, Any]) -> None:
     support = namespace["support"]
     assert assessment.report("support") is support
     assert support.propensity_quantiles["overall"][0.0] < 0.01
-    assert support.truncated["count"] == 30
+    assert support.truncated["count"] == 16
     ess = support.effective_sample_size
     assert min(ess, key=lambda arm: ess[arm]["ratio"]) == "treated"
     assert 0.2 < ess["treated"]["ratio"] < 0.3
@@ -204,7 +210,8 @@ def check(namespace: dict[str, Any]) -> None:
         spread[0].standard_deviation / repeated["ate"].std_error,
     )
     assert spread[0].standard_deviation < spread[0].reported_standard_error
-    assert 4 < abs(redrawn["ate"].psi - cross_fitted.psi) / spread[0].standard_deviation < 6
+    # "about a third of this standard deviation" between the Step 5 and Step 9 fold draws.
+    assert 0.2 < abs(redrawn["ate"].psi - cross_fitted.psi) / spread[0].standard_deviation < 0.4
 
     # Step 13: the live assessment retains the ordinary point-treatment sensitivity calculation.
     robustness = namespace["robustness"]

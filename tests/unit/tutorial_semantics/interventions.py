@@ -42,6 +42,7 @@ def check(namespace: dict[str, Any]) -> None:
         "assumption_rationale",
     }
     assert changed_fields(namespace["dose_protocol"], program) == {
+        "outcome",
         "time_zero",
         "treatment_strategies",
         "treatment_versions",
@@ -93,22 +94,23 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert rows["offer to all"].max_ratio == max(row.max_ratio for row in rows.values())
     # The support columns use g before truncation, and the score load uses the truncated g.
-    # Offer to all falls below the bound, so truncation raises its load above its ratio ESS.
-    # Offer to none stays above the bound, so its two numbers agree: the nonzero witness that
-    # truncation, not a different definition, separates the columns.
+    # Offer to all's largest ratio is above the 1/0.0114 cap, so truncation raises its load
+    # above its ratio ESS. Offer to none's largest ratio is below the cap, so its two numbers
+    # barely move: the nonzero witness that truncation, not a different definition, separates
+    # the columns.
     assert f"propensity truncated to [{TRUNCATION}, " in stored_output(NOTEBOOK, "regime-fit")
-    assert rows["offer to all"].min_support_propensity < TRUNCATION
-    assert rows["offer to none"].min_support_propensity > TRUNCATION
+    assert rows["offer to all"].max_ratio > 1 / TRUNCATION
+    assert rows["offer to none"].max_ratio < 1 / TRUNCATION
     assert rows["offer to all"].score_load["effective"] > (
-        1.5 * rows["offer to all"].effective_sample_size
+        1.02 * rows["offer to all"].effective_sample_size
     )
-    # Both print as 540.9; they agree to about 1e-4 relative, not exactly.
+    # Both print as about 476.5; they agree to about 1e-4 relative, not exactly.
     assert rows["offer to none"].score_load["effective"] == pytest.approx(
         rows["offer to none"].effective_sample_size, rel=1e-3
     )
     # The largest load of offer to all is the truncation cap 1/0.0114, not its untruncated ratio.
     assert rows["offer to all"].score_load["max_load"] == pytest.approx(1 / TRUNCATION, rel=1e-3)
-    assert rows["offer to all"].max_ratio > 2.0 * rows["offer to all"].score_load["max_load"]
+    assert rows["offer to all"].max_ratio > 1.1 * rows["offer to all"].score_load["max_load"]
     assert rows["offer to none"].score_load["max_load"] == pytest.approx(
         rows["offer to none"].max_ratio, rel=1e-6
     )
@@ -122,17 +124,25 @@ def check(namespace: dict[str, Any]) -> None:
     assert support["current practice"].ess_ratio == pytest.approx(1.0)
     capped = support["+0.5 capped at 5"]
     assert 0.015 < capped.capped_fraction < 0.035
-    assert 0.35 < capped.ess_ratio < 0.55
-    # "more than three times as wide as either +0.5 interval"; about 4.5x here.
+    assert 0.55 < capped.ess_ratio < 0.70
+    # "about twice as wide as either +0.5 interval"; about 2.1x here.
     frame = namespace["shift_result"].to_frame().set_index("estimand")
     width = frame["ci_upper"] - frame["ci_lower"]
     wide = width["ate_shift[+1.0 uncapped vs current practice]"]
-    assert wide > 3.0 * width["ate_shift[+0.5 capped at 5 vs current practice]"]
-    assert wide > 3.0 * width["ate_shift[+0.5 uncapped vs current practice]"]
-    # The estimated density keeps far less than the true density ratio, for both shifts.
-    assert 0.01 < support["+1.0 uncapped"].ess_ratio < 0.1
-    assert support["+1.0 uncapped"].ess_ratio < 0.5 * np.exp(-1.0)
-    assert support["+0.5 uncapped"].ess_ratio < 0.75 * np.exp(-0.25)
+    assert wide > 1.8 * width["ate_shift[+0.5 capped at 5 vs current practice]"]
+    assert wide > 1.8 * width["ate_shift[+0.5 uncapped vs current practice]"]
+    # "the one interval that excludes its population value, by a small margin".
+    dose_truth = namespace["dose_truth"]
+    wide_name = "ate_shift[+1.0 uncapped vs current practice]"
+    assert not covers(namespace["shift_result"][wide_name], dose_truth[wide_name])
+    for name in (
+        "ate_shift[+0.5 capped at 5 vs current practice]",
+        "ate_shift[+0.5 uncapped vs current practice]",
+    ):
+        assert covers(namespace["shift_result"][name], dose_truth[name])
+    # The estimated density keeps less than the true density ratio, for both shifts.
+    assert 0.15 < support["+1.0 uncapped"].ess_ratio < np.exp(-1.0)
+    assert support["+0.5 uncapped"].ess_ratio < np.exp(-0.25)
     # "An empty list is not evidence of support."
     assert not namespace["shift_assessment"].attention
 
@@ -165,7 +175,7 @@ def check(namespace: dict[str, Any]) -> None:
     tilt = namespace["incremental_result"]["ate_ipsi[double odds vs current odds]"]
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert not covers(tilt, double_odds)
-    assert 2.15 <= (tilt.psi - double_odds) / tilt.std_error < 2.25
+    assert 2.55 <= (tilt.psi - double_odds) / tilt.std_error < 2.65
     assert "ipsi (mechanism)" in stored_output(NOTEBOOK, "incremental-fit")
     # "the outcome-targeting score weight stays between one half and two"; the load describes
     # the outcome equations only, so the mechanism equation has no row-level load in the report.
@@ -192,16 +202,20 @@ def check(namespace: dict[str, Any]) -> None:
         (cell.treatment_strength, cell.outcome_strength): cell
         for cell in namespace["surface"].cells
     }
-    assert all(cell.failure is None for cell in cells.values())
-    # "Both flipped cells move the estimate by about -0.35."
+    # "Two of its four cells return an estimate, and two record a failure": the outcome
+    # perturbation sends the score off the support this fit declares, and the surface keeps
+    # each failure per cell instead of abandoning the run. The zero-strength column is the
+    # nonzero witness that only the outcome axis fails.
+    for treatment_strength in (0.0, 0.1):
+        assert cells[treatment_strength, 0.0].failure is None
+        failed = cells[treatment_strength, 0.5]
+        assert failed.estimate is None
+        assert failed.failure is not None
+        assert "outside q_bounds" in failed.failure.message
+    assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
+    # "The flipped cell that ran moves the estimate by -0.029598."
     original = cells[0.0, 0.0].estimate
-    for outcome_strength in (0.0, 0.5):
-        assert cells[0.1, outcome_strength].estimate - original == pytest.approx(-0.35, abs=0.02)
-    # "The outcome strength moves the flipped estimate by about as much as it moves the original fit."
-    outcome_only = cells[0.0, 0.5].estimate - cells[0.0, 0.0].estimate
-    with_flips = cells[0.1, 0.5].estimate - cells[0.1, 0.0].estimate
-    assert outcome_only > 0.0
-    assert abs(with_flips - outcome_only) < 0.25 * abs(outcome_only)
+    assert cells[0.1, 0.0].estimate - original == pytest.approx(-0.0296, abs=0.001)
     # "the flips induce an association of only +0.0442", with P(A=1) near one half.
     association = cells[0.1, 0.0].induced_treatment_association
     assert association is not None

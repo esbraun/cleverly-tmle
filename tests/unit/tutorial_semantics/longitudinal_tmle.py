@@ -97,6 +97,10 @@ def check(namespace: dict[str, Any]) -> None:
     point_method, method = namespace["point_method"], namespace["sequential"]
     assert point_method.cross_fitting == method.cross_fitting
     assert point_method.runtime == method.runtime
+    # "The fit runs in sample, and the navigator teams are the reason": the page's own reason
+    # for the fold setting, and the fit reports it.
+    assert not method.cross_fitting.enabled
+    assert "nuisances fitted in sample" in result.summary()
 
     rule = namespace["rule_result"]
     assert set(rule.estimates) == {
@@ -160,11 +164,11 @@ def check(namespace: dict[str, Any]) -> None:
     curve = namespace["curve"]
     assert list(curve["lower_bound"]) == [0.01, 0.05, 0.1]
     assert curve["truncated_score_cells"].iloc[0] == 0
-    # "truncates 217 of 33525 score cells ... one followed patient at one node of one plan,
-    # counted once in each of the three folds".
-    assert curve["truncated_score_cells"].iloc[-1] == 217
-    assert (curve["evaluated_score_cells"] == 33525).all()
-    assert method.cross_fitting.n_folds * int(support["n_followed"].sum()) == 33525
+    # "truncates 75 of 11175 score cells ... one followed patient at one node of one plan.
+    # An in-sample fit scores each such cell once, so the total is the sum of n_followed".
+    assert curve["truncated_score_cells"].iloc[-1] == 75
+    assert (curve["evaluated_score_cells"] == 11175).all()
+    assert int(support["n_followed"].sum()) == 11175
     # "0.0019, which is 0.11 standard errors".
     movement = float(curve["delta_from_fitted"].abs().max())
     assert 0.0 < movement < 0.005
@@ -175,28 +179,23 @@ def check(namespace: dict[str, Any]) -> None:
     scores = namespace["scores"]
     assert scores["passed"].all()
     solver = scores[scores["kind"] == "solver"]
-    stitching = scores[scores["kind"] == "stitching"]
-    assert len(solver) == len(stitching) == 4
+    assert len(solver) == 4
     assert solver["relative_score"].gt(0.0).any()
     assert (solver["relative_score"] < namespace["solver_display_floor"]).all()
     score_display = namespace["score_display"]
     displayed_solver = score_display[score_display["kind"] == "solver"]
     assert (displayed_solver["relative_score"] == 0.0).all()
-    # Stitching is not a second solver check: its pooled out-of-fold scores remain measurably
-    # nonzero, have both signs, and are judged against their sampling scale.
-    assert stitching["relative_score"].gt(0.0).all()
-    assert stitching["z"].min() < -0.1 < 0.0 < stitching["z"].max()
-    stitching_max_abs_z = namespace["stitching_max_abs_z"]
-    assert stitching_max_abs_z == pytest.approx(stitching["z"].abs().max())
-    assert round(stitching_max_abs_z, 2) == 0.14
-    retained_output = stored_output(NOTEBOOK, "retained-reports")
-    assert "largest absolute stitching z: 0.14" in retained_output
-    # "The lowest calibration slope is ... for the censoring model at node 2", below the ideal 1,
-    # "beside the `auc` of 0.541": the model barely separates who stays tracked.
+    # "every row is of one kind" and "A cross-fitted fit adds a second kind, `stitching`".
+    # An in-sample fit holds no rows out, so the report carries no stitched score at all.
+    assert namespace["score_kinds"] == ["solver"]
+    assert "kinds of score row: ['solver']" in stored_output(NOTEBOOK, "retained-reports")
+    # "Every calibration slope here sits within 0.03 of 1": each model is measured on the rows
+    # it was fitted on. The auc column still separates the models, and the lowest value is the
+    # censoring model at node 2, which "barely separates the patients who stay tracked".
     nuisance = namespace["nuisance"]
-    lowest = nuisance.loc[nuisance["calibration_slope"].idxmin()]
+    assert nuisance["calibration_slope"].between(0.97, 1.03).all()
+    lowest = nuisance.loc[nuisance["auc"].idxmin()]
     assert (lowest["role"], lowest["time"]) == ("censoring", 2)
-    assert lowest["calibration_slope"] < 1.0
     assert lowest["auc"] < 0.6
     # "The pseudo-outcome rows have continuous targets, so they have no `auc`."
     assert nuisance.loc[nuisance["role"] == "pseudo_outcome", "auc"].isna().all()

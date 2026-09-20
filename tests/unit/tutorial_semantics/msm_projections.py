@@ -56,12 +56,17 @@ def check(namespace: dict[str, Any]) -> None:
     # The protocol step prints the record, and both fits carry its digest.
     # The reading names the fields this page changes in the program protocol.
     assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+        "outcome",
         "time_zero",
         "treatment_strategies",
         "treatment_versions",
         "intercurrent_event_handling",
         "assumption_rationale",
     }
+    # "A standardized score takes its scale from the data, so no finite support can be declared
+    # for it": the page's own reason for fitting in sample, and the fit reports it.
+    assert not method.cross_fitting.enabled
+    assert "in-sample nuisances" in fitted.summary()
     assert_protocol_recorded(
         NOTEBOOK, "protocol", namespace["protocol"], fitted, namespace["trend_result"]
     )
@@ -214,10 +219,10 @@ def check(namespace: dict[str, Any]) -> None:
     high_column = propensity[treatment == "high", levels.index("high")]
     assert support.clever_covariate_max["msm"] == pytest.approx(6.0 / high_column.min(), rel=1e-9)
     slope_curve = namespace["slope_curve"]
-    assert f"{slope_curve['psi'].min():.4f}" == "0.2657"
-    assert f"{slope_curve['psi'].max():.4f}" == "0.2703"
+    assert f"{slope_curve['psi'].min():.4f}" == "0.2654"
+    assert f"{slope_curve['psi'].max():.4f}" == "0.2700"
     assert slope_curve["truncated_fraction"].iloc[-1] > 0.5
-    assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0029"
+    assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0033"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
     # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts have one.

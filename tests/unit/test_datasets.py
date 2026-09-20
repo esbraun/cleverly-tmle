@@ -528,13 +528,16 @@ class TestTheMultiArmBinomialLaw:
 def test_the_program_data_renames_the_nonlinear_draw_and_changes_nothing_else(
     backend: str,
 ) -> None:
-    """``navigation_data`` is ``make_nonlinear_ate`` under the program's names, row for row.
+    """``navigation_data`` is ``make_nonlinear_bounded`` under the program's names, row for row.
 
     The mapping is written out here rather than read from the module, so a swapped pair of
     covariate names fails even though the column set and every value still agree.
+
+    The generator is the bounded one, so the program score has the known support ``(0, 1)``
+    that a cross-fitted tutorial declares as its ``q_bounds``.
     """
     frame, truth = navigation_data(300, seed=21, backend=backend)
-    raw, raw_truth = make_nonlinear_ate(300, seed=21, backend=backend)
+    raw, raw_truth = make_nonlinear_bounded(300, seed=21, backend=backend)
     expected = {
         "Y": "transition_score",
         "A": "transition_navigation",
