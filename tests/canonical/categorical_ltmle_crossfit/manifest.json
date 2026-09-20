@@ -5,12 +5,12 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-cross-fitted-categorical-ltmle",
-      "cleverly_version": "0.1.0",
-      "cleverly_commit": "50b808f4c9bff7f3cf4b4a24585111abc07a9ef2",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "f0110bc30628700392980226bf78433f1383b579",
       "cleverly_worktree_clean": false,
-      "python": "3.13.7",
+      "python": "3.11.13",
       "numpy": "2.4.6",
-      "scipy": "1.18.0",
+      "scipy": "1.17.1",
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
@@ -94,35 +94,37 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_categorical_ltmle_crossfit.py": "8aa6eebc8cb5118a439a0c96ec8e498fdde7f2aa371ee71cc79c13f39c772460",
+    "tests/studies/canonical_categorical_ltmle_crossfit.py": "29bd1fab9e41a7ab6aca626aea2209923fa34ed8a79d30617ff4ef781a9b39fd",
     "tests/studies/categorical_ltmle_crossfit_properties.py": "630db070d14b78d8317b5f57eefb5b0dcc4b6d491ef168c7bf6957edada039dd",
     "tests/studies/categorical_longitudinal_properties.py": "fecaead311754640df61aadbfce39bc6b0d805e3c0e2bc20923ed3bde8a48397",
-    "tests/studies/categorical_longitudinal_common.py": "72251ef40221a1852dcfcd94356c30e3f69dc4ddf922b8d43035714ccd6a35c3",
+    "tests/studies/categorical_longitudinal_common.py": "8ad80a669ee30576ef0aa2d8f80dcd72b62efea699e9ad1935238191ca301913",
+    "tests/studies/canonical_ltmle.py": "d1adf8f5df9fdaca29eb3d21367e0e479ed669bd572d7b824acf459d4b8b0bbd",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
-    "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "29394df58773292b10599b3d338a0743e2f54ceb1e72b574390f1180ac47a000",
-    "tests/studies/evidence/property_verdicts.py": "d1b0ad34922c5cd0b4aedcd8ecf2d3e6a5ff87569b897633ffca227923cea635",
+    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
+    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
-    "tests/canonical/lmtp_crossfit_adapter.R": "9ec0c76f9ed1ee41276b73071d51baaacae8537662e2f61994ac49cc4493b71f",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/categorical_ltmle_runner.R": "5543f4a9005534124f33928a455196028d2341f7c8accca8cdfa28a75f5a6cce"
   },
   "reference_sha256": {
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/categorical_ltmle_runner.R": "5543f4a9005534124f33928a455196028d2341f7c8accca8cdfa28a75f5a6cce",
-    "tests/canonical/lmtp_crossfit_adapter.R": "9ec0c76f9ed1ee41276b73071d51baaacae8537662e2f61994ac49cc4493b71f",
+    "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
-    "replicates.csv.gz": "f4ad6e70f76de3aa204a76aaa2c846097fea598a736d2dcc11065405a9bfa2d2",
-    "summary.csv": "19dd35b2117e95e84be8f381227a235515fa72b2c2e52e8bcda84b88163996c5",
-    "equivalence.csv": "cb0fb75bbacedadbdf8d37a45c88304c2459670dd0a82c91303b29255269b13b",
-    "performance-tests.csv": "76ac1ef7b7aeb12ed705d3bdaa88506ed606ee27a3164afe809e57100d895ffa",
-    "property-replicates.csv.gz": "3393e8a1461641fec662a5cfb9449502f9a6c2fa5f4c53bfc792d16b54131eef",
-    "properties.csv": "51e2f1faa164af93f6ae2b1c0747a8c178b7061c3d30b10381ace359f85bdf71"
+    "replicates.csv.gz": "65891a73ded23274e5e191e530b9f14f9e7aa04762b440dbbeb19c06efec0fe5",
+    "summary.csv": "18d5062b0aacf3c3e954f35bb0da31e6713f1c0054db7fba43f0a0bf62b11322",
+    "equivalence.csv": "c5f04d52cb15a1ac6ecaf780d7415a07ba784203efe3ff50f9dd9622389c2157",
+    "performance-tests.csv": "f90ecaeda3d7471baa49374a86cf7bc501ab322fbe202852ddd226c17a315fb9",
+    "property-replicates.csv.gz": "c61d4c99c891f36dfc51ecd2d93146f4d69f0cde8e25ab62bd622a689cfc756d",
+    "properties.csv": "a96916c9c368a276f3ed8b48156fdc594bba148cb8debd8a119a533084013ced"
   }
 }
