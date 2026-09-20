@@ -27,7 +27,7 @@ from cleverly import (
     load,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 from tests.pickles import _LegacyPickle
 
 
@@ -174,10 +174,10 @@ def test_treatment_version_changes_only_protocol_metadata_across_point_fits() ->
     )
 
     first = CausalStudy(frame, design=design, protocol=first_protocol).estimate(
-        ATE(), **FAST_KWARGS
+        ATE(), **FAST_KWARGS, **IN_SAMPLE
     )
     second = CausalStudy(frame, design=design, protocol=second_protocol).estimate(
-        ATE(), **FAST_KWARGS
+        ATE(), **FAST_KWARGS, **IN_SAMPLE
     )
 
     assert first.identified_effect.functional == second.identified_effect.functional
@@ -202,7 +202,7 @@ def protocol_point_result() -> Any:
         frame,
         design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
         protocol=_protocol(),
-    ).estimate(ATE(), **FAST_KWARGS)
+    ).estimate(ATE(), **FAST_KWARGS, **IN_SAMPLE)
 
 
 @pytest.fixture(scope="module")

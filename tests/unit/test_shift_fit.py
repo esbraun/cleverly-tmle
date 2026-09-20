@@ -66,6 +66,11 @@ def estimator(**kwargs):  # type: ignore[no-untyped-def]
         "n_folds": 4,
         "random_state": 0,
         "simultaneous": False,
+        # This module is about the shift/MTP contract, not about cross-fitting, and its
+        # outcome is Gaussian with unbounded support, so a cross-fitted fit here would
+        # need a declared q_bounds it cannot truthfully state (docs/roadmap.md RM17).
+        # Fit in sample instead.
+        "cross_fit": False,
     }
     settings.update(kwargs)
     return TMLE(**settings)

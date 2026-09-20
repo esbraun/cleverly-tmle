@@ -47,9 +47,14 @@ res = study.estimate(
     method=DRTMLEMethod(guard=("Q", "g")),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=0,
 )
 ```
+
+`make_nonlinear_ate` has a Gaussian outcome, whose support is the whole real line, so this fit
+turns cross-fitting off. A cross-fitted fit of a continuous outcome takes its scale from every
+observed value unless `q_bounds` declares the support.
 
 `guard=` says which extra equations to solve, in `drtmle`'s vocabulary and crossed the way that
 package crosses it. Both apply by default. It also names the corrections the reported curve

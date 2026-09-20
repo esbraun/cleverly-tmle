@@ -92,7 +92,10 @@ RANDOM_PARTITION_GENERATOR = "cleverly.random_partition/1"
 _MAX_SEED = 2**32 - 1
 
 
-_LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
+#: How a caller turns cross-fitting off, in both spellings, for a refusal that names it.
+#: A refusal raised *after* a split was drawn never names a redraw: a fold count and a
+#: seed that happen to succeed were chosen by looking at the data the split must not read.
+_IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 
 #: Why a plan without a generator record is refused, and how to get one that has it.
 _UNRECORDED_PLAN_REASON = (
@@ -104,6 +107,59 @@ _UNRECORDED_PLAN_REASON = (
 )
 
 
+def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | None:
+    """Return why a fold-stratification policy cannot run, or ``None``.
+
+    ``"none"`` is the only policy any fit draws folds under. ``"treatment"`` and
+    ``"treatment+outcome"`` make the assignment a function of the treatment, and of the
+    outcome as well, while the cross-fitting argument conditions on the split. No shipped
+    result covers a partition read off the data it is then used to analyse
+    (``docs/roadmap.md`` RM17).
+
+    The caller says whether the fit draws a split at all. An ordinary point-treatment fit
+    draws one only under cross-fitting, so ``cross_fit=False`` leaves nothing for a policy
+    to apply to and the declaration is accepted. A collaborative fit draws its selection
+    and nested folds at every setting, so it has no such case.
+
+    Parameters
+    ----------
+    stratify_folds : str
+        The declared policy.
+    collaborative : bool
+        Whether the fit is a collaborative one, which draws selection folds even without
+        cross-fitting.
+
+    Returns
+    -------
+    str or None
+        The reason to refuse, or ``None`` when the policy can run.
+    """
+    if stratify_folds == "none":
+        return None
+    reads = (
+        "the treatment and the outcome"
+        if stratify_folds == "treatment+outcome"
+        else "the treatment"
+    )
+    where = (
+        "the selection and nested folds a collaborative search draws at every setting"
+        if collaborative
+        else "the outer folds"
+    )
+    tail = (
+        "A collaborative fit draws those folds whether or not cross_fit is set, so "
+        "cross_fit=False does not make this policy available."
+        if collaborative
+        else f"Otherwise {_IN_SAMPLE_REMEDY}, which draws no split for a policy to apply to."
+    )
+    return (
+        f"stratify_folds={stratify_folds!r} balances {where} on {reads}, which makes the "
+        "partition a function of the data the fit then conditions on. No shipped result "
+        "covers that split (docs/roadmap.md RM17). Set stratify_folds='none' "
+        f"(CrossFitting(stratify_by='none')), which is the default. {tail}"
+    )
+
+
 def _cross_fit_policy_refusal(
     *,
     cross_fit: bool,
@@ -111,6 +167,8 @@ def _cross_fit_policy_refusal(
     repeats: int,
     split_plan: object,
     n_bootstrap: int = 0,
+    stratify_folds: str = "none",
+    collaborative: bool = False,
     option_name: str,
 ) -> str | None:
     """Return why a declared cross-fitting policy cannot run, or ``None``.
@@ -125,7 +183,10 @@ def _cross_fit_policy_refusal(
     2. a ``split_plan`` that is not a :class:`SplitPlan`;
     3. a plan that cannot serve the declared policy (:meth:`SplitPlan._policy_refusal`);
     4. a plan combined with the targeted bootstrap;
-    5. ``repeats`` above one without cross-fitting.
+    5. ``repeats`` above one without cross-fitting;
+    6. cross-fitting declared with fewer than two folds;
+    7. a fold-stratification policy this package draws no split under
+       (:func:`fold_strata_refusal`).
 
     ``n_bootstrap`` belongs to a different configuration group than the other arguments.
     :class:`~cleverly.CrossFitting` does not hold it and leaves it at zero, and
@@ -143,6 +204,10 @@ def _cross_fit_policy_refusal(
         The supplied plan, or ``None``. Any other type is refused.
     n_bootstrap : int, default=0
         Targeted-bootstrap replicates the declaration asks for.
+    stratify_folds : str, default="none"
+        The declared fold-stratification policy.
+    collaborative : bool, default=False
+        Whether the fit is a collaborative one.
     option_name : str
         The caller's spelling of the cross-fitting switch, ``"enabled"`` on
         :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.
@@ -172,6 +237,15 @@ def _cross_fit_policy_refusal(
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting or "
             "set repeats=1"
         )
+    if cross_fit and n_folds < 2:
+        return (
+            f"{option_name}=True with n_folds={n_folds} leaves one fold, so every nuisance "
+            "is fitted on the rows it predicts while the fit reports the cross-fitted "
+            "estimator's name and variance rule. Set n_folds to at least 2, or fit in "
+            "sample with CrossFitting(enabled=False)"
+        )
+    if cross_fit or collaborative:
+        return fold_strata_refusal(stratify_folds, collaborative=collaborative)
     return None
 
 

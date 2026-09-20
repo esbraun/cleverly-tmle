@@ -118,7 +118,7 @@ from ..fluctuation.iterative import (
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
-from ..learners.crossfit import _LARGER_COMPLEMENT_NOTE, Folds
+from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
@@ -139,6 +139,7 @@ __all__ = [
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",
+    "preflight_mechanism_support",
     "prepare_node",
     "seed_carried",
 ]
@@ -148,6 +149,16 @@ __all__ = [
 #: the node in question.  Any finite number in ``(0, 1)`` would do; a half keeps ``logit``
 #: at zero, so a filled row cannot make a Newton step look large.
 _FILLER = 0.5
+
+#: What a refusal about one outer training fold may offer.  The split is drawn from the
+#: seed alone and reads no treatment, outcome or covariate, so a fold count or a seed
+#: found by trying them until one fits would choose the partition by the values it must
+#: not read.  ``n_folds=1`` is the in-sample fit, which draws no split at all.
+_CROSS_FIT_NODE_REMEDY = (
+    "The split reads none of the data, so trying fold counts or seeds until one fits "
+    "would choose the partition by the values it must not read. Fit in sample with "
+    "n_folds=1, or {alternative}."
+)
 
 #: The key under which a node's single counterfactual prediction is filed on its
 #: :class:`~cleverly.fluctuation.iterative.InitialFit` and
@@ -498,16 +509,18 @@ def _check_categorical_fold_support(
     classes: Sequence[float],
     levels: Sequence[object],
     node_name: str,
+    *,
+    every_level: bool = False,
 ) -> None:
-    """Refuse a **categorical** mechanism fit whose training law omits an observed level.
+    """Refuse a mechanism fit whose training law omits an observed treatment level.
 
     A missing class cannot be repaired by aligning a learner's probability columns: the
     requested assigned-arm probability is unidentified in that training fold.  Checking
     here also gives the analyst the original label, rather than a downstream matrix-shape
     error involving its internal dense code.
 
-    **A two-level node is left alone**, and that is a compatibility decision rather than
-    an oversight.  At two classes
+    **A two-level node is left alone by default**, and that is a compatibility decision
+    rather than an oversight.  At two classes
     :func:`~cleverly.learners._fitting.predict_probabilities` delegates to ``predict_mean``
     and a degenerate training fold yields that fold's constant, which is the behaviour
     every binary fit has had; the diagnosis a binary panel reaches instead is
@@ -518,8 +531,32 @@ def _check_categorical_fold_support(
     At three or more levels the fallback is not benign: the missing arm's column comes
     back zero, so its clever covariate is a division by zero and the cumulative product's
     reciprocal is infinite.  That is why the check exists at all, and why it starts here.
+
+    ``every_level=True`` drops the two-level exemption, and the **first** node is where it
+    is used.  Every unit is at risk there, so the first node's arms are the one stratum an
+    unstratified split can be held to at all, and a split that loses an arm at the first
+    node has lost it for every regimen the fit reports.  The later binary nodes keep the
+    documented fallback, because their at-risk sets are regimen-dependent and the refusal
+    a reader needs there names the regimen.
+
+    Parameters
+    ----------
+    target : ndarray
+        The node's arm code for every row.
+    fit_mask : ndarray
+        Which rows the node's mechanism is fitted on.
+    folds : Folds
+        The realized outer split.
+    classes : sequence of float
+        Every arm code the node declares.
+    levels : sequence of object
+        The caller-facing label of each code, in the same order.
+    node_name : str
+        The node's name, for the refusal.
+    every_level : bool, default=False
+        Whether to check a two-level node as well.
     """
-    if len(classes) < 3:
+    if len(classes) < 3 and not every_level:
         return
     eligible = np.asarray(fit_mask, dtype=bool)
     training_sets: list[tuple[int, IntArray]]
@@ -537,15 +574,54 @@ def _check_categorical_fold_support(
             remedy = (
                 "Collect more observations at the rare level"
                 if folds.is_single
-                else f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, supply "
-                "folds that preserve treatment support, or collect more observations at the "
-                "rare level"
+                else _CROSS_FIT_NODE_REMEDY.format(
+                    alternative="collect more observations at the rare level"
+                )
             )
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
                 "every treatment-mechanism training set must contain every observed level. "
                 + remedy
             )
+
+
+def preflight_mechanism_support(
+    data: LongitudinalData,
+    fit_masks: RegimenMasks,
+    folds: Folds,
+) -> None:
+    """Check every node's mechanism training support before the first learner is fitted.
+
+    The per-node check used to run inside the node loop, so node 3's missing arm was
+    reported after two nodes had been fitted and a Super Learner library had run twice.
+    Nothing it reads depends on a fit, so every node is asked here instead and a fit that
+    cannot finish spends no learner time finding that out.
+
+    The first node is checked at any level count, the later ones only from three levels
+    up.  :func:`_check_categorical_fold_support` says why the two differ.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    fit_masks : RegimenMasks
+        The masks :func:`fit_mechanism` builds for the observed treatment.
+    folds : Folds
+        The realized outer split.
+    """
+    for time in range(1, data.n_times + 1):
+        at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
+        _check_categorical_fold_support(
+            arm,
+            at_risk,
+            folds,
+            classes,
+            data.treatment_levels[time - 1],
+            data.treatment_names[time - 1],
+            every_level=time == 1 and not folds.is_single,
+        )
 
 
 def fit_mechanism(
@@ -587,6 +663,7 @@ def fit_mechanism(
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
+    preflight_mechanism_support(data, fit_masks, folds)
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
@@ -595,14 +672,6 @@ def fit_mechanism(
         prediction_designs = {**designs, observed_key: data.history_design(time)}
         with phase("mechanism_fit"):
             classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
-            _check_categorical_fold_support(
-                arm,
-                at_risk,
-                folds,
-                classes,
-                data.treatment_levels[time - 1],
-                data.treatment_names[time - 1],
-            )
             probabilities, companion, diagnostics = cross_fit_companion(
                 treatment_learner,
                 data.history_design(time),
@@ -769,8 +838,7 @@ def prepare_node(
             + (
                 ""
                 if outer_fold is None
-                else f" {_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, or choose "
-                "a supported regimen."
+                else " " + _CROSS_FIT_NODE_REMEDY.format(alternative="choose a supported regimen")
             )
             + _risk_set_hint(data, plan, time)
             + _rule_hint(plan, data, at_risk, time)
@@ -867,8 +935,9 @@ def _check_outcome_varies(
             "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
             "training complement. That is stricter than a single-fold fit, which fits on "
             "every row, and the same frame can be estimable at n_folds=1. "
-            f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use n_folds=1, or choose an estimand "
-            "this fold count supports."
+            + _CROSS_FIT_NODE_REMEDY.format(
+                alternative="choose an estimand this fold count supports"
+            )
         )
     )
     raise LongitudinalError(

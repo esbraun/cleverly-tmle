@@ -39,6 +39,27 @@ def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
     return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": y})
 
 
+def _binary_trial(n: int = 100, seed: int = 13) -> pd.DataFrame:
+    """A trial shaped like :func:`_trial`, with a binary outcome instead of a Gaussian one.
+
+    The cross-fit refusals below are about the DR-TMLE missing-outcome construction, not
+    about the outcome's scale. A cross-fitted, continuous, unbounded ``Y`` meets the
+    package's generic cross-fitted-scale refusal first, so it never reaches the
+    construction-specific one under test here. A binary outcome needs no declared
+    ``q_bounds`` and keeps every other feature of the trial.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.normal(size=n)
+    w2 = rng.normal(size=n)
+    a = rng.binomial(1, 0.5, size=n).astype(float)
+    pi = 1.0 / (1.0 + np.exp(-(-0.1 + 0.4 * a + 0.3 * w1)))
+    observed = rng.binomial(1, pi, size=n).astype(float)
+    p = 1.0 / (1.0 + np.exp(-(0.8 + 1.1 * a + 0.4 * w1 - 0.2 * w2)))
+    y = rng.binomial(1, p).astype(float)
+    y[observed == 0.0] = np.nan
+    return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": y})
+
+
 def _pinched_trial(n: int = 400, seed: int = 5) -> pd.DataFrame:
     """A trial whose *observation* mechanism is pinched and whose randomization is not.
 
@@ -402,10 +423,16 @@ def test_observational_missing_outcomes_are_refused() -> None:
 
 
 def test_cross_fitted_missing_outcomes_are_refused() -> None:
-    """The message names the remedy in the engine and the public spelling."""
+    """The message names the remedy in the engine and the public spelling.
+
+    ``Y`` is binary here rather than the module's Gaussian ``_trial``, so the package's
+    generic cross-fitted-scale refusal (which needs a declared ``q_bounds`` for a
+    continuous outcome) stays quiet and this construction-specific refusal is the one
+    that fires.
+    """
     with pytest.raises(NotImplementedError, match="cross-validated extension") as caught:
         DRTMLE(randomized=True, estimands=("ate",)).fit(
-            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
     assert str(caught.value).endswith(
         "pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)"
@@ -420,10 +447,30 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
     """``guard=()`` is a plain TMLE, and it met none of the guarded refusals.
 
     The cross-fit refusal now runs at every guard, before any learner fits. Before the
-    hoist this fit returned a result (RM9 probe C). No fold policy is reserved, so both
-    policies reach the same refusal.
+    hoist this fit returned a result (RM9 probe C).
+
+    ``stratify_folds='treatment'`` no longer reaches that refusal at all: the engine
+    itself refuses that fold policy under ``cross_fit=True``, at construction, for every
+    estimator (docs/roadmap.md RM17). Only ``stratify_folds='none'`` -- the only policy a
+    cross-fitted fit may still declare -- reaches the construction-specific refusal below,
+    which is why the two policies are no longer asserted to agree. ``Y`` is binary, as in
+    :func:`test_cross_fitted_missing_outcomes_are_refused`, so the generic scale refusal
+    does not preempt it either.
     """
     learners = never_fit_learners()
+    if stratify_folds == "treatment":
+        with pytest.raises(ValueError, match="stratify_folds='none'"):
+            DRTMLE(
+                guard=(),
+                randomized=randomized,
+                n_folds=3,
+                stratify_folds=stratify_folds,
+                estimands=("ate", "ey1", "ey0"),
+                **learners,
+            )
+        assert NeverFit.calls == 0
+        return
+
     estimator = DRTMLE(
         guard=(),
         randomized=randomized,
@@ -434,7 +481,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
     )
     with pytest.raises(NotImplementedError, match="does not establish its cross-validated"):
         estimator.fit(
-            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
     assert NeverFit.calls == 0
 

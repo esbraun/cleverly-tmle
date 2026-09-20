@@ -158,8 +158,53 @@ FAST_KWARGS: dict[str, Any] = {
 }
 
 
+#: Fit every nuisance on all the rows. The setting a test reaches for when its subject is
+#: not cross-fitting: a refutation, a sensitivity analysis, a diagnostic, a serialization
+#: round trip. A cross-fitted fit of a continuous outcome needs a declared ``q_bounds``,
+#: and the Gaussian laws here have unbounded support, so a test that neither declares one
+#: nor turns cross-fitting off is refused before its first learner.
+IN_SAMPLE: dict[str, Any] = {"cross_fit": False}
+
+#: The known support of the bounded laws below, for a fit that *is* about cross-fitting.
+#: Pass it only with a bounded or binary outcome: :meth:`cleverly.estimators.TMLE._scaler`
+#: refuses ``q_bounds`` on a binary outcome, and declaring a finite support for a Gaussian
+#: law would state something the law does not satisfy.
+BOUNDED: dict[str, Any] = {"q_bounds": (0.0, 1.0)}
+
+
+def bounded_frame(n: int = 200, seed: int = 0, **kwargs: Any) -> Any:
+    """A proportion-outcome law a cross-fitted fit can declare the support of.
+
+    :func:`~cleverly.datasets.make_nonlinear_bounded` draws ``Y`` from a Beta law, so its
+    support is ``(0, 1)`` by construction and :data:`BOUNDED` states a fact rather than an
+    assumption. Use it where a Gaussian fixture would have been cross-fitted.
+
+    Parameters
+    ----------
+    n : int, default=200
+        Rows to draw.
+    seed : int, default=0
+        Seed of the draw.
+    **kwargs : Any
+        Passed to :func:`~cleverly.datasets.make_nonlinear_bounded`.
+
+    Returns
+    -------
+    tuple
+        The frame and its truth mapping, as the generator returns them.
+    """
+    from cleverly.datasets import make_nonlinear_bounded
+
+    return make_nonlinear_bounded(n=n, seed=seed, **kwargs)
+
+
 def fast_tmle(**overrides: Any) -> TMLE:
-    """A quick, reproducible estimator for tests."""
+    """A quick, reproducible estimator for tests.
+
+    No cross-fitting default of its own: a caller that is not testing cross-fitting passes
+    ``**IN_SAMPLE``, and one that is passes a bounded or binary law. Choosing here would
+    put every caller's subject on one line neither of them wrote.
+    """
     return TMLE(**{**FAST_KWARGS, **overrides})
 
 

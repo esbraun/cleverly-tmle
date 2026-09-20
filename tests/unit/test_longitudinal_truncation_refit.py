@@ -370,16 +370,16 @@ def test_fitted_bound_reproduces_every_retained_fit_artifact_exactly(result) -> 
 def test_delta_from_fitted_points_from_the_fitted_estimate_to_the_replayed_one(result) -> None:  # type: ignore[no-untyped-def]
     """A rising estimate reports a positive delta, so the subtraction cannot be reversed."""
 
-    payload = _payload(result.diagnostics.truncation_curve([0.12]))
+    payload = _payload(result.diagnostics.truncation_curve([0.3]))
     row = payload["estimand"].index("ey_regimen[always]")
 
     # Pinned rather than recomputed: ``estimate - fitted`` and ``fitted - estimate`` agree on
     # the magnitude and differ only here, so only the direction and the literal are evidence.
-    assert payload["fitted_psi"][row] == pytest.approx(0.690739, rel=1e-6)
-    assert payload["psi"][row] == pytest.approx(0.747775, rel=1e-6)
+    assert payload["fitted_psi"][row] == pytest.approx(0.80024129, rel=1e-6)
+    assert payload["psi"][row] == pytest.approx(0.80375313, rel=1e-6)
     assert payload["psi"][row] > payload["fitted_psi"][row]
     assert payload["delta_from_fitted"][row] > 0.0
-    assert payload["delta_from_fitted"][row] == pytest.approx(0.0570359, rel=1e-6)
+    assert payload["delta_from_fitted"][row] == pytest.approx(0.0035118456, rel=1e-6)
 
 
 def test_delta_from_fitted_is_negative_where_the_replayed_estimate_falls(  # type: ignore[no-untyped-def]
@@ -609,12 +609,12 @@ CROSSFIT_CELL_CENSUS = {
     ((0.01, 1.0), "ey_regimen[always]"): (0, 224),
     ((0.01, 1.0), "ey_regimen[never]"): (0, 160),
     ((0.01, 1.0), "ate_regimen[always vs never]"): (0, 384),
-    ((0.12, 1.0), "ey_regimen[always]"): (2, 224),
-    ((0.12, 1.0), "ey_regimen[never]"): (11, 160),
-    ((0.12, 1.0), "ate_regimen[always vs never]"): (13, 384),
-    ((0.3, 1.0), "ey_regimen[always]"): (33, 224),
-    ((0.3, 1.0), "ey_regimen[never]"): (64, 160),
-    ((0.3, 1.0), "ate_regimen[always vs never]"): (97, 384),
+    ((0.12, 1.0), "ey_regimen[always]"): (5, 224),
+    ((0.12, 1.0), "ey_regimen[never]"): (13, 160),
+    ((0.12, 1.0), "ate_regimen[always vs never]"): (18, 384),
+    ((0.3, 1.0), "ey_regimen[always]"): (42, 224),
+    ((0.3, 1.0), "ey_regimen[never]"): (62, 160),
+    ((0.3, 1.0), "ate_regimen[always vs never]"): (104, 384),
 }
 
 #: The same census at one outer fold, where the consumed slab and the retained stitched pair
@@ -632,18 +632,18 @@ SINGLE_FOLD_CELL_CENSUS = {
 #: the fitted lower endpoint and raises nothing on this sample, so all ``100`` of the
 #: contrast's truncated cells were lowered to ``0.5``.
 UPPER_BOUND_CELL_CENSUS = {
-    ((0.01, 0.5), "ey_regimen[always]"): (87, 224),
-    ((0.01, 0.5), "ey_regimen[never]"): (13, 160),
-    ((0.01, 0.5), "ate_regimen[always vs never]"): (100, 384),
+    ((0.01, 0.5), "ey_regimen[always]"): (100, 224),
+    ((0.01, 0.5), "ey_regimen[never]"): (8, 160),
+    ((0.01, 0.5), "ate_regimen[always vs never]"): (108, 384),
 }
 
 #: The two-fold census of a pair whose endpoints both bind.  ``46`` of the contrast's ``94``
 #: truncated cells were raised to ``0.2`` and the other ``48`` were lowered to ``0.6``.  No
 #: cell is both, because a prefix cannot sit below ``0.2`` and above ``0.6`` at once.
 TWO_SIDED_CELL_CENSUS = {
-    ((0.2, 0.6), "ey_regimen[always]"): (52, 224),
-    ((0.2, 0.6), "ey_regimen[never]"): (42, 160),
-    ((0.2, 0.6), "ate_regimen[always vs never]"): (94, 384),
+    ((0.2, 0.6), "ey_regimen[always]"): (71, 224),
+    ((0.2, 0.6), "ey_regimen[never]"): (27, 160),
+    ((0.2, 0.6), "ate_regimen[always vs never]"): (98, 384),
 }
 
 

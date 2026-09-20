@@ -16,6 +16,15 @@ dependence structure the cluster variance exists to account for. Each sampled
 occurrence receives a distinct cluster code, including repeated draws of one source
 cluster.
 
+A replicate that cannot run is dropped rather than redrawn, and :attr:`BootstrapResult.n_failed`
+counts the drops.  A cross-fitted replicate draws its own split and puts it through the same
+preflight an ordinary fit does, so a resample that leaves a treatment arm or an outcome class
+out of some training complement is refused there, before any learner.  Redrawing until a
+replicate succeeded would select the resamples by the values the split must not read, so the
+reported interval is conditional on the replicates that ran and the count says how many did.
+Under a rare arm that count is worth reading: the dropped replicates are the ones the arm is
+rarest in, so the surviving spread is narrower than the unconditional one.
+
 Observation weights are resampled with their rows and renormalised within each replicate,
 which is what keeps every replicate aimed at the same tilted parameter (see
 :mod:`cleverly.data.weighting`).  What the bootstrap does *not* do is re-derive the
@@ -89,7 +98,11 @@ class BootstrapResult:
         Replicates asked for.
     n_failed : int
         Replicates that raised and were dropped. Weak overlap can leave a resample
-        with an empty treatment arm in some stratum.
+        with an empty treatment arm in some stratum, and a cross-fitted replicate is
+        also refused by the fold preflight when its own draw leaves an arm or an
+        outcome class out of a training complement. Either way the interval below is
+        *conditional* on the replicates that ran, and this count is how far it is from
+        the one that was asked for.
     resampling : str
         Whether rows or clusters were resampled.
     """

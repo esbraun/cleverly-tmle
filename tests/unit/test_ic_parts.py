@@ -16,7 +16,7 @@ import sklearn.linear_model
 from cleverly.datasets import GENERATORS
 from cleverly.estimators import TMLE
 from cleverly.estimators.targeting import build_submodel
-from tests.conftest import binary_mean_parts, binary_means
+from tests.conftest import IN_SAMPLE, binary_mean_parts, binary_means
 
 
 def _pieces(result):  # type: ignore[no-untyped-def]
@@ -42,6 +42,7 @@ def result():
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             random_state=7,
+            **IN_SAMPLE,
         )
         .fit(frame, outcome="Y", treatment="A", covariates=covariates)
         .single()
@@ -92,6 +93,7 @@ def test_the_residual_term_grows_as_truncation_is_loosened() -> None:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             random_state=7,
+            **IN_SAMPLE,
         )
         .fit(frame, outcome="Y", treatment="A", covariates=covariates)
         .single()

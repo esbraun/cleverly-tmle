@@ -67,6 +67,7 @@ print(effect.summary())
 result = effect.estimate(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=7,
 )
 print(result.summary())
@@ -75,7 +76,9 @@ print(result.assess().summary())
 ```
 
 Both nuisance functions of `make_linear_ate` are linear, so these learners are correctly specified.
-The identified effect states its functional and assumptions before any learner is fit.
+A correctly specified parametric learner needs no cross-fitting, so this fit uses none. Cross-fitting
+a continuous outcome needs its support declared, because `q_bounds=None` reads the held-out rows to
+set the scale. The identified effect states its functional and assumptions before any learner is fit.
 
 Continue with the
 [full quickstart](https://esbraun.github.io/cleverly-tmle/getting-started/quickstart.html) or the
@@ -137,12 +140,16 @@ method = TMLEMethod(
     models=ModelSpec(
         outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
     ),
-    cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
+    cross_fitting=CrossFitting(enabled=False, learner_folds=3),
     inference=Inference(alpha=0.05, simultaneous=False),
     runtime=Runtime(random_state=7, n_jobs=1),
 )
 result = effect.estimate(method=method)
 ```
+
+`CrossFitting(enabled=False)` here for the reason the quickstart gives. To cross-fit this fit
+instead, declare the outcome support with `Targeting(q_bounds=(lower, upper))`, or use a law whose
+outcome is bounded.
 
 `CollaborativeTMLEMethod` and `DRTMLEMethod` select estimator variants without changing the
 identified causal question. `effect.available_methods()` reports support and refusal reasons.

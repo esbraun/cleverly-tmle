@@ -20,10 +20,11 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
+from scipy.special import expit
 
 from cleverly import AssessmentStatus, CapabilityError
 from cleverly.data import CausalData
-from cleverly.datasets import nonlinear_dgp
+from cleverly.datasets import DGP, nonlinear_dgp
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
@@ -48,7 +49,41 @@ from tests.conftest import FAST_KWARGS
 #: here for the same reason ``tests/e2e/test_ctmle.py`` spells them out.
 ESTIMANDS = ("ate", "ey1", "ey0")
 
-SETTINGS = {**FAST_KWARGS, "estimands": ESTIMANDS}
+SETTINGS = {**FAST_KWARGS, "estimands": ESTIMANDS, "q_bounds": (0.0, 1.0)}
+
+
+def _bounded_nonlinear_dgp() -> DGP:
+    """``nonlinear_dgp``'s propensity and shape, with the outcome mapped into (0, 1).
+
+    DR-TMLE refuses ``cross_fit=False`` for its reduced regressions at several settings
+    this module exercises (``reduced_crossfit='nested'``, and every ``n_folds<3``), so
+    this module's fits cannot turn cross-fitting off. A cross-fitted continuous outcome
+    needs a declared ``q_bounds``, and ``nonlinear_dgp``'s Gaussian outcome has no finite
+    one (RM17). The nonlinear, heterogeneous, interacted shape is what several tests here
+    need a GLM to misspecify, so it is kept and only the scale changes: ``expit`` maps the
+    same baseline-plus-effect combination into the open interval a beta law needs.
+    """
+    base = nonlinear_dgp()
+
+    def outcome_mean(w: np.ndarray, a: float, z: float | None) -> np.ndarray:
+        del z
+        baseline = (
+            1.0
+            + 0.8 * np.sin(1.5 * w[:, 0])
+            + 0.6 * w[:, 1] ** 2
+            - 0.5 * w[:, 2] * w[:, 3]
+            + 0.4 * np.abs(w[:, 3])
+        )
+        effect = 2.0 + 0.7 * w[:, 0] - 0.5 * (w[:, 1] > 0)
+        return expit(baseline + effect * a)
+
+    return replace(
+        base,
+        name="bounded_nonlinear_ate",
+        outcome_mean=outcome_mean,
+        family="beta",
+        concentration=20.0,
+    )
 
 
 def frame():
@@ -62,7 +97,7 @@ def frame():
     The closing pass adds a bounded number of further solves and refits nothing, so it costs
     arithmetic rather than folds and does not enter that arithmetic.
     """
-    sample, _ = nonlinear_dgp().sample(600, seed=3)
+    sample, _ = _bounded_nonlinear_dgp().sample(600, seed=3)
     return sample
 
 
@@ -805,9 +840,11 @@ class TestTheAlternationCanBeIllConditioned:
 
     @pytest.fixture(scope="class")
     def hard(self):
-        from cleverly.datasets import make_nonlinear_ate
-
-        sample, _ = make_nonlinear_ate(n=600, seed=0)
+        # The bounded restatement of nonlinear_dgp, not make_nonlinear_ate's Gaussian
+        # one: the numerical property under test (equation (10)'s conditioning) is a
+        # structural fact about the alternation, asserted below law-agnostically, and
+        # this fit stays cross-fitted (RM17).
+        sample, _ = _bounded_nonlinear_dgp().sample(600, seed=0)
         return (
             DRTMLE(**{**SETTINGS, "estimands": ("ate",)})
             .fit(sample, outcome="Y", treatment="A")
@@ -1216,6 +1253,22 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     not there.
     """
 
+    @pytest.fixture(scope="class")
+    def repeated(self):
+        """A higher-concentration draw of this module's bounded law, on the same seed.
+
+        The module-level ``repeated`` fixture (``concentration=20``) never sits the tilted
+        mechanism against the bound at ``n=600, seed=3`` under the RM17-bounded law (see
+        ``frame()``), so the margin witness this class needs does not occur there.
+        ``concentration=80`` tightens the beta noise until it does, on the same seed and
+        the same structural shape, and reproduces one draw comfortably clear of the bound
+        and one sitting on it, both with zero clipped rows -- the property this class was
+        written to hold.
+        """
+        law = replace(_bounded_nonlinear_dgp(), concentration=80.0)
+        sample, _ = law.sample(600, seed=3)
+        return DRTMLE(**SETTINGS, repeats=2).fit(sample, outcome="Y", treatment="A").single()
+
     def test_the_identity_holds_on_the_draw_that_clips_as_well_as_the_one_that_does_not(
         self, repeated
     ) -> None:
@@ -1353,7 +1406,7 @@ def pinched():
         warnings.simplefilter("ignore")
         return (
             DRTMLE(**SETTINGS, g_bounds=(0.3, 0.7))
-            .fit(nonlinear_dgp().sample(400, seed=3)[0], outcome="Y", treatment="A")
+            .fit(_bounded_nonlinear_dgp().sample(400, seed=3)[0], outcome="Y", treatment="A")
             .single()
         )
 
@@ -1623,7 +1676,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
 
         monkeypatch.setattr(targeting, "solve_bounded_mechanism", record_mechanism)
         monkeypatch.setattr(targeting, "solve_submodel", record_submodel)
-        small, _ = nonlinear_dgp().sample(200, seed=11)
+        small, _ = _bounded_nonlinear_dgp().sample(200, seed=11)
         DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A")
 
         # The priming equation-(8) solve happens before the loop under both orders, so the
@@ -1662,7 +1715,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
             return original(*args, **kwargs)
 
         monkeypatch.setattr(targeting, "_restated_outcome_score", counted)
-        small, _ = nonlinear_dgp().sample(200, seed=11)
+        small, _ = _bounded_nonlinear_dgp().sample(200, seed=11)
         fit = DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A").single()
 
         assert len(calls) == fit.repeats[0].fluctuations["mean"].reduction.rounds

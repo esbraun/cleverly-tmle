@@ -62,7 +62,7 @@ from cleverly.sensitivity.positivity import positivity_report
 from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from cleverly.validation.nuisance import nuisance_diagnostics
 from tests import discrete_law_mar
-from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
+from tests.conftest import IN_SAMPLE, OracleMissingness, OracleOutcome, OracleTreatment
 from tests.unit._confounding_support import forbid_draw_and_refit
 
 
@@ -197,6 +197,43 @@ def point_result():  # type: ignore[no-untyped-def]
             learner_folds=2,
             random_state=4,
             simultaneous=False,
+            **IN_SAMPLE,
+        )
+    )
+
+
+@pytest.fixture(scope="module")
+def overfit_propensity_result():  # type: ignore[no-untyped-def]
+    """The same point ATE design, fitted with a propensity model that memorizes its rows.
+
+    :func:`test_a_pre_method_aware_nuisance_report_uses_additive_defaults` reads a real
+    finding off a nuisance report, not a name the report happens to carry. In sample,
+    ``point_result``'s logistic propensity model is well calibrated and reports no
+    finding, so it cannot witness a legacy report that still renders one. A decision
+    tree fit in sample on the same rows it predicts reaches AUC 1.0, which is the
+    "positivity problem, not a good fit" finding on a fact about this fit.
+    """
+    from sklearn.tree import DecisionTreeClassifier
+
+    frame, _ = make_linear_ate(n=350, seed=11)
+    return (
+        CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=["W1", "W2", "W3", "W4"],
+            ),
+        )
+        .identify(ATE())
+        .estimate(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=DecisionTreeClassifier(random_state=0),
+            n_folds=3,
+            learner_folds=2,
+            random_state=4,
+            simultaneous=False,
+            **IN_SAMPLE,
         )
     )
 
@@ -223,6 +260,7 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=5,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -244,6 +282,7 @@ def multi_arm_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=13,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -274,6 +313,7 @@ def att_result():  # type: ignore[no-untyped-def]
             learner_folds=2,
             random_state=4,
             simultaneous=False,
+            **IN_SAMPLE,
         )
     )
 
@@ -1049,6 +1089,7 @@ def custom_provider_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=3,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -1233,7 +1274,9 @@ def test_cached_assessments_replay_after_persistence(
     assert restored.diagnostics.run_all() == diagnostics
 
 
-def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(point_result, tmp_path) -> None:
+def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(
+    overfit_propensity_result, tmp_path
+) -> None:
     """An artifact pickled before the method-aware fields reads back and still renders.
 
     Every field this change added carries a class-level default, so a legacy instance
@@ -1248,7 +1291,7 @@ def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(point_result,
     """
     import joblib
 
-    report = nuisance_diagnostics(point_result)
+    report = nuisance_diagnostics(overfit_propensity_result)
     live_summary = report.summary()
     live_findings = report.findings
     added = (
@@ -2063,6 +2106,7 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
                 learner_folds=2,
                 random_state=0,
                 simultaneous=False,
+                **IN_SAMPLE,
             )
 
     def test_the_stored_report_really_does_leave_almost_no_effective_sample(
@@ -2111,6 +2155,7 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
                 learner_folds=2,
                 random_state=4,
                 simultaneous=False,
+                **IN_SAMPLE,
             )
         )
         support = result.diagnostics.support()

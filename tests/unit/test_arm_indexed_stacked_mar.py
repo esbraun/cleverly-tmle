@@ -21,6 +21,7 @@ refusal that ran after a learner call would raise ``AssertionError`` instead.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -40,6 +41,7 @@ from cleverly import (
     CrossFitting,
     DataError,
     Inference,
+    MethodConfigurationError,
     ModelSpec,
     PointTreatment,
     SplitPlan,
@@ -209,6 +211,12 @@ ORDER = {row.id: index for index, row in enumerate(ROWS)}
 #: The rows the parametrization reaches through a dimension rather than an override.
 DIMENSION_ROWS = ("att-atc", "stratified-folds")
 OVERRIDE_ROWS = tuple(row for row in ROWS if row.id not in DIMENSION_ROWS)
+#: The override rows the contract's own check order still decides between.
+#: ``stratify_folds != "none"`` (the "stratified-folds" row) and ``n_folds < 2`` (the
+#: "one-fold" row) are refused engine-wide now, before this contract is reached, so
+#: neither one's fixed-order position inside the contract can be exercised through it any
+#: more. Each keeps its own dedicated test of the global refusal instead.
+CONTRACT_ROWS = tuple(row for row in OVERRIDE_ROWS if row.id != "one-fold")
 
 
 def _expected(row: Row | None, *, conditional: bool, stratify: str) -> Row:
@@ -254,49 +262,74 @@ def _engine_fit(row: Row | None, *, estimands: Any, stratify: str) -> None:
     engine(**settings).fit(frame, **roles)
 
 
-@pytest.mark.parametrize("stratify", ["treatment", "none"])
 @pytest.mark.parametrize("estimands", ENGINE_ESTIMANDS, ids=("ate", "default", "all", "att"))
-@pytest.mark.parametrize("row", OVERRIDE_ROWS, ids=[row.id for row in OVERRIDE_ROWS])
-def test_each_engine_refusal_row_fires_before_any_learner(
-    row: Row, estimands: Any, stratify: str
-) -> None:
-    """Each row refuses alone, and the fixed check order decides between several rows."""
-    expected = _expected(row, conditional=estimands != ("ate",), stratify=stratify)
+@pytest.mark.parametrize("row", CONTRACT_ROWS, ids=[row.id for row in CONTRACT_ROWS])
+def test_each_engine_refusal_row_fires_before_any_learner(row: Row, estimands: Any) -> None:
+    """Each row refuses alone, and the fixed check order decides between several rows.
+
+    ``stratify_folds`` is fixed at ``"none"`` here: ``"treatment"`` no longer reaches this
+    contract at all, because :func:`cleverly.learners.crossfit.fold_strata_refusal` now
+    refuses it engine-wide, before any capability check below runs (see
+    ``test_stratified_folds_are_refused_before_the_contract_is_reached``).
+    """
+    conditional = estimands != ("ate",)
+    if row.id == "ctmle" and conditional:
+        # CTMLE's own estimand check now runs before this contract's collaborative-
+        # estimator refusal (``CTMLE._resolve_estimands_for_data`` calls
+        # ``_check_estimands`` before its superclass's contract check), so a conditional
+        # estimand meets that refusal first rather than the contract's.
+        with pytest.raises(ValueError, match=r"CTMLE does not support estimand\(s\)") as caught:
+            _engine_fit(row, estimands=estimands, stratify="none")
+        assert "clever covariates condition on a random event" in str(caught.value)
+        assert NeverFit.calls == 0
+        return
+    expected = _expected(row, conditional=conditional, stratify="none")
 
     with pytest.raises(CapabilityError) as caught:
-        _engine_fit(row, estimands=estimands, stratify=stratify)
+        _engine_fit(row, estimands=estimands, stratify="none")
     message = str(caught.value)
     assert message.startswith(CONTRACT)
     assert expected.fragment in message
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize("estimands", [None, "all", ("att",)], ids=("default", "all", "att"))
-@pytest.mark.parametrize("stratify", ["treatment", "none"])
-def test_att_and_atc_are_refused_by_name_in_every_request_form(
-    estimands: Any, stratify: str
-) -> None:
-    with pytest.raises(CapabilityError) as caught:
-        _engine_fit(None, estimands=estimands, stratify=stratify)
-    message = str(caught.value)
-    assert BY_ID["att-atc"].fragment in message
-    assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'rr', 'or']" in message
-    requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
-    assert f"no audited result covers {requested}" in message
-    assert NeverFit.calls == 0
+def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
+    for estimands in (None, "all", ("att",)):
+        with pytest.raises(CapabilityError) as caught:
+            _engine_fit(None, estimands=estimands, stratify="none")
+        message = str(caught.value)
+        assert BY_ID["att-atc"].fragment in message
+        assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'rr', 'or']" in message
+        requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
+        assert f"no audited result covers {requested}" in message
+        assert NeverFit.calls == 0
 
 
-def test_treatment_strata_are_refused_for_an_admitted_estimand() -> None:
-    with pytest.raises(CapabilityError) as caught:
+def test_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
+    """``stratify_folds='treatment'`` is refused engine-wide now, not by this contract.
+
+    The contract's own copy of this check is gone: cross-fitting with a data-dependent
+    fold policy is refused for every estimator by
+    :func:`cleverly.learners.crossfit.fold_strata_refusal`, at
+    :class:`~cleverly.estimators.TMLE` construction, before the fit -- and this contract
+    -- are ever reached.
+    """
+    with pytest.raises(
+        ValueError, match=r"stratify_folds='treatment' balances the outer folds"
+    ) as caught:
         _engine_fit(None, estimands=("ate",), stratify="treatment")
-    assert "no audited result covers stratify_folds='treatment' (RM17)" in str(caught.value)
+    assert "Set stratify_folds='none'" in str(caught.value)
     assert NeverFit.calls == 0
 
 
-def test_outcome_strata_are_refused_for_an_admitted_estimand() -> None:
-    with pytest.raises(CapabilityError) as caught:
+def test_crossed_folds_are_refused_before_the_contract_is_reached() -> None:
+    with pytest.raises(
+        ValueError, match=r"stratify_folds='treatment\+outcome' balances the outer folds"
+    ) as caught:
         _engine_fit(None, estimands=("ate",), stratify="treatment+outcome")
-    assert "stratify_folds='treatment+outcome' (RM17)" in str(caught.value)
+    message = str(caught.value)
+    assert "on the treatment and the outcome" in message
+    assert "(docs/roadmap.md RM17)" in message
     assert NeverFit.calls == 0
 
 
@@ -360,38 +393,92 @@ def _public_fit(row: Row | None, *, estimand: Any, stratify: str) -> None:
     study.identify(estimand).estimate(method=method)
 
 
-@pytest.mark.parametrize("stratify", ["treatment", "none"])
 @pytest.mark.parametrize(("estimand", "conditional"), PUBLIC_ESTIMANDS, ids=("ATE", "ATT"))
-@pytest.mark.parametrize("row", OVERRIDE_ROWS, ids=[row.id for row in OVERRIDE_ROWS])
+@pytest.mark.parametrize("row", CONTRACT_ROWS, ids=[row.id for row in CONTRACT_ROWS])
 def test_each_public_refusal_row_fires_before_any_learner(
-    row: Row, estimand: Any, conditional: bool, stratify: str
+    row: Row, estimand: Any, conditional: bool
 ) -> None:
+    """``stratify`` is fixed at ``"none"``; see ``test_each_engine_refusal_row_...``."""
     with pytest.raises(CapabilityError) as caught:
-        _public_fit(row, estimand=estimand, stratify=stratify)
+        _public_fit(row, estimand=estimand, stratify="none")
     message = str(caught.value)
     if row.collaborative and conditional:
         # The public route refuses a collaborative ATT before the engine sees it.
         assert message.startswith("method 'collaborative_tmle' cannot estimate ATT")
     else:
-        expected = _expected(row, conditional=conditional, stratify=stratify)
+        expected = _expected(row, conditional=conditional, stratify="none")
         assert message.startswith(CONTRACT)
         assert expected.fragment in message
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize("stratify", ["treatment", "none"])
-def test_the_public_att_request_is_refused_by_name(stratify: str) -> None:
+def test_the_public_att_request_is_refused_by_name() -> None:
     with pytest.raises(CapabilityError) as caught:
-        _public_fit(None, estimand=ATT(), stratify=stratify)
+        _public_fit(None, estimand=ATT(), stratify="none")
     assert BY_ID["att-atc"].fragment in str(caught.value)
     assert NeverFit.calls == 0
 
 
-def test_the_public_default_strata_are_refused_for_the_ate() -> None:
-    """``CrossFitting()`` defaults to treatment strata, which the contract refuses."""
-    with pytest.raises(CapabilityError) as caught:
+def test_the_public_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
+    """Declaring ``stratify_by='treatment'`` is refused engine-wide, not by the contract.
+
+    ``CrossFitting()`` now defaults to ``stratify_by='none'`` (the RM17 default flip), so
+    this declares the policy explicitly rather than relying on a default the contract
+    used to catch.
+    """
+    with pytest.raises(
+        MethodConfigurationError, match=r"stratify_folds='treatment' balances the outer folds"
+    ) as caught:
         _public_fit(None, estimand=ATE(), stratify="treatment")
-    assert BY_ID["stratified-folds"].fragment in str(caught.value)
+    assert "Set stratify_folds='none'" in str(caught.value)
+    assert NeverFit.calls == 0
+
+
+def test_a_single_fold_is_refused_before_the_contract_is_reached() -> None:
+    """``n_folds=1`` under cross-fitting is refused engine-wide, in both spellings.
+
+    The contract's own copy of this check is gone: the global check in
+    ``_cross_fit_policy_refusal`` (:mod:`cleverly.learners.crossfit`) covers it before
+    the arm-indexed contract, or any other capability check, is reached.
+    """
+    one_fold = BY_ID["one-fold"]
+    with pytest.raises(ValueError, match=r"cross_fit=True with n_folds=1 leaves one fold"):
+        _engine_fit(one_fold, estimands=("ate",), stratify="none")
+    assert NeverFit.calls == 0
+
+    with pytest.raises(
+        MethodConfigurationError, match=r"enabled=True with n_folds=1 leaves one fold"
+    ):
+        _public_fit(one_fold, estimand=ATE(), stratify="none")
+    assert NeverFit.calls == 0
+
+
+def test_the_global_fold_policy_refusals_recur_at_fit_time_for_a_bypassed_estimator() -> None:
+    """A copy that bypassed ``__init__`` meets the same refusal again, at fit time.
+
+    :meth:`~cleverly.estimators.TMLE.refit` and a result restored from a pickle written
+    by an earlier version both reach ``fit`` without running the constructor's checks, so
+    ``_resolve_estimands_for_data`` asks ``_cross_fit_policy_reason`` again there.
+    """
+    roles = {"outcome": "Y", "treatment": "A", "covariates": COVARIATES, "delta": "Delta"}
+    admitted = TMLE(**{**ADMITTED, **never_fit_learners(), "estimands": ("ate",)})
+
+    stratified = copy.copy(admitted)
+    stratified.stratify_folds = "treatment"
+    with pytest.raises(
+        ValueError, match=r"stratify_folds='treatment' balances the outer folds"
+    ) as caught:
+        stratified.fit(_frame(), **roles)
+    assert "restored result or a copied estimator" in str(caught.value)
+    assert NeverFit.calls == 0
+
+    single_fold = copy.copy(admitted)
+    single_fold.n_folds = 1
+    with pytest.raises(
+        ValueError, match=r"cross_fit=True with n_folds=1 leaves one fold"
+    ) as caught:
+        single_fold.fit(_frame(), **roles)
+    assert "restored result or a copied estimator" in str(caught.value)
     assert NeverFit.calls == 0
 
 
@@ -642,7 +729,14 @@ def test_a_training_complement_below_the_minimum_refuses_before_any_learner(
         _preflight_fit(_preflight_frame(case))
     message = str(caught.value)
     assert f"repeat 0, fold {LAST}'s training complement contains no {absent}." in message
-    assert "Increase n_folds, use a different random_state, or fit in sample" in message
+    assert (
+        "trying fold counts or seeds until one fits would choose the partition by the "
+        "values it must not read" in message
+    )
+    assert message.endswith(
+        "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), "
+        "or collect more observations at the rare level."
+    )
     assert NeverFit.calls == 0
 
 
@@ -739,7 +833,11 @@ def test_a_super_learner_role_needs_two_rows_per_class_in_each_complement(
     message = str(caught.value)
     assert f"cannot fit the {role} learner because repeat 0, fold {LAST}'s" in message
     assert f"training complement holds {short}." in message
-    assert "the Super Learner's inner stratified split" in message
+    assert (
+        "is a package SuperLearner with a classification task, and its inner "
+        "stratified split needs at least two rows in each class of its target in each "
+        "training complement." in message
+    )
     assert NeverFit.calls == 0
 
 

@@ -99,10 +99,16 @@ def test_the_contrast_is_the_difference_of_the_means(family: str) -> None:
     then says that map is linear on differences -- which is the claim worth making.
     """
     frame, _ = make_longitudinal(n=1000, seed=31)
+    # A cross-fitted continuous outcome needs a declared q_bounds (RM17). This test's
+    # subject is the scaler identity, not cross-fitting, so the Gaussian branch fits in
+    # sample instead: n_folds=1 (LTMLE's spelling of cross_fit=False). The binomial branch
+    # is unaffected and stays cross-fitted, so its pinned numbers do not move.
+    settings: dict[str, Any] = {}
     if family == "gaussian":
         frame = frame.copy()
         frame["Y"] = 7.0 * frame["Y"] - 3.0
-    result = run(frame, family=family)
+        settings["n_folds"] = 1
+    result = run(frame, family=family, **settings)
     difference = result.psi("ey_regimen[never]") - result.psi("ey_regimen[always]")
     assert result.psi("ate_regimen[never vs always]") == pytest.approx(difference, abs=1e-12)
     np.testing.assert_allclose(
@@ -380,8 +386,11 @@ def test_a_continuous_outcome_is_estimated_on_its_own_scale() -> None:
     frame, _ = make_longitudinal(n=1000, seed=13)
     rescaled = frame.copy()
     rescaled["Y"] = 10.0 * frame["Y"] + 2.0
-    plain = run(frame, family="gaussian")
-    moved = run(rescaled, family="gaussian")
+    # A cross-fitted continuous outcome needs a declared q_bounds (RM17). This test's
+    # subject is scale equivariance, not cross-fitting, so it fits in sample: n_folds=1
+    # (LTMLE's spelling of cross_fit=False).
+    plain = run(frame, family="gaussian", n_folds=1)
+    moved = run(rescaled, family="gaussian", n_folds=1)
     assert moved.psi("ey_regimen[always]") == pytest.approx(
         10.0 * plain.psi("ey_regimen[always]") + 2.0, rel=1e-9
     )
@@ -516,16 +525,16 @@ def test_an_upper_cumulative_bound_alone_warns_and_reports_its_own_share() -> No
     """
 
     frame, _ = make_longitudinal(n=400, seed=91)
-    with pytest.warns(PositivityWarning, match=r"always at t=1: 41\.7%"):
+    with pytest.warns(PositivityWarning, match=r"always at t=1: 39\.3%"):
         result = run(frame, regimens={"always": 1}, g_bounds=(1e-12, 0.5))
     fit = result.fits["always"]
 
     assert int(np.count_nonzero(fit.cumulative_unbounded < fit.cumulative)) == 0
-    assert int(np.count_nonzero(fit.cumulative_unbounded > fit.cumulative)) == 156
-    # 70 of the 168 rows scored at the first node, and 22 of the 119 at the second.
+    assert int(np.count_nonzero(fit.cumulative_unbounded > fit.cumulative)) == 145
+    # 66 of the 168 rows scored at the first node, and 19 of the 119 at the second.
     shares = list(result.diagnostics.support().to_frame()["share_truncated"])
-    assert shares == [pytest.approx(70 / 168), pytest.approx(22 / 119)]
-    assert "max truncated share 41.7% at t=1" in result.summary()
+    assert shares == [pytest.approx(66 / 168), pytest.approx(19 / 119)]
+    assert "max truncated share 39.3% at t=1" in result.summary()
 
 
 def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
@@ -674,16 +683,22 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
     Over i.i.d. rows carrying an ``id`` column the two variances agree by construction,
     which is why counting the clusters is not a test of anything.
     """
+    # Cross-fitted longitudinal TMLE has no clustered result (RM17): keeping a cluster
+    # whole inside a fold is not established for the sequential recursion's cluster-robust
+    # variance. This test's subject is that variance, not cross-fitting, so both fits are
+    # in sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
     frame, _ = make_longitudinal(n=2000, seed=9, cluster_size=20)
-    independent = run(frame)
-    clustered = LTMLE({"always": 1, "never": 0}, **FAST).fit(frame, id="id", **COLUMNS)
+    independent = run(frame, n_folds=1)
+    clustered = LTMLE({"always": 1, "never": 0}, **{**FAST, "n_folds": 1}).fit(
+        frame, id="id", **COLUMNS
+    )
 
     assert clustered.data.n_clusters == 100
     assert clustered["ey_regimen[always]"].n_clusters == 100
     assert independent["ey_regimen[always]"].n_clusters == 2000
-    # A strictly wider interval for every parameter reported.  The point estimates move
-    # a little too, which is not the variance leaking into the estimand: ``id=`` also
-    # keeps a cluster whole inside a fold, so the nuisance fits are not the same fits.
+    # A strictly wider interval for every parameter reported. In sample there is no fold
+    # to keep a cluster whole inside, so ``id=`` changes nothing about the nuisance fits
+    # and the point estimates agree exactly; only the variance differs.
     for name in clustered:
         assert clustered.psi(name) == pytest.approx(independent.psi(name), abs=0.02)
         assert clustered[name].std_error > independent[name].std_error
@@ -1657,7 +1672,12 @@ class TestCompetingRisks:
         )
 
     def test_the_incidence_total_uses_the_cluster_joint_influence_covariance(self) -> None:
-        clustered = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+        # Cross-fitted longitudinal TMLE has no clustered result (RM17). This test's
+        # subject is the cluster-robust variance formula, not cross-fitting, so it fits in
+        # sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
+        clustered = LTMLE(
+            {"always": 1, "never": 0}, reference="never", **{**FAST, "n_folds": 1}
+        ).fit(
             self._two_cause_frame(n=500, seed=13, cluster_size=5),
             outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
             id="id",
@@ -1772,11 +1792,19 @@ class TestCompetingRisks:
                 frame, **columns
             )
         # Matched on the clause that survives a reworded sentence: the fold is named, and
-        # the reader is told the fold count is the thing to change.
+        # the reader is told to fit in sample rather than to search for a fold count that
+        # happens to work (RM17: no refusal drawn after a split names a repartition
+        # remedy, since the split reads none of the data a remedy could legitimately
+        # react to).
         message = str(caught.value)
         assert "the same frame can be estimable at n_folds=1" in message
-        assert "A larger fold count gives each training complement more rows" in message
-        assert "Increase n_folds, use n_folds=1, or choose an estimand" in message
+        assert (
+            "trying fold counts or seeds until one fits would choose the partition by the "
+            "values it must not read" in message
+        )
+        assert "Fit in sample with n_folds=1, or choose an estimand this fold count supports" in (
+            message
+        )
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.

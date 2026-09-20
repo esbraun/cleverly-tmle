@@ -42,6 +42,7 @@ correctly specified. On data you did not simulate, use flexible learners.
 result = effect.estimate(
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=7,
 )
 
@@ -51,9 +52,14 @@ print(estimate.psi, estimate.std_error, estimate.ci)
 print("population ATE:", truth["ate"])
 ```
 
-The fit cross-fits both nuisances over 10 folds by default. Each result entry is a
-`ParameterEstimate` with the point estimate, standard error, interval, p-value, and influence
-curve.
+This fit uses no cross-fitting. Two reasons, and either one is enough. A correctly specified
+parametric learner converges fast enough that out-of-fold prediction buys nothing. And `Y` here is
+Gaussian, so its support is the whole real line: a cross-fitted fit would take the outcome scale
+from every observed value, held-out rows included, which the package refuses. Declare the support
+with `q_bounds=(lower, upper)` where you know it, and cross-fit then.
+
+Each result entry is a `ParameterEstimate` with the point estimate, standard error, interval,
+p-value, and influence curve.
 
 ## Assess the fitted result
 

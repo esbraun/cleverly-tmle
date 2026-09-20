@@ -133,6 +133,7 @@ class TestClustering:
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=4,
                 random_state=7,
+                cross_fit=False,
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates, id="cluster")
             .single()

@@ -486,7 +486,7 @@ class TMLEResult:
     >>> result = study.identify(ATE()).estimate(
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
-    ...     n_folds=2,
+    ...     cross_fit=False,
     ...     random_state=0,
     ... )
 
@@ -899,7 +899,7 @@ class TMLEResult:
         >>> result = study.identify(ATE()).estimate(
         ...     outcome_learner=LinearRegression(),
         ...     treatment_learner=LogisticRegression(max_iter=1000),
-        ...     n_folds=2,
+        ...     cross_fit=False,
         ...     random_state=0,
         ... )
         >>> report = result.validate()
@@ -955,7 +955,7 @@ class TMLEResult:
         ... ).identify(ATE()).estimate(
         ...     outcome_learner=LinearRegression(),
         ...     treatment_learner=LogisticRegression(max_iter=1000),
-        ...     n_folds=2,
+        ...     cross_fit=False,
         ...     random_state=0,
         ... )
         >>> result.assess().validation.passed

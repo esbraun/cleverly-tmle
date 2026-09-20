@@ -14,10 +14,12 @@ from cleverly import (
     ATE,
     AssessmentStatus,
     CounterfactualMean,
+    CrossFitting,
     IncrementalMean,
     MSMProjection,
     RegimeContrast,
     RegimeMean,
+    TMLEMethod,
 )
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -36,7 +38,7 @@ from tests.unit._confounding_support import (
     with_typed,
 )
 from tests.unit._confounding_support import (
-    confounding_estimate as _estimate,
+    confounding_estimate as _confounding_estimate,
 )
 from tests.unit._confounding_support import (
     confounding_study as _study,
@@ -47,6 +49,26 @@ from tests.unit._confounding_support import (
 from tests.unit._confounding_support import (
     replacement as _replacement,
 )
+
+#: This module's subject is the fixed-policy replay contract, not cross-fitting, so
+#: every fit here runs in sample. A cross-fitted fit of a continuous outcome now needs a
+#: declared q_bounds (RM17), and this module's Gaussian law does not have one.
+_IN_SAMPLE_METHOD = TMLEMethod(cross_fitting=CrossFitting(enabled=False))
+
+
+def _estimate(*args: Any, **kwargs: Any) -> Any:
+    """``confounding_estimate``, fit in sample unless the caller asks for repeats.
+
+    ``repeats`` needs cross-fitting to draw independent splits from at all, so a caller
+    asking for more than one keeps the default cross-fitted method and must declare
+    ``binary=True`` itself: a cross-fitted continuous outcome needs a declared
+    ``q_bounds`` (RM17), and this module's Gaussian law does not have one to declare
+    honestly.
+    """
+    if kwargs.get("repeats", 1) <= 1:
+        kwargs.setdefault("method", _IN_SAMPLE_METHOD)
+    return _confounding_estimate(*args, **kwargs)
+
 
 _GRID = ConfounderStrengthGrid(treatment=(0.0, 0.22), outcome=(0.0, 0.17))
 
@@ -168,7 +190,9 @@ def _alias(
         ("static", False, "pandas", False, False, False, 1, False),
         ("rule", True, "polars", True, True, False, 1, False),
         ("rule", False, "pandas", False, False, False, 1, False),
-        ("stochastic", False, "pandas", False, True, True, 3, False),
+        # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous
+        # outcome now needs a declared q_bounds this module's Gaussian law does not have.
+        ("stochastic", False, "pandas", False, True, True, 3, True),
         ("stochastic", True, "polars", False, False, False, 1, True),
     ],
 )
@@ -238,7 +262,9 @@ def test_static_policy_reduces_to_arm_surface(contrast: bool) -> None:
     "labels,backend,weighted,repeats,strata,binary",
     [
         (False, "pandas", False, 1, False, False),
-        (True, "polars", True, 3, True, False),
+        # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous
+        # outcome now needs a declared q_bounds this module's Gaussian law does not have.
+        (True, "polars", True, 3, True, True),
         (False, "pandas", False, 1, False, True),
     ],
 )
@@ -411,7 +437,9 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
 def test_regime_provenance_layers_refuse_before_draw_or_refit(
     field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result = _fit_policy(repeats=3)
+    # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous outcome
+    # now needs a declared q_bounds this module's Gaussian law does not have.
+    result = _fit_policy(repeats=3, binary=True)
     alias = _alias(result)
     corrupted = _corrupt_policy(result, alias, field)
     _forbid_draw_and_refit(monkeypatch, corrupted.estimator)
@@ -451,7 +479,9 @@ def test_regime_provenance_layers_refuse_before_draw_or_refit(
 def test_msm_provenance_layers_refuse_before_draw_or_refit(
     field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result = _fit_msm(repeats=3)
+    # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous outcome
+    # now needs a declared q_bounds this module's Gaussian law does not have.
+    result = _fit_msm(repeats=3, binary=True)
     alias = _alias(result)
     corrupted = _corrupt_policy(result, alias, field)
     _forbid_draw_and_refit(monkeypatch, corrupted.estimator)
@@ -468,7 +498,14 @@ def test_msm_provenance_layers_refuse_before_draw_or_refit(
 
 def test_regime_callback_is_checked_once_then_frozen_for_every_cell() -> None:
     density = Counter(_stochastic_density)
-    result = _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)), repeats=3)
+    # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous outcome
+    # now needs a declared q_bounds this module's Gaussian law does not have.
+    result = _estimate(
+        _study(binary=True),
+        RegimeMean((Stochastic(density, name="policy"),)),
+        repeats=3,
+        binary=True,
+    )
     original = result.estimator.interventions
     density.calls, density.limit = 0, 1
     surface = simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
@@ -527,7 +564,9 @@ def test_wrong_frozen_projection_moves_a_nonzero_coefficient(
 
 
 def test_msm_persistence_replays_a_new_surface() -> None:
-    result = _fit_msm(repeats=3)
+    # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous outcome
+    # now needs a declared q_bounds this module's Gaussian law does not have.
+    result = _fit_msm(repeats=3, binary=True)
     alias = _alias(result)
     loaded = loads(dumps(result))
     expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=43)
@@ -539,7 +578,11 @@ def test_msm_callbacks_are_checked_once_per_arm_then_frozen() -> None:
     design = Counter(model.design)
     weights = Counter(model.weights)
     declared = replace(model, design=design, weights=weights)
-    result = _estimate(_study(weighted=True), MSMProjection(declared), repeats=3)
+    # binary=True: repeats>1 needs cross-fitting, and a cross-fitted continuous outcome
+    # now needs a declared q_bounds this module's Gaussian law does not have.
+    result = _estimate(
+        _study(weighted=True, binary=True), MSMProjection(declared), repeats=3, binary=True
+    )
     design.calls = weights.calls = 0
     design.limit = weights.limit = 2
     surface = simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)

@@ -391,6 +391,7 @@ ate_result = gaussian_study.estimate(
     ATE(),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=21,
 )
 generated = ate_result.diagnostics.refute(
@@ -572,7 +573,7 @@ policy_result = (
     .estimate(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
-        n_folds=2,
+        cross_fit=False,
         learner_folds=2,
         random_state=31,
     )
@@ -635,7 +636,7 @@ attributable_result = CausalStudy(
     PopulationAttributableRisk(reference=0),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     random_state=21,
     simultaneous=False,
 )
@@ -689,7 +690,7 @@ population_result = CausalStudy(
     ATT(),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     random_state=21,
     simultaneous=False,
 )
@@ -730,7 +731,7 @@ shift_result = shift_study.estimate(
     ),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     learner_folds=2,
     random_state=21,
     simultaneous=False,

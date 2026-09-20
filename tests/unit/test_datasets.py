@@ -46,7 +46,7 @@ from cleverly.datasets import (
     weak_overlap_dgp,
 )
 from cleverly.estimators import TMLE
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 
 class TestTruth:
@@ -423,7 +423,7 @@ class TestSampling:
         the ``a * w2`` term the design effect measured 1.00 rather than the 1.96 here.
         """
         frame, _ = make_clustered(n=20_000, seed=11, cluster_size=10)
-        result = TMLE(**FAST_KWARGS, estimands=("ate",)).fit(
+        result = TMLE(**FAST_KWARGS, **IN_SAMPLE, estimands=("ate",)).fit(
             frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
         )
         curve = np.asarray(result.single()["ate"].influence_curve)

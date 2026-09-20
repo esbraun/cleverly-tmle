@@ -52,12 +52,13 @@ from cleverly import (
     Runtime,
     SplitPlan,
     SuperLearner,
+    Targeting,
     TMLEMethod,
 )
 from cleverly._typing import FoldStrata, IntArray
 from cleverly.datasets import (
     make_longitudinal,
-    make_nonlinear_ate,
+    make_nonlinear_bounded,
     make_shift_dose,
     multi_arm_dgp,
 )
@@ -118,7 +119,8 @@ def _method(
     fold_evaluation: bool = False,
     enabled: bool = True,
     n_folds: int = N_FOLDS,
-    stratify_by: FoldStrata = "treatment",
+    stratify_by: FoldStrata = "none",
+    q_bounds: tuple[float, float] | None = (0.0, 1.0),
     random_state: int = SEED,
     models: ModelSpec | None = None,
     kind: type[TMLEMethod] = TMLEMethod,
@@ -128,6 +130,12 @@ def _method(
 
     ``kind`` and ``extra`` reach the collaborative and reduced-dimension configurations,
     which add fields to the same five groups rather than replacing them.
+
+    ``stratify_by`` defaults to ``"none"``, the only value a cross-fitted fit accepts
+    (RM17); ``q_bounds`` defaults to ``(0.0, 1.0)``, this module's frames now being drawn
+    from :func:`~cleverly.datasets.make_nonlinear_bounded`, whose proportion outcome has
+    that support. Both default to what a cross-fitted fit needs, since ``enabled=True``
+    is this helper's own default.
     """
     return kind(
         models=_models() if models is None else models,
@@ -140,6 +148,7 @@ def _method(
             fold_evaluation=fold_evaluation,
             split_plan=split_plan,
         ),
+        targeting=Targeting(q_bounds=q_bounds),
         inference=Inference(simultaneous=False, n_bootstrap=n_bootstrap),
         runtime=Runtime(random_state=random_state, n_jobs=n_jobs),
         **extra,
@@ -582,7 +591,7 @@ class TestOnlyARecordedDrawIsAccepted:
         assert free.assignments == bound.assignments
 
     def test_a_hand_built_plan_is_refused_at_declaration_before_any_learner(self) -> None:
-        frame, _ = make_nonlinear_ate(n=120, seed=61)
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
         plan = SplitPlan([list(np.arange(120) % N_FOLDS)])
 
         with pytest.raises(MethodConfigurationError, match="no generator record"):
@@ -592,7 +601,7 @@ class TestOnlyARecordedDrawIsAccepted:
 
     def test_a_forged_plan_is_refused_before_any_learner(self) -> None:
         """Valid record, one label moved: the fit draws the split again and sees it."""
-        frame, _ = make_nonlinear_ate(n=120, seed=61)
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
         drawn = _package_plan(120)
         forged = list(drawn.assignments[0])
         forged[0] = (forged[0] + 1) % N_FOLDS
@@ -605,7 +614,7 @@ class TestOnlyARecordedDrawIsAccepted:
 
     def test_the_counter_is_a_live_witness_under_the_plan_that_was_drawn(self) -> None:
         """The nonzero control: the same fit on the unforged plan fits learners."""
-        frame, _ = make_nonlinear_ate(n=120, seed=61)
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
         result = _effect(frame).estimate(
             method=_method(split_plan=_package_plan(120), models=_counted_models())
         )
@@ -623,7 +632,7 @@ class TestOnlyARecordedDrawIsAccepted:
         are contiguous, they carry both arms into every training complement, and they
         fingerprint as a plan.  The fit runs, which is the failure the record prevents.
         """
-        frame, _ = make_nonlinear_ate(n=120, seed=61)
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
         drawn = _package_plan(120)
         forged = list(drawn.assignments[0])
         forged[0] = (forged[0] + 1) % N_FOLDS
@@ -845,7 +854,7 @@ class TestTheEngineRefusesAPlanItCannotServe:
             )
 
     def test_the_engine_reuses_a_plan_it_accepts(self) -> None:
-        frame, _ = make_nonlinear_ate(n=120, seed=41)
+        frame, _ = make_nonlinear_bounded(n=120, seed=41)
         covariates = ["W1", "W2", "W3"]
 
         def fit(plan: SplitPlan | None) -> Any:
@@ -858,6 +867,7 @@ class TestTheEngineRefusesAPlanItCannotServe:
                     split_plan=plan,
                     random_state=SEED,
                     simultaneous=False,
+                    q_bounds=(0.0, 1.0),
                 )
                 .fit(frame, outcome="Y", treatment="A", covariates=covariates)
                 .single()
@@ -902,7 +912,7 @@ class TestDataBoundValidationPrecedesNuisanceFitting:
         plan: SplitPlan,
         *,
         match: str,
-        stratify_by: FoldStrata = "treatment",
+        stratify_by: FoldStrata = "none",
         cluster: str | None = None,
     ) -> None:
         monkeypatch.setattr(
@@ -915,6 +925,7 @@ class TestDataBoundValidationPrecedesNuisanceFitting:
             repeats=plan.n_repeats,
             stratify_by=stratify_by,
             split_plan=plan,
+            q_bounds=None,  # this class's frame has a binary outcome
         )
         with pytest.raises(DataError, match=match):
             _effect(frame, cluster=cluster).estimate(method=method)
@@ -981,7 +992,7 @@ class TestDataBoundValidationPrecedesNuisanceFitting:
 def test_generated_folds_do_not_acquire_supplied_plan_support_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=14)
+    frame, _ = make_nonlinear_bounded(n=120, seed=14)
 
     monkeypatch.setattr(
         SplitPlan,
@@ -994,7 +1005,7 @@ def test_generated_folds_do_not_acquire_supplied_plan_support_validation(
 
 
 def test_in_sample_gaussian_fit_ignores_crossfit_only_outcome_strata() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=15)
+    frame, _ = make_nonlinear_bounded(n=120, seed=15)
 
     result = _effect(frame).estimate(method=_method(enabled=False, stratify_by="treatment+outcome"))
 
@@ -1003,7 +1014,7 @@ def test_in_sample_gaussian_fit_ignores_crossfit_only_outcome_strata() -> None:
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_binary_plans_are_exactly_identical(backend: str) -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=4, backend=backend)
+    frame, _ = make_nonlinear_bounded(n=180, seed=4, backend=backend)
     generated, supplied = _generated_then_supplied(frame)
 
     _assert_same_fit(generated, supplied)
@@ -1018,8 +1029,12 @@ def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: s
     # The draw is named because the claim below is about this split: at another seed one
     # unit falls outside the automatic bounds and the truncation assertion is not about
     # the plan any more.
-    frame, _ = multi_arm_dgp(confounding=0.1).sample(n=180, seed=7, backend=backend)
-    generated, supplied = _generated_then_supplied(frame, plan_seed=6)
+    # A binary outcome: this fit is cross-fitted, and Targeting refuses a declared
+    # q_bounds on a binary outcome outright rather than merely not needing one.
+    frame, _ = multi_arm_dgp(confounding=0.1, family="binomial").sample(
+        n=180, seed=7, backend=backend
+    )
+    generated, supplied = _generated_then_supplied(frame, plan_seed=6, q_bounds=None)
 
     _assert_same_fit(generated, supplied)
     assert generated.nuisance.propensity.values.shape[1] == 3
@@ -1032,7 +1047,7 @@ def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: s
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_clustered_plans_are_exactly_identical(backend: str) -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=11)
+    frame, _ = make_nonlinear_bounded(n=180, seed=11)
     frame = frame.copy()
     frame["pid"] = np.repeat(np.arange(60), 3)
     generated, supplied = _generated_then_supplied(_backed(frame, backend), cluster="pid")
@@ -1046,7 +1061,7 @@ def test_generated_and_supplied_clustered_plans_are_exactly_identical(backend: s
 
 
 def test_generated_and_supplied_repeated_plans_are_exactly_identical() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=19)
+    frame, _ = make_nonlinear_bounded(n=180, seed=19)
     generated, supplied = _generated_then_supplied(frame, repeats=3)
 
     _assert_same_fit(generated, supplied)
@@ -1060,7 +1075,7 @@ def test_generated_and_supplied_repeated_plans_are_exactly_identical() -> None:
 
 
 def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=21)
+    frame, _ = make_nonlinear_bounded(n=180, seed=21)
     generated, supplied = _generated_then_supplied(frame, fold_evaluation=True)
 
     _assert_same_fit(generated, supplied)
@@ -1089,7 +1104,7 @@ def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None
 
 def test_collaborative_selection_reuses_a_supplied_plan_exactly() -> None:
     """The collaborative selector adds folds of its own, and reuses the outer ones."""
-    frame, _ = make_nonlinear_ate(n=180, seed=43)
+    frame, _ = make_nonlinear_bounded(n=180, seed=43)
     generated, supplied = _generated_then_supplied(
         frame,
         kind=CollaborativeTMLEMethod,
@@ -1108,7 +1123,7 @@ def test_collaborative_selection_reuses_a_supplied_plan_exactly() -> None:
 
 
 def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=45)
+    frame, _ = make_nonlinear_bounded(n=180, seed=45)
     generated, supplied = _generated_then_supplied(
         frame,
         kind=DRTMLEMethod,
@@ -1123,7 +1138,15 @@ def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_a_continuous_dose_reuses_a_supplied_plan_exactly(backend: str) -> None:
     """A dose has no arms to balance, so the plan is the only thing holding the split."""
-    frame, _ = make_shift_dose(n=180, seed=47, backend=backend)
+    # A binary outcome: this identity compares the generated and supplied fits to each
+    # other, never to a population truth, so replacing Y costs nothing. A cross-fitted
+    # continuous outcome now needs a declared q_bounds that make_shift_dose's Gaussian Y
+    # does not have.
+    frame, _ = make_shift_dose(n=180, seed=47, backend="pandas")
+    rng = np.random.default_rng(47)
+    w1 = np.asarray(frame["W1"])
+    frame = frame.assign(Y=rng.binomial(1, 1.0 / (1.0 + np.exp(-w1))).astype(float))
+    frame = _backed(frame, backend)
     effect = CausalStudy(
         frame,
         design=PointTreatment(
@@ -1140,8 +1163,8 @@ def test_a_continuous_dose_reuses_a_supplied_plan_exactly(backend: str) -> None:
             )
         )
     )
-    generated = effect.estimate(method=_method())
-    supplied = effect.estimate(method=_method(split_plan=generated.split_plan))
+    generated = effect.estimate(method=_method(q_bounds=None))
+    supplied = effect.estimate(method=_method(split_plan=generated.split_plan, q_bounds=None))
 
     assert generated.estimates.keys() == supplied.estimates.keys()
     for name, expected in generated.estimates.items():
@@ -1167,7 +1190,7 @@ class TestASuppliedPlanFreezesTheOuterSplit:
 
     @pytest.fixture(scope="class")
     def effect(self) -> Any:
-        frame, _ = make_nonlinear_ate(n=180, seed=4)
+        frame, _ = make_nonlinear_bounded(n=180, seed=4)
         return _effect(frame)
 
     def test_the_learner_folds_still_follow_the_seed(self, effect: Any) -> None:
@@ -1228,6 +1251,12 @@ class TestASuppliedPlanFreezesTheOuterSplit:
             "strategy": "greedy",
             "selection_folds": 3,
             "selection_inner_folds": 2,
+            # An ensemble outcome learner: on this bounded law the greedy search always
+            # selects zero covariates regardless of seed, so a single deterministic
+            # learner would make every candidate's fit -- and so the final psi -- tie
+            # across seeds too, leaving no witness. A Super Learner's own inner split
+            # is still seed-sensitive even at the empty candidate.
+            "models": _ensemble_models(),
         }
         generated = effect.estimate(method=_method(split_plan=_package_plan(180), **knobs))
         plan = generated.split_plan
@@ -1254,7 +1283,7 @@ class TestAPlanIsBoundToTheRowsThatRealisedIt:
 
     @pytest.fixture(scope="class")
     def frame(self) -> pd.DataFrame:
-        built, _ = make_nonlinear_ate(n=180, seed=49)
+        built, _ = make_nonlinear_bounded(n=180, seed=49)
         return built
 
     @pytest.fixture(scope="class")
@@ -1313,7 +1342,7 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
 
     @pytest.fixture(scope="class")
     def frame(self) -> pd.DataFrame:
-        built, _ = make_nonlinear_ate(n=180, seed=51)
+        built, _ = make_nonlinear_bounded(n=180, seed=51)
         built = built.copy()
         built["four"] = np.repeat(np.arange(4), 45)
         built["two"] = np.repeat(np.arange(2), 90)
@@ -1385,18 +1414,22 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
 
 
 class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
-    """A refit can move the balancing vector without moving a row.
+    """Retired: ``stratify_by="treatment+outcome"`` no longer reaches a supplied plan.
 
-    Under ``stratify_by="treatment+outcome"`` the balancing code is the treatment crossed
-    with the outcome, so the placebo permutation re-counts the crossed cells.  Here it
-    leaves the rarest cell with two members, one fewer than a *generated* three-fold split
-    would need.  No row moved, and the plan's own labels still carry every cell into every
-    training complement, so the refit runs.  A fit-time comparison against
-    ``resolve_n_folds`` refused it instead, and refused with a ``DataError``, which the
-    combined battery does not catch -- so one rare cell took down every later row of it.
+    This class used to fit a ``stratify_by="treatment+outcome"`` supplied plan, whose
+    balancing code crosses the treatment with the outcome, on a sample engineered so a
+    placebo permutation's re-count left the rarest crossed cell with two members -- one
+    fewer than a *generated* three-fold split would need, while the plan's own labels
+    still carried every cell into every training complement.  RM17 refuses
+    ``stratify_by="treatment+outcome"`` under cross-fitting outright now (both under
+    ``CrossFitting`` and from the engine), so that scenario cannot be built any more:
+    the refusal fires at declaration, before any plan is drawn and before the permutation
+    the old tests read.  The permutation is kept below because it is what made the
+    scenario the refusal now forecloses; the other two tests assert the refusal itself,
+    from the two contracts this module's other refusals are checked under.
     """
 
-    #: The permutation the refutations below draw, and the one the cell counts describe.
+    #: The permutation the retired scenario read, and the one the cell count describes.
     PLACEBO_SEED = 24
 
     @pytest.fixture(scope="class")
@@ -1416,20 +1449,13 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
             }
         )
 
-    @pytest.fixture(scope="class")
-    def supplied(self, frame: pd.DataFrame) -> Any:
-        # This draw carries every crossed cell into every training complement, before and
-        # after the placebo permutation below re-counts them.
-        _, result = _generated_then_supplied(frame, stratify_by="treatment+outcome", plan_seed=1)
-        return result
-
     def test_the_permutation_leaves_a_cell_below_the_supplied_fold_count(
-        self, frame: pd.DataFrame, supplied: Any
+        self, frame: pd.DataFrame
     ) -> None:
-        """Without this the two tests below would pass against any implementation.
+        """The crossed-cell scenario the retired capability used to be exercised on.
 
-        They observe a refit that a generated split could not have produced, and that is
-        only true while the seeded permutation leaves a crossed cell with two members.
+        Kept as a fact about this fixture rather than about any fit: it is what made the
+        retired scenario a genuine edge case rather than an ordinary one.
         """
         permuted = np.random.default_rng(self.PLACEBO_SEED).permutation(np.asarray(frame["A"]))
         crossed = np.unique(
@@ -1437,32 +1463,27 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
         )[1]
 
         assert int(np.bincount(crossed).min()) == 2
-        assert supplied.split_plan.n_folds == N_FOLDS == 3
 
-    def test_a_placebo_refutation_runs_on_a_supplied_plan(self, supplied: Any) -> None:
-        report = refute(
-            supplied, tests=("placebo",), n_replicates=1, random_state=self.PLACEBO_SEED
-        )
+    def test_the_declaration_is_refused_before_any_plan_is_drawn(self, frame: pd.DataFrame) -> None:
+        """The configuration contract: ``MethodConfigurationError`` from ``CrossFitting``."""
+        with pytest.raises(MethodConfigurationError, match=r"stratify_folds='treatment\+outcome'"):
+            _generated_then_supplied(frame, stratify_by="treatment+outcome", plan_seed=1)
 
-        assert [test.name for test in report.tests] == ["placebo"]
-        assert len(report["placebo"].values) == 1
+    def test_the_engine_gives_the_same_refusal(self) -> None:
+        """The engine contract: ``ValueError`` at the same declaration, with no data at all.
 
-    def test_the_combined_battery_reports_the_refutation_rather_than_dying(
-        self, supplied: Any
-    ) -> None:
-        """``_run_all`` catches ``CapabilityError`` and nothing else, by design."""
-        report = supplied.diagnostics.run_all(
-            include_refits=True,
-            arguments={
-                "refute": {
-                    "tests": ("placebo",),
-                    "n_replicates": 1,
-                    "random_state": self.PLACEBO_SEED,
-                }
-            },
-        )
-
-        assert report["refute"].status is AssessmentStatus.PASSED
+        No frame is needed, which is itself evidence: the refusal is a fact about the
+        declared policy, not about anything the retired scenario's sample supplied.
+        """
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            TMLEEngine(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                n_folds=N_FOLDS,
+                stratify_folds="treatment+outcome",
+                random_state=SEED,
+                simultaneous=False,
+            )
 
 
 class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
@@ -1479,7 +1500,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     @pytest.fixture(scope="class")
     def supplied(self) -> Any:
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         _, result = _generated_then_supplied(frame)
         return result
 
@@ -1536,7 +1557,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     def test_an_unsupplied_fit_still_refutes_on_a_subsample(self) -> None:
         """The negative control: the refusal is about the plan, not about the test."""
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         generated = _effect(frame).estimate(method=_method())
 
         report = refute(generated, tests=("subset",), n_replicates=1)
@@ -1545,7 +1566,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     def test_an_unsupplied_fit_reaches_the_declaration_check_instead(self) -> None:
         """The other half of that control: no plan, no plan refusal."""
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         generated = _effect(frame).estimate(method=_method())
 
         with pytest.raises(CapabilityError, match="requires the exact registered"):
@@ -1561,7 +1582,7 @@ def test_a_refit_keeps_the_generator_record_and_drops_the_binding(
     record stays, because the refit still has to show that the labels it reuses are the
     labels the recorded generator draws.
     """
-    frame, _ = make_nonlinear_ate(n=120, seed=55)
+    frame, _ = make_nonlinear_bounded(n=120, seed=55)
     plan = _package_plan(120)
     result = _effect(frame).estimate(method=_method(split_plan=plan))
     seen: list[Any] = []
@@ -1583,7 +1604,7 @@ def test_a_refit_keeps_the_generator_record_and_drops_the_binding(
 
 
 def test_the_realized_plan_and_fingerprint_survive_result_persistence() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=23)
+    frame, _ = make_nonlinear_bounded(n=120, seed=23)
     generated, supplied = _generated_then_supplied(frame, repeats=2)
     restored = loads(dumps(supplied))
 
@@ -1596,7 +1617,7 @@ def test_the_realized_plan_and_fingerprint_survive_result_persistence() -> None:
 
 
 def test_an_in_sample_result_exposes_the_realized_one_fold_plan() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=27)
+    frame, _ = make_nonlinear_bounded(n=120, seed=27)
     result = _effect(frame).estimate(method=_method(enabled=False))
 
     assert result.split_plan.n_folds == 1
@@ -1606,7 +1627,7 @@ def test_an_in_sample_result_exposes_the_realized_one_fold_plan() -> None:
 
 
 def test_a_supplied_plan_is_exact_under_serial_and_parallel_scheduling() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=29)
+    frame, _ = make_nonlinear_bounded(n=180, seed=29)
     effect = _effect(frame)
     generated = effect.estimate(method=_method(split_plan=_package_plan(180)))
     serial = effect.estimate(method=_method(split_plan=generated.split_plan, n_jobs=1))
@@ -1645,7 +1666,7 @@ def test_a_split_plan_is_refused_for_a_longitudinal_fit_before_engine_constructi
 def test_a_split_plan_is_refused_for_bootstrap_before_engine_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=37)
+    frame, _ = make_nonlinear_bounded(n=120, seed=37)
     plan = _package_plan(len(frame))
 
     monkeypatch.setattr(

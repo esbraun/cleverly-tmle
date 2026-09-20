@@ -28,6 +28,11 @@ TRUTH = multi_arm_dgp().truth()
 
 
 def _fit(n: int = 800, seed: int = 0, **overrides):
+    """Fit in sample: this module is about multi-arm reporting, not cross-fitting.
+
+    ``make_multi_arm``'s default outcome is Gaussian and unbounded, so a cross-fitted fit
+    would need a declared ``q_bounds`` this law does not have.
+    """
     frame, _ = make_multi_arm(n=n, seed=seed)
     estimator = TMLE(
         **{
@@ -35,6 +40,7 @@ def _fit(n: int = 800, seed: int = 0, **overrides):
             "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 5,
             "learner_folds": 3,
+            "cross_fit": False,
             "random_state": 0,
             "simultaneous": False,
             **overrides,
@@ -249,7 +255,31 @@ class TestTheRestOfTheStackStillWorks:
 
     @pytest.mark.parametrize("scheme", ["pooled", "fold"])
     def test_both_targeting_schemes_report_the_same_parameters(self, scheme: str) -> None:
-        result = _fit(targeting_scheme=scheme)
+        """``targeting_scheme="fold"`` needs fold-specific validation predictions.
+
+        That needs ``cross_fit=True``, so this fit -- unlike the rest of the module -- is
+        cross-fitted and cannot use the Gaussian law: a cross-fitted continuous outcome
+        needs a declared ``q_bounds``, and the default process has none. A binary outcome
+        carries no such requirement, and the parameter names this test checks do not
+        depend on the family.
+        """
+        frame, _ = make_multi_arm(n=800, seed=0, family="binomial")
+        result = (
+            TMLE(
+                outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=5,
+                learner_folds=3,
+                random_state=0,
+                simultaneous=False,
+                # A binary outcome also reports rr/or by default; restrict to the
+                # parameters TRUTH names, which is the set this test checks.
+                estimands=("ey", "ate"),
+                targeting_scheme=scheme,
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         assert set(result.estimates) == set(TRUTH)
         assert result.fluctuations["mean"].epsilon.shape == (3,)
 
@@ -288,6 +318,7 @@ class TestTheConditionalEffects:
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
+                cross_fit=False,
                 random_state=0,
                 simultaneous=False,
                 estimands=("ate", "att", "atc"),
@@ -377,6 +408,7 @@ class TestOneArmSelectedOutOfAMultiArmTarget:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=2,
             learner_folds=2,
+            cross_fit=False,
             random_state=0,
             simultaneous=False,
         )

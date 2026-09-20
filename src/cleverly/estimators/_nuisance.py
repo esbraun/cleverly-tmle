@@ -833,10 +833,12 @@ def cross_fit_companion(
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
-                "a cross-fitting fold has no trainable rows for a nuisance model; "
-                "reduce n_folds, supply cluster-aware folds, or -- when the outcome is "
-                "the rare thing rather than the arm -- pass "
-                "stratify_folds='treatment+outcome'"
+                "a cross-fitting fold has no trainable rows for a nuisance model. The "
+                "split is drawn from the seed alone and reads no treatment or outcome, "
+                "so trying fold counts or seeds until one fits would choose the "
+                "partition by the values it must not read. Fit in sample instead "
+                "(cross_fit=False on the engine, CrossFitting(enabled=False); n_folds=1 "
+                "for a longitudinal fit), or collect more observations of the rare thing"
             )
         model = fit_on_rows(learner, design, target, weights, rows, task, groups)
         predictions = {

@@ -44,7 +44,12 @@ from cleverly.data.weighting import (
     score_load_row,
     validate_score_loads,
 )
-from cleverly.datasets import make_missing_outcome, make_nonlinear_ate, make_shift_dose
+from cleverly.datasets import (
+    make_missing_outcome,
+    make_nonlinear_ate,
+    make_nonlinear_bounded,
+    make_shift_dose,
+)
 from cleverly.exceptions import DataError
 from cleverly.interventions import (
     Incremental,
@@ -181,11 +186,16 @@ def _fit(frame: Any, *, weighted: bool = True, fit_kwargs: Any = None, **setting
     ``fit_kwargs`` carries the roles that belong to :meth:`~cleverly.estimators.TMLE.fit`
     rather than to the constructor -- ``delta`` for a missing outcome, for instance -- so
     that a test needing one more column does not have to restate the whole estimator.
+
+    This module's subject is the load diagnostics, not cross-fitting, so the fit is in
+    sample by default (``cross_fit=False``). A caller that needs cross-fitting, such as
+    the repeated-draw fixture below, passes ``cross_fit=True`` in ``settings`` and
+    overrides this default.
     """
     if weighted:
         frame = _weighted(frame)
     return (
-        fast_tmle(**settings)
+        fast_tmle(**{"cross_fit": False, **settings})
         .fit(
             frame,
             outcome="Y",
@@ -197,9 +207,21 @@ def _fit(frame: Any, *, weighted: bool = True, fit_kwargs: Any = None, **setting
     )
 
 
-def _fit_group(group: str, *, n: int = N, backend: str = "pandas", **settings: Any) -> Any:
-    """Fit the declared policies of one axis on that axis's dataset."""
+def _fit_group(
+    group: str,
+    *,
+    n: int = N,
+    backend: str = "pandas",
+    dataset: Callable[..., Any] | None = None,
+    **settings: Any,
+) -> Any:
+    """Fit the declared policies of one axis on that axis's dataset.
+
+    ``dataset`` overrides the axis's own generator without disturbing its declared
+    policies, for a caller that needs a different outcome law on the same interventions.
+    """
     make, seed, spec = SPECS[group]
+    make = dataset or make
     frame, _ = make(n=n, seed=seed, backend=backend)
     return _fit(frame, random_state=seed, **spec, **settings)
 
@@ -224,8 +246,23 @@ def backend_results() -> dict[str, tuple[Any, Any]]:
 
 @pytest.fixture(scope="module")
 def repeated_regime_result() -> Any:
-    """One repeated cross-fitted regime fit, for the draw count the reports print."""
-    return _fit_group("regime", n=N_BACKEND, cross_fit=True, repeats=REPEATS)
+    """One repeated cross-fitted regime fit, for the draw count the reports print.
+
+    ``repeats>1`` redraws the cross-fit split on every draw, so ``crossfit.py`` refuses
+    ``repeats>1`` with ``cross_fit=False``: this fixture cannot fit in sample. A
+    cross-fitted continuous outcome also needs a declared, true ``q_bounds``, so it draws
+    from :func:`~cleverly.datasets.make_nonlinear_bounded` -- a proportion outcome on the
+    same propensity as the Gaussian regime dataset, with known support ``(0, 1)`` -- rather
+    than state a bound the Gaussian law does not have.
+    """
+    return _fit_group(
+        "regime",
+        n=N_BACKEND,
+        dataset=make_nonlinear_bounded,
+        cross_fit=True,
+        repeats=REPEATS,
+        q_bounds=(0.0, 1.0),
+    )
 
 
 def _rows(result: Any, group: str) -> Mapping[str, Any]:

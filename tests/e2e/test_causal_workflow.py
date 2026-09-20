@@ -16,15 +16,19 @@ from cleverly import (
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.estimators import TMLE, TMLEResult
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, tmp_path) -> None:
     frame, _ = make_linear_ate(n=500, seed=31, backend=backend)
     adjustment = ["W1", "W2", "W3", "W4"]
+    # This test is about bit-for-bit parity between the legacy and the CausalStudy path,
+    # not about cross-fitting, and the outcome is Gaussian with unbounded support, so a
+    # cross-fitted fit needs a declared q_bounds it cannot truthfully state
+    # (docs/roadmap.md RM17). Fit in sample instead.
     legacy = (
-        TMLE(estimands=("ate",), **FAST_KWARGS)
+        TMLE(estimands=("ate",), **FAST_KWARGS, **IN_SAMPLE)
         .fit(frame, outcome="Y", treatment="A", covariates=adjustment)
         .single()
     )
@@ -33,7 +37,7 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, t
         frame,
         design=PointTreatment(outcome="Y", treatment="A", adjustment=adjustment),
     ).identify(ATE())
-    result = effect.estimate(**FAST_KWARGS)
+    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
 
     assert isinstance(result, TMLEResult)
     assert not hasattr(result, "single")
@@ -68,7 +72,10 @@ def test_structured_keys_are_composed_from_multi_arm_labels() -> None:
             ),
         )
         .identify(ATE(reference="medium"))
-        .estimate(**FAST_KWARGS)
+        # This test is about how structured parameter keys compose from multi-arm
+        # labels, not about cross-fitting, and the outcome is Gaussian with unbounded
+        # support (docs/roadmap.md RM17). Fit in sample instead.
+        .estimate(**FAST_KWARGS, **IN_SAMPLE)
     )
 
     assert set(result.parameter_keys) == {"ate[high vs medium]", "ate[low vs medium]"}

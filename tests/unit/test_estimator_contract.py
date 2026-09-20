@@ -343,6 +343,9 @@ def results() -> dict[str, Any]:
         TMLE(
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            # In sample: nothing here reads an estimate, and q_bounds stays None, so a
+            # cross-fitted continuous fit would be refused before it ever mattered.
+            cross_fit=False,
             n_folds=2,
             learner_folds=2,
             random_state=0,
@@ -357,7 +360,9 @@ def results() -> dict[str, Any]:
         outcome_learner=sklearn.linear_model.LinearRegression(),
         pseudo_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        n_folds=2,
+        # In sample, for the same reason as the point fit above: n_folds=1 draws no
+        # split, so the longitudinal continuous-outcome scale rule has nothing to refuse.
+        n_folds=1,
         learner_folds=2,
         random_state=0,
     ).fit(

@@ -954,7 +954,11 @@ def test_gaussian_differences_use_the_documented_nonzero_conversion(target, type
     from cleverly.datasets import make_linear_ate
 
     frame, _ = make_linear_ate(n=180, seed=3)
-    options = _learners()
+    # This test is about the E-value's Gaussian-to-risk-ratio conversion, not about
+    # cross-fitting, and ``make_linear_ate``'s outcome is Gaussian with unbounded
+    # support, so a cross-fitted fit needs a declared q_bounds it cannot truthfully
+    # state (docs/roadmap.md RM17). Fit in sample instead.
+    options = _learners(cross_fit=False)
     if typed:
         result = (
             CausalStudy(
@@ -994,8 +998,10 @@ def test_a_weighted_gaussian_conversion_standardises_by_the_weighted_sd():
 
     frame, _ = make_linear_ate(n=200, seed=3)
     frame = frame.assign(obs_weight=np.where(frame["W1"] > 0, 4.0, 0.25))
+    # This test is about the weighted standardising sd, not about cross-fitting, and
+    # the outcome is Gaussian with unbounded support (docs/roadmap.md RM17).
     result = (
-        _raw(estimands=("ate",))
+        _raw(estimands=("ate",), cross_fit=False)
         .fit(
             frame,
             outcome="Y",
@@ -1033,7 +1039,11 @@ def test_an_unweighted_gaussian_conversion_keeps_the_plain_sample_deviation():
     from cleverly.datasets import make_linear_ate
 
     frame, _ = make_linear_ate(n=180, seed=3)
-    result = _raw(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+    # This test is about the unweighted standardising sd, not about cross-fitting, and
+    # the outcome is Gaussian with unbounded support (docs/roadmap.md RM17).
+    result = (
+        _raw(estimands=("ate",), cross_fit=False).fit(frame, outcome="Y", treatment="A").single()
+    )
     sd, weighted = _standardising_sd(result)
     assert not weighted
     assert sd == pytest.approx(float(np.std(np.asarray(result.data.outcome), ddof=1)), rel=1e-12)

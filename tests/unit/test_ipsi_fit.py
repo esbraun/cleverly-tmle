@@ -17,7 +17,7 @@ from cleverly.datasets import make_nonlinear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.exceptions import DataError
 from cleverly.interventions import Incremental, Shift, Static
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 TILTS = [Incremental(1.0), Incremental(2.0), Incremental(0.5)]
 
@@ -30,7 +30,11 @@ def frame():
 @pytest.fixture(scope="module")
 def fit(frame):
     """One fit, shared: every test below reads a different part of the same result."""
-    return TMLE(**FAST_KWARGS, incremental=TILTS).fit(frame, outcome="Y", treatment="A").single()
+    return (
+        TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS)
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
 
 
 class TestWhatItReports:
@@ -153,11 +157,13 @@ class TestTheRefusals:
 
     def test_ctmle_is_refused_because_each_candidate_is_a_different_parameter(self, frame) -> None:
         with pytest.raises(ValueError, match=r"different\s+parameter"):
-            CTMLE(**FAST_KWARGS, incremental=TILTS).fit(frame, outcome="Y", treatment="A")
+            CTMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS).fit(
+                frame, outcome="Y", treatment="A"
+            )
 
     def test_an_unknown_reference_names_the_tilts_there_are(self, frame) -> None:
         with pytest.raises(DataError, match="natural course"):
-            TMLE(**FAST_KWARGS, incremental=TILTS, reference="nope").fit(
+            TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS, reference="nope").fit(
                 frame, outcome="Y", treatment="A"
             )
 
@@ -194,7 +200,7 @@ class TestAMissingOutcomeIsAccepted:
     @pytest.fixture(scope="class")
     def missing_fit(self, with_missing):
         return (
-            TMLE(**FAST_KWARGS, incremental=TILTS)
+            TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS)
             .fit(with_missing, outcome="Y", treatment="A", delta="D", covariates=["W1", "W2"])
             .single()
         )
@@ -232,7 +238,7 @@ class TestAMissingOutcomeIsAccepted:
 
     def test_nuisance_bound_is_accepted_where_g_bounds_is_not(self, with_missing) -> None:
         """``pi`` is a denominator and not part of the estimand, so bounding it is allowed."""
-        TMLE(**FAST_KWARGS, incremental=TILTS, nuisance_bound=0.05).fit(
+        TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS, nuisance_bound=0.05).fit(
             with_missing, outcome="Y", treatment="A", delta="D", covariates=["W1", "W2"]
         )
 
@@ -252,7 +258,7 @@ class TestAMissingOutcomeIsAccepted:
 class TestTheReferenceCanBeMoved:
     def test_contrasts_are_taken_against_the_named_tilt(self, frame) -> None:
         fit = (
-            TMLE(**FAST_KWARGS, incremental=TILTS, reference="odds x2")
+            TMLE(**{**FAST_KWARGS, **IN_SAMPLE}, incremental=TILTS, reference="odds x2")
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )

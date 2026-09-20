@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import IncrementalEffect, IncrementalMean
+from cleverly import CrossFitting, IncrementalEffect, IncrementalMean, TMLEMethod
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
@@ -35,6 +35,13 @@ _TILTS = (
     Incremental(2.0, name="up"),
 )
 
+#: In sample, not cross-fitted: ``confounding_study``'s Gaussian law (``binary=False``) is
+#: unbounded, and a cross-fitted continuous outcome needs a declared ``q_bounds`` (RM17).
+#: ``confounding_estimate`` has no ``cross_fit=`` passthrough, so this is threaded through
+#: its ``method=`` parameter instead, which accepts a full method object as well as a
+#: preset name.
+_IN_SAMPLE_METHOD = TMLEMethod(cross_fitting=CrossFitting(enabled=False))
+
 
 @cache
 def _fit(
@@ -48,6 +55,8 @@ def _fit(
     labels: bool = False,
 ) -> Any:
     target = (IncrementalEffect if contrast else IncrementalMean)(_TILTS, reference="natural")
+    # binary=True keeps its cross-fitted default; a binary outcome needs no q_bounds.
+    method = "tmle" if binary else _IN_SAMPLE_METHOD
     return confounding_estimate(
         confounding_study(
             binary=binary, weighted=weighted, strata=strata, backend=backend, labels=labels
@@ -55,6 +64,7 @@ def _fit(
         target,
         binary=binary,
         repeats=repeats,
+        method=method,
     )
 
 
@@ -62,7 +72,11 @@ def _fit(
     "contrast,binary,weighted,strata,repeats,backend,labels",
     [
         (False, False, False, False, 1, "pandas", False),
-        (True, False, True, False, 3, "polars", True),
+        # binary=True, not False: repeats=3 needs cross-fitting enabled to have a split
+        # to repeat, and this file's Gaussian law has no declared q_bounds, so a
+        # cross-fitted continuous outcome is refused (RM17). A binary outcome needs
+        # neither.
+        (True, True, True, False, 3, "polars", True),
         (False, True, True, False, 1, "pandas", True),
         (True, True, False, False, 1, "pandas", False),
     ],
@@ -139,7 +153,9 @@ def test_incremental_refits_rebuild_the_mechanism_and_reject_frozen_density_cont
 
 
 def test_incremental_repeats_persistence_and_surface_cache() -> None:
-    result = _fit(repeats=3, weighted=True)
+    # binary=True: repeats=3 needs cross-fitting enabled, which needs a declared
+    # q_bounds on this file's unbounded Gaussian law; a binary outcome needs neither.
+    result = _fit(repeats=3, weighted=True, binary=True)
     alias = alias_for(result, value="up")
     expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
     loaded = loads(dumps(result))
@@ -170,7 +186,9 @@ def test_incremental_stratified_targeting_is_refused_upstream() -> None:
 
 def test_a_sole_incremental_mean_uses_the_facade_selection() -> None:
     result = confounding_estimate(
-        confounding_study(), IncrementalMean((Incremental(2.0, name="up"),))
+        confounding_study(),
+        IncrementalMean((Incremental(2.0, name="up"),)),
+        method=_IN_SAMPLE_METHOD,
     )
     surface = result.sensitivity.simulated_confounding(grid=_GRID, random_state=31)
     assert surface.estimand == "ey_ipsi[up]"
@@ -179,7 +197,9 @@ def test_a_sole_incremental_mean_uses_the_facade_selection() -> None:
 
 def test_a_natural_only_fit_advertises_no_supported_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     result = confounding_estimate(
-        confounding_study(), IncrementalMean((Incremental(1.0, name="natural"),))
+        confounding_study(),
+        IncrementalMean((Incremental(1.0, name="natural"),)),
+        method=_IN_SAMPLE_METHOD,
     )
     forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(ValueError, match="reports none"):
@@ -187,7 +207,9 @@ def test_a_natural_only_fit_advertises_no_supported_alias(monkeypatch: pytest.Mo
 
 
 def test_incremental_contrast_preserves_a_non_natural_default_reference() -> None:
-    result = confounding_estimate(confounding_study(), IncrementalEffect((_TILTS[0], _TILTS[2])))
+    result = confounding_estimate(
+        confounding_study(), IncrementalEffect((_TILTS[0], _TILTS[2])), method=_IN_SAMPLE_METHOD
+    )
     alias = alias_for(result, value="up")
     assert result.parameter_keys[alias].reference == "down"
     surface = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
@@ -230,7 +252,9 @@ def test_incremental_contrast_preserves_a_non_natural_default_reference() -> Non
 def test_incremental_provenance_corruption_refuses_before_draw(
     field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result = _fit(repeats=3)
+    # binary=True: repeats=3 needs cross-fitting enabled, which needs a declared
+    # q_bounds on this file's unbounded Gaussian law; a binary outcome needs neither.
+    result = _fit(repeats=3, binary=True)
     alias = alias_for(result, value="up")
     part = field.split("-", 1)[1]
     if field.startswith("key-"):

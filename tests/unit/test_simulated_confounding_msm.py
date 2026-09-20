@@ -80,6 +80,13 @@ def _fit_continuous(
             treatment_kind="continuous",
         ),
     )
+    # This module is about the MSM replay and sensitivity surface, not about
+    # cross-fitting, so a continuous (Gaussian) outcome fits in sample: a cross-fitted fit
+    # of an unbounded outcome needs a declared q_bounds, which this synthetic Y, perturbed
+    # by additive Gaussian noise, does not have (docs/roadmap.md RM17). A binary outcome
+    # has no such gap and stays cross-fitted, which the repeated-fold cache tests below
+    # need: ``repeats`` above one is itself a cross-fitting policy and has no in-sample
+    # counterpart.
     return study.estimate(
         MSMProjection(
             MSM.linear(
@@ -96,6 +103,7 @@ def _fit_continuous(
         simultaneous=False,
         repeats=repeats,
         random_state=12,
+        **({} if binary else {"cross_fit": False}),
     )
 
 
@@ -290,7 +298,9 @@ def test_wrong_continuous_replay_changes_a_nonzero_cell(
 def test_continuous_msm_checks_every_cached_draw(
     field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    result = _fit_continuous(repeats=3)
+    # ``repeats`` above one is a cross-fitting policy, so this frame needs a binary
+    # outcome rather than the module's usual in-sample Gaussian one.
+    result = _fit_continuous(repeats=3, binary=True)
     state = result.nuisances[-1].msm
     value = getattr(state, field)
     value = tuple(x + 0.01 for x in value) if field == "dose_values" else value + 0.01
@@ -302,7 +312,8 @@ def test_continuous_msm_checks_every_cached_draw(
 
 
 def test_continuous_msm_persistence_and_native_assessment() -> None:
-    result = _fit_continuous("logit", repeats=3)
+    # ``repeats`` above one is a cross-fitting policy; see the comment above.
+    result = _fit_continuous("logit", repeats=3, binary=True)
     expected = simulated_confounding(result, estimand="msm[a]", grid=_GRID, random_state=31)
     loaded = loads(dumps(result))
     assert simulated_confounding(loaded, estimand="msm[a]", grid=_GRID, random_state=31) == expected

@@ -527,14 +527,19 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
     """
 
     def _frame(self, n_clusters: int = 3, per_cluster: int = 20):  # type: ignore[no-untyped-def]
+        # A binary outcome: this class fits with cross_fit=True (the default), and a
+        # cross-fitted continuous outcome now needs a declared q_bounds. What this class
+        # is about -- the declared fold plan beside the realised one -- does not depend
+        # on the outcome's family, so a binary law keeps the fit accepted without one.
         pd = pytest.importorskip("pandas")
         n = n_clusters * per_cluster
         rng = np.random.default_rng(0)
         w = rng.normal(size=n)
         a = rng.binomial(1, 0.5, n).astype(float)
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(w + a)))).astype(float)
         return pd.DataFrame(
             {
-                "Y": w + a + rng.normal(scale=0.5, size=n),
+                "Y": y,
                 "A": a,
                 "W": w,
                 "pid": np.repeat(np.arange(n_clusters), per_cluster),
@@ -550,8 +555,8 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
     def test_an_ordinary_fit_declares_what_it_ran(self) -> None:
         config = self._fit(self._frame(), n_folds=3).config
         assert config.crossfit.n_folds == 3 == config.n_folds
-        assert config.crossfit.scheme == "stratified"
-        assert config.crossfit.stratify_by == ("A",)
+        assert config.crossfit.scheme == "vfold"
+        assert config.crossfit.stratify_by == ()
 
     def test_a_capped_split_records_both_counts(self) -> None:
         # Three clusters cannot support ten folds. Before the plan, the realised 3 was
@@ -561,7 +566,7 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
             config = self._fit(frame, n_folds=10, cluster_id="pid").config
         assert config.crossfit.n_folds == 10
         assert config.n_folds == 3
-        assert config.crossfit.scheme == "stratified-grouped"
+        assert config.crossfit.scheme == "grouped"
 
     def test_the_summary_says_so_only_when_they_disagree(self) -> None:
         frame = self._frame(n_clusters=3, per_cluster=20)
@@ -588,12 +593,16 @@ class TestAnUndeclaredSeedIsResolved:
     """
 
     def _frame(self):  # type: ignore[no-untyped-def]
+        # A binary outcome: some tests here cross-fit (the default), and a cross-fitted
+        # continuous outcome now needs a declared q_bounds, which is beside what seed
+        # replay is about.
         pd = pytest.importorskip("pandas")
         rng = np.random.default_rng(4)
         n = 120
         w = rng.normal(size=n)
         a = rng.binomial(1, 1.0 / (1.0 + np.exp(-w))).astype(float)
-        return pd.DataFrame({"Y": w + a + rng.normal(scale=0.5, size=n), "A": a, "W": w})
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(w + a)))).astype(float)
+        return pd.DataFrame({"Y": y, "A": a, "W": w})
 
     def _fit(self, estimator, frame):  # type: ignore[no-untyped-def]
         return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
@@ -674,29 +683,35 @@ class TestStratifyingOnARareOutcome:
         per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
         assert min(per_fold) == 0
 
-    def test_crossing_the_outcome_in_puts_an_event_in_every_fold(self) -> None:
+    def test_crossing_the_outcome_in_is_refused_under_cross_fitting(self) -> None:
+        """ "treatment+outcome" used to reach every rare cell; cross-fitting refuses it now.
+
+        No fold count can revive it: the policy is refused before any split is drawn,
+        which is why the refusal reaches the caller through :meth:`TMLE._folds` exactly
+        where the old capped assignment used to come from.
+        """
         data = self._rare_event_data(n=300, n_events=8)
-        with pytest.warns(UserWarning, match="reducing n_folds"):
-            assignment = self._assignment(data, n_folds=10, stratify_folds="treatment+outcome")
-        per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
-        assert min(per_fold) >= 1
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            self._assignment(data, n_folds=10, stratify_folds="treatment+outcome")
 
     def test_the_fold_count_is_capped_at_the_rarest_cell(self) -> None:
-        data = self._rare_event_data(n=300, n_events=8)
-        est = fast_tmle(n_folds=10, stratify_folds="treatment+outcome")
-        with pytest.warns(UserWarning, match="reducing n_folds"):
-            realised = est._folds(data).n_folds
-        # Ten declared, eight events in the rarest cell, so eight folds ran -- and both
-        # numbers are recoverable rather than only the one that happened.
-        assert est.crossfit_plan(data).n_folds == 10
-        assert realised == 8
-        assert est.crossfit_plan(data).stratify_by == ("A", "Y")
+        """The old cap never runs: the declaration is refused before ``data`` is read.
 
-    def test_the_default_is_unchanged_bit_for_bit(self) -> None:
+        ``n_folds=10`` and eight events in the rarest cell used to leave eight folds
+        capped from ten.  Refusing the declaration at construction, with no ``data``
+        argument at all, is stricter than that cap and makes it unreachable.
+        """
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            fast_tmle(n_folds=10, stratify_folds="treatment+outcome")
+
+    def test_the_default_is_now_none_and_the_old_default_is_refused(self) -> None:
+        """``stratify_folds="treatment"`` was the default; it is refused under cross-fitting now."""
         data = self._rare_event_data()
-        explicit = self._assignment(data, n_folds=5, stratify_folds="treatment")
+        explicit_none = self._assignment(data, n_folds=5, stratify_folds="none")
         implied = self._assignment(data, n_folds=5)
-        np.testing.assert_array_equal(explicit, implied)
+        np.testing.assert_array_equal(explicit_none, implied)
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment'"):
+            self._assignment(data, n_folds=5, stratify_folds="treatment")
 
     def test_a_missing_outcome_is_its_own_stratum_not_a_zero(self) -> None:
         # A fold with no *observed* outcomes in an arm cannot fit the regression either,
@@ -716,7 +731,10 @@ class TestStratifyingOnARareOutcome:
         )
         frame.loc[:5, "D"] = 0.0
         frame.loc[:5, "Y"] = np.nan
-        est = fast_tmle(stratify_folds="treatment+outcome")
+        # cross_fit=False: this checks _fold_strata's own per-row coding, which is
+        # unaffected by the policy migration, and not the now-refused declaration of
+        # stratify_folds="treatment+outcome" under cross-fitting.
+        est = fast_tmle(stratify_folds="treatment+outcome", cross_fit=False)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"], delta="D")
         codes = est._fold_strata(data)
         assert codes is not None
@@ -735,8 +753,10 @@ class TestStratifyingOnARareOutcome:
             treatment=rng.binomial(1, 0.5, 200).astype(float),
             covariates=rng.normal(size=(200, 1)),
         )
+        # cross_fit=False: reaches _fold_strata's own refusal rather than the
+        # now-earlier one that a cross-fitted declaration of this policy raises first.
         with pytest.raises(DataError, match="needs a binary outcome"):
-            fast_tmle(stratify_folds="treatment+outcome")._fold_strata(data)
+            fast_tmle(stratify_folds="treatment+outcome", cross_fit=False)._fold_strata(data)
 
     def test_an_unknown_value_is_refused(self) -> None:
         with pytest.raises(ValueError, match="stratify_folds must be"):

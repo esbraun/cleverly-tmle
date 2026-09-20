@@ -256,6 +256,10 @@ def _study_fit():  # type: ignore[no-untyped-def]
     return study.identify(ATE()).estimate(
         outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        # In sample: the subject is the sensitivity bound's refusal of a conditional
+        # parameter, not cross-fitting, and a cross-fitted continuous outcome needs a
+        # declared q_bounds this fixture does not state.
+        cross_fit=False,
         n_folds=3,
         learner_folds=2,
         random_state=2,

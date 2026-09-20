@@ -133,6 +133,17 @@ def _fit_attributable(
             random_state=12,
             repeats=repeats,
             simultaneous=False,
+            # This suite is about simulated confounding, not cross-fitting. A
+            # cross-fitted continuous outcome now needs a declared q_bounds, which is
+            # beside the point here, so the gaussian branch fits in sample. The
+            # zero-cell fixture is fit in sample for the same reason as the surface's
+            # own degenerate refit below: a fold whose training complement gets an
+            # all-zero perturbed outcome has no observed-outcome-1 row to fit on, and
+            # that is the *later*, cross-fit-specific refusal this test is not about --
+            # the one it is about is PAF's own "observed risk is zero" refusal, which
+            # an in-sample fit still reaches. Binary, non-zero-cell fits keep
+            # cross-fitting: this file's other pinned numbers are measured under it.
+            cross_fit=family != "gaussian" and not zero_cell,
         )
     )
 

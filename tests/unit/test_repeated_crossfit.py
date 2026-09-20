@@ -25,10 +25,11 @@ from importlib import import_module
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly.data.weighting import REPORTED_DRAW
-from cleverly.datasets import make_binary_outcome, make_cde, make_linear_ate
+from cleverly.datasets import make_binary_outcome
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
@@ -36,6 +37,7 @@ from cleverly.inference.influence import ParameterEstimate, make_estimate, media
 from cleverly.provenance import fingerprint_array
 from cleverly.sensitivity import missingness_tilt, positivity_report, truncation_curve
 from cleverly.targets import parameter_stem
+from cleverly.utils.bounds import expit
 from cleverly.validation import score_check
 from cleverly.validation.nuisance import (
     SPREAD_NO_PARAMETERS,
@@ -78,9 +80,61 @@ def split_spread(result: Any, name: str) -> float:
     return float(np.std(values, ddof=1))
 
 
+def _binary_cde_with_missingness(n: int, seed: int) -> Any:
+    """A binary-outcome controlled direct effect with missing outcomes.
+
+    :func:`~cleverly.datasets.make_cde` has no bounded or binary variant, and this
+    module's ``TestTheMnarTiltFollowsTheDraws`` needs one: it fits a cross-fitted
+    controlled direct effect with ``repeats=2``, which a Gaussian outcome cannot do
+    without a declared ``q_bounds`` that would not be true of that law. The structure
+    here matches :func:`~cleverly.datasets.cde_dgp`'s propensity and intermediate
+    mechanisms; only the outcome differs, from a Gaussian mean to a Bernoulli draw.
+    """
+    rng = np.random.default_rng(seed)
+    w1, w2, w3 = rng.normal(size=(3, n))
+    a = rng.binomial(1, expit(0.3 * w1 + 0.2 * w2)).astype(float)
+    z = rng.binomial(1, expit(-0.3 + 1.1 * a + 0.5 * w1 - 0.4 * w3)).astype(float)
+    linear = 0.5 + 0.9 * a + 1.4 * z + 0.6 * a * z + 0.8 * w1 - 0.5 * w2 + 0.3 * w3
+    y = rng.binomial(1, expit(linear)).astype(float)
+    observed = rng.random(n) < 0.8
+    frame = pd.DataFrame(
+        {"Y": y, "A": a, "Z": z, "W1": w1, "W2": w2, "W3": w3, "Delta": observed.astype(float)}
+    )
+    frame.loc[~observed, "Y"] = np.nan
+    return frame
+
+
+def _binary_outcome_with_an_omitted_covariate(n: int, seed: int) -> Any:
+    """A binary-outcome law fitted on three of its four covariates, on purpose.
+
+    ``TestVariantsInheritRepeats.test_ctmle_repeats_its_selection_per_draw`` needs the two
+    ``selection_folds=2`` draws to disagree about which covariate the propensity search
+    keeps, which is what makes the retained candidate traceable to one draw rather than
+    the other. :func:`~cleverly.datasets.binary_outcome_dgp` has no such margin: every
+    covariate it draws is also in the fit's covariate list, so the search sees a fully
+    specified model and settles the same way on both draws. Withholding ``W4`` from the
+    fit here -- as this module's covariate list already withholds it from
+    :func:`~cleverly.datasets.linear_dgp` -- reintroduces the misspecification the search
+    result depends on, on a binary outcome instead of a Gaussian one.
+    """
+    rng = np.random.default_rng(seed)
+    w1, w2, w3, w4 = rng.normal(size=(4, n))
+    a = rng.binomial(1, expit(0.3 * w1 - 0.2 * w2 + 0.1 * w3)).astype(float)
+    linear = 2.0 + 1.5 * a + w1 + 0.5 * w2 - 0.8 * w3 + 0.4 * w4
+    y = rng.binomial(1, expit(linear)).astype(float)
+    return pd.DataFrame({"Y": y, "A": a, "W1": w1, "W2": w2, "W3": w3, "W4": w4})
+
+
 @pytest.fixture(scope="module")
 def frame() -> Any:
-    return make_linear_ate(n=N, seed=11)[0]
+    """The shared law for every ``repeats`` test whose subject is cross-fitting itself.
+
+    A binary outcome rather than :func:`~cleverly.datasets.make_linear_ate`'s Gaussian
+    one: this module's fits are cross-fitted (``repeats`` above one needs it), and a
+    cross-fitted continuous fit needs a declared ``q_bounds`` that a Gaussian law cannot
+    truthfully state. A binary outcome needs no ``q_bounds`` at all.
+    """
+    return make_binary_outcome(n=N, seed=11)[0]
 
 
 @pytest.fixture(scope="module")
@@ -99,10 +153,17 @@ def once(frame: Any) -> Any:
     return fast_tmle().fit(frame, **COLUMNS).single()
 
 
+#: The five difference/level estimands a continuous outcome resolves by default. Named
+#: explicitly on the binary ``frame`` fixture below so this fit keeps reporting five
+#: parameters rather than the seven a binary outcome's default adds (``rr`` and ``or``),
+#: which :class:`TestTheSpreadAcrossDraws`'s widest-vs-narrowest test needs held at five.
+DIFFERENCE_ESTIMANDS = ["ate", "att", "atc", "ey1", "ey0"]
+
+
 @pytest.fixture(scope="module")
 def repeated(frame: Any) -> Any:
     """One repeated fit, shared by every test that only needs to read one."""
-    return fast_tmle(repeats=REPEATS).fit(frame, **COLUMNS).single()
+    return fast_tmle(repeats=REPEATS, estimands=DIFFERENCE_ESTIMANDS).fit(frame, **COLUMNS).single()
 
 
 @pytest.fixture(scope="module")
@@ -556,8 +617,15 @@ class TestEveryStageOfTheSplitIsRedrawn:
         )
         estimator = fast_tmle(repeats=REPEATS, estimands=["ate"])
         result = estimator.fit(frame, **COLUMNS).single()
-        assert set(seen) == set(estimator.crossfit_plan(result.data).seeds())
-        assert len(set(seen)) == REPEATS
+        # The generic point-treatment preflight (docs/roadmap.md RM17) resolves each
+        # package Super Learner role once, at the estimator's own random_state, to read
+        # its task -- before any split-specific draw and outside the per-repeat loop.
+        # Every per-repeat resolution still lands on that repeat's own seed; the
+        # preflight's fixed seed is the one addition to the set below.
+        assert set(seen) == set(estimator.crossfit_plan(result.data).seeds()) | {
+            estimator.random_state
+        }
+        assert len(set(seen)) == REPEATS + 1
 
     def test_an_ordinary_fit_still_uses_the_estimators_own_random_state(
         self, frame: Any, monkeypatch: Any
@@ -1007,10 +1075,7 @@ class TestTheMnarTiltFollowsTheDraws:
 
     @pytest.fixture(scope="class")
     def missing_fit(self) -> Any:
-        frame, _ = make_cde(n=600, seed=13)
-        observed = np.random.default_rng(1).random(len(frame)) < 0.8
-        frame = frame.assign(Delta=observed.astype(float))
-        frame.loc[~observed, "Y"] = np.nan
+        frame = _binary_cde_with_missingness(n=600, seed=13)
         results = fast_tmle(repeats=2, estimands=["ate", "ey1", "ey0"]).fit(
             frame,
             outcome="Y",
@@ -1080,7 +1145,7 @@ class TestSerialization:
 
 
 class TestVariantsInheritRepeats:
-    def test_ctmle_repeats_its_selection_per_draw(self, frame: Any) -> None:
+    def test_ctmle_repeats_its_selection_per_draw(self) -> None:
         """Each draw selects for itself, and the retained artifact is draw one's.
 
         ``selection_folds=2`` rather than the default is what makes this falsifiable. At
@@ -1088,11 +1153,17 @@ class TestVariantsInheritRepeats:
         the retained selection is the empty tuple, and an implementation that attributed
         it to the last draw -- or to no draw -- would pass every assertion here. With two
         selection folds the draws disagree, so the artifact can be traced to one of them.
+
+        This module's shared ``frame`` fixture cannot supply that margin: its law fits
+        every covariate it draws, so the search settles the same way on both draws (see
+        :func:`_binary_outcome_with_an_omitted_covariate`). This test draws its own frame
+        with a covariate withheld from the fit instead.
         """
         # CTMLE overrides _nuisances alone, and the repeat loop sits around that method,
         # so this works without estimators/ctmle.py knowing repeats exist.
         from cleverly.estimators import CTMLE
 
+        frame = _binary_outcome_with_an_omitted_covariate(n=N, seed=11)
         kwargs = {**FAST_KWARGS, "repeats": 2, "estimands": ["ate"], "selection_folds": 2}
         result = CTMLE(**kwargs).fit(frame, **COLUMNS).single()
         assert result.n_repeats == 2

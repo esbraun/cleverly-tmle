@@ -25,9 +25,14 @@ import polars as pl
 import pytest
 import sklearn.linear_model
 
-from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_linear_ate,
+    make_missing_outcome,
+    make_nonlinear_bounded,
+)
 from cleverly.estimators import TMLE
-from tests.conftest import fast_tmle
+from tests.conftest import BOUNDED, IN_SAMPLE, fast_tmle
 
 ESTIMANDS = ("ate", "att", "atc", "ey1", "ey0")
 
@@ -62,11 +67,15 @@ def one_sample_two_backends(n: int, seed: int) -> tuple[pd.DataFrame, pl.DataFra
 
 @pytest.fixture(scope="module")
 def paired_fits() -> tuple[object, object, object]:
+    # In sample: the subject is backend parity, not cross-fitting, and q_bounds stays
+    # None so a cross-fitted continuous fit would otherwise be refused before it fit.
     pandas_frame, polars_frame = one_sample_two_backends(n=900, seed=91)
     return (
-        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **COLUMNS).single(),
-        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **COLUMNS).single(),
-        fast_tmle(estimands=ESTIMANDS).fit(arrow_backed(pandas_frame), **COLUMNS).single(),
+        fast_tmle(**IN_SAMPLE, estimands=ESTIMANDS).fit(pandas_frame, **COLUMNS).single(),
+        fast_tmle(**IN_SAMPLE, estimands=ESTIMANDS).fit(polars_frame, **COLUMNS).single(),
+        fast_tmle(**IN_SAMPLE, estimands=ESTIMANDS)
+        .fit(arrow_backed(pandas_frame), **COLUMNS)
+        .single(),
     )
 
 
@@ -78,12 +87,36 @@ def paired_repeated_fits() -> tuple[object, object]:
     five estimands. Adding three draws there would triple all of that for one test. This
     pair fits one estimand on a smaller sample, so the draws cost less than the fixture
     they avoid.
+
+    Cross-fitted, unlike ``paired_fits``: ``repeats`` above one needs cross-fitting, and
+    the subject here is a repeated cross-fit's spread across backends. A bounded law
+    carries a declared ``q_bounds`` instead of turning cross-fitting off, since a
+    Gaussian law's support is not what the fit would be declaring.
     """
-    pandas_frame, polars_frame = one_sample_two_backends(n=400, seed=93)
-    settings = {"estimands": ("ate",), "repeats": REPEATS}
+    pandas_frame, _ = make_nonlinear_bounded(n=400, seed=93, backend="pandas")
+    polars_frame, _ = make_nonlinear_bounded(n=400, seed=93, backend="polars")
+    settings = {**BOUNDED, "estimands": ("ate",), "repeats": REPEATS}
     return (
         fast_tmle(**settings).fit(pandas_frame, **COLUMNS).single(),
         fast_tmle(**settings).fit(polars_frame, **COLUMNS).single(),
+    )
+
+
+@pytest.fixture(scope="module")
+def cross_fitted_fit() -> object:
+    """A single cross-fitted fit, for the two tests that check what its report says.
+
+    Cross-fitted, unlike ``paired_fits``: these two tests assert the resolved fold count
+    and outcome scale a cross-fitted fit reports, so turning cross-fitting off would
+    check nothing. A bounded law carries a declared ``q_bounds`` instead, and the padded
+    ``(-0.5, 1.5)`` here (rather than :data:`~tests.conftest.BOUNDED`'s ``(0.0, 1.0)``) is
+    a real superset of the outcome's ``(0, 1)`` support: it is what these two tests need a
+    non-identity scaler for, since a declared support of exactly ``[0, 1]`` scales to
+    itself and reports as none declared.
+    """
+    pandas_frame, _ = make_nonlinear_bounded(n=900, seed=91, backend="pandas")
+    return (
+        fast_tmle(q_bounds=(-0.5, 1.5), estimands=ESTIMANDS).fit(pandas_frame, **COLUMNS).single()
     )
 
 
@@ -211,8 +244,9 @@ class TestBackendParity:
         """``narwhals`` accepts one, so the choice was declaring it or half-supporting it."""
         pa = pytest.importorskip("pyarrow")
         pandas_frame, _ = make_linear_ate(n=300, seed=97, backend="pandas")
+        # In sample: the subject is that pyarrow.Table is a declared backend.
         result = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(**IN_SAMPLE, estimands=("ate",))
             .fit(pa.Table.from_pandas(pandas_frame), outcome="Y", treatment="A")
             .single()
         )
@@ -266,9 +300,12 @@ class TestEveryReportFollowsTheBackend:
 
     @pytest.fixture(scope="class")
     def polars_fit(self):  # type: ignore[no-untyped-def]
-        frame, _ = make_linear_ate(n=400, seed=98, backend="polars")
+        # Cross-fitted: targeting_scheme="fold" and cv_targeting are fold-specific, so
+        # this fixture's subject is cross-fitting. A bounded law carries a declared
+        # q_bounds instead of turning cross-fitting off.
+        frame, _ = make_nonlinear_bounded(n=400, seed=98, backend="polars")
         return (
-            fast_tmle(estimands=("ate",), targeting_scheme="fold")
+            fast_tmle(**BOUNDED, estimands=("ate",), targeting_scheme="fold")
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -293,8 +330,9 @@ class TestEveryReportFollowsTheBackend:
         from cleverly.interventions import Static
 
         frame, _ = make_linear_ate(n=400, seed=99, backend="polars")
+        # In sample: the subject is that RegimeSupport.to_frame follows the backend.
         result = (
-            fast_tmle(estimands=("ey_regime",), interventions=(Static(0), Static(1)))
+            fast_tmle(**IN_SAMPLE, estimands=("ey_regime",), interventions=(Static(0), Static(1)))
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -339,8 +377,8 @@ class TestResultApi:
         assert set(frame.columns) == set(ESTIMANDS)
         assert len(frame) == result.n
 
-    def test_the_summary_reports_the_configuration_actually_used(self, paired_fits) -> None:
-        result, _, _ = paired_fits
+    def test_the_summary_reports_the_configuration_actually_used(self, cross_fitted_fit) -> None:
+        result = cross_fitted_fit
         text = result.summary()
         assert "Targeted maximum likelihood estimation" in text
         assert "cross-fitted over 5 folds" in text
@@ -350,8 +388,8 @@ class TestResultApi:
         for estimand in ESTIMANDS:
             assert estimand in text
 
-    def test_the_config_records_resolved_values(self, paired_fits) -> None:
-        result, _, _ = paired_fits
+    def test_the_config_records_resolved_values(self, cross_fitted_fit) -> None:
+        result = cross_fitted_fit
         config = result.config
         assert config.family == "gaussian"
         assert config.estimands == ESTIMANDS
@@ -388,13 +426,14 @@ class TestResultApi:
 
     def test_alpha_sig_widens_the_reported_interval(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=95)
+        # In sample: the subject is the reported interval's width under alpha_sig.
         narrow = (
-            fast_tmle(estimands=("ate",), alpha_sig=0.05)
+            fast_tmle(**IN_SAMPLE, estimands=("ate",), alpha_sig=0.05)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
         wide = (
-            fast_tmle(estimands=("ate",), alpha_sig=0.01)
+            fast_tmle(**IN_SAMPLE, estimands=("ate",), alpha_sig=0.01)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -414,8 +453,14 @@ class TestResultApi:
 
         frame, _ = make_linear_ate(n=800, seed=96)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
-        via_container = fast_tmle(estimands=("ate",)).fit(data).single()
-        via_frame = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+        # In sample: the subject is plumbing, whether fit routes a CausalData the same
+        # place as a frame, not cross-fitting.
+        via_container = fast_tmle(**IN_SAMPLE, estimands=("ate",)).fit(data).single()
+        via_frame = (
+            fast_tmle(**IN_SAMPLE, estimands=("ate",))
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         assert via_container["ate"].psi == via_frame["ate"].psi
         assert via_container["ate"].std_error == via_frame["ate"].std_error
         np.testing.assert_array_equal(
@@ -483,6 +528,10 @@ class TestPackageSurface:
         est = TMLE(
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            # In sample: q_bounds stays None, and this smoke test checks that every
+            # call in the quickstart exists and returns what it claims, not a
+            # cross-fitting claim on a misspecified linear model.
+            cross_fit=False,
             n_folds=4,
             estimands=("ate", "att", "atc", "ey1", "ey0"),
             random_state=0,
@@ -513,6 +562,9 @@ class TestPackageSurface:
                 estimands=("ate", "ey1", "ey0"),
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                # In sample: q_bounds stays None, and the point of this section is that
+                # nothing after fit refits, not a cross-fitting claim.
+                cross_fit=False,
                 n_folds=4,
                 learner_folds=3,
                 random_state=0,
@@ -553,7 +605,8 @@ class TestTheResultSet:
     @pytest.fixture(scope="class")
     def plain(self):  # type: ignore[no-untyped-def]
         frame, _ = make_linear_ate(n=300, seed=0)
-        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        # In sample: the subject is the result-set mapping API, not cross-fitting.
+        return fast_tmle(**IN_SAMPLE, estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
 
     @pytest.fixture(scope="class")
     def two_levels(self):  # type: ignore[no-untyped-def]
@@ -566,6 +619,8 @@ class TestTheResultSet:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             intermediate_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate",),
+            # In sample, for the same reason as the plain fixture above.
+            cross_fit=False,
             n_folds=4,
             random_state=0,
         )
@@ -635,6 +690,8 @@ class TestTheResultSet:
             w,
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            # In sample: the subject is the array entry point's return type.
+            cross_fit=False,
             n_folds=4,
         )
         assert list(fitted) == [None]
@@ -647,6 +704,6 @@ class TestTheResultSet:
         the mix-up surfaced as "could not convert string to float: 'ate'".
         """
         frame, _ = make_linear_ate(n=200, seed=7)
-        fitted = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        fitted = fast_tmle(**IN_SAMPLE, estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
         with pytest.raises(KeyError, match="indexed by intermediate level, not by estimand"):
             fitted["ate"]  # type: ignore[index]
