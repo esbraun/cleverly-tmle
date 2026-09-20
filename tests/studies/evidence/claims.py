@@ -43,6 +43,23 @@ def _subject(frame: pd.DataFrame, implementation: str) -> pd.DataFrame:
     return frame.loc[frame["implementation"] == implementation]
 
 
+def _scored(frame: pd.DataFrame) -> pd.DataFrame:
+    """The property rows a pass count is allowed to read.
+
+    A diagnostic row has no rule to fail.  :func:`~tests.studies.evidence.property_verdicts.
+    fold_policy_diagnostics` writes ``passed`` and ``property_passed`` ``True`` on every one
+    of them, because the family reports a comparison rather than deciding a verdict.  Such a
+    row counted in ``property_cells_passed`` raises the published ratio by adding a cell
+    that cannot fail, so the ratio would improve when a study added diagnostics and nothing
+    else.  The rows are published separately, as ``property_cells_reported``.
+    """
+    return frame.loc[frame["role"] != property_verdicts.DIAGNOSTIC_ROLE]
+
+
+def _diagnostic(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.loc[frame["role"] == property_verdicts.DIAGNOSTIC_ROLE]
+
+
 def _displacement(frame: pd.DataFrame, implementation: str) -> pd.Series:
     r"""How far targeting moved each estimate, in units of its own standard error.
 
@@ -84,14 +101,18 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "paired_tests_total": lambda data: count(data["equivalence"]),
         "paired_tests_passed": lambda data: float(data["equivalence"]["passed"].sum()),
-        "property_cells_total": lambda data: count(data["properties"]),
+        "property_cells_total": lambda data: count(_scored(data["properties"])),
         # Both columns, not just the row's own.  A property whose claim needs more than one
         # cell -- ``crossfit_overfitting``, whose coverage-gain clause is about the pair --
         # can have every row pass its own rule while the joint clause fails, and a headline
         # reading only ``passed`` would publish "14/14 cells pass" over exactly that.
         "property_cells_passed": lambda data: float(
-            (data["properties"]["passed"] & data["properties"]["property_passed"]).sum()
+            (
+                _scored(data["properties"])["passed"]
+                & _scored(data["properties"])["property_passed"]
+            ).sum()
         ),
+        "property_cells_reported": lambda data: count(_diagnostic(data["properties"])),
         "min_coverage_ci_lower": lambda data: float(data["performance"]["coverage_ci_lower"].min()),
         "min_coverage": lambda data: float(data["performance"]["coverage"].min()),
         "min_se_ratio_ci_lower": lambda data: float(data["performance"]["se_ratio_ci_lower"].min()),

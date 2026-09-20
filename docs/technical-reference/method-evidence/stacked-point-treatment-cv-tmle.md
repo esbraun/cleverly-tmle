@@ -128,6 +128,10 @@ each stratified cell publishes its paired coverage difference from the unstratif
 carries a margin, because a difference inside its own interval is equally consistent with both
 policies being right and with both being wrong in the same direction.
 
+The pass counts below therefore leave them out. A diagnostic row has no rule to fail, so counting
+one would raise the published ratio by adding a cell that cannot fail. The three are counted
+separately, as `property_cells_reported`.
+
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -163,8 +167,9 @@ the committed results and checked at the precision printed.
 | `independent_tests_passed` | 34 | of those, passing |
 | `paired_tests_total` | 17 | scenario-estimand paired tests |
 | `paired_tests_passed` | 17 | of those, passing |
-| `property_cells_total` | 17 | repeated-sampling property cells |
-| `property_cells_passed` | 17 | of those, passing |
+| `property_cells_total` | 14 | repeated-sampling property cells |
+| `property_cells_passed` | 14 | of those, passing |
+| `property_cells_reported` | 3 | fold-policy rows reported rather than gated, and excluded from the two counts above |
 | `max_standardized_bias` | 0.1085 | largest absolute bias in empirical standard deviations |
 | `min_coverage` | 0.9356 | lowest measured coverage of a nominal 95% interval |
 | `min_coverage_ci_lower` | 0.9182 | lowest exact 99% coverage endpoint, against 0.90 |
