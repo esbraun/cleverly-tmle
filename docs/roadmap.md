@@ -573,12 +573,13 @@ update with its own registered evidence. It is not a larger budget.
 | every published verdict is recomputed from the committed replication rows | `tests/unit/test_method_evidence.py::test_paper_property_verdicts_are_recomputed_from_the_replication_rows` |
 | the shipped fold and scale rules have mutation-controlled witnesses | `tests/unit/test_fold_policy_rules.py` |
 | the end-of-study fold-policy 2x2 | a controlled run at commit `eeaa1ce` over the study's own 8,000 registered seeds, with the law, learners, size, budget and margins held fixed. The attribution table above gives both arms |
-| no committed artifact would be refused by the shipped package | a sweep at commit `6c91a48` over every registered primary and property replicate of all sixteen cross-fitted studies, the eleven point-treatment rows and the five longitudinal ones. 340,600 replicates reached the first nuisance fit, with zero refusals. A replicate is one cell and one replication index, so a pair of cells that share a replication index draws one sample and counts twice, once for each cell's own preflight. An earlier sweep at commit `5f32c14` covered the eleven point-treatment rows alone and counted 115,400 |
-| the shipped package reproduces every committed row | a replay at commit `5f32c14` of the first three replicates of every primary and every property cell of those studies. The worst relative difference is 1.5e-13, against a 1e-12 tolerance |
+| a reported acceptance sweep found no refusal in its selected cells | a sweep at commit `6c91a48` reported that 340,600 primary and property replicates from all sixteen cross-fitted studies reached the first nuisance fit, with zero refusals. It counted one cell and one replication index as one replicate, including paired cells that share a sample. An earlier sweep at commit `5f32c14` reported 115,400 replicates from the eleven point-treatment studies |
+| a reported replay matched the sampled committed rows | a replay at commit `5f32c14` reported matches for the first three replicates of every primary and property cell in the eleven point-treatment studies. Its worst relative difference was 1.5e-13, against a 1e-12 tolerance. The replay did not check every committed row |
 
-The last three rows record acceptance runs made outside the repository, and this branch commits no
-script for them. Each row names the commit it ran at, its setup and its result, which is the form
-the [fold and outcome-scale probes](technical-reference/cv-tmle.md#what-the-probes-measured) use.
+The last three rows report acceptance runs made outside the repository. This branch commits no
+script or run log for them, so the committed artifacts do not independently verify their results.
+Each row names the commit, setup and reported result, as the
+[fold and outcome-scale probes](technical-reference/cv-tmle.md#what-the-probes-measured) do.
 
 Two cells turned green under the same changes, and this row records them so the direction is not
 read as one-sided.

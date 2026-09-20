@@ -9,20 +9,27 @@ outcome is a proportion, drawn as ``Beta(phi m, phi (1 - m))`` with ``m`` the co
 mean.  The Gaussian laws stay where they are: the in-sample rows keep sampling from them,
 and this module changes no cell they declare.
 
-Each law is a :func:`dataclasses.replace` over the package law its Gaussian twin uses, so
-the two differ in the outcome mean and the family and in nothing else.  Every propensity
-is carried over unchanged, which is what lets a cell's treatment oracle, its ``g_bounds``
-and the overlap the study documents stay the same statement about the same mechanism.
+Each law is a :func:`dataclasses.replace` over the package law its Gaussian twin uses.
+The replacement changes the name, outcome mean, sampling family and beta concentration.
+It keeps the covariates and propensity, so a cell's treatment oracle, its ``g_bounds``
+and the documented overlap still describe the same mechanism.
 Truths come from :meth:`~cleverly.datasets.DGP.truth`, the same Sobol rule the Gaussian
 truths come from.
 
-Declared before the run
------------------------
+Final declaration and pilot record
+----------------------------------
 
-Every constant below was chosen from a **disposable pilot** run outside the repository, on
-a separately labelled ``stream_seed(record, "pilot", ...)`` stream rather than on any
-registered seed.  The measurements are recorded here so a reader can see what each
-threshold was set against.
+The pilot measurements below are reported from a disposable run outside the repository,
+on a separately labelled ``stream_seed(record, "pilot", ...)`` stream.  This branch
+commits no pilot script or log, so those measurements cannot be independently replayed
+from the committed artifacts.  The fixed outcome support, inherited Gaussian constants
+and seed offsets were not chosen from that pilot.
+
+An earlier branch declaration chose the generated-design effect and replication budget
+after reading the positive oracle cell's SE-ratio verdict.  Commit ``308467c`` replaced
+that selection with a rule based on law quadrature and the control's paired deficit,
+then regenerated the study.  The final rule and its reported pilot precede the final
+artifacts; they do not precede every result produced on this branch.
 
 Most of the figures below are design quantities of a law, or a *control* cell's own
 discrimination.  Two are not, and this section used to claim that none of them were.

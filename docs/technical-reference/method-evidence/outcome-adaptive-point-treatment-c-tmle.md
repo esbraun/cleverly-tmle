@@ -177,6 +177,12 @@ the committed results and checked at the precision printed.
 | `margin:overfit_coverage_gain` | 0.1500 | cross-fit coverage-gain lower limit |
 | `margin:generated_design_deficit` | 0.0100 | smallest paired SE-ratio deficit the control must establish |
 
+The final generated-design law and replication budget followed an earlier branch run.
+That earlier declaration used the positive oracle cell's SE-ratio verdict to choose both.
+Commit `308467c` replaced the choice with a rule based on law quadrature and the control's
+paired deficit, then regenerated this study. The separately labelled pilot and its results
+are reported in `tests/studies/bounded_cv_laws.py`; this branch commits no pilot script or log.
+
 ## Limitations
 
 | limitation | what it means for use |
