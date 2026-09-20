@@ -1920,13 +1920,13 @@ class TMLE:
                 f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} {remedy}"
             )
 
-    @staticmethod
     def _preflight_natural_course_folds(
+        self,
         data: CausalData,
         estimands: tuple[str, ...],
         folds: Sequence[Folds],
     ) -> None:
-        """Check response support in every training complement before nuisance fitting."""
+        """Check natural-course response and outcome support before nuisance fitting."""
         if not _is_natural_course(data, estimands) or any(draw.is_single for draw in folds):
             return
         observed = np.asarray(data.observed, dtype=bool)
@@ -1940,18 +1940,56 @@ class TMLE:
                 "complement without one, so no fold count or random_state can fit the "
                 f"response and outcome nuisances; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
             )
-        labels = {False: "nonrespondent", True: "respondent"}
-        support = (("response", observed, np.unique(observed)),)
+        outcome = np.asarray(data.outcome, dtype=float)
+        if data.family == "binomial":
+            for value in (0.0, 1.0):
+                count = int(np.count_nonzero(observed & (outcome == value)))
+                if count < 2:
+                    raise DataError(
+                        "cross-fitted NaturalCourseMean needs at least two respondents "
+                        f"with each outcome, and the sample has {count} respondent(s) "
+                        f"with outcome {value:g}. Every partition leaves some training "
+                        "complement without that outcome, so no fold count or random_state "
+                        f"can fit the outcome regression; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
+                    )
+        sample_gap = self._super_learner_sample_shortfall(data, fits_treatment=False)
+        if sample_gap is not None:
+            role, described, count = sample_gap
+            raise DataError(
+                f"cross-fitted NaturalCourseMean cannot fit the {role} learner: the sample "
+                f"holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} Collect more "
+                "observations or use a learner without that inner split."
+            )
+        support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
+            ("response", observed, np.array([False, True])),
+        ]
+        if data.family == "binomial":
+            support.append(("outcome", np.where(observed, outcome, -1.0), np.array([0.0, 1.0])))
         for repeat, draw in enumerate(folds):
             gap = missing_training_support(draw, support)
             if gap is not None:
-                fold, _, missing = gap
+                fold, name, missing = gap
+                if name == "response":
+                    described = "respondent" if bool(missing[0]) else "nonrespondent"
+                else:
+                    described = f"respondent with outcome {float(missing[0]):g}"
                 raise DataError(
                     "cross-fitted NaturalCourseMean cannot fit its response and outcome "
                     f"nuisances because repeat {repeat}, fold {fold}'s training complement "
-                    f"contains no {labels[bool(missing[0])]}. "
+                    f"contains no {described}. "
                     + _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_NATURAL_COURSE_REMEDY)
                 )
+        complement_gap = self._super_learner_complement_shortfall(data, folds, fits_treatment=False)
+        if complement_gap is not None:
+            role, repeat, fold, described, count = complement_gap
+            raise DataError(
+                "cross-fitted NaturalCourseMean cannot fit the "
+                f"{role} learner because repeat {repeat}, fold {fold}'s training "
+                f"complement holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} "
+                + _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_NATURAL_COURSE_REMEDY)
+            )
 
     @property
     def _axis(self) -> ParameterAxis:

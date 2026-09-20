@@ -297,10 +297,14 @@ def test_a_training_complement_without_a_response_kind_refuses_before_any_learne
 ) -> None:
     folds = _preflight_folds()
     last = PREFLIGHT_FOLDS - 1
-    # Both rare rows sit in the last validation fold, so only that fold's complement lacks
-    # them. The earlier validation folds lack them too, which a validation-fold check
-    # would report as fold 0.
-    frame = _response_frame(rare, folds.test_index(last)[:2])
+    # The rare rows sit in the last validation fold, so only that fold's complement lacks
+    # them. Four respondents preserve both binary outcome classes at the sample level.
+    # The earlier validation folds lack the rare response kind too, which a
+    # validation-fold check would report as fold 0.
+    rare_rows = folds.test_index(last)[: (4 if rare == "response" else 2)]
+    frame = _response_frame(rare, rare_rows)
+    if rare == "response":
+        frame.loc[rare_rows, "Y"] = [0.0, 1.0, 0.0, 1.0]
     absent = "respondent" if rare == "response" else "nonrespondent"
 
     with pytest.raises(DataError, match=f"repeat 0, fold {last}'s training complement") as caught:
@@ -326,10 +330,15 @@ def test_a_training_complement_without_a_response_kind_refuses_before_any_learne
 @pytest.mark.parametrize("rare", ["response", "nonresponse"])
 def test_a_validation_fold_without_a_response_kind_still_fits(rare: str) -> None:
     folds = _preflight_folds()
-    # One rare row in each of the first two validation folds: every training complement
-    # holds at least one, while the last validation fold holds none.
-    rows = np.array([folds.test_index(0)[0], folds.test_index(1)[0]])
+    # Each of the first two validation folds holds the rare response kind. For the
+    # respondent case, each also holds both outcome classes, so every training
+    # complement can fit the outcome regression.
+    per_fold = 2 if rare == "response" else 1
+    rows = np.concatenate([folds.test_index(i)[:per_fold] for i in (0, 1)])
     frame = _response_frame(rare, rows)
+    if rare == "response":
+        for i in (0, 1):
+            frame.loc[folds.test_index(i)[:2], "Y"] = [0.0, 1.0]
     rare_rows = (frame["Delta"] == 1.0) if rare == "response" else (frame["Delta"] == 0.0)
     assert not rare_rows.to_numpy()[folds.test_index(PREFLIGHT_FOLDS - 1)].any()
 
