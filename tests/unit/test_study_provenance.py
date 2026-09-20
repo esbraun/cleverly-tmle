@@ -75,19 +75,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    # This row shares ``tests/studies/cvtmle_properties.py`` with the stacked row, which now
-    # samples from the bounded cross-fitted laws and declares ``q_bounds`` and
-    # ``stratify_folds``.  That is result-determining for it, so the two new modules cannot
-    # be declared in the ledger.  The entry leaves when the study is regenerated under the
-    # same rules.
-    "repeated-crossfit-tmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/bounded_cv_laws.py",
-            "tests/studies/fractional_glm.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
     "canonical-ctmle-selector": frozenset(
         {
             "tests/conftest.py",
@@ -96,8 +83,10 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    # Reaches the same two modules through ``cvtmle_properties``, for the same reason, and
-    # closes at its own regeneration onto the bounded laws.
+    # Reaches ``tests/studies/cvtmle_properties.py``, which now samples the bounded
+    # cross-fitted laws and declares ``q_bounds`` and ``stratify_folds``.  That is
+    # result-determining for this row, so the modules it newly reaches cannot be declared in
+    # the ledger.  The entry closes at this study's own regeneration onto the bounded laws.
     "canonical-ctmle-oat": frozenset(
         {
             "tests/conftest.py",

@@ -1,4 +1,11 @@
-"""Independent properties for repeated point-treatment cross-fitting."""
+"""Independent properties for repeated point-treatment cross-fitting.
+
+The inherited families come from :mod:`tests.studies.cvtmle_properties`, so they sample the
+bounded cross-fitted laws and declare ``q_bounds``.  The repeat-stability family is this
+study's own and stays on the binary law: it holds one sample fixed and varies the fold seed,
+so a bounded outcome would change what the cells measure without changing what they answer,
+and a binary outcome already has the identity scaler.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +13,17 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
+from cleverly.datasets import binary_outcome_dgp
 from cleverly.learners.crossfit import CrossFitPlan
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import cv_fit
-from tests.studies.cvtmle_properties import generate, summarize
+from tests.studies.cvtmle_properties import cells, generate, summarize
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    PropertyCell,
     paired_spread_ratio_interval,
     replicate_row,
     require_complete,
@@ -30,12 +40,73 @@ from tests.studies.repeated_crossfit import (
     draw_from_seed,
 )
 
+#: The variant name the shared module labels this row's cells with.
+VARIANT = "repeated"
+
 REPEAT_STABILITY_COLUMNS = (
     "spread_ratio",
     "spread_ratio_ci_lower",
     "spread_ratio_ci_upper",
     "spread_ratio_boundary",
 )
+
+
+def _unpenalized_logistic() -> LogisticRegression:
+    """The learner :func:`~tests.studies.canonical_cvtmle.cv_fit` builds for a binary law.
+
+    Restated here because :func:`declared_cells` has to name a learner and the stability
+    arms are fitted through ``cv_fit`` rather than through
+    :func:`~tests.studies.evidence.properties.run_cells`.  Nothing reads this copy during a
+    run, so a drift between the two would change no published row.
+
+    Returns
+    -------
+    LogisticRegression
+        An unpenalized main-effects logistic regression.
+    """
+    return LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
+
+
+def repeat_stability_cells() -> tuple[PropertyCell, ...]:
+    """The paired three-draw and one-draw arms, as declarations of the law they sample.
+
+    Both arms read one sample of :func:`~cleverly.datasets.binary_outcome_dgp` and vary only
+    the fold seed, so ``seed`` here names the stream that sample comes from rather than a
+    per-replication stream, and ``replicates`` is the number of fold-seed trials.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The positive three-repeat arm, then its one-repeat control.
+    """
+    dgp = binary_outcome_dgp()
+    sample_seed = stream_seed(STUDY, "repeat_stability", "sample")
+    return tuple(
+        PropertyCell(
+            property="repeat_stability",
+            cell=cell,
+            dgp=dgp,
+            outcome_learner=_unpenalized_logistic,
+            treatment_learner=_unpenalized_logistic,
+            n=REPEAT_STABILITY_N,
+            replicates=FOLD_SEED_TRIALS,
+            seed=sample_seed,
+            role=role,
+        )
+        for cell, role in (("three_repeats", "positive"), ("one_repeat_control", "control"))
+    )
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every cell this study runs, shared and study-specific alike.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The cross-fitted families from :func:`tests.studies.cvtmle_properties.cells`,
+        followed by the two repeat-stability arms.
+    """
+    return (*cells(VARIANT, include_overfitting=False), *repeat_stability_cells())
 
 
 def _first_repeat_seed(base_seed: int) -> int:
@@ -162,7 +233,7 @@ def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.Dat
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     inherited = generate(
-        "repeated",
+        VARIANT,
         repeats=REPEATS,
         n_folds=N_FOLDS,
         include_overfitting=False,
@@ -179,7 +250,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = summarize(
         inherited,
         STUDY,
-        "repeated",
+        VARIANT,
         include_overfitting=False,
         extra_columns=REPEAT_STABILITY_COLUMNS,
         return_parts=True,

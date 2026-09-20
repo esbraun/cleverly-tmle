@@ -1,10 +1,15 @@
 # Repeated point-treatment cross-fitted TMLE
 
 This directory freezes an independent repeated-sampling study of `cleverly`'s repeated,
-stacked point-treatment CV-TMLE. The primary study uses five treatment-stratified folds per
+stacked point-treatment CV-TMLE. The primary study uses five unstratified folds per
 draw, three fold draws, pooled targeting, the median of the draw-specific point estimates,
 and the median of within-draw variance plus squared split displacement. Risk ratios and odds
 ratios are aggregated on their log inference scale.
+
+Each draw's split reads neither the treatment nor the outcome, and the fit reads the realized
+plan back rather than trusting the keyword. The continuous law draws a proportion, so the study
+declares `q_bounds=(0, 1)` for it. The binary law is passed no `q_bounds`, because a binary
+outcome already sits on the unit interval.
 
 The study tests arm means, ATE, ATT, ATC, observed mean, PAR, and, where defined, PAF, RR, and OR
 against exact truth under binary and bounded continuous outcome laws. It reuses the shared
