@@ -1063,7 +1063,8 @@ class CTMLE(TMLE):
                 "C-TMLE has no clustered result. The search draws selection folds and, "
                 "inside each of them, nested folds, and no reviewed result covers a "
                 "grouped draw of those splits or the cluster-robust variance of the "
-                "candidate the search then stops at. Drop id= from fit "
+                "candidate the search then stops at; docs/roadmap.md F22 tracks this "
+                "stop. Drop id= from fit "
                 "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
                 "TMLEMethod), which has a clustered result."
             )

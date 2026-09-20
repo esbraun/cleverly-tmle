@@ -2270,7 +2270,8 @@ class LTMLE:
                 "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
                 "keeps each cluster whole, and what has not been established for the "
                 "sequential recursion is the cluster-robust variance of its targeted "
-                "estimate under one. Fit in sample (CrossFitting(enabled=False), or "
+                "estimate under one; docs/roadmap.md F22 tracks this stop. "
+                "Fit in sample (CrossFitting(enabled=False), or "
                 "n_folds=1 on the engine), which is clustered and evidenced, or drop id= "
                 "from fit."
             )
