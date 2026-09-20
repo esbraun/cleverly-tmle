@@ -75,19 +75,11 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/point_study_helpers.py",
         }
     ),
-    # The next two share ``tests/studies/cvtmle_properties.py`` with the stacked row, which
-    # now samples from the bounded cross-fitted laws and declares ``q_bounds`` and
-    # ``stratify_folds``.  That is result-determining for both, so the two new modules
-    # cannot be declared in the ledger.  Each entry leaves when its own study is regenerated
-    # under the same rules.
-    "fold-targeted-cvtmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/bounded_cv_laws.py",
-            "tests/studies/fractional_glm.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
+    # This row shares ``tests/studies/cvtmle_properties.py`` with the stacked row, which now
+    # samples from the bounded cross-fitted laws and declares ``q_bounds`` and
+    # ``stratify_folds``.  That is result-determining for it, so the two new modules cannot
+    # be declared in the ledger.  The entry leaves when the study is regenerated under the
+    # same rules.
     "repeated-crossfit-tmle": frozenset(
         {
             "tests/conftest.py",
