@@ -50,9 +50,13 @@ the reference could not fail.
 
 `solver_reported` now marks which side reports a flag at all, and the reference's `solver_passed`
 is left empty. What **is** comparable is the score audit, and at the shared bar it runs the other
-way: Cleverly fails 7 of 2,400 fits and R `drtmle` fails 37. Cleverly's median score is `2e-11`
-to `5e-11` against the reference's `7e-9` to `9e-9`. Every Cleverly failure sits in one regime,
-the one where the treatment mechanism is misspecified. The reference fails in all three.
+way. Each side audits `score_audited_fits` fits of the same replications. Cleverly fails
+`subject_score_failures` of them, and R `drtmle` fails `reference_score_failures`. Cleverly's
+median score is `2e-11` to `5e-11` against the reference's `7e-9` to `9e-9`.
+
+Every Cleverly failure sits in one regime, the one where the treatment mechanism is misspecified.
+The reference fails in all three. The measured table below resolves the three counts against
+`tests/canonical/drtmle/fit-diagnostics.csv`.
 
 ## The two implementations reach different roots when the outcome regression is wrong
 
@@ -164,6 +168,9 @@ as an established property.
 | `paired_tests_total` | 9 | paired comparison cells reported |
 | `property_cells_passed` | 19 | repeated-sampling property cells passing their own and family verdicts |
 | `property_cells_total` | 22 | repeated-sampling property cells reported |
+| `score_audited_fits` | 2400 | fits each side audits against the shared score bar |
+| `subject_score_failures` | 7 | Cleverly fits that miss that bar |
+| `reference_score_failures` | 36 | R `drtmle` fits that miss that bar |
 | `properties[double_robust_contraction/rate_outcome_correct]:slope` | -0.9176 | fitted contraction slope, outcome regression correct |
 | `properties[double_robust_contraction/rate_outcome_correct]:slope_ci_lower` | -1.5345 | its 99% lower endpoint |
 | `properties[double_robust_contraction/rate_outcome_correct]:slope_ci_upper` | -0.4823 | its 99% upper endpoint |
@@ -249,8 +256,23 @@ narrows the control interval by about the square root of three. The committed co
 runs `0.0037` to `0.0135`, and that is the predicted narrowing. The git history of
 `tests/canonical/drtmle/properties.csv` carries the interval it replaced.
 
-The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. That agreement is
-independent corroboration, because the budget rule never read this cell.
+The run that raised the rungs also moved the environment. SciPy moved from 1.17.1 to 1.18.0, and
+Python moved from 3.11.13 to 3.13.7, on that run. `tests/canonical/drtmle/manifest.json` records
+the versions the committed rows came from. Its git history records the versions they replaced.
+Every difference between the two ladders therefore carries both changes. No measurement here
+separates the budget from the environment.
+
+The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. The budget rule
+never read this cell, so the design did not steer that agreement. The interval still covers `-1`
+and `-1/2` together. It therefore corroborates the sign of the contraction and not its exponent,
+and the Limitations section below says the same.
+
+A reader cannot recompute that slope from the rung rows beside it. The fit reads every replication
+each rung ran, which is 2,400 at each outer rung. The `bias` column beside a rung instead reports
+the `800` replications that rung reads its coverage verdict from. The two samples differ. The log
+ratio of the outer rungs' published `bias` values, divided by the log of four, therefore gives a
+slope near `-0.8` and not `-0.9176`. The same ratio over every replication gives the published
+slope, and `property-replicates.csv.gz` carries those replications.
 
 The extra draws serve the slope alone. Each rung reads its own coverage verdict from `800`
 replications, which `CONTRACTION_VERDICT_REPLICATES` declares beside the budget. A rung's coverage

@@ -97,6 +97,9 @@ and solver status for every replication.
 | `property_cells_total` | 22 | repeated-sampling property cells |
 | `property_cells_passed` | 16 | property cells passing |
 | `property_cells_reported` | 2 | fold-policy rows reported rather than gated, and excluded from the two counts above |
+| `score_audited_fits` | 800 | fits each side audits against the shared score bar |
+| `subject_score_failures` | 2 | Cleverly fits that miss that bar |
+| `reference_score_failures` | 4 | R `drtmle` fits that miss that bar |
 | `properties[fold_policy/unstratified]:coverage` | 0.9523 | reported coverage of the split this row declares |
 | `properties[fold_policy/treatment_stratified]:coverage` | 0.9516 | reported coverage of the treatment-stratified split |
 | `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0056 | its paired 99% lower bound against the unstratified arm |
@@ -166,18 +169,25 @@ binary law and on one set of draws. It reports and it does not gate. Neither cel
 margin, so the pass counts above leave both out.
 
 The measured table above gives the paired coverage difference and its two endpoints. That
-interval covers zero. The upper endpoint stays below the threshold the declared rule names. It
-also sits near that threshold, so this reading has little room. The fold policy does not explain
-the endpoint move on this law at this size.
+interval covers zero. The upper endpoint stays below the threshold the declared rule names. The
+fold policy does not explain the endpoint move on this law at this size.
+
+This reading has less room than its design asked for. The declaration budgeted 8,000 draws for a
+99% half-width of 0.0046, which would resolve the 0.005 the rule names. The realized half-width
+is 0.0051, because the two policies disagreed on more draws than the pilot predicted. The upper
+endpoint clears 0.005 only because the point estimate fell below zero. So this reading rests on
+where the difference landed, and not on the resolution the instrument achieved.
+[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the
+declared and realized numbers.
 
 The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
 `n_500` cell. The gated cell keeps its own 400-replication budget.
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
 the rule this reading applies.
 
-Two `cleverly` replications and four R replications out of 800 exceed the shared empirical-score
-bar. The propensity bound stays inactive throughout, and the subject fit is refused if it does
-not.
+Each side audits `score_audited_fits` fits against the shared empirical-score bar. Cleverly misses
+it on `subject_score_failures` fits, and R `drtmle` misses it on `reference_score_failures`. The
+propensity bound stays inactive throughout, and the subject fit is refused if it does not.
 
 The row covers one binary-outcome law, one fold count, pooled reduced cross-fitting, univariate
 reduction, ordinary GLM nuisance fits, and pointwise intervals. It excludes flexible learners,

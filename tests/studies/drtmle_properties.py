@@ -101,17 +101,24 @@ CONTRACTION_REPLICATES = (2_400, 800, 2_400)
 #: and every rung's coverage row was judged at it.  Restoring it restores those verdicts rather
 #: than changing them.
 #:
-#: **Why it must not track** :data:`CONTRACTION_REPLICATES`.  A rung's verdict is a one-sided
-#: exact coverage interval against a fixed floor, and ``docs/roadmap.md`` RM18 refuses raising a
-#: budget under a gate of that shape: a larger budget narrows the interval and walks the lower
-#: endpoint towards the floor, so a red cell turns green on budget alone.  It did.  At 800
-#: replications ``treatment_correct_n1500`` covers 732 of 800, a 99% lower endpoint of 0.8864;
-#: at 2,400 it covers 2,220 of 2,400, a lower endpoint of 0.9101.  The coverage barely moved
-#: and the verdict flipped.  The two outer rungs were raised for the *slope*, which is a
-#: different kind of gate: narrowing a slope interval converges on the true slope, and the
-#: ``both_wrong`` control still has to fail to contract.  So the extra draws serve the slope
-#: alone, and a future change to :data:`CONTRACTION_REPLICATES` must leave this number where it
-#: is unless it means to restate the rungs' coverage claims.
+#: **Why it must not track** :data:`CONTRACTION_REPLICATES`.  Raising the outer rungs for the
+#: slope also raised these gates, and ``treatment_correct_n1500`` turned green.  At 800
+#: replications it covers 732 of 800, a 99% lower endpoint of 0.8864; at 2,400 it covers 2,220
+#: of 2,400, a lower endpoint of 0.9101.
+#:
+#: The reason that is refused is *procedural* rather than statistical.  A larger budget walks
+#: either endpoint towards the truth, not towards the margin, and it buys a pass exactly when
+#: the truth already satisfies the gate.  This cell is the demonstration: its coverage is 0.9150
+#: at 800 and 0.9250 at 2,400, both above the 0.90 floor, so the extra draws resolved a cell the
+#: declared budget could not read.  The slope behaves the same way, and neither gate is immune.
+#:
+#: What differs is that the rung budget was *declared* and this one was not.
+#: :data:`CONTRACTION_REPLICATES` carries a rule written before the run, which reads the law's
+#: bias scale and the control's spread and names what it refuses to read.  The coverage budget
+#: rose as a side effect nobody declared, and an undeclared budget cannot be told apart from one
+#: chosen after reading the verdict.  ``docs/roadmap.md`` RM18 refuses that.  So the extra draws
+#: serve the slope alone, and a future change to :data:`CONTRACTION_REPLICATES` must leave this
+#: number where it is unless it means to restate the rungs' coverage claims.
 CONTRACTION_VERDICT_REPLICATES = 800
 
 if len(CONTRACTION_REPLICATES) != len(CONTRACTION_SIZES):  # pragma: no cover - import-time guard

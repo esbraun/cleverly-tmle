@@ -29,14 +29,25 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "properties": ("properties.csv", ("property", "cell")),
 }
 
+#: The one optional result file this vocabulary reads, under the short name it gets.
+#:
+#: Not an entry in :data:`ARTIFACTS`, because every study publishes each file listed there
+#: and only a study with a ``fit-diagnostics.csv`` hook publishes this one.  A study that
+#: declares it gains the three ``score_audit`` counts below and nothing else changes.
+FIT_DIAGNOSTICS_FILE = "fit-diagnostics.csv"
+FIT_DIAGNOSTICS = "fit_diagnostics"
+
 _REFERENCE = re.compile(r"^(?P<artifact>\w+)\[(?P<keys>[^\]]*)\]:(?P<column>\w+)$")
 
 
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     """Every committed artefact of a study, keyed by its short name."""
-    return {
+    frames = {
         name: pd.read_csv(record.artifact(filename)) for name, (filename, _) in ARTIFACTS.items()
     }
+    if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
+        frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
+    return frames
 
 
 def _subject(frame: pd.DataFrame, implementation: str) -> pd.DataFrame:
@@ -141,6 +152,51 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "summary_cells": lambda data: count(data["summary"]),
     }
+
+
+def _score_audit_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """How many fits each side audits, and how many of them miss the shared score bar.
+
+    These three counts were prose.  ``canonical-dr-tmle.md`` typed "Cleverly fails 7 of 2,400
+    fits and R ``drtmle`` fails 37" into a reader-facing page, and a later regeneration moved
+    the reference count to 36 while the sentence stood.  The count is a measurement, so it
+    belongs here with every other measurement a document quotes.
+
+    Only a study whose ``extra_artifacts`` hook writes ``fit-diagnostics.csv`` gains them.
+    Both sides audit the identical replications, because the hook derives the two rows of a
+    replication from one rule.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose diagnostics are read.
+
+    Returns
+    -------
+    dict
+        Empty for a study that publishes no fit diagnostics.
+    """
+    if FIT_DIAGNOSTICS_FILE not in record.extra_artifacts:
+        return {}
+
+    def audited(data: Mapping[str, pd.DataFrame], implementation: str) -> pd.DataFrame:
+        frame = data[FIT_DIAGNOSTICS]
+        return frame.loc[frame["implementation"] == implementation]
+
+    def failures(data: Mapping[str, pd.DataFrame], implementation: str) -> float:
+        rows = audited(data, implementation)
+        return float((~rows["score_passed"].astype(bool)).sum())
+
+    out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {
+        "score_audited_fits": lambda data: float(len(audited(data, record.implementation))),
+        "subject_score_failures": lambda data: failures(data, record.implementation),
+    }
+    if record.reference is not None:
+        reference = record.reference
+        out["reference_score_failures"] = lambda data: failures(data, reference)
+    return out
 
 
 def _scenario(frame: pd.DataFrame, scenario: str) -> pd.DataFrame:
@@ -323,6 +379,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
     return {
         **_aggregates(record),
         **_scenario_aggregates(record),
+        **_score_audit_aggregates(record),
         **{name: (lambda data, value=value: value) for name, value in declared.items()},
     }
 

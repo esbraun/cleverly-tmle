@@ -1673,6 +1673,9 @@ _FAMILY = {
     "property_cells": "properties",
     "max_targeting_displacement": "replicates",
     "median_targeting_displacement": "replicates",
+    "score_audited_fits": "fit_diagnostics",
+    "subject_score_failures": "fit_diagnostics",
+    "reference_score_failures": "fit_diagnostics",
 }
 
 

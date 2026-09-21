@@ -570,8 +570,11 @@ The Díaz, Williams, Hoffman and Schenck (2023) entry above gives the worked cas
 Section 5 is the preprint's Section 4. Its published Lemma 4 is the preprint's Lemma 3. The
 theorem numbers match across the two versions.
 
-No entry in this section quotes an internal page number. The Díaz entry sits in a different
-section, and it quotes journal pages, because this project read the published article.
+Internal pagination moves with the version as well. Most entries below name an author manuscript,
+a preprint or an online-first PDF as the copy this project read. Each of those paginates
+differently from the published issue. So no entry in this section quotes an internal page number.
+The Díaz entry sits in a different section. It quotes journal pages because it names the published
+article as the copy this project read.
 
 - Wang, Park, Small & Li (2024), [*Model-Robust and Efficient Covariate Adjustment for
   Cluster-Randomized Experiments*](https://doi.org/10.1080/01621459.2023.2289693), *Journal of the

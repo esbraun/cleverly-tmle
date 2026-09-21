@@ -57,3 +57,9 @@ declares. A rung's verdict is a one-sided exact interval against a fixed floor, 
 budget walks its lower endpoint towards that floor and can turn a red cell green on budget
 alone. The published `replicates` column reports the 800 each rung's verdict used, and the
 three rate rows report every replication the slope consumed.
+
+The run that produced these rows also moved the environment. SciPy moved from 1.17.1 to 1.18.0,
+and Python moved from 3.11.13 to 3.13.7, on that run. `manifest.json` records the versions the
+committed rows came from, and its git history records the versions they replaced. Every
+difference from the rows these replaced therefore carries the environment move as well as the
+ladder change. Do not attribute such a difference to either one alone.

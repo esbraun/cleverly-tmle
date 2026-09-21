@@ -464,7 +464,7 @@ law, learner or size after seeing its verdict.
 | [selector-based point-treatment C-TMLE](technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md) | `selector_necessity/collaborative`, positive | standardized bias | 0.1412 | 0.2173 | the 99% bias upper endpoint is 0.0037 against an equivalence margin of 0.0030, which is 0.3086 against 0.25 on the standardized scale | mostly the bounded law. The fold policy adds a little |
 | the same study | `type_i_error/sharp_null`, positive | rejection rate | 0.0275 | 0.0700 | the 99% upper endpoint is 0.1095 against the 0.10 ceiling. Coverage is 0.9300, whose 99% lower endpoint is 0.8905 against the 0.90 floor | the bounded law alone |
 | [selector-based multi-arm C-TMLE](technical-reference/method-evidence/selector-based-multi-arm-c-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9057 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9425 to 0.9350 | not isolated. One covered replication of 400 separates the two endpoints |
-| [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/rate_outcome_correct`, positive | 99% contraction-slope interval | -3.52 to -0.06 | -3.04 to +0.12 | the interval must stay below zero | not isolated. The arm's bias is 0.0036 at the first rung. A declared rung design now resolves this cell, and "What the two readings found" gives its interval |
+| [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/rate_outcome_correct`, positive | 99% contraction-slope interval | -3.52 to -0.06 | -3.04 to +0.12 at the regeneration, and -1.5345 to -0.4823 in the committed artifact | the interval must stay below zero | not isolated. The arm's bias is 0.0036 at the first rung. A declared rung design now resolves this cell, and "What the two readings found" gives its interval |
 | [multi-arm point-treatment DR-TMLE](technical-reference/method-evidence/multi-arm-dr-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9087 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9450 to 0.9350 | not isolated. The same cell and the same new endpoint as the multi-arm selector row above |
 | [cross-fitted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | `crossfit_overfitting/cross_fitted_ltmle`, positive | reported SE over empirical SD | 1.172522, 99% upper 1.196518 | 1.176650, 99% upper 1.201555 | the shared `se_ratio_sanity` ceiling of 1.2000, exceeded by 0.001555 | the fold policy alone |
 
@@ -503,8 +503,8 @@ reproduces, which used the same override applied by hand.
 | `selector_necessity/collaborative` | a law by fold-policy 2x2 at commit `4ca7a15`, over the study's 800 registered seeds | the bounded law carries most of the move. Bounded folds with treatment strata give 0.2211, and bounded folds without give 0.2173, so the fold policy adds about 0.004. The anchor Gaussian design also misses under unstratified folds, at a standardized 0.2562 against 0.25 |
 | `type_i_error/sharp_null`, selector | the same 2x2 | the bounded law alone. The cell measures 0.0700 under both fold policies, against 0.0375 on the Gaussian law without strata |
 | `crossfit_overfitting/cross_fitted_ltmle` | a fold-policy 2x2 at commit `eeaa1ce`, over the study's 8,000 registered paired draws | the fold policy alone. The first-node-stratified arm gives 1.172543 with a 99% upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control arm has no outer split for either policy to change, and it gives 0.353193 under both. These studies never moved to a bounded twin, so there is no second axis |
-| both `n_500` coverage endpoints | none | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
-| `double_robust_contraction/rate_outcome_correct` | resolved | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. A declared rung design raises the two outer rungs, and the interval now sits below zero |
+| both `n_500` coverage endpoints | a registered `fold_policy` pair, two split policies over 8,000 paired draws of each study | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. Neither paired coverage interval reaches the gate-relevant 0.005. "What the two readings found" gives both intervals, and it records the resolution the DR-TMLE instrument missed. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
+| `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter and SciPy, so the budget and the environment are confounded |
 
 The fold policy has no general direction on the overfitting statistic. `crossfit_overfitting`
 shares one family, one statistic and one ceiling across the four cross-fitted longitudinal studies.
@@ -669,6 +669,12 @@ failure of this declaration.
 Both readings ran once, under the rules the subsection below declared before them. Each publishes
 what it produced.
 
+Both runs also moved the environment. SciPy moved from 1.17.1 to 1.18.0, and Python moved from
+3.11.13 to 3.13.7, on the runs that produced these rows. Each study's `manifest.json` records the
+versions its committed rows came from, and its git history records the versions they replaced. A
+difference between a committed row and the row it replaced therefore carries the environment move
+as well as the design change. Nothing here separates the two.
+
 ##### The `n_500` endpoints are a boundary resolution
 
 | study | paired coverage gain | reading |
@@ -678,8 +684,25 @@ what it produced.
 
 The gain is the stratified arm's coverage minus the unstratified arm's, on one law and one set of
 draws. Neither study shows a fold-policy effect large enough to move the endpoint across the 0.90
-floor. The attribution of "none" in the table above therefore stands, and it now rests on a
-measurement. The DR-TMLE reading has little room, and its evidence page says so.
+floor. The attribution in the table above therefore rests on a measurement rather than on the
+absence of one. The DR-TMLE reading has little room, and its evidence page says so.
+
+The pilot under-estimated the discordance rate on both studies. The selector study declared 0.0117
+and ran at 0.0214. The DR-TMLE study declared 0.0250 and ran at 0.0301. A paired interval's
+half-width grows with that rate, so both readings came out wider than the declaration predicted.
+
+The selector reading still resolves 0.005. Its declared half-width was 0.0031 to 0.0038 and its
+realized half-width is 0.0043. The DR-TMLE reading does not resolve 0.005. Its declared half-width
+was 0.0046 and its realized half-width is 0.0051. The "resolves 0.005: yes" row of the declaration
+table above is therefore false as run. This row records that outcome and leaves the declaration
+standing.
+
+The DR-TMLE reading is carried by where its point estimate fell, and not by the resolution it
+achieved. Its paired gain is -0.000625, so its upper endpoint reaches 0.004500 instead of the
+0.0051 a zero-centred interval of this width would reach. A gain 0.0005 larger would have put that
+endpoint at 0.005 and made the reading indeterminate. At the realized discordance rate, about
+8,200 paired draws would have brought the half-width below 0.005. The selector reading does not
+depend on where its point estimate fell, because its half-width alone resolves 0.005.
 
 Nothing else moved. No verdict changed on either study, over 12 cells on the selector row and 22
 on the DR-TMLE row. Both gated `n_500` cells keep their 400-replication budget.
@@ -696,25 +719,36 @@ fitted slope is -0.917626, near the -1 a second-order remainder predicts.
 
 The declaration made one falsifiable prediction, and the run confirms it. The control's half-width
 had to narrow by about the square root of three, from 0.008652 to about 0.004995. It measures
-0.004906.
+0.004906. The environment moved on the same run, so the measured width carries that move too.
 
 ##### One correction the run forced
 
 The two outer rungs carry their own coverage verdicts, and raising their replications raised those
-gates too. `double_robust_contraction/treatment_correct_n1500` turned green on budget alone. It covers
-732 of 800 at the declared budget, for a 99% lower endpoint of 0.886433. It covers 2,220 of 2,400
-at the raised one, for 0.910081. This row refuses that remedy, so the budget must not reach that
-gate.
+gates too. `double_robust_contraction/treatment_correct_n1500` turned green when only its budget
+moved. It covers 732 of 800 at the declared budget, for a 99% lower endpoint of 0.886433. It
+covers 2,220 of 2,400 at the raised one, for 0.910081. Nobody declared that budget, so this row
+refuses it.
 
 Each rung's coverage verdict is therefore read at its declared 800 replications, and the extra
 draws serve the slope alone. `treatment_correct_n1500` is red again, exactly as it was.
 
-The two gates differ in kind, which is why one budget may rise and the other may not.
+What separates the two budgets is registration, and not a difference between the gates.
 
-| gate | shape | what a larger budget does |
+A larger budget walks either endpoint toward the truth rather than toward the margin. It buys a
+pass exactly when the truth already satisfies the gate. This cell is the demonstration. Its
+coverage is 0.9150 at 800 replications and 0.9250 at 2,400, and both sit above the 0.90 floor, so
+the extra draws resolved a cell that the declared budget could not read. The slope behaves the
+same way. Neither gate is immune, and the table that once claimed otherwise here was wrong.
+
+The protection this row offers is therefore procedural.
+
+| budget | how it was set | what that buys |
 | --- | --- | --- |
-| a rung's coverage | a one-sided exact interval against a fixed floor | walks the lower endpoint toward the floor, whatever the estimator does |
-| the fitted slope | a two-sided interval around a fitted quantity | narrows toward the true slope. The control must still fail to contract |
+| the two outer rungs | declared before the run, under a rule that reads the law's bias scale and the control's spread, and that names the verdicts it refuses to read | a design that could have failed. Its one falsifiable prediction is checked above |
+| each rung's own coverage | never declared. It rose as a side effect of the rung budget | nothing. An undeclared budget cannot be distinguished from one chosen after the verdict |
+
+A budget nobody declared is the fishing RM18 refuses, whatever the statistics say. So the rung
+verdicts return to the budget they published, and the slope keeps the budget it declared.
 
 The study now passes 19 of 22 property cells, against 18 before. The one verdict that changed is
 `rate_outcome_correct`.
@@ -1517,6 +1551,11 @@ mechanism is consistent at each time point. It is a second estimator over regist
 targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 that the longitudinal
 rows already use, and no new container is needed. Read the rate conditions its interval claims
 first, because they differ from the sequential regression conditions.
+
+[F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) names this item as one of its three
+remediation routes. Theorem 4 of the same article certifies a fold-local recursion for the SDR
+estimator. Theorem 3 certifies a pooled fluctuation for the shipped one. So this item answers
+F24's fold-local question by shipping the estimator the theory already covers.
 
 ### X5. Natural and interventional mediation effects
 
