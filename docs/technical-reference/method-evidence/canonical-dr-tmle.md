@@ -261,8 +261,13 @@ runs `0.0037` to `0.0135`, and that is the predicted narrowing. The git history 
 The run that raised the rungs also moved the environment. SciPy moved from 1.17.1 to 1.18.0, and
 Python moved from 3.11.13 to 3.13.7, on that run. `tests/canonical/drtmle/manifest.json` records
 the versions the committed rows came from. Its git history records the versions they replaced.
-Every difference between the two ladders therefore carries both changes. No measurement here
-separates the budget from the environment.
+
+The committed history separates the budget from the environment. The first 800 replications of
+each rung ran under both environments, and their estimates agree within 7.3e-5. At that budget
+the slope rule gives each interval within 2e-5 under both environments, and
+`rate_outcome_correct` still runs `-3.0401` to `+0.1232`. The move below zero therefore comes
+from the declared budget. RM18 records the comparison under
+"[What the committed history already separates](../../roadmap.md#what-the-committed-history-already-separates)".
 
 The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. The budget rule
 never read this cell, so the design did not steer that agreement. The interval still covers `-1`

@@ -39,7 +39,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | derive the missing selector-path and generated-design results, and publish each red cell with its interval until then | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells; it does not isolate the cause | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.1 | Red property cells after the fold, scale and law changes | locate published selector-path and generated-design results, and publish each red cell with its interval until a source supplies them | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells; it does not isolate the cause | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
@@ -329,7 +329,9 @@ Apply these corrections:
    also says that no result shows this curve is the estimator's influence curve when that mechanism
    is not consistent for the treatment law.
 2. Decide in the [F18](#f18-selector-path-c-tmle-inference) audit whether the interval is refused
-   or kept with that label. Do not add an ad hoc variance term in the meantime.
+   or kept with that label. Do not add an ad hoc variance term in the meantime. Cui and Tchetgen
+   Tchetgen (2024), Section 6 of arXiv:1911.02029v6, support the label. They say that a Wald
+   interval at the selected learners "is completely blind to the model selection step".
 3. Audit `_forward_path` against van der Laan and Gruber (2010) and the pinned R `ctmle`. If the
    forced addition matches both, correct the two docstrings. If it does not, change the path and
    regenerate the C-TMLE studies whose selections it moves.
@@ -503,12 +505,28 @@ is still red. The overfitting family is green under the pooled update.
 
 | study | cell | state after the regeneration |
 | --- | --- | --- |
-| selector-based multi-arm C-TMLE | the greedy and ordered `selector_necessity` RMSE ratios | 0.4470 to 0.4415, and 0.3736 to 0.3781. Both stay red, and neither moved by more than 0.006 |
+| selector-based multi-arm C-TMLE | the greedy and ordered `selector_necessity` cells | still red on their bias endpoints. The greedy 99% bias interval runs 0.0279 to 0.0443 against a margin of 0.0158, and the ordered one runs 0.0154 to 0.0304 against 0.0145. Their RMSE ratios moved 0.4470 to 0.4415 and 0.3736 to 0.3781, and both stay inside the family's 0.80 ceiling |
 | the same study | `selector_necessity/discrete` | still red. The discrete selector still stops at the empty candidate, so its RMSE ratio is 1 |
 | the same study | `interval_calibration/correctly_specified` | still red |
 | the same study | `type_i_error/sharp_null` | 0.0700 to 0.0625, whose 99% upper endpoint is 0.1004 against the 0.10 ceiling. Still red, and closer |
 | [outcome-adaptive multi-arm C-TMLE](technical-reference/method-evidence/outcome-adaptive-multi-arm-c-tmle.md) | the `generated_design` pair | still red. The oracle interval runs 0.9797 to 1.1151, and the paired deficit runs -0.0240 to 0.0016 |
 | [cross-fitted weighted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | `double_robustness/static__both_wrong`, a control | still red. Its standardized bias moved -0.2983 to -0.2988, and to -0.3008 under the pooled update |
+
+Nine more cells were red at commit `0b75095`, before the regeneration, and they are still red. The
+table above omitted them. The values come from each study's committed `properties.csv`, and the
+`0b75095` values from the same file at that commit.
+
+| study | cell | rule it fails | committed value | at `0b75095` |
+| --- | --- | --- | --- | --- |
+| [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/treatment_correct_n1500` | the 0.90 coverage floor | coverage 0.9150 at the declared 800 replications, with a 99% lower endpoint of 0.886433 | coverage 0.9200, lower endpoint 0.892086 |
+| the same study | `double_robustness/outcome_correct` | bias equivalence | the 99% bias interval runs 0.002611 to 0.007540 against a margin of 0.006749 | 0.002521 to 0.007468 against 0.006774 |
+| the same study | `double_robustness/treatment_correct` | bias equivalence | 0.006798 to 0.012079 against 0.007231 | 0.005012 to 0.010355 against 0.007315 |
+| [multi-arm point-treatment DR-TMLE](technical-reference/method-evidence/multi-arm-dr-tmle.md) | `double_robust_contraction/outcome_correct_n4000` | the 0.90 coverage floor | coverage 0.9300, with a 99% lower endpoint of 0.898771 | the same |
+| the same study | `double_robust_contraction/rate_outcome_correct` | a slope interval below zero | slope 0.285684, with a 99% interval from -1.234246 to 3.773486 | -1.180439 to 3.678456 |
+| the same study | `double_robust_contraction/rate_treatment_correct` | a slope interval below zero | slope 0.251939, from -3.241248 to 3.338722 | -3.380274 to 3.278706 |
+| the same study | `double_robustness/treatment_correct` | bias equivalence | 0.001469 to 0.007176 against a margin of 0.006763 | 0.001071 to 0.006821 against 0.006813 |
+| the same study | `interval_calibration/correctly_specified` | the SE-ratio band of 0.93 to 1.07 | ratio 0.967243, with a 99% interval from 0.925822 to 1.012306. Coverage passes its band | 0.924604 to 1.010659 |
+| selector-based multi-arm C-TMLE | `selector_necessity/empty_control`, a control | the family's joint clause | the cell passes its own rule. The joint clause needs every cell of the family to pass and every path's RMSE ratio at or below 0.80. Three positive paths fail, and the discrete ratio is 1.0000 | the same verdicts |
 
 #### What each attribution rests on
 
@@ -529,7 +547,7 @@ reproduces, which used the same override applied by hand.
 | `type_i_error/sharp_null`, selector | the same externally reported 2x2 | the report attributes the move to the bounded law alone. The cell measures 0.0700 under both fold policies, against 0.0375 on the Gaussian law without strata |
 | `crossfit_overfitting/cross_fitted_ltmle` | an externally reported fold-policy 2x2 at commit `eeaa1ce`, over the study's 8,000 registered paired draws | the report attributes the move to the fold policy alone. The first-node-stratified arm gives 1.172543 with a 99% upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control arm has no outer split for either policy to change, and it gives 0.353193 under both. These studies never moved to a bounded twin, so there is no second axis |
 | both `n_500` coverage endpoints | a registered `fold_policy` pair, two split policies over 8,000 paired draws of each study | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. Neither paired coverage interval reaches the gate-relevant 0.005. "What the two readings found" gives both intervals, and it records the resolution the DR-TMLE instrument missed. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
-| `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter and SciPy, so the budget and the environment are confounded |
+| `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter and SciPy. The committed history separates the two. At 800 replications per rung, the runtime change moves each slope interval by less than 2e-5, so the declared budget moved this interval. "[What the committed history already separates](#what-the-committed-history-already-separates)" gives the rows |
 
 The fold policy has no general direction on the overfitting statistic. `crossfit_overfitting`
 shares one family, one statistic and one ceiling across the four cross-fitted longitudinal studies.
@@ -569,6 +587,8 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). The paired standard-error deficit under an estimated outcome regression has no derivation |
 | `crossfit_overfitting/cross_fitted_ltmle` | closed. The pooled update implements the construction that Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) certifies, and the cell passes. "What the pooled update found" gives the numbers |
 | the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | none identified. The attribution is not isolated. "What the pooled update found" gives each value, interval and margin |
+| the multi-arm selector's `selector_necessity` family, including `empty_control` | [F18](#f18-selector-path-c-tmle-inference). The greedy and ordered paths miss their bias margins, and the discrete path stops at the empty candidate |
+| the eight DR-TMLE cells that were red before the regeneration | none identified. RM18 carries them, and no other roadmap item owns them. No declared diagnostic reads them yet |
 
 #### The fold-local longitudinal targeting question
 
@@ -854,6 +874,25 @@ rung design declared, and not from the runtime.
 | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
 
+The second acceptance row is not consistent with its own sources. This subsection records the
+conflict and leaves the row text unchanged. A rewording is a decision for the maintainer.
+
+| part of the conflict | what it states | where |
+| --- | --- | --- |
+| the only published result | no first-order generated-design term for one binary treatment-specific mean, so no first-order standard-error deficit | Theorem 1 of Benkeser, Cai and van der Laan, arXiv:1901.05056 v1 |
+| the `estimated` control | passes only when the 99% upper endpoint of the paired deficit is at or below -0.01 | `GENERATED_DESIGN_DEFICIT` and the `generated_design` verdict in `tests/studies/multi_arm_ctmle_oat_properties.py` |
+| the F19 acceptance | a result that establishes whether the current curve suffices or a representation contribution is required | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+
+A derivation that extends Theorem 1 would predict no deficit. The control would then fail by
+design, and the row could not close. The F19 acceptance asks a different question, and a result
+that answers it need not produce a deficit.
+
+The `oracle_design` cell has a second constraint, and this row proposes no change to it. Its 99%
+SE-ratio interval runs 0.979701 to 1.115078, which is 0.1354 wide. The band from 0.93 to 1.07 is
+0.14 wide. At that width, the interval fits inside the band only when its midpoint lies within
+0.0023 of 1. This fact describes the resolution of the instrument at the registered 800
+replications.
+
 #### The two readings, declared before they run
 
 This subsection is the declaration the last two acceptance rows ask for. It precedes the run that
@@ -952,9 +991,15 @@ what it produced.
 
 Both runs also moved the environment. SciPy moved from 1.17.1 to 1.18.0, and Python moved from
 3.11.13 to 3.13.7, on the runs that produced these rows. Each study's `manifest.json` records the
-versions its committed rows came from, and its git history records the versions they replaced. A
-difference between a committed row and the row it replaced therefore carries the environment move
-as well as the design change. Nothing here separates the two.
+versions its committed rows came from, and its git history records the versions they replaced.
+The committed history separates the environment from the design change on all three studies.
+"[What the committed history already separates](#what-the-committed-history-already-separates)"
+gives the comparison.
+
+| study | what the environment move changed |
+| --- | --- |
+| both multi-arm `n_500` studies | no row by more than 1e-6, and no covered flag |
+| DR-TMLE contraction ladder | each slope interval by less than 2e-5 at 800 replications per rung |
 
 ##### The `n_500` endpoints are a boundary resolution
 
@@ -1000,7 +1045,8 @@ fitted slope is -0.917626, near the -1 a second-order remainder predicts.
 
 The declaration made one falsifiable prediction, and the run confirms it. The control's half-width
 had to narrow by about the square root of three, from 0.008652 to about 0.004995. It measures
-0.004906. The environment moved on the same run, so the measured width carries that move too.
+0.004906. The environment moved on the same run. At 800 replications per rung, it leaves the
+control interval unchanged to six decimals, so the narrowing comes from the budget.
 
 ##### One correction the run forced
 
@@ -1053,6 +1099,21 @@ acceptance rows remain open, and the investigation row named below carries each 
 | the shipped selector path | van der Laan and Gruber (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1181: Theorem 4 assumes the expansion that defines the adaptive-mechanism contribution, and Section 4.3 records cross-validation over-selection as an open irregularity. Gruber and van der Laan (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1182, apply the method and state no post-selection inference result. Ju, Chambaz and van der Laan (2018), arXiv:1804.00102: Theorem 1 permits an extra contribution along a twice-differentiable continuous nuisance path for a binary scalar target, and Lemma 2 zeroes it in a correct-outcome product-rate regime. A discrete stopping index is not a differentiable path. Ju et al. (2019), *SMMR* 28(6), DOI 10.1177/0962280217729845, Section 7.4, forms intervals from the ordinary EIF, which is the fixed-candidate curve. Adaptive debiased machine learning, arXiv:2307.12544v2, is the closest positive route, and it needs the working model to approximate a fixed, nonrandom oracle model. Nobody has proved that for a global depth chosen from nested targeted-loss folds. Leeb and Pötscher (2006, *AoS* 34(5); 2008, *ET* 24(2)), Loftus (arXiv:1511.08866), and Markovic, Xia and Taylor (arXiv:1703.06559) supply no transfer, because this selector has no Gaussian quadratic reduction and no randomized or jointly Gaussian criterion-and-target limit. The multi-arm obligation has no published treatment at all |
 | the generated-design deficit | Benkeser, Cai and van der Laan, *Statistical Science* 35(3), DOI 10.1214/19-STS735, preprint arXiv:1901.05056: Theorem 1 proves, for the binary treatment-specific mean, the expansion with the ordinary adaptive-propensity curve and no separate generated-design term. Theorem 1's estimator is a full-sample procedure, and Section 3.1 supplies a cross-validated variance alone. The cross-fitted point estimator appears in Appendix D, where the authors call its proof completely analogous to Zheng and van der Laan (2011) and outline it. Appendix D's binary ATE, which uses both arm predictions with one signed coefficient, is an algorithm with no theorem. No result covers a shared-multinomial vector extension. Four sources do not close it. Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1):109-118, DOI 10.1111/biom.13121, build a different construction, in which outcome information enters through HAL penalty weights. Shortreed and Ertefaie (2017), *Biometrics* 73(4):1111-1122, DOI 10.1111/biom.12679, select variables and prove no inference theorem. Escanciano and Pérez-Izquierdo (2023), arXiv:2301.10643, remove the indirect first-step effect, and the direct effect of learning the generated regressor remains. DOPE, arXiv:2402.12980v2, centers Theorem 4.3 at a data-adaptive target conditional on a representation learned on an independent sample, adds a fixed-target delta-method variance in Proposition 4.4, and leaves the cross-fitted proof open in its appendix |
 | the fold-local longitudinal recursion | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, Step 3, journal page 852, fits the fluctuation "using all the data points in the sample", and Theorem 3, page 853, certifies that pooled update. Zheng and van der Laan (2011) and Levy (2018), arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds. Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367, correct Assumption 2 and the positivity statement, and say nothing about cross-fitting or targeting. Upstream `lmtp` commit `9996b04` calls its 1.5.4 training-fold fluctuation a bug because the EIF was not mean zero, and it moves the fluctuation to validation rows. The [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) of the technical reference carries the published locators |
+
+A second 2026-09-21 search looked for C-TMLE sources. It found no result that closes F18, the
+cross-fitted multi-arm part of F19, or the fold and outcome-scale rules. The
+[Collaborative TMLE references](references.md#collaborative-tmle) give each locator and state
+which version this search read. Each locator below is an arXiv-version locator, and the published
+section and theorem numbers may differ.
+
+| ask | source | what it supplies, and its limit |
+| --- | --- | --- |
+| the shipped selector path | Cui and Tchetgen Tchetgen (2024), *Biometrika* 111(2), DOI 10.1093/biomet/asad055 | Theorems 5.1 and 5.2 of arXiv:1911.02029v6 give an oracle inequality and the consistency of a cross-validated learner selector. Section 6 says a Wald interval at the selected learners "is completely blind to the model selection step" and "may not yield uniformly valid confidence intervals". It describes two alternatives and leaves their formal comparison outside the paper |
+| the shipped selector path | Qiu, Luedtke and Carone (2021), *Bernoulli* 27(4), DOI 10.3150/20-BEJ1309 | Theorem 4 of arXiv:2003.01856v2, Section 4.4, keeps the ordinary influence function after cross-validation selects a sieve dimension. Its conditions must hold for a deterministic dimension, and Condition C5 must hold for every candidate. This is a template for the uniform-expansion route of F18, and not a result for a targeting step |
+| the shipped selector path | Bibaut and van der Laan, arXiv:1706.07408v2 | Theorems 1 and 2 select a scalar index on separate subsamples for a possibly non-regular target. The package selects on the full sample |
+| the shipped selector path | Ju, Schwab and van der Laan (2019), *SMMR* 28(6), DOI 10.1177/0962280218774817, and Ju, Wyss et al. (2019), *SMMR* 28(4), DOI 10.1177/0962280217744588 | neither states a post-selection theorem. The first reports standard errors smaller than the sampling spread for C-TMLE in its Section 4.5 experiments. The second forms its data-analysis intervals from the analytic influence curve |
+| the generated-design deficit | Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1) | Theorem 1, Section 3.4 of arXiv:1806.06784v3, adds a first-order term to the influence function when the propensity limit is intentionally inconsistent |
+| the generated-design deficit | Zhang, Shao, Yu and Wang (2018), and Ma, Zhu, Zhang, Tsai and Carroll (2019) | this search read the abstracts only. The first states that an estimated sufficient dimension reduction changes the asymptotic variance unless the reduction keeps superfluous covariates. The second states that an efficient-influence-function estimator with reduction-estimated nuisances stays semiparametrically efficient. Neither applies a targeting step |
 
 On 2026-09-21 the [Eligibility](#eligibility) rule gained its natural-extension exception. The same
 day, this row read F18 and F19 against that exception.
@@ -1452,9 +1513,19 @@ influence function after the shipped stopping-index procedure selects a candidat
 
 Ju et al. (2018) permit a continuous-path contribution, but their Lemma 2 makes it zero in one
 correct-outcome, product-rate regime. Their derivative equations and undersmoothing conditions do
-not describe a discrete stopping index. Ju et al. (2019) report ordinary EIF intervals for binary
-ATE fits. The
+not describe a discrete stopping index. Ju, Gruber et al. (2019), *SMMR* 28(6), report ordinary
+EIF intervals for binary ATE fits. The
 [source audit](references.md#collaborative-tmle) records the exact limits.
+
+A 2026-09-21 search added five sources on this path and found no result for it. Cui and Tchetgen
+Tchetgen (2024) select nuisance learners by a cross-validated pseudo-risk. In arXiv:1911.02029v6,
+Theorems 5.1 and 5.2 give an oracle inequality and the consistency of the selector, and no limit
+law. Section 6 says a Wald interval at the selected learners "is completely blind to the model
+selection step".
+
+Ju, Schwab and van der Laan (2019), *SMMR* 28(6), and Ju, Wyss et al. (2019), *SMMR* 28(4), state
+no post-selection theorem. The first reports standard errors smaller than the sampling spread for
+C-TMLE in its experiments.
 
 Four further sources bound the available routes. The cross-validation oracle inequality controls
 selector risk but supplies no limit law. Leeb and Pötscher rule out locally uniform distribution
@@ -1499,6 +1570,13 @@ approximation. This elementary extension is plausible when every candidate conve
 to the same nuisance limits, but it is not automatic under one-sided robustness where candidate
 propensity limits and influence curves may differ.
 
+Qiu, Luedtke and Carone (2021) publish one instance of this route. Theorem 4, Section 4.4 of
+arXiv:2003.01856v2, keeps the ordinary influence function after cross-validation selects a sieve
+dimension. It needs its conditions at a deterministic dimension, and Condition C5 at every
+candidate. Their Section 3.3 shows by simulation that a cross-validated HAL bound does not give an
+efficient plug-in estimator. The theorem is a template for this route, and it is not a result for
+a targeting step along a propensity path.
+
 A second route is selector stability: a unique oracle candidate, a risk margin, uniform risk
 convergence, and stability of the learned covariate identity at a given depth reduce the fit to a
 fixed candidate with probability tending to one. An oracle risk inequality alone proves none of
@@ -1509,11 +1587,22 @@ Standard orthogonal-score arguments can then treat the complete selector as a nu
 algorithm, subject to its rate conditions. The current global risk aggregation does not have that
 independence.
 
+Bibaut and van der Laan, Theorems 1 and 2 of arXiv:1706.07408v2, select a scalar index on
+subsamples separate from the estimation sample. That is the closest published form of the third
+route. This search found no journal version of the paper.
+
 The fixed-candidate curve is itself unproved when the candidate's mechanism limit differs from the
 treatment law. [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) records an
 instrument law where the intercept-only curve gives a standard error of 0.0441. The sampling
 standard deviation of the numerically identical least-squares coefficient is 0.0538. A result must
 settle that fixed-candidate case before it addresses selection.
+
+One published result shows the form a correction can take when the mechanism limit differs from
+the treatment law. Ju, Benkeser and van der Laan (2020) fit an intentionally inconsistent
+propensity. Their Theorem 1, in Section 3.4 of arXiv:1806.06784v3, gives the influence function as
+the ordinary curve at that propensity limit minus a first-order term $D_r$. The term vanishes when
+the limit equals the true propensity. Their construction differs from the shipped selector, so the
+theorem does not supply the missing curve.
 
 The registered evidence now measures that gap on two studies. The
 [selector-based point-treatment study](technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
@@ -1616,6 +1705,12 @@ mixed-bias nuisance-product remainder is likewise not the first-order expansion 
 representation. Whether the ordinary curve suffices must be derived for this estimator and target,
 not inferred from either generic result.
 
+Two sufficient-dimension-reduction papers point in both directions, and this search read their
+abstracts only. Zhang, Shao, Yu and Wang (2018) state that an estimated reduction changes the
+asymptotic variance unless it keeps superfluous covariates. Ma, Zhu, Zhang, Tsai and Carroll
+(2019) state that an efficient-influence-function estimator with reduction-estimated nuisances
+stays efficient. Neither applies a targeting step or a shared multinomial mechanism.
+
 A 2026-09-21 reading applied the natural-extension exception of the [Eligibility](#eligibility)
 rule. The full-sample fit, `cross_fit=False`, meets the base-result and argument conditions. It
 extends Theorem 1 of Benkeser, Cai and van der Laan, arXiv:1901.05056 v1, by a vector generated
@@ -1627,6 +1722,24 @@ That sub-part does not close RM18's acceptance row. The registered
 `generated_design` study is cross-fitted, and a first-order result predicts no paired
 standard-error deficit. The cross-fitted default rests on the outlined Appendix D proof, so it
 fails the rule's conditions of one published result and no step recorded as open.
+
+The 2026-09-21 reading and the open-items table below are in tension. The reading accepts a
+vector generated regressor as an established step. The first open item says that one shared
+multinomial fit on `K` estimated columns needs its own result. Theorem 1's conditions include
+quarter-rate convergence of the outcome regression. One reading therefore places an inconsistent
+column outside the inherited conditions. The other reading makes the shared multinomial a step with
+no established argument.
+
+This item does not choose between the two readings. The full-sample sub-part is deferred, and its
+implementation must complete each item below.
+
+| item | what it requires |
+| --- | --- |
+| the tension above | a stated choice between the two readings, with its argument |
+| the base result | the published theorem number, checked against the *Statistical Science* article, because the reading used arXiv:1901.05056 v1 |
+| the written record | a contract that states each step, its argument, and every inherited condition |
+| its own evidence | property cells at `cross_fit=False`. The multi-arm primary block already fits `cross_fit=False` (`tests/studies/canonical_multi_arm_ctmle_oat.py`), and it is a parity comparison with `ctmle3`. Every property cell fits `cross_fit=True` (`tests/studies/multi_arm_ctmle_oat_properties.py`) |
+| a nonzero witness | one for each step that can vanish at the truth, as the [Eligibility](#eligibility) rule requires |
 
 Five items stay open. State each verdict separately.
 
