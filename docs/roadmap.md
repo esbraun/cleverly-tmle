@@ -124,6 +124,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
+| Fold-local targeting of the longitudinal recursion | a weak-convergence result for a fluctuation fitted inside each training fold of a sequential regression | the published theorem certifies a pooled all-row fluctuation, and the shipped cross-fitted longitudinal TMLE fits each fold's fluctuation on that fold's training rows | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) |
 
 ## Eligibility
 
@@ -538,23 +539,29 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | `selector_necessity/collaborative`, `selector_necessity/empty_control`, and the standard-error ratio reversal | [F18](#f18-selector-path-c-tmle-inference). No result derives an influence curve after the shipped stopping-index selection. The population one-step remainder is exactly zero at the nuisance limits on both laws, so the residual is the selector's stopping behaviour rather than a nuisance rate |
 | the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe now point the same way, so RM12's labelling work covers this study's reported interval |
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). The paired standard-error deficit under an estimated outcome regression has no derivation |
-| `crossfit_overfitting/cross_fitted_ltmle` | the fold-local longitudinal targeting question below |
+| `crossfit_overfitting/cross_fitted_ltmle` | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion). No source read here certifies a fluctuation fitted inside each training fold. The fold-local longitudinal targeting question below states what the cell measures |
 
 #### The fold-local longitudinal targeting question
 
-This question had no item of its own, and the retired RM17 row held it. It belongs here.
+This question had no item of its own, and the retired RM17 row held it.
+[F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) now carries its contract, its
+sources and its three remediation options. RM18 keeps the measured cell.
 
 Díaz, Williams, Hoffman and Schenck (2023), Section 5.2 and Theorem 3, define a random
 near-balanced row partition for a longitudinal TMLE, and the package now draws exactly that
 partition. The theorem's targeting construction is a pooled all-row fluctuation after nuisance
-prediction. The shipped estimator instead targets a recursion inside each training fold, as the
-authors' own `lmtp` 1.5.4 does. The theorem therefore certifies the split and not the update.
+prediction. The shipped estimator instead fits fold `k`'s epsilon on fold `k`'s training rows
+(`src/cleverly/longitudinal/sequential.py:51-56`, `:1377-1412`, `:919`), as the authors' own `lmtp`
+1.5.4 does. The point-treatment `targeting_scheme="fold"` variant instead fits its epsilon on each
+fold's validation rows (`src/cleverly/estimators/tmle.py:3033-3050`). The two are different
+departures from a pooled update, and the difference bears on the hypothesis below. The theorem
+certifies the split and not the update.
 
 The end-of-study cell above is where that gap shows as a number. One reading is that a fold-local
 update leaves a stitched score. That score would be a mean-zero residual rather than a solved
 equation, so the reported standard error would run above the sampling spread. No result read here
-establishes that reading. The remediation is a result for the fold-local construction, or a pooled
-update with its own registered evidence. It is not a larger budget.
+establishes that reading. The remediation is one of F24's three options. It is not a larger
+budget.
 
 #### What this row asks for
 
@@ -562,9 +569,29 @@ update with its own registered evidence. It is not a larger budget.
 | --- | --- |
 | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
 | an inference result for the generated-design deficit | a derivation of the paired standard-error deficit under an estimated outcome regression, and the `generated_design` pair passing at its existing budget |
-| a targeting result for the fold-local longitudinal recursion | a theorem for the shipped update, or a pooled update with registered evidence, and `crossfit_overfitting/cross_fitted_ltmle` inside the shared `se_ratio_sanity` ceiling at 8,000 draws |
+| a targeting result for the fold-local longitudinal recursion | a theorem for the shipped update, a pooled update with registered evidence, or the SDR estimator of [X4](#x4-sequential-doubly-robust-longitudinal-estimation) with its own registered evidence, and `crossfit_overfitting/cross_fitted_ltmle` inside the shared `se_ratio_sanity` ceiling at 8,000 draws. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) states what each option needs |
 | a reading of the two `n_500` coverage endpoints | one further registered measurement at 400 replications that separates a boundary resolution from a fold-policy effect, declared before it runs |
 | a reading of the DR-TMLE contraction slope | a rung design that resolves a slope at this bias scale, declared before it runs. The existing coverage rungs stay the stronger reading until then |
+
+#### What the source search found for the first three asks
+
+The first three asks each need a derivation. The [Eligibility](#eligibility) rule asks this
+repository to locate published theory, and not to create it here. A 2026-09-20 source search read
+the sources below and found no result for any of the three. Recording that verdict is the delivery
+for those three asks. Each ask stays open, and the investigation row named below carries its
+contract.
+
+| ask | verdict | where the contract lives |
+| --- | --- | --- |
+| an inference result for the shipped selector path | no published result | [F18](#f18-selector-path-c-tmle-inference) |
+| an inference result for the generated-design deficit | a proved binary scalar result, and no result for the shipped construction | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| a targeting result for the fold-local longitudinal recursion | no result for the shipped update | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) |
+
+| ask | sources read, and their exact limits |
+| --- | --- |
+| the shipped selector path | van der Laan and Gruber (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1181: Theorem 4 assumes the expansion that defines the adaptive-mechanism contribution, and Section 4.3 records cross-validation over-selection as an open irregularity. Gruber and van der Laan (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1182, apply the method and state no post-selection inference result. Ju, Chambaz and van der Laan (2018), arXiv:1804.00102: Theorem 1 permits an extra contribution along a twice-differentiable continuous nuisance path for a binary scalar target, and Lemma 2 zeroes it in a correct-outcome product-rate regime. A discrete stopping index is not a differentiable path. Ju et al. (2019), *SMMR* 28(6), DOI 10.1177/0962280217729845, Section 7.4, forms intervals from the ordinary EIF, which is the fixed-candidate curve. Adaptive debiased machine learning, arXiv:2307.12544v2, is the closest positive route, and it needs the working model to approximate a fixed, nonrandom oracle model. Nobody has proved that for a global depth chosen from nested targeted-loss folds. Leeb and Pötscher (2006, *AoS* 34(5); 2008, *ET* 24(2)), Loftus (arXiv:1511.08866), and Markovic, Xia and Taylor (arXiv:1703.06559) supply no transfer, because this selector has no Gaussian quadratic reduction and no randomized or jointly Gaussian criterion-and-target limit. The multi-arm obligation has no published treatment at all |
+| the generated-design deficit | Benkeser, Cai and van der Laan, *Statistical Science* 35(3), DOI 10.1214/19-STS735, preprint arXiv:1901.05056: Theorem 1 proves, for the binary treatment-specific mean, the expansion with the ordinary adaptive-propensity curve and no separate generated-design term. Theorem 1's estimator is a full-sample procedure, and Section 3.1 supplies a cross-validated variance alone. The cross-fitted point estimator appears in Appendix D, where the authors call its proof completely analogous to Zheng and van der Laan (2011) and outline it. Appendix D's binary ATE, which uses both arm predictions with one signed coefficient, is an algorithm with no theorem. No result covers a shared-multinomial vector extension. Four sources do not close it. Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1):109-118, DOI 10.1111/biom.13121, build a different construction, in which outcome information enters through HAL penalty weights. Shortreed and Ertefaie (2017), *Biometrics* 73(4):1111-1122, DOI 10.1111/biom.12679, select variables and prove no inference theorem. Escanciano and Pérez-Izquierdo (2023), arXiv:2301.10643, remove the indirect first-step effect, and the direct effect of learning the generated regressor remains. DOPE, arXiv:2402.12980v2, centers Theorem 4.3 at a data-adaptive target conditional on a representation learned on an independent sample, adds a fixed-target delta-method variance in Proposition 4.4, and leaves the cross-fitted proof open in its appendix |
+| the fold-local longitudinal recursion | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, Step 3, journal page 852, fits the fluctuation "using all the data points in the sample", and Theorem 3, page 853, certifies that pooled update. Zheng and van der Laan (2011) and Levy (2018), arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds. Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367, correct Assumption 2 and the positivity statement, and say nothing about cross-fitting or targeting. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) carries the published locators and the third remediation option |
 
 #### Witnesses and evidence
 
@@ -933,6 +960,56 @@ assumptions match the supported data. The result must specify which rows may tra
 and which asymptotic argument licenses the interval. Ordered indices passed through iid fold
 machinery are not sufficient.
 
+### F24. Fold-local targeting of the longitudinal recursion
+
+The cross-fitted longitudinal TMLE fits each fold's fluctuation on that fold's training rows. No
+source read here certifies that update. The retired RM17 row held this question, and
+[RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) holds the property cell where
+the gap shows as a number. This row holds the contract.
+
+| composition | what ships | what a result must supply |
+| --- | --- | --- |
+| cross-fitted longitudinal TMLE | `LTMLE` offers no `targeting_scheme` and no `cv_evaluation`, so the fold-local update is its only behaviour (`src/cleverly/longitudinal/estimator.py:1704-1729`). Fold `k` fits every mechanism, regression and fluctuation on its training complement (`src/cleverly/longitudinal/sequential.py:51-56`, `:1377-1412`, `:919`) | weak convergence for a fluctuation fitted inside each training fold of a sequential regression, with its remainder and rate conditions |
+| the reported estimate | a plug-in of the targeted regression, and never an influence-function average (`src/cleverly/longitudinal/sequential.py:1172-1173`, `:1486-1487`) | the limit law of that plug-in under the fold-local update |
+| the point-treatment fold variant | `targeting_scheme="fold"` fits its epsilon on each fold's validation rows (`src/cleverly/estimators/tmle.py:3033-3050`) | its own result. A training-fold fluctuation and a validation-fold fluctuation are two different departures from a pooled update |
+
+Díaz, Williams, Hoffman and Schenck (2023), *JASA* 118(542):846-857, govern the shipped
+construction. The locators below come from the typeset published article. Read them against that
+version.
+
+The current preprint differs in substance as well as in numbering. It numbers the same two
+sections 4.2 and 4.3. Its Step 3 omits the pooling clause. Its SDR step is a plug-in rather than an
+influence-function average. It carries no Lemma 4.
+
+| published locator | what it states | journal page |
+| --- | --- | --- |
+| Section 5.2, Step 3 | the TMLE fluctuation is fitted "using all the data points in the sample" | 852 |
+| Theorem 3 | weak convergence of that pooled TMLE | 853 |
+| Section 5.3, Step 2 | each SDR regression uses only the data points of one fold | 854 |
+| Section 5.3, Step 3 | the SDR estimate is an average of influence-function values | 854 |
+| Lemma 4 and Theorem 4 | multiple robustness and weak convergence of the SDR estimator | 854 |
+
+Theorem 3 therefore certifies the split and a pooled fluctuation, and not the shipped update.
+
+Three further sources bound the available routes. Zheng and van der Laan (2011) and Levy (2018),
+arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds.
+Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a
+train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367,
+correct Assumption 2 and the positivity statement of the 2023 paper. That correction says nothing
+about cross-fitting or targeting.
+
+A result closes this row in one of three ways.
+
+| option | what it needs |
+| --- | --- |
+| a theorem for the shipped update | weak convergence of the fold-local targeted plug-in, with its remainder and rate conditions |
+| a pooled update | an implementation of the certified Section 5.2 fluctuation, and its own registered evidence |
+| the SDR estimator | Section 5.3, Lemma 4 and Theorem 4 certify a fold-local sequential recursion for that estimator. Its estimate is an influence-function average rather than a plug-in of a targeted regression, so it is covered theory for a different estimator and not a free substitution. [X4](#x4-sequential-doubly-robust-longitudinal-estimation) plans `lmtp_sdr`, and no SDR path ships today |
+
+The SDR option changes the estimator and not the rate conditions. The authors write on page 854
+that the rates required for root-n consistency in Theorems 3 and 4 are the same. They add that the
+SDR estimator does not seem to confer asymptotic advantages with respect to the TMLE.
+
 ## Collaborative and DR-TMLE investigation contracts
 
 ### F18. Selector-path C-TMLE inference
@@ -1068,6 +1145,18 @@ Benkeser, Cai and van der Laan (2020) prove a binary treatment-specific-mean res
 score, rate, smoothness, and empirical-process conditions. Appendix D explicitly uses both binary
 arm predictions in one adaptive propensity for the ATE and sketches a cross-validated C-TMLE. The
 generated design is therefore part of that paper rather than an omitted nuisance.
+
+The paragraphs above describe the nuisance nesting, and the fluctuation needs its own statement.
+`CTMLE` refuses `targeting_scheme="fold"` (`src/cleverly/estimators/ctmle.py:651-656`), so the
+outcome-adaptive fluctuation is one pooled epsilon on the stacked out-of-fold rows
+(`src/cleverly/estimators/tmle.py:372-378`, `:3061-3067`). Appendix D outlines that pooled
+fluctuation. The shipped update therefore does not diverge from the paper on this axis. Two
+divergences are genuine, and the table below states each one.
+
+| divergence | what ships | what Appendix D outlines |
+| --- | --- | --- |
+| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:408-418`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:646-650`) | the `(1/V) sum_v` fold average. The two agree only at equal fold weight mass |
+| the fluctuation dimension | a joint fluctuation with one column for each arm | one signed coefficient for the binary ATE |
 
 The package instead jointly targets both arm means with two fluctuation columns and derives means,
 ATE, RR, and OR from that fit. A fixed-dimensional Cramér--Wold extension would be elementary once
