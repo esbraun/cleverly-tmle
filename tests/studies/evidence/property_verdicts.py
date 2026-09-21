@@ -13,8 +13,10 @@ from typing import Any, Literal, overload
 import numpy as np
 import pandas as pd
 
+from cleverly.data import CausalData
 from tests.studies.evidence.inference import Interval, standardized_bias_verdict
 from tests.studies.evidence.properties import (
+    PropertyCell,
     Rate,
     coverage_gain_interval,
     paired_displacement,
@@ -1241,6 +1243,62 @@ def clustered_inference_verdicts(
 FOLD_POLICY_FAMILY = "fold_policy"
 FOLD_POLICY_REFERENCE_CELL = "unstratified"
 DIAGNOSTIC_ROLE = "diagnostic"
+
+
+def fold_policy_seed(record: StudyRecord) -> int:
+    """Return the sample seed shared by every arm of a fold-policy diagnostic.
+
+    The registering study is part of the hash, so a study-specific family cannot collide
+    with an inherited cell through numeric seed offsets. The family label keeps this stream
+    distinct from a gated cell in the same study, while every diagnostic arm deliberately
+    shares it for paired comparisons.
+    """
+    return stream_seed(record, FOLD_POLICY_FAMILY, "sample")
+
+
+def fold_policy_strata(data: CausalData, policy: str) -> np.ndarray | None:
+    """Resolve a diagnostic fold policy to the strata vector it names."""
+    if policy == FOLD_POLICY_REFERENCE_CELL:
+        return None
+    if policy == "treatment_stratified":
+        return np.asarray(data.treatment, dtype=float)
+    if policy == "treatment_outcome_stratified":
+        outcome = np.where(data.observed, data.outcome, -1.0)
+        codes = np.unique(np.column_stack([data.treatment, outcome]), axis=0, return_inverse=True)[
+            1
+        ]
+        return np.asarray(codes, dtype=float)
+    raise ValueError(f"unknown fold policy: {policy!r}")
+
+
+def make_fold_policy_cells(
+    record: StudyRecord,
+    *,
+    policies: Sequence[str],
+    dgp: Any,
+    outcome_learner: Callable[[], Any],
+    treatment_learner: Callable[[], Any],
+    n: int,
+    replicates: int,
+    estimand: str = "ate",
+) -> tuple[PropertyCell, ...]:
+    """Build paired diagnostic cells with one seed and the shared reporting role."""
+    seed = fold_policy_seed(record)
+    return tuple(
+        PropertyCell(
+            property=FOLD_POLICY_FAMILY,
+            cell=policy,
+            dgp=dgp,
+            outcome_learner=outcome_learner,
+            treatment_learner=treatment_learner,
+            n=n,
+            replicates=replicates,
+            seed=seed,
+            role=DIAGNOSTIC_ROLE,
+            estimand=estimand,
+        )
+        for policy in policies
+    )
 
 
 def fold_policy_diagnostics(

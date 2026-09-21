@@ -25,6 +25,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_longitudinal, make_nonlinear_bounded
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
@@ -33,7 +34,12 @@ from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import OutcomeScaler
-from tests.studies import multi_arm_common, multi_arm_properties
+from tests.studies import (
+    multi_arm_common,
+    multi_arm_ctmle_selector_properties,
+    multi_arm_drtmle_properties,
+    multi_arm_properties,
+)
 
 BOUNDED_COVARIATES = ["W1", "W2", "W3"]
 
@@ -1423,6 +1429,61 @@ class TestTheFoldPolicySeamReachesEverySplitLayer:
     visible in a committed row. A diagnostic whose stratified arm quietly varied one layer
     of three would publish a coverage difference under the name of a change it never made.
     """
+
+    @staticmethod
+    def _assert_treatment_strata(estimator: Any, frame: pd.DataFrame) -> None:
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=MULTI_ARM_COVARIATES
+        )
+        np.testing.assert_array_equal(estimator._fold_strata(data), data.treatment)
+
+    def test_the_stratified_policy_reads_the_treatment_vector(self) -> None:
+        self._assert_treatment_strata(
+            multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            multi_arm_frame(),
+        )
+
+    def test_an_outcome_vector_cannot_pass_as_treatment_strata(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mask mutation control for the policy's defining input."""
+        monkeypatch.setattr(
+            multi_arm_properties.FoldPolicyMixin,
+            "_fold_strata",
+            lambda self, data: np.asarray(data.outcome, dtype=float),
+        )
+        with pytest.raises(AssertionError):
+            self._assert_treatment_strata(
+                multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+                multi_arm_frame(),
+            )
+
+    @pytest.mark.parametrize(
+        ("study_module", "estimator_type"),
+        [
+            (multi_arm_ctmle_selector_properties, multi_arm_properties.FoldPolicyCTMLE),
+            (multi_arm_drtmle_properties, multi_arm_properties.FoldPolicyDRTMLE),
+        ],
+    )
+    def test_each_study_pairs_the_policies_and_routes_them_through_the_seam(
+        self, study_module: Any, estimator_type: type[Any]
+    ) -> None:
+        cells = study_module.cells()
+        diagnostic = [
+            cell for cell in cells if cell.property == multi_arm_properties.FOLD_POLICY_FAMILY
+        ]
+        n_500 = next(
+            cell
+            for cell in cells
+            if cell.property == "root_n_and_efficiency" and cell.cell == "n_500"
+        )
+        assert [cell.cell for cell in diagnostic] == list(multi_arm_properties.FOLD_POLICIES)
+        assert len({cell.seed for cell in diagnostic}) == 1
+        assert diagnostic[0].seed != n_500.seed
+        for cell in diagnostic:
+            estimator = study_module._estimator(cell)()
+            assert isinstance(estimator, estimator_type)
+            assert estimator._policy == cell.cell
 
     def test_the_policy_reaches_all_three_selector_layers(
         self, monkeypatch: pytest.MonkeyPatch

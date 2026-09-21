@@ -17,13 +17,14 @@ from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.utils.bounds import expit
 from tests.studies import multi_arm_common
 from tests.studies.evidence.properties import PropertyCell
+from tests.studies.evidence.property_verdicts import FOLD_POLICY_FAMILY as FOLD_POLICY_FAMILY
 from tests.studies.evidence.property_verdicts import (
-    DIAGNOSTIC_ROLE,
-    FOLD_POLICY_FAMILY,
     FOLD_POLICY_REFERENCE_CELL,
+    fold_policy_strata,
+    make_fold_policy_cells,
 )
+from tests.studies.evidence.property_verdicts import fold_policy_seed as fold_policy_seed
 from tests.studies.evidence.registry import StudyRecord
-from tests.studies.evidence.seeds import stream_seed
 
 # At 600 draws the 99% bias interval spends about 0.105 empirical SD on Monte
 # Carlo error, leaving more than half of the fixed 0.25-SD equivalence margin for a
@@ -409,9 +410,7 @@ class FoldPolicyMixin:
         super().__init__(**kwargs)
 
     def _fold_strata(self, data: CausalData) -> np.ndarray | None:
-        if self._policy == FOLD_POLICY_REFERENCE_CELL:
-            return None
-        return np.asarray(data.treatment, dtype=float)
+        return fold_policy_strata(data, self._policy)
 
 
 class FoldPolicyCTMLE(FoldPolicyMixin, CTMLE):
@@ -420,34 +419,6 @@ class FoldPolicyCTMLE(FoldPolicyMixin, CTMLE):
 
 class FoldPolicyDRTMLE(FoldPolicyMixin, DRTMLE):
     """Multi-arm DR-TMLE whose one outer split is drawn under one policy."""
-
-
-def fold_policy_seed(record: StudyRecord) -> int:
-    """The seed the two fold-policy cells of ``record`` draw their shared samples with.
-
-    Hashed from the registering study's own record, the way
-    :func:`tests.studies.bounded_cv_laws.fold_policy_seed` is.  Deliberately *not* the
-    ``root_n_and_efficiency/n_500`` cell's seed, even though this family mirrors that
-    cell's law, learners and size.  Two cells of one study on one seed draw bit-identical
-    covariates and are then published side by side as separate evidence.  The deferred
-    findings in ``docs/roadmap.md`` record exactly that collision in
-    ``selector-based point-treatment C-TMLE``, and say the fix is a regeneration rather
-    than an edit.  A diagnostic that opened a second instance of it would report a paired
-    difference off a gated cell's own draws while reading as independent of them.  The two
-    arms below still share a seed with *each other*, which is what the deferred finding's
-    own allowance covers: a family whose arms are paired on one seed by design.
-
-    Parameters
-    ----------
-    record : StudyRecord
-        The study registering the family.
-
-    Returns
-    -------
-    int
-        The shared sample seed.
-    """
-    return stream_seed(record, FOLD_POLICY_FAMILY, "sample")
 
 
 def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
@@ -470,19 +441,13 @@ def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
         coverage difference a *paired* one: the two cells see identical samples and differ
         only in how their splits were drawn.
     """
-    seed = fold_policy_seed(record)
-    return tuple(
-        PropertyCell(
-            FOLD_POLICY_FAMILY,
-            policy,
-            Sampler(),
-            correct_outcome(),
-            correct_treatment(),
-            FOLD_POLICY_N,
-            FOLD_POLICY_REPLICATES,
-            seed,
-            role=DIAGNOSTIC_ROLE,
-            estimand=ESTIMAND,
-        )
-        for policy in FOLD_POLICIES
+    return make_fold_policy_cells(
+        record,
+        policies=FOLD_POLICIES,
+        dgp=Sampler(),
+        outcome_learner=correct_outcome(),
+        treatment_learner=correct_treatment(),
+        n=FOLD_POLICY_N,
+        replicates=FOLD_POLICY_REPLICATES,
+        estimand=ESTIMAND,
     )
