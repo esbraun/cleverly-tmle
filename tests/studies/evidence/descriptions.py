@@ -338,9 +338,10 @@ PROPERTIES: dict[str, str] = {
         "mechanism is correct"
     ),
     "fold_policy": (
-        "three outer-split policies are run on one law and one set of draws, and their coverage "
-        "is reported rather than gated, because a split that reads the treatment or the outcome "
-        "is refused and no cell here establishes that one is valid"
+        "each split the fit draws is drawn under a named policy, on one law and one set of "
+        "draws, and the coverage of each policy is reported rather than gated, because a split "
+        "that reads the treatment or the outcome is refused and no cell here establishes that "
+        "one is valid"
     ),
     "generated_design": (
         "the outcome-adaptive design costs precision when its regression is estimated rather "
@@ -508,20 +509,25 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
-    # The three fold policies. Each "what must hold" cell says the same thing on purpose:
+    # The fold policies. Each "what must hold" cell says the same thing on purpose:
     # nothing has to hold. A reported row that borrowed a gated row's language would read
     # as a claim, which is the one reading these cells must not carry.
+    #
+    # The map is keyed globally by (property, cell), so one entry describes the arm in
+    # every study that runs it. The wording therefore names the split rather than a layer
+    # count: CV-TMLE draws one split, DR-TMLE draws one, and selector-based C-TMLE draws
+    # three that all read the same policy.
     ("fold_policy", "unstratified"): (
-        "the outer split is drawn without reading the treatment or the outcome",
+        "each split is drawn without reading the treatment or the outcome",
         "reported, not gated: the coverage interval is published and no margin is applied",
     ),
     ("fold_policy", "treatment_stratified"): (
-        "the outer split is balanced on the treatment, which the package refuses",
+        "each split is balanced on the treatment, which the package refuses",
         "reported, not gated: the coverage interval and its paired difference from the "
         "unstratified arm are published and no margin is applied",
     ),
     ("fold_policy", "treatment_outcome_stratified"): (
-        "the outer split is balanced on the treatment crossed with the outcome, which the "
+        "each split is balanced on the treatment crossed with the outcome, which the "
         "package refuses",
         "reported, not gated: the coverage interval and its paired difference from the "
         "unstratified arm are published and no margin is applied",

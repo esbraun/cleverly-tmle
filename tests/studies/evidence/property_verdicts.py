@@ -8,7 +8,7 @@ family depends on another method family's study module to publish the same claim
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 import pandas as pd
@@ -520,12 +520,36 @@ def contraction_rates(
     ]
 
 
+@overload
 def summarize_contraction_properties(
     rows: pd.DataFrame,
     record: StudyRecord,
     *,
     scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
-) -> pd.DataFrame:
+    extra_columns: Sequence[str] = (),
+    return_parts: Literal[False] = False,
+) -> pd.DataFrame: ...
+
+
+@overload
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+    extra_columns: Sequence[str] = (),
+    return_parts: Literal[True],
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]: ...
+
+
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+    extra_columns: Sequence[str] = (),
+    return_parts: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, Any]]]:
     """The whole published summary for a study whose extra family is the contraction ladder.
 
     The shared cells, the ladder's per-rung coverage verdicts, the shared root-n rate rows and
@@ -539,6 +563,12 @@ def summarize_contraction_properties(
     kept out of :func:`apply_shared_verdicts`, which already carries three optional axes and
     is called by every study, including the many that publish no ladder at all.
 
+    ``return_parts`` is the seam a study needs when it publishes a family this function
+    does not know about.  :func:`finish` is terminal, so a study that has one more verdict
+    to write asks for the unfinished parts and calls :func:`finish` itself.  The default
+    keeps the single-call form every current caller uses, and both defaults leave the
+    published table byte-identical to what a caller that passed neither already produced.
+
     Parameters
     ----------
     rows : pandas.DataFrame
@@ -548,11 +578,16 @@ def summarize_contraction_properties(
     scenarios : Sequence[str], optional
         The nuisance regimes the ladder is fitted over.  Defaults to
         :data:`CONTRACTION_SCENARIOS`.
+    extra_columns : Sequence[str], optional
+        Columns a study's own verdicts write, added to the summary before any of them run.
+    return_parts : bool, optional
+        Return the unfinished summary and its rate rows rather than the published table.
 
     Returns
     -------
-    pandas.DataFrame
-        The published summary, in its published order.
+    pandas.DataFrame or tuple
+        The published summary in its published order, or the summary and its rate rows
+        when ``return_parts`` is set.
 
     See Also
     --------
@@ -560,10 +595,10 @@ def summarize_contraction_properties(
     contraction_verdicts : The per-rung coverage rule this applies.
     contraction_rates : The fitted slopes this appends.
     """
-    summary, rates = apply_shared_verdicts(rows, record)
+    summary, rates = apply_shared_verdicts(rows, record, extra_columns=extra_columns)
     contraction_verdicts(summary, record)
     rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
-    return finish(summary, rates)
+    return (summary, rates) if return_parts else finish(summary, rates)
 
 
 def _rate_row(

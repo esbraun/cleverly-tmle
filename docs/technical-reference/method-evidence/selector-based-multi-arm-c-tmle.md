@@ -61,6 +61,8 @@ therefore intentionally empty.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
+| `fold_policy` | `treatment_stratified` | diagnostic | each split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9331 to 0.9469, paired coverage difference -0.0069 to 0.0016 | reported |
+| `fold_policy` | `unstratified` | diagnostic | each split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9359 to 0.9494 | reported |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9119 to 0.9454, SE ratio 0.8987 to 0.9862 | **fail** |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000089, coverage 0.9087 to 0.9702, SE ratio 0.9567 | pass |
@@ -87,6 +89,13 @@ therefore intentionally empty.
 | `subject_tests_passed` | 27 | selector truth tests passing |
 | `property_cells_total` | 12 | repeated-sampling property cells |
 | `property_cells_passed` | 5 | property cells passing |
+| `property_cells_reported` | 2 | fold-policy rows reported rather than gated, and excluded from the two counts above |
+| `properties[fold_policy/unstratified]:coverage` | 0.9429 | reported coverage of the split this row declares |
+| `properties[fold_policy/treatment_stratified]:coverage` | 0.9403 | reported coverage of the treatment-stratified split |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0069 | its paired 99% lower bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_upper` | 0.0016 | its paired 99% upper bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:replicates` | 8000 | paired replications behind that difference |
+| `properties[root_n_and_efficiency/n_500]:replicates` | 400 | replications behind the gated n = 500 cell |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -140,6 +149,19 @@ green on a treatment-stratified split and is red on the unstratified one this ro
 The budget, the size, the seed and the margins did not move, so the comparison is between two
 splits at one Monte Carlo resolution. The two larger sizes stay green, and both root-n rates
 stay inside their band, so the row records no departure from the rate the theory predicts.
+
+The `fold_policy` family now measures that comparison. It runs the two split policies on one
+binary law and on one set of draws. It reports and it does not gate. Neither cell declares a
+margin, so the pass counts above leave both out.
+
+The measured table above gives the paired coverage difference and its two endpoints. That
+interval covers zero. The fold policy therefore does not explain the endpoint move on this law
+at this size.
+
+The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
+`n_500` cell. The gated cell keeps its own 400-replication budget.
+[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
+the rule this reading applies.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance

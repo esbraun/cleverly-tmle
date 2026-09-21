@@ -75,6 +75,11 @@ STUDY = StudyRecord(
         "interval_calibration": ("correctly_specified",),
         "type_i_error": ("sharp_null",),
         "power": ("alternative",),
+        # Reported, not gated.  The stratified arm reads the treatment, which the package
+        # refuses, so no cell here establishes that either policy is valid.  The names are
+        # spelled out because this mapping is the study's declaration of what its committed
+        # summary must contain.
+        "fold_policy": ("unstratified", "treatment_stratified"),
     },
 )
 

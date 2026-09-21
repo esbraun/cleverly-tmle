@@ -5,6 +5,13 @@ Every cell here is cross-fitted, and every one of them declares its split throug
 and the nested folds of each candidate alike.  No cell declares ``q_bounds``: the outcome
 is binary on every law this study samples, so the outcome scaler is already the identity
 and :meth:`~cleverly.estimators.TMLE._scaler` refuses a second declaration of it.
+
+The two ``fold_policy`` arms are the one exception to what that declaration buys.  They
+are constructed with ``stratify_folds="none"`` like every other cell, so nothing is
+refused, and the ``treatment_stratified`` arm then reaches a balanced split by replacing
+:meth:`~cleverly.estimators.TMLE._fold_strata` through
+:class:`~tests.studies.multi_arm_properties.FoldPolicyMixin`.  That family reports its
+coverage and states no verdict.
 """
 
 from __future__ import annotations
@@ -19,7 +26,12 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_selector import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.property_verdicts import (
+    FOLD_POLICY_FAMILY,
+    apply_shared_verdicts,
+    finish,
+    fold_policy_diagnostics,
+)
 
 SELECTOR_RMSE_RATIO = 0.80
 
@@ -43,6 +55,7 @@ def cells() -> tuple[PropertyCell, ...]:
     return (
         *multi_arm_properties.selector_cells(seed=24_500),
         *multi_arm_properties.asymptotic_cells(seed=24_100),
+        *multi_arm_properties.fold_policy_cells(STUDY),
     )
 
 
@@ -52,12 +65,30 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     Returns
     -------
     tuple of PropertyCell
-        The four selector paths and the inherited asymptotic block, in the order they run.
+        The four selector paths, the inherited asymptotic block and the two fold-policy
+        arms, in the order they run.
     """
     return cells()
 
 
-def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
+def _settings(cell: PropertyCell) -> dict[str, Any]:
+    """The estimator arguments every cell of this study is fitted under.
+
+    One dictionary rather than two estimator factories, because the fold-policy arms have
+    to differ from the gated cells in the split policy and in nothing else.  A second
+    literal copy of these arguments could drift from this one, and the drift would read as
+    a fold-policy effect.
+
+    Parameters
+    ----------
+    cell : PropertyCell
+        The cell being fitted, which chooses the selector path and the nuisances.
+
+    Returns
+    -------
+    dict
+        The keyword arguments for :class:`~cleverly.estimators.CTMLE`.
+    """
     # Every other family keeps the discrete ladder the row's asymptotic cells were declared
     # with, so this factory varies the selector path only where the path is the subject.
     options = (
@@ -65,28 +96,37 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         if cell.property == "selector_necessity"
         else SELECTOR_OPTIONS["discrete"]
     )
-    return lambda: CTMLE(
-        outcome_learner=cell.outcome_learner(),
-        treatment_learner=cell.treatment_learner(),
-        cross_fit=True,
-        n_folds=5,
-        selection_folds=3,
-        selection_inner_folds=2,
-        penalty=False,
-        estimands="ate",
-        ctmle_estimand="ate",
-        reference=multi_arm_common.REFERENCE,
-        simultaneous=False,
-        g_bounds=multi_arm_common.G_BOUNDS,
+    return {
+        "outcome_learner": cell.outcome_learner(),
+        "treatment_learner": cell.treatment_learner(),
+        "cross_fit": True,
+        "n_folds": 5,
+        "selection_folds": 3,
+        "selection_inner_folds": 2,
+        "penalty": False,
+        "estimands": "ate",
+        "ctmle_estimand": "ate",
+        "reference": multi_arm_common.REFERENCE,
+        "simultaneous": False,
+        "g_bounds": multi_arm_common.G_BOUNDS,
         # No ``q_bounds``: every law here has a binary outcome, whose scaler is already the
         # identity.  The split is declared instead, and it reaches the outer folds, the
         # selection folds and the nested folds of each candidate.
-        stratify_folds=STRATIFY_FOLDS,
-        max_iter=100,
-        tol=1e-10,
-        random_state=0,
+        "stratify_folds": STRATIFY_FOLDS,
+        "max_iter": 100,
+        "tol": 1e-10,
+        "random_state": 0,
         **options,
-    )
+    }
+
+
+def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
+    # The fold-policy arms keep ``stratify_folds="none"`` like every other cell, so nothing
+    # is refused at construction; the policy reaches the split through ``_fold_strata``,
+    # which all three of this method's splits read.
+    if cell.property == FOLD_POLICY_FAMILY:
+        return lambda: multi_arm_properties.FoldPolicyCTMLE(cell.cell, **_settings(cell))
+    return lambda: CTMLE(**_settings(cell))
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -99,7 +139,14 @@ def _root_mean_square_error(cell: pd.DataFrame) -> float:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("rmse_ratio",))
+    summary, rates = apply_shared_verdicts(
+        rows,
+        STUDY,
+        # The two paired-difference endpoints the fold-policy arms publish. Declared here
+        # because ``apply_shared_verdicts`` builds the frame, and a column written onto a
+        # frame that has no room for it would be dropped rather than refused.
+        extra_columns=("rmse_ratio", "coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+    )
     necessity = rows.loc[rows["property"] == "selector_necessity"]
     control = necessity.loc[necessity["cell"] == multi_arm_properties.SELECTOR_CONTROL].sort_values(
         "replicate"
@@ -132,4 +179,5 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         summary.loc[mask, "passed"].all()
         and all(ratio <= SELECTOR_RMSE_RATIO for ratio in ratios.values())
     )
+    fold_policy_diagnostics(summary, rows, STUDY)
     return finish(summary, rates)

@@ -3,6 +3,13 @@
 Every cell draws its own split from the estimator, so the cells declare
 ``stratify_folds="none"`` rather than supplying a vector.  The law is binary, so no cell
 declares ``q_bounds``: the outcome scaler is already the identity.
+
+The two ``fold_policy`` arms are the one exception to what that declaration buys.  They
+are constructed with ``stratify_folds="none"`` like every other cell, so nothing is
+refused, and the ``treatment_stratified`` arm then reaches a balanced split by replacing
+:meth:`~cleverly.estimators.TMLE._fold_strata` through
+:class:`~tests.studies.multi_arm_properties.FoldPolicyMixin`.  That family reports its
+coverage and states no verdict.
 """
 
 from __future__ import annotations
@@ -22,7 +29,10 @@ from tests.studies.canonical_multi_arm_drtmle import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
     CONTRACTION_SCENARIOS,
+    FOLD_POLICY_FAMILY,
     control_role,
+    finish,
+    fold_policy_diagnostics,
     summarize_contraction_properties,
 )
 
@@ -136,6 +146,7 @@ def cells() -> tuple[PropertyCell, ...]:
         ),
         *multi_arm_properties.asymptotic_cells(seed=22_100, include_null_power=False),
         *_contraction_cells(),
+        *multi_arm_properties.fold_policy_cells(STUDY),
     )
 
 
@@ -156,28 +167,54 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return cells()
 
 
+def _settings(cell: PropertyCell) -> dict[str, Any]:
+    """The estimator arguments every cell of this study is fitted under.
+
+    One dictionary rather than two estimator factories, because the fold-policy arms have
+    to differ from the gated cells in the split policy and in nothing else.  A second
+    literal copy of these arguments could drift from this one, and the drift would read as
+    a fold-policy effect.
+
+    Parameters
+    ----------
+    cell : PropertyCell
+        The cell being fitted, which supplies the two nuisance learners.
+
+    Returns
+    -------
+    dict
+        The keyword arguments for :class:`~cleverly.estimators.DRTMLE`.
+    """
+    return {
+        "outcome_learner": cell.outcome_learner(),
+        "treatment_learner": cell.treatment_learner(),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=2000),
+        "cross_fit": True,
+        "n_folds": 5,
+        "stratify_folds": STRATIFY_FOLDS,
+        "estimands": "ate",
+        "reference": multi_arm_common.REFERENCE,
+        "simultaneous": False,
+        "g_bounds": multi_arm_common.G_BOUNDS,
+        "max_outer": 100,
+        "max_iter": 100,
+        "tol": 1e-10,
+        "random_state": 0,
+        "guard": ("Q", "g"),
+        "reduction": "univariate",
+        "reduced_crossfit": "pooled",
+        "update_order": "drtmle",
+    }
+
+
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
-    return lambda: DRTMLE(
-        outcome_learner=cell.outcome_learner(),
-        treatment_learner=cell.treatment_learner(),
-        reduced_outcome_learner=LinearRegression(),
-        reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2000),
-        cross_fit=True,
-        n_folds=5,
-        stratify_folds=STRATIFY_FOLDS,
-        estimands="ate",
-        reference=multi_arm_common.REFERENCE,
-        simultaneous=False,
-        g_bounds=multi_arm_common.G_BOUNDS,
-        max_outer=100,
-        max_iter=100,
-        tol=1e-10,
-        random_state=0,
-        guard=("Q", "g"),
-        reduction="univariate",
-        reduced_crossfit="pooled",
-        update_order="drtmle",
-    )
+    # The fold-policy arms keep ``stratify_folds="none"`` like every other cell, so nothing
+    # is refused at construction; the policy reaches this method's one split through
+    # ``_fold_strata``.
+    if cell.property == FOLD_POLICY_FAMILY:
+        return lambda: multi_arm_properties.FoldPolicyDRTMLE(cell.cell, **_settings(cell))
+    return lambda: DRTMLE(**_settings(cell))
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -185,4 +222,27 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    return summarize_contraction_properties(rows, STUDY)
+    """The contraction ladder's published summary, then the fold-policy numbers.
+
+    The shared call is asked for its unfinished parts, because
+    :func:`~tests.studies.evidence.property_verdicts.finish` is terminal and the
+    fold-policy arms have their paired difference still to write.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        Every replication row this study emitted.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The published summary, in its published order.
+    """
+    summary, rates = summarize_contraction_properties(
+        rows,
+        STUDY,
+        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        return_parts=True,
+    )
+    fold_policy_diagnostics(summary, rows, STUDY)
+    return finish(summary, rates)

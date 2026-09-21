@@ -74,6 +74,8 @@ and solver status for every replication.
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0466 to 0.0544, margin 0.0092, SE ratio 1.0265 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000511 to 0.0076, margin 0.0096, SE ratio 0.9980 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998 | **fail** |
+| `fold_policy` | `treatment_stratified` | diagnostic | each split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9451 to 0.9576, paired coverage difference -0.0056 to 0.0045 | reported |
+| `fold_policy` | `unstratified` | diagnostic | each split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9458 to 0.9582 | reported |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123 | **fail** |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000290, coverage 0.9307 to 0.9826, SE ratio 1.0010 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888 | **fail** |
@@ -94,6 +96,13 @@ and solver status for every replication.
 | `paired_tests_passed` | 9 | paired tests passing |
 | `property_cells_total` | 22 | repeated-sampling property cells |
 | `property_cells_passed` | 16 | property cells passing |
+| `property_cells_reported` | 2 | fold-policy rows reported rather than gated, and excluded from the two counts above |
+| `properties[fold_policy/unstratified]:coverage` | 0.9523 | reported coverage of the split this row declares |
+| `properties[fold_policy/treatment_stratified]:coverage` | 0.9516 | reported coverage of the treatment-stratified split |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0056 | its paired 99% lower bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_upper` | 0.0045 | its paired 99% upper bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:replicates` | 8000 | paired replications behind that difference |
+| `properties[root_n_and_efficiency/n_500]:replicates` | 400 | replications behind the gated n = 500 cell |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -151,6 +160,20 @@ Nothing but the fold draw moved, and 400 replications at n = 500 do not resolve 
 endpoint to better than about a point. Read it as one Monte Carlo resolution rather than as a
 property of the estimator. The same cell in the outcome-adaptive multi-arm row moved the other way
 under the same change.
+
+The `fold_policy` family now measures that comparison. It runs the two split policies on one
+binary law and on one set of draws. It reports and it does not gate. Neither cell declares a
+margin, so the pass counts above leave both out.
+
+The measured table above gives the paired coverage difference and its two endpoints. That
+interval covers zero. The upper endpoint stays below the threshold the declared rule names. It
+also sits near that threshold, so this reading has little room. The fold policy does not explain
+the endpoint move on this law at this size.
+
+The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
+`n_500` cell. The gated cell keeps its own 400-replication budget.
+[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
+the rule this reading applies.
 
 Two `cleverly` replications and four R replications out of 800 exceed the shared empirical-score
 bar. The propensity bound stays inactive throughout, and the subject fit is refused if it does

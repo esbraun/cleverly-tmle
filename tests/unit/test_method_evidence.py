@@ -880,8 +880,8 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: one of the two above, because the rule is not "which endpoint decides this row" but
 #: "this row decides nothing".  See
 #: :data:`~tests.studies.evidence.property_verdicts.FOLD_POLICY_FAMILY` for why a fold
-#: policy cannot be gated: two of the three policies it compares are refused, so no cell
-#: establishes that any of them is valid.
+#: policy cannot be gated: every policy it compares but the unstratified reference is
+#: refused, so no cell establishes that any of them is valid.
 DIAGNOSTIC_PROPERTIES = frozenset({property_verdicts.FOLD_POLICY_FAMILY})
 
 
